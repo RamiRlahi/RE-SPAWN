@@ -1,10 +1,14 @@
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local UITheme = require(Shared:WaitForChild("UITheme"))
 local ClassData = require(Shared:WaitForChild("ClassData"))
 local SoundManager = require(script.Parent:WaitForChild("SoundManager"))
+
+local player = Players.LocalPlayer
 
 export type ClassSelectionCallbacks = {
 	onBackToTitle: () -> (),
@@ -22,14 +26,24 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	container.Visible = false
 	container.Parent = parent
 
-	-- Dark Background & Vignette
-	local bg = Instance.new("Frame")
-	bg.Name = "Background"
-	bg.Size = UDim2.new(1, 0, 1, 0)
-	bg.BackgroundColor3 = UITheme.Colors.BackgroundOverlay
-	bg.BackgroundTransparency = 0.3
-	bg.BorderSizePixel = 0
-	bg.Parent = container
+	-- Subtle Dark Vignette Border (Keep center open to see the 3D character clearly)
+	local vignette = Instance.new("Frame")
+	vignette.Name = "Vignette"
+	vignette.Size = UDim2.new(1, 0, 1, 0)
+	vignette.BackgroundColor3 = UITheme.Colors.BackgroundOverlay
+	vignette.BackgroundTransparency = 0.5
+	vignette.BorderSizePixel = 0
+	vignette.Parent = container
+
+	local vignetteGrad = Instance.new("UIGradient")
+	vignetteGrad.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.2),
+		NumberSequenceKeypoint.new(0.3, 0.75),
+		NumberSequenceKeypoint.new(0.7, 0.75),
+		NumberSequenceKeypoint.new(1, 0.2),
+	})
+	vignetteGrad.Rotation = 0
+	vignetteGrad.Parent = vignette
 
 	-- Top Header Bar
 	local topBar = Instance.new("Frame")
@@ -40,11 +54,11 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 
 	local backBtn = Instance.new("TextButton")
 	backBtn.Name = "BackButton"
-	backBtn.Size = UDim2.new(0, 150, 0, 38)
+	backBtn.Size = UDim2.new(0, 140, 0, 38)
 	backBtn.Position = UDim2.new(0, 24, 0.5, -19)
 	backBtn.BackgroundColor3 = UITheme.Colors.Surface
 	backBtn.AutoButtonColor = false
-	backBtn.Text = "← BACK TO TITLE"
+	backBtn.Text = "← TITLE"
 	backBtn.TextColor3 = UITheme.Colors.TextSecondary
 	backBtn.Font = UITheme.Fonts.Button
 	backBtn.TextSize = 13
@@ -59,162 +73,174 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 
 	local headerTitle = Instance.new("TextLabel")
 	headerTitle.Name = "HeaderTitle"
-	headerTitle.Size = UDim2.new(0, 400, 1, 0)
-	headerTitle.AnchorPoint = Vector2.new(0.5, 0.5)
-	headerTitle.Position = UDim2.new(0.5, 0, 0.5, 0)
+	headerTitle.Size = UDim2.new(0, 450, 0, 30)
+	headerTitle.AnchorPoint = Vector2.new(0.5, 0)
+	headerTitle.Position = UDim2.new(0.5, 0, 0, 12)
 	headerTitle.BackgroundTransparency = 1
 	headerTitle.Text = "CHOOSE YOUR CLASS"
 	headerTitle.TextColor3 = UITheme.Colors.GoldLight
 	headerTitle.Font = UITheme.Fonts.Header
-	headerTitle.TextSize = 24
+	headerTitle.TextSize = 22
 	headerTitle.Parent = topBar
 
-	-- Main Layout (Split: Left Grid of 8 Cards, Right Detail Panel)
-	local mainSplit = Instance.new("Frame")
-	mainSplit.Name = "MainSplit"
-	mainSplit.Size = UDim2.new(1, -48, 1, -90)
-	mainSplit.Position = UDim2.new(0, 24, 0, 75)
-	mainSplit.BackgroundTransparency = 1
-	mainSplit.Parent = container
+	local headerCounter = Instance.new("TextLabel")
+	headerCounter.Name = "HeaderCounter"
+	headerCounter.Size = UDim2.new(0, 450, 0, 20)
+	headerCounter.AnchorPoint = Vector2.new(0.5, 0)
+	headerCounter.Position = UDim2.new(0.5, 0, 0, 42)
+	headerCounter.BackgroundTransparency = 1
+	headerCounter.Text = "CLASS 1 OF 8"
+	headerCounter.TextColor3 = UITheme.Colors.TextMuted
+	headerCounter.Font = UITheme.Fonts.Tag
+	headerCounter.TextSize = 11
+	headerCounter.Parent = topBar
 
-	-- Left: 8 Cards Grid
-	local leftCardList = Instance.new("ScrollingFrame")
-	leftCardList.Name = "ClassGrid"
-	leftCardList.Size = UDim2.new(0.48, -10, 1, 0)
-	leftCardList.BackgroundTransparency = 1
-	leftCardList.ScrollBarThickness = 4
-	leftCardList.ScrollBarImageColor3 = UITheme.Colors.Gold
-	leftCardList.CanvasSize = UDim2.new(0, 0, 0, 0)
-	leftCardList.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	leftCardList.Parent = mainSplit
+	---------------------------------------------------------------------
+	-- Left Panel: Identity, Lore & Animated Stats
+	---------------------------------------------------------------------
+	local leftPanel = Instance.new("Frame")
+	leftPanel.Name = "LeftPanel"
+	leftPanel.Size = UDim2.new(0, 320, 1, -170)
+	leftPanel.Position = UDim2.new(0, 24, 0, 75)
+	leftPanel.BackgroundColor3 = UITheme.Colors.Surface
+	leftPanel.BackgroundTransparency = 0.15
+	leftPanel.Parent = container
 
-	local gridLayout = Instance.new("UIGridLayout")
-	gridLayout.CellSize = UDim2.new(0.5, -6, 0, 100)
-	gridLayout.CellPadding = UDim2.new(0, 10, 0, 10)
-	gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	gridLayout.Parent = leftCardList
+	UITheme.AddCorner(leftPanel, 10)
+	local leftStroke = UITheme.AddStroke(leftPanel, UITheme.Colors.Border, 1.5, 0.4)
 
-	-- Right: Details Inspection Panel
-	local rightPanel = Instance.new("Frame")
-	rightPanel.Name = "DetailsPanel"
-	rightPanel.Size = UDim2.new(0.52, -10, 1, 0)
-	rightPanel.AnchorPoint = Vector2.new(1, 0)
-	rightPanel.Position = UDim2.new(1, 0, 0, 0)
-	rightPanel.BackgroundColor3 = UITheme.Colors.Surface
-	rightPanel.Parent = mainSplit
+	local leftScroll = Instance.new("ScrollingFrame")
+	leftScroll.Name = "LeftScroll"
+	leftScroll.Size = UDim2.new(1, -24, 1, -24)
+	leftScroll.Position = UDim2.new(0, 12, 0, 12)
+	leftScroll.BackgroundTransparency = 1
+	leftScroll.ScrollBarThickness = 3
+	leftScroll.ScrollBarImageColor3 = UITheme.Colors.Gold
+	leftScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	leftScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	leftScroll.Parent = leftPanel
 
-	UITheme.AddCorner(rightPanel, 10)
-	local rightStroke = UITheme.AddStroke(rightPanel, UITheme.Colors.Border, 1.5, 0.3)
+	local leftLayout = Instance.new("UIListLayout")
+	leftLayout.FillDirection = Enum.FillDirection.Vertical
+	leftLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	leftLayout.Padding = UDim.new(0, 12)
+	leftLayout.Parent = leftScroll
 
-	-- Inside Right Panel: Details Container
-	local detailsScroll = Instance.new("ScrollingFrame")
-	detailsScroll.Name = "DetailsScroll"
-	detailsScroll.Size = UDim2.new(1, -24, 1, -84)
-	detailsScroll.Position = UDim2.new(0, 12, 0, 12)
-	detailsScroll.BackgroundTransparency = 1
-	detailsScroll.ScrollBarThickness = 4
-	detailsScroll.ScrollBarImageColor3 = UITheme.Colors.Gold
-	detailsScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-	detailsScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	detailsScroll.Parent = rightPanel
-
-	local detailsLayout = Instance.new("UIListLayout")
-	detailsLayout.FillDirection = Enum.FillDirection.Vertical
-	detailsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	detailsLayout.Padding = UDim.new(0, 12)
-	detailsLayout.Parent = detailsScroll
-
-	-- 1. Class Header Info
-	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Name = "ClassName"
-	nameLabel.Size = UDim2.new(1, 0, 0, 32)
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.Font = UITheme.Fonts.Header
-	nameLabel.TextSize = 26
-	nameLabel.TextColor3 = UITheme.Colors.GoldLight
-	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-	nameLabel.LayoutOrder = 1
-	nameLabel.Parent = detailsScroll
+	local classNameLabel = Instance.new("TextLabel")
+	classNameLabel.Name = "ClassName"
+	classNameLabel.Size = UDim2.new(1, 0, 0, 34)
+	classNameLabel.BackgroundTransparency = 1
+	classNameLabel.Font = UITheme.Fonts.Title
+	classNameLabel.TextSize = 28
+	classNameLabel.TextColor3 = UITheme.Colors.GoldLight
+	classNameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	classNameLabel.LayoutOrder = 1
+	classNameLabel.Parent = leftScroll
 
 	local titleRoleRow = Instance.new("Frame")
 	titleRoleRow.Name = "TitleRoleRow"
 	titleRoleRow.Size = UDim2.new(1, 0, 0, 24)
 	titleRoleRow.BackgroundTransparency = 1
 	titleRoleRow.LayoutOrder = 2
-	titleRoleRow.Parent = detailsScroll
+	titleRoleRow.Parent = leftScroll
 
 	local subtitleLabel = Instance.new("TextLabel")
 	subtitleLabel.Name = "Subtitle"
-	subtitleLabel.Size = UDim2.new(0.65, 0, 1, 0)
+	subtitleLabel.Size = UDim2.new(0.6, 0, 1, 0)
 	subtitleLabel.BackgroundTransparency = 1
-	subtitleLabel.Font = UITheme.Fonts.Body
-	subtitleLabel.TextSize = 14
+	subtitleLabel.Font = UITheme.Fonts.Sub
+	subtitleLabel.TextSize = 13
 	subtitleLabel.TextColor3 = UITheme.Colors.TextSecondary
 	subtitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 	subtitleLabel.Parent = titleRoleRow
 
 	local roleBadge = Instance.new("TextLabel")
 	roleBadge.Name = "RoleBadge"
-	roleBadge.Size = UDim2.new(0.35, 0, 1, 0)
+	roleBadge.Size = UDim2.new(0.4, 0, 1, 0)
 	roleBadge.AnchorPoint = Vector2.new(1, 0)
 	roleBadge.Position = UDim2.new(1, 0, 0, 0)
 	roleBadge.BackgroundColor3 = UITheme.Colors.SurfaceAlt
 	roleBadge.Font = UITheme.Fonts.Tag
-	roleBadge.TextSize = 11
+	roleBadge.TextSize = 10
 	roleBadge.TextColor3 = UITheme.Colors.GoldLight
 	roleBadge.Parent = titleRoleRow
 	UITheme.AddCorner(roleBadge, 4)
 
-	-- 2. Lore / Description
+	local loreBox = Instance.new("Frame")
+	loreBox.Name = "LoreBox"
+	loreBox.Size = UDim2.new(1, 0, 0, 0)
+	loreBox.AutomaticSize = Enum.AutomaticSize.Y
+	loreBox.BackgroundColor3 = UITheme.Colors.SurfaceAlt
+	loreBox.BackgroundTransparency = 0.5
+	loreBox.LayoutOrder = 3
+	loreBox.Parent = leftScroll
+	UITheme.AddCorner(loreBox, 6)
+	UITheme.AddPadding(loreBox, 8, 8, 10, 10)
+
 	local descLabel = Instance.new("TextLabel")
 	descLabel.Name = "Description"
 	descLabel.Size = UDim2.new(1, 0, 0, 0)
 	descLabel.AutomaticSize = Enum.AutomaticSize.Y
 	descLabel.BackgroundTransparency = 1
-	descLabel.Font = UITheme.Fonts.Sub
-	descLabel.TextSize = 13
+	descLabel.Font = UITheme.Fonts.Body
+	descLabel.TextSize = 12
 	descLabel.TextColor3 = UITheme.Colors.TextPrimary
 	descLabel.TextWrapped = true
 	descLabel.TextXAlignment = Enum.TextXAlignment.Left
-	descLabel.LayoutOrder = 3
-	descLabel.Parent = detailsScroll
+	descLabel.Parent = loreBox
 
-	-- 3. Stats Section
+	-- Stats Header
+	local statsHeader = Instance.new("TextLabel")
+	statsHeader.Name = "StatsHeader"
+	statsHeader.Size = UDim2.new(1, 0, 0, 20)
+	statsHeader.BackgroundTransparency = 1
+	statsHeader.Text = "ATTRIBUTES & RATINGS"
+	statsHeader.TextColor3 = UITheme.Colors.GoldLight
+	statsHeader.Font = UITheme.Fonts.Header
+	statsHeader.TextSize = 13
+	statsHeader.TextXAlignment = Enum.TextXAlignment.Left
+	statsHeader.LayoutOrder = 4
+	statsHeader.Parent = leftScroll
+
+	-- Stats Box with animated pips
 	local statsBox = Instance.new("Frame")
 	statsBox.Name = "StatsBox"
-	statsBox.Size = UDim2.new(1, 0, 0, 80)
+	statsBox.Size = UDim2.new(1, 0, 0, 110)
 	statsBox.BackgroundColor3 = UITheme.Colors.SurfaceAlt
-	statsBox.LayoutOrder = 4
-	statsBox.Parent = detailsScroll
+	statsBox.LayoutOrder = 5
+	statsBox.Parent = leftScroll
 	UITheme.AddCorner(statsBox, 6)
-	UITheme.AddPadding(statsBox, 8, 8, 12, 12)
+	UITheme.AddPadding(statsBox, 8, 8, 10, 10)
 
-	local statsGrid = Instance.new("UIGridLayout")
-	statsGrid.CellSize = UDim2.new(0.5, -6, 0, 28)
-	statsGrid.CellPadding = UDim2.new(0, 10, 0, 6)
-	statsGrid.Parent = statsBox
+	local statsLayout = Instance.new("UIListLayout")
+	statsLayout.FillDirection = Enum.FillDirection.Vertical
+	statsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	statsLayout.Padding = UDim.new(0, 6)
+	statsLayout.Parent = statsBox
 
 	local statBars: { [string]: { Frame } } = {}
 	local statKeys = { "offense", "defense", "agility", "difficulty" }
 
-	for _, key in ipairs(statKeys) do
+	for idx, key in ipairs(statKeys) do
 		local statRow = Instance.new("Frame")
 		statRow.Name = "Stat_" .. key
+		statRow.Size = UDim2.new(1, 0, 0, 18)
 		statRow.BackgroundTransparency = 1
+		statRow.LayoutOrder = idx
 		statRow.Parent = statsBox
 
 		local sTitle = Instance.new("TextLabel")
-		sTitle.Size = UDim2.new(0.4, 0, 1, 0)
+		sTitle.Size = UDim2.new(0.35, 0, 1, 0)
 		sTitle.BackgroundTransparency = 1
 		sTitle.Text = key:upper()
 		sTitle.TextColor3 = UITheme.Colors.TextSecondary
 		sTitle.Font = UITheme.Fonts.Tag
-		sTitle.TextSize = 11
+		sTitle.TextSize = 10
 		sTitle.TextXAlignment = Enum.TextXAlignment.Left
 		sTitle.Parent = statRow
 
 		local barRow = Instance.new("Frame")
-		barRow.Size = UDim2.new(0.6, 0, 0, 10)
+		barRow.Size = UDim2.new(0.65, 0, 0, 8)
 		barRow.AnchorPoint = Vector2.new(1, 0.5)
 		barRow.Position = UDim2.new(1, 0, 0.5, 0)
 		barRow.BackgroundTransparency = 1
@@ -222,14 +248,14 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 
 		local barLayout = Instance.new("UIListLayout")
 		barLayout.FillDirection = Enum.FillDirection.Horizontal
-		barLayout.Padding = UDim.new(0, 3)
+		barLayout.Padding = UDim.new(0, 4)
 		barLayout.Parent = barRow
 
 		statBars[key] = {}
 		for b = 1, 5 do
 			local pip = Instance.new("Frame")
 			pip.Name = "Pip_" .. b
-			pip.Size = UDim2.new(0.2, -3, 1, 0)
+			pip.Size = UDim2.new(0.2, -4, 1, 0)
 			pip.BackgroundColor3 = UITheme.Colors.SurfaceSelected
 			pip.BorderSizePixel = 0
 			pip.Parent = barRow
@@ -238,27 +264,58 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		end
 	end
 
-	-- 4. Abilities Section Header
-	local abilitySectionHeader = Instance.new("TextLabel")
-	abilitySectionHeader.Name = "AbilitiesHeader"
-	abilitySectionHeader.Size = UDim2.new(1, 0, 0, 20)
-	abilitySectionHeader.BackgroundTransparency = 1
-	abilitySectionHeader.Text = "CLASS ABILITIES"
-	abilitySectionHeader.TextColor3 = UITheme.Colors.GoldLight
-	abilitySectionHeader.Font = UITheme.Fonts.Header
-	abilitySectionHeader.TextSize = 14
-	abilitySectionHeader.TextXAlignment = Enum.TextXAlignment.Left
-	abilitySectionHeader.LayoutOrder = 5
-	abilitySectionHeader.Parent = detailsScroll
+	---------------------------------------------------------------------
+	-- Right Panel: Skills Showcase & Equipment Showcase
+	---------------------------------------------------------------------
+	local rightPanel = Instance.new("Frame")
+	rightPanel.Name = "RightPanel"
+	rightPanel.Size = UDim2.new(0, 360, 1, -170)
+	rightPanel.AnchorPoint = Vector2.new(1, 0)
+	rightPanel.Position = UDim2.new(1, -24, 0, 75)
+	rightPanel.BackgroundColor3 = UITheme.Colors.Surface
+	rightPanel.BackgroundTransparency = 0.15
+	rightPanel.Parent = container
 
-	-- Abilities List Container
+	UITheme.AddCorner(rightPanel, 10)
+	local rightStroke = UITheme.AddStroke(rightPanel, UITheme.Colors.Border, 1.5, 0.4)
+
+	local rightScroll = Instance.new("ScrollingFrame")
+	rightScroll.Name = "RightScroll"
+	rightScroll.Size = UDim2.new(1, -24, 1, -24)
+	rightScroll.Position = UDim2.new(0, 12, 0, 12)
+	rightScroll.BackgroundTransparency = 1
+	rightScroll.ScrollBarThickness = 3
+	rightScroll.ScrollBarImageColor3 = UITheme.Colors.Gold
+	rightScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	rightScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	rightScroll.Parent = rightPanel
+
+	local rightLayout = Instance.new("UIListLayout")
+	rightLayout.FillDirection = Enum.FillDirection.Vertical
+	rightLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	rightLayout.Padding = UDim.new(0, 10)
+	rightLayout.Parent = rightScroll
+
+	-- 1. Skills Section Header
+	local skillsHeader = Instance.new("TextLabel")
+	skillsHeader.Name = "SkillsHeader"
+	skillsHeader.Size = UDim2.new(1, 0, 0, 20)
+	skillsHeader.BackgroundTransparency = 1
+	skillsHeader.Text = "CLASS COMBAT SKILLS"
+	skillsHeader.TextColor3 = UITheme.Colors.GoldLight
+	skillsHeader.Font = UITheme.Fonts.Header
+	skillsHeader.TextSize = 13
+	skillsHeader.TextXAlignment = Enum.TextXAlignment.Left
+	skillsHeader.LayoutOrder = 1
+	skillsHeader.Parent = rightScroll
+
 	local abilitiesContainer = Instance.new("Frame")
 	abilitiesContainer.Name = "AbilitiesContainer"
 	abilitiesContainer.Size = UDim2.new(1, 0, 0, 0)
 	abilitiesContainer.AutomaticSize = Enum.AutomaticSize.Y
 	abilitiesContainer.BackgroundTransparency = 1
-	abilitiesContainer.LayoutOrder = 6
-	abilitiesContainer.Parent = detailsScroll
+	abilitiesContainer.LayoutOrder = 2
+	abilitiesContainer.Parent = rightScroll
 
 	local abilitiesListLayout = Instance.new("UIListLayout")
 	abilitiesListLayout.FillDirection = Enum.FillDirection.Vertical
@@ -266,47 +323,237 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	abilitiesListLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	abilitiesListLayout.Parent = abilitiesContainer
 
-	-- 5. Confirm Button at bottom of right panel
+	-- 2. Equipment Section Header
+	local eqHeader = Instance.new("TextLabel")
+	eqHeader.Name = "EquipmentHeader"
+	eqHeader.Size = UDim2.new(1, 0, 0, 20)
+	eqHeader.BackgroundTransparency = 1
+	eqHeader.Text = "SIGNATURE EQUIPMENT"
+	eqHeader.TextColor3 = UITheme.Colors.GoldLight
+	eqHeader.Font = UITheme.Fonts.Header
+	eqHeader.TextSize = 13
+	eqHeader.TextXAlignment = Enum.TextXAlignment.Left
+	eqHeader.LayoutOrder = 3
+	eqHeader.Parent = rightScroll
+
+	-- Equipment Card Container
+	local eqCard = Instance.new("Frame")
+	eqCard.Name = "EquipmentCard"
+	eqCard.Size = UDim2.new(1, 0, 0, 0)
+	eqCard.AutomaticSize = Enum.AutomaticSize.Y
+	eqCard.BackgroundColor3 = UITheme.Colors.SurfaceAlt
+	eqCard.LayoutOrder = 4
+	eqCard.Parent = rightScroll
+
+	UITheme.AddCorner(eqCard, 8)
+	local eqStroke = UITheme.AddStroke(eqCard, UITheme.Colors.Gold, 1.5, 0.4)
+	UITheme.AddPadding(eqCard, 10, 10, 12, 12)
+
+	local eqLayout = Instance.new("UIListLayout")
+	eqLayout.FillDirection = Enum.FillDirection.Vertical
+	eqLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	eqLayout.Padding = UDim.new(0, 6)
+	eqLayout.Parent = eqCard
+
+	local eqNameLabel = Instance.new("TextLabel")
+	eqNameLabel.Name = "EqName"
+	eqNameLabel.Size = UDim2.new(1, 0, 0, 20)
+	eqNameLabel.BackgroundTransparency = 1
+	eqNameLabel.Font = UITheme.Fonts.Header
+	eqNameLabel.TextSize = 15
+	eqNameLabel.TextColor3 = UITheme.Colors.GoldLight
+	eqNameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	eqNameLabel.LayoutOrder = 1
+	eqNameLabel.Parent = eqCard
+
+	local eqMetaRow = Instance.new("Frame")
+	eqMetaRow.Name = "EqMetaRow"
+	eqMetaRow.Size = UDim2.new(1, 0, 0, 18)
+	eqMetaRow.BackgroundTransparency = 1
+	eqMetaRow.LayoutOrder = 2
+	eqMetaRow.Parent = eqCard
+
+	local eqRarityBadge = Instance.new("TextLabel")
+	eqRarityBadge.Name = "EqRarity"
+	eqRarityBadge.Size = UDim2.new(0, 140, 1, 0)
+	eqRarityBadge.BackgroundColor3 = UITheme.Colors.Surface
+	eqRarityBadge.Font = UITheme.Fonts.Tag
+	eqRarityBadge.TextSize = 10
+	eqRarityBadge.TextColor3 = UITheme.Colors.Gold
+	eqRarityBadge.Parent = eqMetaRow
+	UITheme.AddCorner(eqRarityBadge, 3)
+
+	local eqSlotLabel = Instance.new("TextLabel")
+	eqSlotLabel.Name = "EqSlot"
+	eqSlotLabel.Size = UDim2.new(1, -150, 1, 0)
+	eqSlotLabel.Position = UDim2.new(0, 148, 0, 0)
+	eqSlotLabel.BackgroundTransparency = 1
+	eqSlotLabel.Font = UITheme.Fonts.Sub
+	eqSlotLabel.TextSize = 11
+	eqSlotLabel.TextColor3 = UITheme.Colors.TextMuted
+	eqSlotLabel.TextXAlignment = Enum.TextXAlignment.Left
+	eqSlotLabel.Parent = eqMetaRow
+
+	local eqDescLabel = Instance.new("TextLabel")
+	eqDescLabel.Name = "EqDesc"
+	eqDescLabel.Size = UDim2.new(1, 0, 0, 0)
+	eqDescLabel.AutomaticSize = Enum.AutomaticSize.Y
+	eqDescLabel.BackgroundTransparency = 1
+	eqDescLabel.Font = UITheme.Fonts.Sub
+	eqDescLabel.TextSize = 11
+	eqDescLabel.TextColor3 = UITheme.Colors.TextSecondary
+	eqDescLabel.TextWrapped = true
+	eqDescLabel.TextXAlignment = Enum.TextXAlignment.Left
+	eqDescLabel.LayoutOrder = 3
+	eqDescLabel.Parent = eqCard
+
+	-- Equipment Stats Container
+	local eqStatsRow = Instance.new("Frame")
+	eqStatsRow.Name = "EqStatsRow"
+	eqStatsRow.Size = UDim2.new(1, 0, 0, 0)
+	eqStatsRow.AutomaticSize = Enum.AutomaticSize.Y
+	eqStatsRow.BackgroundTransparency = 1
+	eqStatsRow.LayoutOrder = 4
+	eqStatsRow.Parent = eqCard
+
+	local eqStatsLayout = Instance.new("UIListLayout")
+	eqStatsLayout.FillDirection = Enum.FillDirection.Vertical
+	eqStatsLayout.Padding = UDim.new(0, 3)
+	eqStatsLayout.Parent = eqStatsRow
+
+	---------------------------------------------------------------------
+	-- Bottom Carousel Navigation & Confirmation Bar
+	---------------------------------------------------------------------
+	local bottomControls = Instance.new("Frame")
+	bottomControls.Name = "BottomControls"
+	bottomControls.Size = UDim2.new(1, 0, 0, 90)
+	bottomControls.AnchorPoint = Vector2.new(0, 1)
+	bottomControls.Position = UDim2.new(0, 0, 1, -10)
+	bottomControls.BackgroundTransparency = 1
+	bottomControls.Parent = container
+
+	-- Left Arrow Button (< PREVIOUS)
+	local prevBtn = Instance.new("TextButton")
+	prevBtn.Name = "PrevButton"
+	prevBtn.Size = UDim2.new(0, 60, 0, 50)
+	prevBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+	prevBtn.Position = UDim2.new(0.5, -230, 0.5, -8)
+	prevBtn.BackgroundColor3 = UITheme.Colors.Surface
+	prevBtn.AutoButtonColor = false
+	prevBtn.Text = "◀"
+	prevBtn.TextColor3 = UITheme.Colors.GoldLight
+	prevBtn.Font = UITheme.Fonts.Header
+	prevBtn.TextSize = 22
+	prevBtn.Parent = bottomControls
+
+	UITheme.AddCorner(prevBtn, 10)
+	local prevStroke = UITheme.AddStroke(prevBtn, UITheme.Colors.Border, 1.5, 0.4)
+
+	-- Right Arrow Button (NEXT >)
+	local nextBtn = Instance.new("TextButton")
+	nextBtn.Name = "NextButton"
+	nextBtn.Size = UDim2.new(0, 60, 0, 50)
+	nextBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+	nextBtn.Position = UDim2.new(0.5, 230, 0.5, -8)
+	nextBtn.BackgroundColor3 = UITheme.Colors.Surface
+	nextBtn.AutoButtonColor = false
+	nextBtn.Text = "▶"
+	nextBtn.TextColor3 = UITheme.Colors.GoldLight
+	nextBtn.Font = UITheme.Fonts.Header
+	nextBtn.TextSize = 22
+	nextBtn.Parent = bottomControls
+
+	UITheme.AddCorner(nextBtn, 10)
+	local nextStroke = UITheme.AddStroke(nextBtn, UITheme.Colors.Border, 1.5, 0.4)
+
+	-- Center Confirm Button
 	local confirmBtn = Instance.new("TextButton")
 	confirmBtn.Name = "ConfirmButton"
-	confirmBtn.Size = UDim2.new(1, -24, 0, 48)
-	confirmBtn.AnchorPoint = Vector2.new(0.5, 1)
-	confirmBtn.Position = UDim2.new(0.5, 0, 1, -12)
+	confirmBtn.Size = UDim2.new(0, 320, 0, 50)
+	confirmBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+	confirmBtn.Position = UDim2.new(0.5, 0, 0.5, -8)
 	confirmBtn.BackgroundColor3 = UITheme.Colors.Gold
 	confirmBtn.AutoButtonColor = false
-	confirmBtn.Text = "CONFIRM & ENTER THE WORLD"
+	confirmBtn.Text = "CONFIRM & ENTER WORLD"
 	confirmBtn.TextColor3 = Color3.fromRGB(20, 15, 10)
 	confirmBtn.Font = UITheme.Fonts.Button
 	confirmBtn.TextSize = 16
-	confirmBtn.Parent = rightPanel
+	confirmBtn.Parent = bottomControls
 
 	UITheme.AddCorner(confirmBtn, 8)
 	local confirmStroke = UITheme.AddStroke(confirmBtn, UITheme.Colors.GoldLight, 2, 0)
 	UITheme.AddGradient(confirmBtn, UITheme.Colors.GoldLight, UITheme.Colors.Gold, 90)
 
-	-- State
-	local selectedClassId = "brawler"
-	local cardButtons: { [string]: TextButton } = {}
-	local cardStrokes: { [string]: UIStroke } = {}
+	-- Dots / Carousel Indicator Container
+	local dotsContainer = Instance.new("Frame")
+	dotsContainer.Name = "DotsContainer"
+	dotsContainer.Size = UDim2.new(0, 320, 0, 16)
+	dotsContainer.AnchorPoint = Vector2.new(0.5, 1)
+	dotsContainer.Position = UDim2.new(0.5, 0, 1, 2)
+	dotsContainer.BackgroundTransparency = 1
+	dotsContainer.Parent = bottomControls
 
-	local function renderSelectedClass(classId: string)
+	local dotsLayout = Instance.new("UIListLayout")
+	dotsLayout.FillDirection = Enum.FillDirection.Horizontal
+	dotsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	dotsLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	dotsLayout.Padding = UDim.new(0, 8)
+	dotsLayout.Parent = dotsContainer
+
+	local dotFrames: { [number]: Frame } = {}
+
+	for i = 1, #ClassData.Order do
+		local dot = Instance.new("Frame")
+		dot.Name = "Dot_" .. i
+		dot.Size = UDim2.new(0, 10, 0, 10)
+		dot.BackgroundColor3 = UITheme.Colors.SurfaceSelected
+		dot.BorderSizePixel = 0
+		dot.Parent = dotsContainer
+		UITheme.AddCorner(dot, 5)
+		dotFrames[i] = dot
+
+		local dotBtn = Instance.new("TextButton")
+		dotBtn.Size = UDim2.new(1, 0, 1, 0)
+		dotBtn.BackgroundTransparency = 1
+		dotBtn.Text = ""
+		dotBtn.Parent = dot
+	end
+
+	---------------------------------------------------------------------
+	-- Carousel State & Transition Logic
+	---------------------------------------------------------------------
+	local currentIndex = 2 -- Default to Heavy Knight (index 2)
+	local isTransitioning = false
+
+	local function updateCarouselUI(index: number, isSlideTransition: boolean?)
+		local classId = ClassData.Order[index]
 		local info = ClassData.GetClass(classId)
 		if not info then return end
 
-		nameLabel.Text = info.name:upper()
-		nameLabel.TextColor3 = info.accentColor
+		headerCounter.Text = `CLASS {index} OF {#ClassData.Order} • {info.name:upper()}`
+
+		-- Update Left Panel
+		classNameLabel.Text = info.name:upper()
+		classNameLabel.TextColor3 = info.accentColor
 		subtitleLabel.Text = info.title
 		roleBadge.Text = `[{info.role:upper()}]`
 		roleBadge.TextColor3 = info.accentColor
 		descLabel.Text = info.description
 
-		-- Update Stat Pips
+		-- Update Border Accents to match active Class Color
+		leftStroke.Color = info.accentColor
+		rightStroke.Color = info.accentColor
+		eqStroke.Color = info.accentColor
+		prevStroke.Color = info.accentColor
+		nextStroke.Color = info.accentColor
+
+		-- Update Stats Pips
 		for _, key in ipairs(statKeys) do
 			local val = (info.stats :: any)[key] or 1
 			local pips = statBars[key]
 			if pips then
-				for idx, pip in ipairs(pips) do
-					local active = idx <= val
+				for bIdx, pip in ipairs(pips) do
+					local active = bIdx <= val
 					pip.BackgroundColor3 = active and info.accentColor or UITheme.Colors.SurfaceSelected
 				end
 			end
@@ -322,7 +569,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		for i, ab in ipairs(info.abilities) do
 			local abCard = Instance.new("Frame")
 			abCard.Name = "Ability_" .. i
-			abCard.Size = UDim2.new(1, 0, 0, 52)
+			abCard.Size = UDim2.new(1, 0, 0, 48)
 			abCard.BackgroundColor3 = UITheme.Colors.SurfaceAlt
 			abCard.LayoutOrder = i
 			abCard.Parent = abilitiesContainer
@@ -332,11 +579,11 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 
 			local abTag = Instance.new("TextLabel")
 			abTag.Name = "Tag"
-			abTag.Size = UDim2.new(0, 100, 0, 18)
-			abTag.Position = UDim2.new(0, 10, 0, 6)
+			abTag.Size = UDim2.new(0, 90, 0, 16)
+			abTag.Position = UDim2.new(0, 8, 0, 5)
 			abTag.BackgroundColor3 = UITheme.Colors.Surface
 			abTag.Font = UITheme.Fonts.Tag
-			abTag.TextSize = 10
+			abTag.TextSize = 9
 			abTag.TextColor3 = info.accentColor
 			abTag.Text = ab.tag:upper()
 			abTag.Parent = abCard
@@ -344,11 +591,11 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 
 			local abName = Instance.new("TextLabel")
 			abName.Name = "Name"
-			abName.Size = UDim2.new(1, -125, 0, 18)
-			abName.Position = UDim2.new(0, 118, 0, 6)
+			abName.Size = UDim2.new(1, -110, 0, 16)
+			abName.Position = UDim2.new(0, 104, 0, 5)
 			abName.BackgroundTransparency = 1
 			abName.Font = UITheme.Fonts.Header
-			abName.TextSize = 13
+			abName.TextSize = 12
 			abName.TextColor3 = UITheme.Colors.TextPrimary
 			abName.TextXAlignment = Enum.TextXAlignment.Left
 			abName.Text = ab.name
@@ -356,137 +603,155 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 
 			local abDesc = Instance.new("TextLabel")
 			abDesc.Name = "Desc"
-			abDesc.Size = UDim2.new(1, -20, 0, 22)
-			abDesc.Position = UDim2.new(0, 10, 0, 26)
+			abDesc.Size = UDim2.new(1, -16, 0, 22)
+			abDesc.Position = UDim2.new(0, 8, 0, 23)
 			abDesc.BackgroundTransparency = 1
 			abDesc.Font = UITheme.Fonts.Sub
-			abDesc.TextSize = 11
+			abDesc.TextSize = 10
 			abDesc.TextColor3 = UITheme.Colors.TextMuted
 			abDesc.TextXAlignment = Enum.TextXAlignment.Left
 			abDesc.Text = ab.description
 			abDesc.Parent = abCard
 		end
 
-		-- Update Card selection borders
-		for cId, btn in pairs(cardButtons) do
-			local isSelected = (cId == classId)
-			local stroke = cardStrokes[cId]
-			local cInfo = ClassData.GetClass(cId)
-			if stroke and cInfo then
-				stroke.Color = isSelected and cInfo.accentColor or UITheme.Colors.Border
-				stroke.Thickness = isSelected and 2 or 1
-				stroke.Transparency = isSelected and 0 or 0.5
+		-- Update Equipment Card
+		local eq = info.equipment
+		if eq then
+			eqNameLabel.Text = eq.name
+			eqNameLabel.TextColor3 = info.accentColor
+			eqRarityBadge.Text = eq.rarity:upper()
+			eqRarityBadge.TextColor3 = info.accentColor
+			eqSlotLabel.Text = `[ {eq.slot} ]`
+			eqDescLabel.Text = eq.description
+
+			-- Rebuild Equipment Stat rows
+			for _, child in ipairs(eqStatsRow:GetChildren()) do
+				if child:IsA("Frame") then
+					child:Destroy()
+				end
 			end
-			btn.BackgroundColor3 = isSelected and UITheme.Colors.SurfaceSelected or UITheme.Colors.Surface
+
+			local statIdx = 0
+			for statName, statVal in pairs(eq.stats or {}) do
+				statIdx += 1
+				local row = Instance.new("Frame")
+				row.Name = "StatRow_" .. statIdx
+				row.Size = UDim2.new(1, 0, 0, 16)
+				row.BackgroundTransparency = 1
+				row.LayoutOrder = statIdx
+				row.Parent = eqStatsRow
+
+				local lblKey = Instance.new("TextLabel")
+				lblKey.Size = UDim2.new(0.6, 0, 1, 0)
+				lblKey.BackgroundTransparency = 1
+				lblKey.Font = UITheme.Fonts.Sub
+				lblKey.TextSize = 10
+				lblKey.TextColor3 = UITheme.Colors.TextSecondary
+				lblKey.TextXAlignment = Enum.TextXAlignment.Left
+				lblKey.Text = `• {statName}:`
+				lblKey.Parent = row
+
+				local lblVal = Instance.new("TextLabel")
+				lblVal.Size = UDim2.new(0.4, 0, 1, 0)
+				lblVal.AnchorPoint = Vector2.new(1, 0)
+				lblVal.Position = UDim2.new(1, 0, 0, 0)
+				lblVal.BackgroundTransparency = 1
+				lblVal.Font = UITheme.Fonts.Header
+				lblVal.TextSize = 10
+				lblVal.TextColor3 = UITheme.Colors.Success
+				lblVal.TextXAlignment = Enum.TextXAlignment.Right
+				lblVal.Text = tostring(statVal)
+				lblVal.Parent = row
+			end
+		end
+
+		-- Update Dots indicator
+		for dIdx, dot in ipairs(dotFrames) do
+			local isActive = (dIdx == index)
+			if isActive then
+				TweenService:Create(dot, UITheme.Tweens.Fast, {
+					Size = UDim2.new(0, 24, 0, 10),
+					BackgroundColor3 = info.accentColor,
+				}):Play()
+			else
+				TweenService:Create(dot, UITheme.Tweens.Fast, {
+					Size = UDim2.new(0, 10, 0, 10),
+					BackgroundColor3 = UITheme.Colors.SurfaceSelected,
+				}):Play()
+			end
 		end
 	end
 
-	-- Populate 8 Class Cards
-	for i, classId in ipairs(ClassData.Order) do
-		local cInfo = ClassData.GetClass(classId)
-		if not cInfo then continue end
+	local function navigateCarousel(direction: number)
+		if isTransitioning then return end
+		isTransitioning = true
 
-		local card = Instance.new("TextButton")
-		card.Name = "ClassCard_" .. classId
-		card.Size = UDim2.new(1, 0, 1, 0)
-		card.BackgroundColor3 = UITheme.Colors.Surface
-		card.AutoButtonColor = false
-		card.Text = ""
-		card.LayoutOrder = i
-		card.Parent = leftCardList
+		local totalClasses = #ClassData.Order
+		currentIndex = ((currentIndex - 1 + direction) % totalClasses) + 1
 
-		UITheme.AddCorner(card, 8)
-		local stroke = UITheme.AddStroke(card, UITheme.Colors.Border, 1, 0.5)
-		cardStrokes[classId] = stroke
-		cardButtons[classId] = card
+		SoundManager.PlaySelect()
+		updateCarouselUI(currentIndex, true)
 
-		-- Colored Left Accent Indicator Strip
-		local indicator = Instance.new("Frame")
-		indicator.Name = "AccentStrip"
-		indicator.Size = UDim2.new(0, 4, 1, -16)
-		indicator.Position = UDim2.new(0, 8, 0.5, -((100 - 16) / 2))
-		indicator.BackgroundColor3 = cInfo.accentColor
-		indicator.BorderSizePixel = 0
-		indicator.Parent = card
-		UITheme.AddCorner(indicator, 2)
-
-		-- Class Title & Role inside Card
-		local cardName = Instance.new("TextLabel")
-		cardName.Name = "CardName"
-		cardName.Size = UDim2.new(1, -28, 0, 24)
-		cardName.Position = UDim2.new(0, 20, 0, 14)
-		cardName.BackgroundTransparency = 1
-		cardName.Text = cInfo.name
-		cardName.TextColor3 = UITheme.Colors.TextPrimary
-		cardName.Font = UITheme.Fonts.Header
-		cardName.TextSize = 16
-		cardName.TextXAlignment = Enum.TextXAlignment.Left
-		cardName.Parent = card
-
-		local cardRole = Instance.new("TextLabel")
-		cardRole.Name = "CardRole"
-		cardRole.Size = UDim2.new(1, -28, 0, 18)
-		cardRole.Position = UDim2.new(0, 20, 0, 40)
-		cardRole.BackgroundTransparency = 1
-		cardRole.Text = cInfo.role
-		cardRole.TextColor3 = cInfo.accentColor
-		cardRole.Font = UITheme.Fonts.Tag
-		cardRole.TextSize = 11
-		cardRole.TextXAlignment = Enum.TextXAlignment.Left
-		cardRole.Parent = card
-
-		local cardSubtitle = Instance.new("TextLabel")
-		cardSubtitle.Name = "CardSubtitle"
-		cardSubtitle.Size = UDim2.new(1, -28, 0, 16)
-		cardSubtitle.Position = UDim2.new(0, 20, 0, 62)
-		cardSubtitle.BackgroundTransparency = 1
-		cardSubtitle.Text = cInfo.title
-		cardSubtitle.TextColor3 = UITheme.Colors.TextMuted
-		cardSubtitle.Font = UITheme.Fonts.Sub
-		cardSubtitle.TextSize = 10
-		cardSubtitle.TextXAlignment = Enum.TextXAlignment.Left
-		cardSubtitle.Parent = card
-
-		card.MouseEnter:Connect(function()
-			SoundManager.PlayHover()
-			if selectedClassId ~= classId then
-				TweenService:Create(card, UITheme.Tweens.Fast, {
-					BackgroundColor3 = UITheme.Colors.SurfaceHover,
-				}):Play()
-			end
-		end)
-
-		card.MouseLeave:Connect(function()
-			if selectedClassId ~= classId then
-				TweenService:Create(card, UITheme.Tweens.Fast, {
-					BackgroundColor3 = UITheme.Colors.Surface,
-				}):Play()
-			end
-		end)
-
-		card.MouseButton1Click:Connect(function()
-			if selectedClassId ~= classId then
-				selectedClassId = classId
-				SoundManager.PlaySelect()
-				renderSelectedClass(classId)
-			end
-		end)
+		task.wait(0.12)
+		isTransitioning = false
 	end
 
-	-- Confirm Button Interaction
-	UITheme.MakeButtonInteractive(
-		confirmBtn,
-		confirmStroke,
-		UITheme.Colors.GoldLight,
-		SoundManager.PlayHover,
-		function()
+	-- Hook Navigation Buttons
+	UITheme.MakeButtonInteractive(prevBtn, prevStroke, UITheme.Colors.GoldLight, SoundManager.PlayHover, function()
+		navigateCarousel(-1)
+	end)
+
+	UITheme.MakeButtonInteractive(nextBtn, nextStroke, UITheme.Colors.GoldLight, SoundManager.PlayHover, function()
+		navigateCarousel(1)
+	end)
+
+	-- Hook Dots Clicking
+	for dIdx, dot in ipairs(dotFrames) do
+		local dotBtn = dot:FindFirstChildOfClass("TextButton")
+		if dotBtn then
+			dotBtn.MouseButton1Click:Connect(function()
+				if currentIndex ~= dIdx and not isTransitioning then
+					currentIndex = dIdx
+					SoundManager.PlaySelect()
+					updateCarouselUI(currentIndex, true)
+				end
+			end)
+		end
+	end
+
+	-- Hook Confirm Button
+	UITheme.MakeButtonInteractive(confirmBtn, confirmStroke, UITheme.Colors.GoldLight, SoundManager.PlayHover, function()
+		SoundManager.PlayConfirm()
+		local selectedClassId = ClassData.Order[currentIndex]
+		callbacks.onConfirmClass(selectedClassId)
+	end)
+
+	-- Keyboard Navigation (A / D, Left / Right Arrow, Enter)
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+		if not container.Visible or container.GroupTransparency > 0.5 then return end
+
+		if input.KeyCode == Enum.KeyCode.A or input.KeyCode == Enum.KeyCode.Left then
+			navigateCarousel(-1)
+		elseif input.KeyCode == Enum.KeyCode.D or input.KeyCode == Enum.KeyCode.Right then
+			navigateCarousel(1)
+		elseif input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.Space then
 			SoundManager.PlayConfirm()
+			local selectedClassId = ClassData.Order[currentIndex]
 			callbacks.onConfirmClass(selectedClassId)
 		end
-	)
+	end)
 
-	-- Initial Render
-	renderSelectedClass("brawler")
+	-- Dynamic Re-renders when screen opens
+	container:GetPropertyChangedSignal("Visible"):Connect(function()
+		if container.Visible then
+			updateCarouselUI(currentIndex, false)
+		end
+	end)
+
+	-- Initialize to Heavy Knight (index 2)
+	currentIndex = 2
+	updateCarouselUI(currentIndex, false)
 
 	return container
 end

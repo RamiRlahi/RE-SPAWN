@@ -11,6 +11,14 @@ export type ClassStats = {
 	difficulty: number -- 1 to 5
 }
 
+export type EquipmentData = {
+	name: string,
+	slot: string,
+	rarity: string,
+	description: string,
+	stats: { [string]: string },
+}
+
 export type ClassInfo = {
 	id: string,
 	name: string,
@@ -20,6 +28,7 @@ export type ClassInfo = {
 	accentColor: Color3,
 	stats: ClassStats,
 	abilities: { AbilityData },
+	equipment: EquipmentData,
 }
 
 local ClassData: { [string]: ClassInfo } = {
@@ -42,6 +51,17 @@ local ClassData: { [string]: ClassInfo } = {
 			{ name = "Flurry Rush", tag = "Skill 2", description = "Unleash a rapid sequence of devastating lightning punches." },
 			{ name = "Titan Rampage", tag = "Ultimate", description = "Enter an enraged state, gaining immunity to stagger and 40% increased attack speed." },
 		},
+		equipment = {
+			name = "Dragonbone Cestus & Iron Gauntlets",
+			slot = "Dual Gauntlets",
+			rarity = "Relic Weapon",
+			description = "Reinforced knuckle braces carved from ancient dragonbone, converting physical impact into explosive shockwaves.",
+			stats = {
+				["Physical DMG"] = "+35%",
+				["Attack Speed"] = "+20%",
+				["Stun Power"] = "+40%",
+			},
+		},
 	},
 
 	["heavy_knight"] = {
@@ -62,6 +82,17 @@ local ClassData: { [string]: ClassInfo } = {
 			{ name = "Bulwark Stance", tag = "Skill 1", description = "Raise shield to block 70% of incoming damage and reflect projectiles." },
 			{ name = "Whirlwind Cleave", tag = "Skill 2", description = "Spin your greatsword in a 360-degree arc, pulling nearby foes in." },
 			{ name = "Fortress of Valor", tag = "Ultimate", description = "Plant a sacred banner that grants a massive damage barrier to all nearby allies." },
+		},
+		equipment = {
+			name = "Bastion Greatplate & Vanguard Armament",
+			slot = "Heavy Plate & Armament",
+			rarity = "Legendary Vanguard Gear",
+			description = "Impervious gilded armor forged in sacred dragonfire. Grants impenetrable poise and absolute frontline dominion.",
+			stats = {
+				["Armor / Poise"] = "+65%",
+				["Max Health"] = "+350 HP",
+				["Damage Barrier"] = "+40%",
+			},
 		},
 	},
 
@@ -84,6 +115,17 @@ local ClassData: { [string]: ClassInfo } = {
 			{ name = "Meteor Surge", tag = "Skill 2", description = "Call down burning astral energy that incinerates a targeted area." },
 			{ name = "Astral Singularity", tag = "Ultimate", description = "Summon a black hole that pulls all enemies inward before violently detonating." },
 		},
+		equipment = {
+			name = "Astral Singularity Staff & Arcane Grimoire",
+			slot = "Two-Handed Catalyst",
+			rarity = "Mythic Arcana",
+			description = "A conduit crowned with a floating cosmic shard that continually funnels raw ether into spell damage.",
+			stats = {
+				["Magic Power"] = "+50%",
+				["Mana Regen"] = "+30%",
+				["Spell Radius"] = "+25%",
+			},
+		},
 	},
 
 	["assassin"] = {
@@ -104,6 +146,17 @@ local ClassData: { [string]: ClassInfo } = {
 			{ name = "Venom Daggers", tag = "Skill 2", description = "Hurl 3 poisoned blades that inflict progressive bleed and slow effects." },
 			{ name = "Smoke Cloak", tag = "Skill 3", description = "Vanish into thick smoke, becoming invisible and gaining 30% speed for 4s." },
 			{ name = "Deathmark Execute", tag = "Ultimate", description = "Mark a target for death, delivering a flurry of fatal strikes that bypasses armor." },
+		},
+		equipment = {
+			name = "Shadowfang Dual Daggers & Twilight Cowl",
+			slot = "Dual Blades & Cloak",
+			rarity = "Shadow Relic",
+			description = "Obsidian daggers dipped in basilisk venom that bypass armor on critical backstabs.",
+			stats = {
+				["Crit Chance"] = "+35%",
+				["Crit DMG"] = "+75%",
+				["Move Speed"] = "+15%",
+			},
 		},
 	},
 
@@ -126,6 +179,17 @@ local ClassData: { [string]: ClassInfo } = {
 			{ name = "Divine Ward", tag = "Skill 2", description = "Encase yourself or an ally in a holy shield that cleanses crowd control." },
 			{ name = "Heavenly Grace", tag = "Ultimate", description = "Release an immense burst of sacred light, fully rejuvenating the party and blinding foes." },
 		},
+		equipment = {
+			name = "Sunfire Scepter & Radiant Scripture",
+			slot = "Main Hand Scepter",
+			rarity = "Sacred Relic",
+			description = "An illuminated holy scepter channeling restorative sunburst pulses that cleanses all party debuffs.",
+			stats = {
+				["Healing Output"] = "+60%",
+				["Aura Radius"] = "+40%",
+				["Max Spirit"] = "+200",
+			},
+		},
 	},
 
 	["ranger"] = {
@@ -146,6 +210,17 @@ local ClassData: { [string]: ClassInfo } = {
 			{ name = "Evasive Roll", tag = "Skill 1", description = "Quickly roll away from danger while firing a spread of slowing arrows." },
 			{ name = "Bramble Snare", tag = "Skill 2", description = "Deploy a hidden trap that roots anyone who steps inside for 2.5s." },
 			{ name = "Arrow Tempest", tag = "Ultimate", description = "Rain thousands of arrows over a vast area, decimating enemy legions." },
+		},
+		equipment = {
+			name = "Galecrest Greatbow & Windfury Quiver",
+			slot = "Two-Handed Bow",
+			rarity = "Ancient Relic",
+			description = "A recurve bow bent from sacred elderwood. Arrow trajectories accelerate as they cut through air currents.",
+			stats = {
+				["Ranged DMG"] = "+45%",
+				["Arrow Velocity"] = "+50%",
+				["Crit Multiplier"] = "+40%",
+			},
 		},
 	},
 
@@ -168,6 +243,17 @@ local ClassData: { [string]: ClassInfo } = {
 			{ name = "Acrobatic Vault", tag = "Skill 2", description = "Leap over enemies in bullet-time while firing downward." },
 			{ name = "High Noon Barrage", tag = "Ultimate", description = "Lock onto all visible targets and unleash an instant series of lethal headshots." },
 		},
+		equipment = {
+			name = "Twin Hellfire Revolvers & Bandit Bandolier",
+			slot = "Dual Revolvers",
+			rarity = "Outlaw Masterpiece",
+			description = "Custom chrome-engraved six-shooters with lightning hammer actions and explosive fire-rounds.",
+			stats = {
+				["Fire Rate"] = "+40%",
+				["Reload Speed"] = "+35%",
+				["Headshot DMG"] = "+60%",
+			},
+		},
 	},
 
 	["ice_mage"] = {
@@ -189,10 +275,21 @@ local ClassData: { [string]: ClassInfo } = {
 			{ name = "Flash Freeze", tag = "Skill 2", description = "Trigger a sudden temperature drop, freezing all frosted enemies in place for 2s." },
 			{ name = "Absolute Blizzard", tag = "Ultimate", description = "Summon an apocalyptic blizzard that blankets the zone in blinding frost and heavy damage." },
 		},
+		equipment = {
+			name = "Glacial Frostcore Orb & Permafrost Robes",
+			slot = "Off-Hand Relic Orb",
+			rarity = "Frozen Relic",
+			description = "A floating sphere of pure unmelting absolute-zero ice that continually chills the surrounding atmosphere.",
+			stats = {
+				["Frost Slow Effect"] = "+30%",
+				["Freeze Duration"] = "+1.5s",
+				["Spell Area"] = "+35%",
+			},
+		},
 	},
 }
 
--- Array order for UI display
+-- Array order for Carousel / UI display
 local ClassOrder: { string } = {
 	"brawler",
 	"heavy_knight",

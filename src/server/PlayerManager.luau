@@ -33,7 +33,7 @@ local function setupCharacter(player: Player, character: Model)
 
 	local inLobby = player:GetAttribute("InLobby")
 	if inLobby == nil or inLobby == true then
-		-- Position in church
+		-- Position in church / lobby
 		local spawnCF = getChurchSpawnCFrame()
 		character:PivotTo(spawnCF)
 

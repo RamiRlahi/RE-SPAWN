@@ -27,6 +27,11 @@ local TitleScreen = safeRequire("TitleScreen")
 local SettingsModal = safeRequire("SettingsModal")
 local ClassSelectionScreen = safeRequire("ClassSelectionScreen")
 
+local LobbyCamera: any = nil
+pcall(function()
+	LobbyCamera = require(script.Parent.Parent:WaitForChild("LobbyCamera"))
+end)
+
 local UIManager = {}
 
 local player = Players.LocalPlayer
@@ -115,6 +120,12 @@ function UIManager.ShowTitle()
 		settingsModalGroup.GroupTransparency = 1
 	end
 
+	if LobbyCamera then
+		pcall(function()
+			LobbyCamera.StartTitleMode()
+		end)
+	end
+
 	if classSelectGroup and titleScreenGroup then
 		fadeCanvas(classSelectGroup, 1, 0.25, function()
 			classSelectGroup.Visible = false
@@ -140,6 +151,12 @@ function UIManager.CloseSettings()
 end
 
 function UIManager.ShowClassSelect()
+	if LobbyCamera then
+		pcall(function()
+			LobbyCamera.SetClassSelectView()
+		end)
+	end
+
 	if titleScreenGroup and classSelectGroup then
 		fadeCanvas(titleScreenGroup, 1, 0.25, function()
 			titleScreenGroup.Visible = false

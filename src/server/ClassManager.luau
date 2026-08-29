@@ -24,7 +24,7 @@ function ClassManager.Init()
 			return
 		end
 
-		-- Assign class attribute to Player
+		-- Assign class attributes to Player
 		player:SetAttribute("SelectedClass", classId)
 		player:SetAttribute("ClassName", classInfo.name)
 		player:SetAttribute("ClassRole", classInfo.role)
@@ -35,7 +35,7 @@ function ClassManager.Init()
 			character:SetAttribute("Class", classId)
 		end
 
-		print(`[ClassManager] {player.Name} selected class: {classInfo.name} ({classId})`)
+		print(`[ClassManager] {player.Name} confirmed class: {classInfo.name} ({classId})`)
 
 		-- Notify client
 		classConfirmedRemote:FireClient(player, classId)
