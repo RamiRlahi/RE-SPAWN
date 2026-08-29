@@ -33,6 +33,32 @@ if successCam and LobbyCamera then
 	end)
 end
 
+
+-- Safely require AnimationController (custom walk / sprint; default Animate is walk-only)
+local successAnim, AnimationController = pcall(function()
+	return require(script:WaitForChild("AnimationController"))
+end)
+
+if not successAnim then
+	warn("[Client ERROR] Failed to load AnimationController:", AnimationController)
+elseif AnimationController then
+	local successAnimInit, animErr = pcall(function()
+		AnimationController.Init()
+	end)
+	if not successAnimInit then
+		warn("[Client ERROR] AnimationController.Init failed:", animErr)
+	end
+end
+
+-- Safely require IsometricCamera
+local successIso, IsometricCamera = pcall(function()
+	return require(script:WaitForChild("IsometricCamera"))
+end)
+
+if not successIso then
+	warn("[Client ERROR] Failed to load IsometricCamera:", IsometricCamera)
+end
+
 if successUI and UIManager then
 	local successInit, err = pcall(function()
 		UIManager.Init(function(selectedClassId: string)
@@ -54,7 +80,10 @@ if successUI and UIManager then
 
 		UIManager.FadeOutToGame(function()
 			if successCam and LobbyCamera then
-				LobbyCamera.Stop()
+				LobbyCamera.StopImmediate()
+			end
+			if successIso and IsometricCamera then
+				IsometricCamera.Start(1.2)
 			end
 		end)
 	end)
