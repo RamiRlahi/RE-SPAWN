@@ -6,6 +6,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
 local ClassManager = require(script.Parent:WaitForChild("ClassManager"))
+local AnimationManager = require(script.Parent:WaitForChild("AnimationManager"))
 
 local PlayerManager = {}
 
@@ -61,6 +62,21 @@ function PlayerManager.Init()
 	saveSettingsRemote.OnServerEvent:Connect(function(player: Player, clientSettings: any)
 		if typeof(clientSettings) == "table" then
 			print(`[PlayerManager] Saved settings updated for {player.Name}`)
+		end
+	end)
+
+	-- Handle sprint toggle from client
+	local setSprintRemote = Network.GetRemoteEvent(Network.Remotes.SetSprint)
+	setSprintRemote.OnServerEvent:Connect(function(player: Player, sprinting: any)
+		if typeof(sprinting) ~= "boolean" then return end
+		if player:GetAttribute("InLobby") == true then return end
+
+		local character = player.Character
+		if character then
+			local humanoid = character:FindFirstChildOfClass("Humanoid")
+			if humanoid and humanoid.Health > 0 then
+				humanoid.WalkSpeed = sprinting and 26 or 16
+			end
 		end
 	end)
 

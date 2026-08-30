@@ -114,6 +114,16 @@ function LobbyCamera.SetClassSelectView()
 	end)
 end
 
+function LobbyCamera.StopImmediate()
+	inTitleMode = false
+	inClassSelectMode = false
+
+	if cameraConnection then
+		cameraConnection:Disconnect()
+		cameraConnection = nil
+	end
+end
+
 -- 3. Transition to standard Gameplay Camera
 function LobbyCamera.Stop(onRestored: (() -> ())?)
 	inTitleMode = false

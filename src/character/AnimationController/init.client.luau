@@ -3,25 +3,27 @@ local RunService = game:GetService("RunService")
 local player = game.Players.LocalPlayer
 local character = script.Parent
 local humanoid = character:WaitForChild("Humanoid")
+local animator = humanoid:WaitForChild("Animator")
 
--- CHANGE YOUR WALK ANIMATION HERE:
-local WALK_ID = "rbxassetid://99722016521113"
--- CHANGE YOUR SPRINT ANIMATION HERE:
-local SPRINT_ID = "rbxassetid://91122724973926"
+local walkAnim = script:WaitForChild("walk")
+local runAnim = script:WaitForChild("run")
+local idleAnim = script:WaitForChild("idle")
 
-local walkAnim = Instance.new("Animation")
-walkAnim.AnimationId = WALK_ID
-local WalkTrack = humanoid:WaitForChild("Animator"):LoadAnimation(walkAnim)
+walkAnim.AnimationId = "rbxassetid://109247200419554"
+runAnim.AnimationId = "rbxassetid://79701746140908"
+idleAnim.AnimationId = "rbxassetid://86968114690424"
 
+local WalkTrack = animator:LoadAnimation(walkAnim)
 WalkTrack.Priority = Enum.AnimationPriority.Action
 WalkTrack.Looped = true
 
-local sprintAnim = Instance.new("Animation")
-sprintAnim.AnimationId = SPRINT_ID
-local SprintTrack = humanoid:WaitForChild("Animator"):LoadAnimation(sprintAnim)
+local RunTrack = animator:LoadAnimation(runAnim)
+RunTrack.Priority = Enum.AnimationPriority.Action
+RunTrack.Looped = true
 
-SprintTrack.Priority = Enum.AnimationPriority.Action
-SprintTrack.Looped = true
+local IdleTrack = animator:LoadAnimation(idleAnim)
+IdleTrack.Priority = Enum.AnimationPriority.Action
+IdleTrack.Looped = true
 
 local WALK_SPEED = 16
 local RUN_SPEED = 26
@@ -47,14 +49,22 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
+local function playIdle()
+	if WalkTrack.IsPlaying then
+		WalkTrack:Stop(0.25)
+	end
+	if RunTrack.IsPlaying then
+		RunTrack:Stop(0.25)
+	end
+	if not IdleTrack.IsPlaying then
+		IdleTrack:Play(0.25)
+	end
+	IdleTrack:AdjustSpeed(1)
+end
+
 local function UpdateMovement()
 	if player:GetAttribute("InLobby") ~= false then
-		if WalkTrack.IsPlaying then
-			WalkTrack:Stop(0.25)
-		end
-		if SprintTrack.IsPlaying then
-			SprintTrack:Stop(0.25)
-		end
+		playIdle()
 		return
 	end
 
@@ -62,19 +72,22 @@ local function UpdateMovement()
 	local isGrounded = not AirborneState[humanoid:GetState()]
 
 	if isMoving and isGrounded then
+		if IdleTrack.IsPlaying then
+			IdleTrack:Stop(0.25)
+		end
 		if isSprinting then
 			humanoid.WalkSpeed = RUN_SPEED
 			if WalkTrack.IsPlaying then
 				WalkTrack:Stop(0.25)
 			end
-			if not SprintTrack.IsPlaying then
-				SprintTrack:Play(0.25)
+			if not RunTrack.IsPlaying then
+				RunTrack:Play(0.25)
 			end
-			SprintTrack:AdjustSpeed(1)
+			RunTrack:AdjustSpeed(1)
 		else
 			humanoid.WalkSpeed = WALK_SPEED
-			if SprintTrack.IsPlaying then
-				SprintTrack:Stop(0.25)
+			if RunTrack.IsPlaying then
+				RunTrack:Stop(0.25)
 			end
 			if not WalkTrack.IsPlaying then
 				WalkTrack:Play(0.25)
@@ -82,17 +95,20 @@ local function UpdateMovement()
 			WalkTrack:AdjustSpeed(1)
 		end
 	elseif isMoving and not isGrounded then
+		if IdleTrack.IsPlaying then
+			IdleTrack:Stop(0.25)
+		end
 		if isSprinting then
 			if WalkTrack.IsPlaying then
 				WalkTrack:Stop(0.25)
 			end
-			if not SprintTrack.IsPlaying then
-				SprintTrack:Play(0.25)
+			if not RunTrack.IsPlaying then
+				RunTrack:Play(0.25)
 			end
-			SprintTrack:AdjustSpeed(0.25)
+			RunTrack:AdjustSpeed(0.25)
 		else
-			if SprintTrack.IsPlaying then
-				SprintTrack:Stop(0.25)
+			if RunTrack.IsPlaying then
+				RunTrack:Stop(0.25)
 			end
 			if not WalkTrack.IsPlaying then
 				WalkTrack:Play(0.25)
@@ -100,13 +116,8 @@ local function UpdateMovement()
 			WalkTrack:AdjustSpeed(0.25)
 		end
 	else
-		if WalkTrack.IsPlaying then
-			WalkTrack:Stop(0.25)
-		end
-		if SprintTrack.IsPlaying then
-			SprintTrack:Stop(0.25)
-		end
 		humanoid.WalkSpeed = WALK_SPEED
+		playIdle()
 	end
 end
 
