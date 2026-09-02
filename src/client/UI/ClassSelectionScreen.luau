@@ -33,11 +33,11 @@ local ROT90 = CFrame.Angles(0, math.rad(90), 0)
 local ARMOR_CFRAME_OFFSETS: { [string]: CFrame } = {
 	chestplate              = ROT270 * CFrame.new(0, 0, 0),
 	gauntlet_heavyknight    = ROT90 * CFrame.new(0, 0, 0),
-	leftarm_heavyknight     = ROT90 * CFrame.new(0, 0, 0),
-	rightarm_heavyknight    = ROT270 * CFrame.new(0, 0, 0),
+	leftarm_heavyknight     = ROT270 * CFrame.new(0, -0.2, 0),
+	rightarm_heavyknight    = ROT270 * CFrame.new(0, -0.2, 0),
 	heavyknight_BELT        = ROT270 * CFrame.new(0, -1.9, 0),
-	leftleg                 = ROT270 * CFrame.new(-1, 0, 0), -- 1 stud forward
-	rightleg                = ROT270 * CFrame.new(-1, 0, 0), -- 1 stud forward
+	leftleg                 = ROT270 * CFrame.new(-0.5, 0, 0), -- 1 stud forward
+	rightleg                = ROT270 * CFrame.new(-0.5, 0, 0), -- 1 stud forward
 }
 
 local ARMOR_SCALE = 1-- Snug fit to make the armor smaller and well-proportioned

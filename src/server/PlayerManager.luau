@@ -8,6 +8,13 @@ local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
 local ClassManager = require(script.Parent:WaitForChild("ClassManager"))
 local AnimationManager = require(script.Parent:WaitForChild("AnimationManager"))
 
+local capeModule = script.Parent:FindFirstChild("CapeController")
+local CapeController = capeModule and require(capeModule) or nil
+if not CapeController then
+	warn("[PlayerManager] CapeController not found — sync Rojo and re-run. Cape will be skipped.")
+end
+
+
 local PlayerManager = {}
 
 local DEFAULT_CHURCH_SPAWN_CRAME = CFrame.new(0, 5, 0)
@@ -114,15 +121,17 @@ local ARMOR_WELD_MAP: { [string]: string } = {
 local ROT270 = CFrame.Angles(0, math.rad(270), 0)
 local ROT90 = CFrame.Angles(0, math.rad(90), 0)
 
+
 local ARMOR_CFRAME_OFFSETS: { [string]: CFrame } = {
 	chestplate              = ROT270 * CFrame.new(0, 0, 0),
 	gauntlet_heavyknight    = ROT90 * CFrame.new(0, 0, 0),
-	leftarm_heavyknight     = ROT90 * CFrame.new(0, 0, 0),
-	rightarm_heavyknight    = ROT270 * CFrame.new(0, 0, 0),
+	leftarm_heavyknight     = ROT270 * CFrame.new(0, -0.2, 0),
+	rightarm_heavyknight    = ROT270 * CFrame.new(0, -0.2, 0),
 	heavyknight_BELT        = ROT270 * CFrame.new(0, -1.9, 0),
-	leftleg                 = ROT270 * CFrame.new(-1, 0, 0), -- 1 stud forward
-	rightleg                = ROT270 * CFrame.new(-1, 0, 0), -- 1 stud forward
+	leftleg                 = ROT270 * CFrame.new(-0.5, 0, 0), -- 1 stud forward
+	rightleg                = ROT270 * CFrame.new(-0.5, 0, 0), -- 1 stud forward
 }
+
 
 
 local ARMOR_SCALE = 1
@@ -295,8 +304,11 @@ end
 				humanoid.JumpHeight = 7.2
 			end
 
-			-- Equip permanent server-side armor
+			-- Equip permanent server-side armor and cape
 			equipClassArmor(character, classId)
+			if CapeController then
+				CapeController.AttachCape(character)
+			end
 		end
 
 		print(`[PlayerManager] {player.Name} successfully entered the game as {classId}`)
