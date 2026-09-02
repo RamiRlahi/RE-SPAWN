@@ -30,6 +30,7 @@ local TARGET_HEIGHT = 2.5                       -- Focus height relative to root
 
 -- Transparency for obstructing ceilings / walls
 local OBSTACLE_TRANSPARENCY = 0.85
+local OCCLUSION_RADIUS      = 4.0 -- Sweeping radius to fade nearby obstacles
 
 -- ─────────────────────────────────────────────────────────────────────────────
 
@@ -70,32 +71,40 @@ local function updateOcclusion(camPos: Vector3, targetPos: Vector3, character: M
 	local direction = (targetPos - origin)
 	local distance = direction.Magnitude
 
-	-- Cast ray from camera to player
-	local rayResult = Workspace:Raycast(origin, direction.Unit * distance, raycastParams)
+	-- Sweep a sphere from camera to player to catch nearby obstructing walls/ceilings
+	local currentOrigin = origin
+	local rayResult = Workspace:Spherecast(currentOrigin, OCCLUSION_RADIUS, direction.Unit * distance, raycastParams)
 	local iterations = 0
 
-	-- Raycast through multiple layers (e.g. roof + ceiling + wall)
+	-- Cast through multiple layers (e.g. roof + ceiling + wall)
 	while rayResult and rayResult.Instance and iterations < 10 do
 		iterations += 1
 		local hitPart = rayResult.Instance
+		
 		if hitPart:IsA("BasePart") and hitPart.Transparency < 1 then
-			currentlyHit[hitPart] = true
+			-- Avoid fading the floor / ground (anything below the player's knees/feet)
+			local isGround = rayResult.Position.Y < targetPos.Y - 5
+			if not isGround then
+				currentlyHit[hitPart] = true
 
-			-- Save original modifier if newly obstructing
-			if transparentParts[hitPart] == nil then
-				transparentParts[hitPart] = hitPart.LocalTransparencyModifier
+				-- Save original modifier if newly obstructing
+				if transparentParts[hitPart] == nil then
+					transparentParts[hitPart] = hitPart.LocalTransparencyModifier
+				end
+
+				-- Fade to transparent
+				hitPart.LocalTransparencyModifier = OBSTACLE_TRANSPARENCY
 			end
-
-			-- Fade to transparent
-			hitPart.LocalTransparencyModifier = OBSTACLE_TRANSPARENCY
 		end
 
-		-- Continue raycast past the hit part towards the player
-		local nextOrigin = rayResult.Position + (direction.Unit * 0.2)
-		local remainingDist = (targetPos - nextOrigin).Magnitude
+		-- Advance currentOrigin past the hit point along the sweep path
+		local advanceDist = rayResult.Distance + 0.2
+		currentOrigin = currentOrigin + direction.Unit * advanceDist
+
+		local remainingDist = (targetPos - currentOrigin).Magnitude
 		if remainingDist <= 0.5 then break end
 
-		rayResult = Workspace:Raycast(nextOrigin, direction.Unit * remainingDist, raycastParams)
+		rayResult = Workspace:Spherecast(currentOrigin, OCCLUSION_RADIUS, direction.Unit * remainingDist, raycastParams)
 	end
 
 	-- Restore parts that are no longer obstructing

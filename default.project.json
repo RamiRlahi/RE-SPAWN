@@ -13,6 +13,9 @@
       }
     },
     "StarterPlayer": {
+      "$properties": {
+        "AvatarType": "R6"
+      },
       "StarterPlayerScripts": {
         "Client": {
           "$path": "src/client"
