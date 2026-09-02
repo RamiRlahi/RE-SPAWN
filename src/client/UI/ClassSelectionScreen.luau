@@ -24,11 +24,15 @@ local ARMOR_WELD_MAP: { [string]: string } = {
 	heavyknight_BELT        = "Torso",
 	leftleg                 = "Left Leg",
 	rightleg                = "Right Leg",
+	Accessory               = "Torso",
+	Cape                    = "Torso",
+	cape                    = "Torso",
 }
 
 -- Per-piece CFrame correction applied BEFORE the weld locks the offset in.
 local ROT270 = CFrame.Angles(0, math.rad(270), 0)
 local ROT90 = CFrame.Angles(0, math.rad(90), 0)
+
 
 local ARMOR_CFRAME_OFFSETS: { [string]: CFrame } = {
 	chestplate              = ROT270 * CFrame.new(0, 0, 0),
@@ -38,7 +42,14 @@ local ARMOR_CFRAME_OFFSETS: { [string]: CFrame } = {
 	heavyknight_BELT        = ROT270 * CFrame.new(0, -1.9, 0),
 	leftleg                 = ROT270 * CFrame.new(-0.5, 0, 0), -- 1 stud forward
 	rightleg                = ROT270 * CFrame.new(-0.5, 0, 0), -- 1 stud forward
+	Accessory               = CFrame.new(0, -0.5, 0), -- Pushed outward so cape drapes OVER the armor
+	Cape                    = ROT270 * CFrame.new(0, 0, 0),
+	cape                    = ROT270 * CFrame.new(0, 0, 0),
 }
+
+
+
+
 
 local ARMOR_SCALE = 1-- Snug fit to make the armor smaller and well-proportioned
 
@@ -50,7 +61,7 @@ local ARMOR_PIECE_NUDGES: { [string]: Vector3 } = {
 }
 
 
-local function scaleArmorPiece(piece: Model | BasePart, scale: number)
+local function scaleArmorPiece(piece: Instance, scale: number)
 	if scale == 1 then return end
 	if piece:IsA("Model") then
 		local pivot = piece:GetPivot()
@@ -62,6 +73,11 @@ local function scaleArmorPiece(piece: Model | BasePart, scale: number)
 				part.Size *= scale
 				part.CFrame = pivot * CFrame.new(scaledPos) * rot
 			end
+		end
+	elseif piece:IsA("Accessory") then
+		local handle = piece:FindFirstChild("Handle")
+		if handle and handle:IsA("BasePart") then
+			handle.Size *= scale
 		end
 	elseif piece:IsA("BasePart") then
 		piece.Size *= scale
@@ -169,13 +185,24 @@ local function applyClassCosmetics(classId: string)
 		local pieceCF: CFrame
 		if clone:IsA("Model") then
 			pieceCF = clone:GetBoundingBox()
+		elseif clone:IsA("Accessory") then
+			local handle = clone:FindFirstChild("Handle") :: BasePart?
+			if handle then
+				pieceCF = handle.CFrame
+			else
+				pieceCF = CFrame.identity
+			end
+		elseif clone:IsA("BasePart") then
+			pieceCF = clone.CFrame
 		else
-			pieceCF = (clone :: BasePart).CFrame
+			clone.Parent = character
+			continue
 		end
 
 		-- Snap the piece center to the limb center with rotation
 		local targetCF = targetPart.CFrame * rotOffset
 		local transform = targetCF * pieceCF:Inverse()
+
 
 		-- Apply transform to all parts
 		for _, desc in ipairs(clone:GetDescendants()) do

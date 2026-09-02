@@ -8,14 +8,9 @@ local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
 local ClassManager = require(script.Parent:WaitForChild("ClassManager"))
 local AnimationManager = require(script.Parent:WaitForChild("AnimationManager"))
 
-local capeModule = script.Parent:FindFirstChild("CapeController")
-local CapeController = capeModule and require(capeModule) or nil
-if not CapeController then
-	warn("[PlayerManager] CapeController not found — sync Rojo and re-run. Cape will be skipped.")
-end
-
 
 local PlayerManager = {}
+
 
 local DEFAULT_CHURCH_SPAWN_CRAME = CFrame.new(0, 5, 0)
 
@@ -116,6 +111,9 @@ local ARMOR_WELD_MAP: { [string]: string } = {
 	heavyknight_BELT        = "Torso",
 	leftleg                 = "Left Leg",
 	rightleg                = "Right Leg",
+	Accessory               = "Torso",
+	Cape                    = "Torso",
+	cape                    = "Torso",
 }
 
 local ROT270 = CFrame.Angles(0, math.rad(270), 0)
@@ -130,14 +128,16 @@ local ARMOR_CFRAME_OFFSETS: { [string]: CFrame } = {
 	heavyknight_BELT        = ROT270 * CFrame.new(0, -1.9, 0),
 	leftleg                 = ROT270 * CFrame.new(-0.5, 0, 0), -- 1 stud forward
 	rightleg                = ROT270 * CFrame.new(-0.5, 0, 0), -- 1 stud forward
+	Accessory               = CFrame.new(0, -0.5, 1), -- Pushed outward so cape drapes OVER the armor
+	Cape                    = ROT270 * CFrame.new(0, 0, 1),
+	cape                    = ROT270 * CFrame.new(0, 0, 1),
 }
-
 
 
 local ARMOR_SCALE = 1
 
 
-local function scaleArmorPiece(piece: Model | BasePart, scale: number)
+local function scaleArmorPiece(piece: Instance, scale: number)
 	if scale == 1 then return end
 	if piece:IsA("Model") then
 		local pivot = piece:GetPivot()
@@ -150,10 +150,16 @@ local function scaleArmorPiece(piece: Model | BasePart, scale: number)
 				part.CFrame = pivot * CFrame.new(scaledPos) * rot
 			end
 		end
+	elseif piece:IsA("Accessory") then
+		local handle = piece:FindFirstChild("Handle")
+		if handle and handle:IsA("BasePart") then
+			handle.Size *= scale
+		end
 	elseif piece:IsA("BasePart") then
 		piece.Size *= scale
 	end
 end
+
 
 local function weldArmorPiece(piece: Model | BasePart, targetPart: BasePart, pieceName: string)
 	scaleArmorPiece(piece, ARMOR_SCALE)
@@ -215,7 +221,9 @@ local function equipClassArmor(character: Model, classId: string)
 
 	-- Position each armor piece individually on its target limb
 	for _, piece in ipairs(armorFolder:GetChildren()) do
+		print(`[ArmorEquip] Processing armor piece: "{piece.Name}" (ClassName: {piece.ClassName})`)
 		local clone = piece:Clone()
+
 
 		-- Scale first
 		scaleArmorPiece(clone, ARMOR_SCALE)
@@ -235,8 +243,18 @@ local function equipClassArmor(character: Model, classId: string)
 		local pieceCF: CFrame
 		if clone:IsA("Model") then
 			pieceCF = clone:GetBoundingBox()
+		elseif clone:IsA("Accessory") then
+			local handle = clone:FindFirstChild("Handle") :: BasePart?
+			if handle then
+				pieceCF = handle.CFrame
+			else
+				pieceCF = CFrame.identity
+			end
+		elseif clone:IsA("BasePart") then
+			pieceCF = clone.CFrame
 		else
-			pieceCF = (clone :: BasePart).CFrame
+			clone.Parent = character
+			continue
 		end
 
 		-- Snap the piece center to the limb center with rotation
@@ -282,6 +300,7 @@ local function equipClassArmor(character: Model, classId: string)
 			weld.Parent = clone
 		end
 	end
+
 end
 
 
@@ -304,12 +323,10 @@ end
 				humanoid.JumpHeight = 7.2
 			end
 
-			-- Equip permanent server-side armor and cape
+			-- Equip permanent server-side armor
 			equipClassArmor(character, classId)
-			if CapeController then
-				CapeController.AttachCape(character)
-			end
 		end
+
 
 		print(`[PlayerManager] {player.Name} successfully entered the game as {classId}`)
 	end)
