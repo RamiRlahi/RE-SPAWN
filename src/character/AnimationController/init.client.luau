@@ -32,7 +32,7 @@ local CLASS_ANIMATIONS = {
 		idle = "rbxassetid://86968114690424",
 	},
 	heavy_knight = {
-		walk = "rbxassetid://99392611630257",
+		walk = "rbxassetid://110753782425862",
 		run = "rbxassetid://131143543582644",
 		idle = "rbxassetid://79280836238386",
 	}
