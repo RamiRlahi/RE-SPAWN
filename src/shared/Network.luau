@@ -7,10 +7,12 @@ local Network = {}
 
 -- Predefined remote names
 Network.Remotes = {
-	SelectClass = "SelectClass",
+	SelectClass    = "SelectClass",
 	ClassConfirmed = "ClassConfirmed",
-	SaveSettings = "SaveSettings",
-	SpawnInChurch = "SpawnInChurch",
+	SaveSettings   = "SaveSettings",
+	SpawnInChurch  = "SpawnInChurch",
+	PlayAnimation  = "PlayAnimation",   -- server → client: { idle, walk, sprint } config
+	SetSprint      = "SetSprint",       -- client → server: boolean (sprinting?)
 }
 
 local function getFolder(): Folder

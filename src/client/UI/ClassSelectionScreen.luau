@@ -10,6 +10,242 @@ local SoundManager = require(script.Parent:WaitForChild("SoundManager"))
 
 local player = Players.LocalPlayer
 
+-- Class Armor Preview: maps classId -> armor folder name under ReplicatedStorage.Assets.Classes
+local CLASS_ARMOR_FOLDERS: { [string]: string } = {
+	heavy_knight = "heavy knight armor",
+}
+
+-- Maps armor piece name -> R6 body part name it should be welded to
+local ARMOR_WELD_MAP: { [string]: string } = {
+	chestplate              = "Torso",
+	gauntlet_heavyknight    = "Left Arm", -- The left gauntlet
+	leftarm_heavyknight     = "Left Arm",
+	rightarm_heavyknight    = "Right Arm",
+	heavyknight_BELT        = "Torso",
+	leftleg                 = "Left Leg",
+	rightleg                = "Right Leg",
+	Accessory               = "Torso",
+	Cape                    = "Torso",
+	cape                    = "Torso",
+}
+
+-- Per-piece CFrame correction applied BEFORE the weld locks the offset in.
+local ROT270 = CFrame.Angles(0, math.rad(270), 0)
+local ROT90 = CFrame.Angles(0, math.rad(90), 0)
+
+
+local ARMOR_CFRAME_OFFSETS: { [string]: CFrame } = {
+	chestplate              = ROT270 * CFrame.new(0, 0, 0),
+	gauntlet_heavyknight    = ROT90 * CFrame.new(0, 0, 0),
+	leftarm_heavyknight     = ROT270 * CFrame.new(0, -0.2, 0),
+	rightarm_heavyknight    = ROT270 * CFrame.new(0, -0.2, 0),
+	heavyknight_BELT        = ROT270 * CFrame.new(0, -1.9, 0),
+	leftleg                 = ROT270 * CFrame.new(-0.5, 0, 0), -- 1 stud forward
+	rightleg                = ROT270 * CFrame.new(-0.5, 0, 0), -- 1 stud forward
+	Accessory               = CFrame.new(0, -0.5, 0), -- Pushed outward so cape drapes OVER the armor
+	Cape                    = ROT270 * CFrame.new(0, 0, 0),
+	cape                    = ROT270 * CFrame.new(0, 0, 0),
+}
+
+
+
+
+
+local ARMOR_SCALE = 1-- Snug fit to make the armor smaller and well-proportioned
+
+-- Per-piece forward nudge offsets applied in character space (Z negative = forward)
+local ARMOR_PIECE_NUDGES: { [string]: Vector3 } = {
+	gauntlet_heavyknight = Vector3.new(0, 0, -0.35),
+	leftarm_heavyknight  = Vector3.new(0, 0, -0.35),
+	leftleg              = Vector3.new(0, 0, -0.25),
+}
+
+
+local function scaleArmorPiece(piece: Instance, scale: number)
+	if scale == 1 then return end
+	if piece:IsA("Model") then
+		local pivot = piece:GetPivot()
+		for _, part in ipairs(piece:GetDescendants()) do
+			if part:IsA("BasePart") then
+				local relative = pivot:ToObjectSpace(part.CFrame)
+				local scaledPos = relative.Position * scale
+				local rot = relative - relative.Position
+				part.Size *= scale
+				part.CFrame = pivot * CFrame.new(scaledPos) * rot
+			end
+		end
+	elseif piece:IsA("Accessory") then
+		local handle = piece:FindFirstChild("Handle")
+		if handle and handle:IsA("BasePart") then
+			handle.Size *= scale
+		end
+	elseif piece:IsA("BasePart") then
+		piece.Size *= scale
+	end
+end
+
+local function weldArmorPiece(piece: Model | BasePart, targetPart: BasePart, pieceName: string)
+	-- Scale the armor piece first
+	scaleArmorPiece(piece, ARMOR_SCALE)
+
+	-- Get all BaseParts in the piece
+	local parts: { BasePart } = {}
+	if piece:IsA("BasePart") then
+		table.insert(parts, piece)
+	elseif piece:IsA("Model") then
+		for _, desc in ipairs(piece:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				table.insert(parts, desc)
+			end
+		end
+	end
+
+	if #parts == 0 then
+		warn(`[ClassSelection] ⚠️ Piece "{pieceName}" has 0 BaseParts!`)
+		return
+	end
+
+	local offset = ARMOR_CFRAME_OFFSETS[pieceName] or CFrame.identity
+
+	-- Calculate the true bounding-box center and rotation of the armor piece
+	local pieceCFrame: CFrame
+	if piece:IsA("Model") then
+		local cf, size = piece:GetBoundingBox()
+		pieceCFrame = cf
+		print(`  [WeldDetails] "{pieceName}" is Model (#parts: {#parts}, Size: {size}, BoxPos: {cf.Position})`)
+	else
+		pieceCFrame = piece.CFrame
+		print(`  [WeldDetails] "{pieceName}" is BasePart (Size: {piece.Size}, Pos: {piece.Position})`)
+	end
+
+	-- Compute transformation to align armor center with target part CFrame + offset
+	local targetCF = targetPart.CFrame * offset
+	local transform = targetCF * pieceCFrame:Inverse()
+
+	for _, part in ipairs(parts) do
+		part.CanCollide = false
+		part.CanTouch = false
+		part.CanQuery = false
+		part.Massless = true
+		part.CFrame = transform * part.CFrame
+
+		local weld = Instance.new("WeldConstraint")
+		weld.Name = "ArmorWeld"
+		weld.Part0 = targetPart
+		weld.Part1 = part
+		weld.Parent = part
+	end
+end
+
+local function applyClassCosmetics(classId: string)
+	local character = player.Character
+	if not character then return end
+
+	-- Remove all previously applied preview armor
+	for _, instance in ipairs(character:GetChildren()) do
+		if instance:GetAttribute("PreviewArmor") then
+			instance:Destroy()
+		end
+	end
+
+	-- Find the armor folder for this class
+	local folderName = CLASS_ARMOR_FOLDERS[classId]
+	if not folderName then return end
+
+	local armorFolder = ReplicatedStorage
+		:FindFirstChild("Assets")
+		:FindFirstChild("Classes")
+		:FindFirstChild(folderName)
+
+	if not armorFolder then
+		warn("[ClassSelection] Armor folder not found:", folderName)
+		return
+	end
+
+	-- Position each armor piece individually on its target limb
+	for _, piece in ipairs(armorFolder:GetChildren()) do
+		local clone = piece:Clone()
+		clone:SetAttribute("PreviewArmor", true)
+
+		-- Scale first
+		scaleArmorPiece(clone, ARMOR_SCALE)
+
+		-- Determine the target R6 body part
+		local targetPartName = ARMOR_WELD_MAP[piece.Name] or "Torso"
+		local targetPart = character:FindFirstChild(targetPartName) :: BasePart?
+		if not targetPart then
+			clone.Parent = character
+			continue
+		end
+
+		-- Get the rotation offset for this piece
+		local rotOffset = ARMOR_CFRAME_OFFSETS[piece.Name] or CFrame.identity
+
+		-- Get the bounding box center of this piece
+		local pieceCF: CFrame
+		if clone:IsA("Model") then
+			pieceCF = clone:GetBoundingBox()
+		elseif clone:IsA("Accessory") then
+			local handle = clone:FindFirstChild("Handle") :: BasePart?
+			if handle then
+				pieceCF = handle.CFrame
+			else
+				pieceCF = CFrame.identity
+			end
+		elseif clone:IsA("BasePart") then
+			pieceCF = clone.CFrame
+		else
+			clone.Parent = character
+			continue
+		end
+
+		-- Snap the piece center to the limb center with rotation
+		local targetCF = targetPart.CFrame * rotOffset
+		local transform = targetCF * pieceCF:Inverse()
+
+
+		-- Apply transform to all parts
+		for _, desc in ipairs(clone:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				desc.CanCollide = false
+				desc.CanTouch = false
+				desc.CanQuery = false
+				desc.Massless = true
+				desc.CFrame = transform * desc.CFrame
+			end
+		end
+		if clone:IsA("BasePart") then
+			local bp = clone :: BasePart
+			bp.CanCollide = false
+			bp.CanTouch = false
+			bp.CanQuery = false
+			bp.Massless = true
+			bp.CFrame = transform * bp.CFrame
+		end
+
+		clone.Parent = character
+
+		-- Weld every BasePart in this piece to the target limb
+		for _, desc in ipairs(clone:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				local weld = Instance.new("WeldConstraint")
+				weld.Name = "ArmorWeld"
+				weld.Part0 = targetPart
+				weld.Part1 = desc
+				weld.Parent = desc
+			end
+		end
+		if clone:IsA("BasePart") then
+			local weld = Instance.new("WeldConstraint")
+			weld.Name = "ArmorWeld"
+			weld.Part0 = targetPart
+			weld.Part1 = clone :: BasePart
+			weld.Parent = clone
+		end
+	end
+end
+
+
 export type ClassSelectionCallbacks = {
 	onBackToTitle: () -> (),
 	onConfirmClass: (classId: string) -> (),
@@ -529,6 +765,9 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		local classId = ClassData.Order[index]
 		local info = ClassData.GetClass(classId)
 		if not info then return end
+
+		-- Apply class-specific cosmetic armor preview on the character
+		applyClassCosmetics(classId)
 
 		headerCounter.Text = `CLASS {index} OF {#ClassData.Order} • {info.name:upper()}`
 
