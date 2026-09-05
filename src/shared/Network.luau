@@ -13,6 +13,8 @@ Network.Remotes = {
 	SpawnInChurch  = "SpawnInChurch",
 	PlayAnimation  = "PlayAnimation",   -- server → client: { idle, walk, sprint } config
 	SetSprint      = "SetSprint",       -- client → server: boolean (sprinting?)
+	PerformAttack  = "PerformAttack",   -- client → server: { attackType, comboStep }
+	DungeonMapData = "DungeonMapData",  -- server → client: map grid payload for minimap overlay
 }
 
 local function getFolder(): Folder

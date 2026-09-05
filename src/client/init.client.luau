@@ -42,6 +42,17 @@ if not successIso then
 	warn("[Client ERROR] Failed to load IsometricCamera:", IsometricCamera)
 end
 
+-- Safely require TorchLightController
+local successTorch, TorchLightController = pcall(function()
+	return require(script:WaitForChild("TorchLightController"))
+end)
+
+if successTorch and TorchLightController then
+	pcall(function()
+		TorchLightController.Start()
+	end)
+end
+
 if successUI and UIManager then
 	local successInit, err = pcall(function()
 		UIManager.Init(function(selectedClassId: string)

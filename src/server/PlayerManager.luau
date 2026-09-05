@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
+local AtmosphereManager = require(Shared:WaitForChild("AtmosphereManager"))
 local ClassManager = require(script.Parent:WaitForChild("ClassManager"))
 local AnimationManager = require(script.Parent:WaitForChild("AnimationManager"))
 
@@ -34,6 +35,9 @@ local function setupCharacter(player: Player, character: Model)
 
 	if not humanoid or not rootPart then return end
 
+	-- Attach player torch light & embers
+	AtmosphereManager.AttachTorchLight(character)
+
 	local inLobby = player:GetAttribute("InLobby")
 	if inLobby == nil or inLobby == true then
 		-- Position in church / lobby
@@ -61,6 +65,8 @@ end
 
 
 function PlayerManager.Init()
+	AtmosphereManager.ApplyDungeonLighting()
+
 	-- Listen for settings save from client
 	local saveSettingsRemote = Network.GetRemoteEvent(Network.Remotes.SaveSettings)
 	saveSettingsRemote.OnServerEvent:Connect(function(player: Player, clientSettings: any)
@@ -79,9 +85,18 @@ function PlayerManager.Init()
 		if character then
 			local humanoid = character:FindFirstChildOfClass("Humanoid")
 			if humanoid and humanoid.Health > 0 then
-				humanoid.WalkSpeed = sprinting and 26 or 16
+				humanoid.WalkSpeed = sprinting and 34 or 16
 			end
 		end
+	end)
+
+	-- Handle attack from client
+	local performAttackRemote = Network.GetRemoteEvent(Network.Remotes.PerformAttack)
+	performAttackRemote.OnServerEvent:Connect(function(player: Player, attackData: any)
+		if player:GetAttribute("InLobby") == true then return end
+		local character = player.Character
+		if not character then return end
+		print(`[PlayerManager] {player.Name} performed attack:`, attackData)
 	end)
 
 	-- Handle player joining
@@ -126,8 +141,8 @@ local ARMOR_CFRAME_OFFSETS: { [string]: CFrame } = {
 	leftarm_heavyknight     = ROT270 * CFrame.new(0, -0.2, 0),
 	rightarm_heavyknight    = ROT270 * CFrame.new(0, -0.2, 0),
 	heavyknight_BELT        = ROT270 * CFrame.new(0, -1.9, 0),
-	leftleg                 = ROT270 * CFrame.new(-0.5, 0, 0), -- 1 stud forward
-	rightleg                = ROT270 * CFrame.new(-0.5, 0, 0), -- 1 stud forward
+	leftleg                 = ROT270 * CFrame.Angles(0, 0, math.rad(10)) * CFrame.new(-0.1, 0, 0),
+	rightleg                = ROT270 * CFrame.Angles(0, 0, math.rad(10)) * CFrame.new(-0.1, 0, 0),
 	Accessory               = CFrame.new(0, -0.5, 1), -- Pushed outward so cape drapes OVER the armor
 	Cape                    = ROT270 * CFrame.new(0, 0, 1),
 	cape                    = ROT270 * CFrame.new(0, 0, 1),
@@ -135,6 +150,11 @@ local ARMOR_CFRAME_OFFSETS: { [string]: CFrame } = {
 
 
 local ARMOR_SCALE = 1
+
+local ARMOR_PIECE_SCALES: { [string]: number } = {
+	leftleg  = 1.08, -- Slightly enlarged to fit over boots cleanly
+	rightleg = 1.08,
+}
 
 
 local function scaleArmorPiece(piece: Instance, scale: number)
@@ -162,7 +182,8 @@ end
 
 
 local function weldArmorPiece(piece: Model | BasePart, targetPart: BasePart, pieceName: string)
-	scaleArmorPiece(piece, ARMOR_SCALE)
+	local pieceScale = ARMOR_PIECE_SCALES[pieceName] or ARMOR_SCALE
+	scaleArmorPiece(piece, pieceScale)
 
 	local parts: { BasePart } = {}
 	if piece:IsA("BasePart") then
@@ -226,7 +247,8 @@ local function equipClassArmor(character: Model, classId: string)
 
 
 		-- Scale first
-		scaleArmorPiece(clone, ARMOR_SCALE)
+		local pieceScale = ARMOR_PIECE_SCALES[piece.Name] or ARMOR_SCALE
+		scaleArmorPiece(clone, pieceScale)
 
 		-- Determine target R6 limb
 		local targetPartName = ARMOR_WELD_MAP[piece.Name] or "Torso"

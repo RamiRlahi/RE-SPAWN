@@ -26,6 +26,7 @@ end
 local TitleScreen = safeRequire("TitleScreen")
 local SettingsModal = safeRequire("SettingsModal")
 local ClassSelectionScreen = safeRequire("ClassSelectionScreen")
+local MinimapUI = safeRequire("MinimapUI")
 
 local LobbyCamera: any = nil
 pcall(function()
@@ -105,6 +106,13 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 				onGameStartRequested(classId)
 			end,
 		})
+	end
+
+	-- 4. Initialize Minimap Overlay
+	if MinimapUI then
+		pcall(function()
+			MinimapUI.Init()
+		end)
 	end
 
 	-- Start on Title Screen

@@ -40,8 +40,8 @@ local ARMOR_CFRAME_OFFSETS: { [string]: CFrame } = {
 	leftarm_heavyknight     = ROT270 * CFrame.new(0, -0.2, 0),
 	rightarm_heavyknight    = ROT270 * CFrame.new(0, -0.2, 0),
 	heavyknight_BELT        = ROT270 * CFrame.new(0, -1.9, 0),
-	leftleg                 = ROT270 * CFrame.new(-0.5, 0, 0), -- 1 stud forward
-	rightleg                = ROT270 * CFrame.new(-0.5, 0, 0), -- 1 stud forward
+	leftleg                 = ROT270 * CFrame.Angles(0, 0, math.rad(10)) * CFrame.new(-0.1, 0, 0),
+	rightleg                = ROT270 * CFrame.Angles(0, 0, math.rad(10)) * CFrame.new(-0.1, 0, 0),
 	Accessory               = CFrame.new(0, -0.5, 0), -- Pushed outward so cape drapes OVER the armor
 	Cape                    = ROT270 * CFrame.new(0, 0, 0),
 	cape                    = ROT270 * CFrame.new(0, 0, 0),
@@ -53,11 +53,15 @@ local ARMOR_CFRAME_OFFSETS: { [string]: CFrame } = {
 
 local ARMOR_SCALE = 1-- Snug fit to make the armor smaller and well-proportioned
 
+local ARMOR_PIECE_SCALES: { [string]: number } = {
+	leftleg  = 1.08, -- Slightly enlarged to fit over boots cleanly
+	rightleg = 1.08,
+}
+
 -- Per-piece forward nudge offsets applied in character space (Z negative = forward)
 local ARMOR_PIECE_NUDGES: { [string]: Vector3 } = {
 	gauntlet_heavyknight = Vector3.new(0, 0, -0.35),
 	leftarm_heavyknight  = Vector3.new(0, 0, -0.35),
-	leftleg              = Vector3.new(0, 0, -0.25),
 }
 
 
@@ -86,7 +90,8 @@ end
 
 local function weldArmorPiece(piece: Model | BasePart, targetPart: BasePart, pieceName: string)
 	-- Scale the armor piece first
-	scaleArmorPiece(piece, ARMOR_SCALE)
+	local pieceScale = ARMOR_PIECE_SCALES[pieceName] or ARMOR_SCALE
+	scaleArmorPiece(piece, pieceScale)
 
 	-- Get all BaseParts in the piece
 	local parts: { BasePart } = {}
@@ -168,7 +173,8 @@ local function applyClassCosmetics(classId: string)
 		clone:SetAttribute("PreviewArmor", true)
 
 		-- Scale first
-		scaleArmorPiece(clone, ARMOR_SCALE)
+		local pieceScale = ARMOR_PIECE_SCALES[piece.Name] or ARMOR_SCALE
+		scaleArmorPiece(clone, pieceScale)
 
 		-- Determine the target R6 body part
 		local targetPartName = ARMOR_WELD_MAP[piece.Name] or "Torso"
