@@ -2,6 +2,7 @@ local ClassManager      = require(script:WaitForChild("ClassManager"))
 local PlayerManager     = require(script:WaitForChild("PlayerManager"))
 local WeaponManager     = require(script:WaitForChild("WeaponManager"))
 local AnimationManager  = require(script:WaitForChild("AnimationManager"))
+local SkillManager      = require(script:WaitForChild("SkillManager"))
 local DungeonGenerator  = require(script:WaitForChild("DungeonGenerator"))
 
 print("[Server] Initializing SoloProject Game Server...")
@@ -10,6 +11,7 @@ ClassManager.Init()
 PlayerManager.Init()
 WeaponManager.Init()
 AnimationManager.Init()
+SkillManager.Init()
 
 -- Generate initial procedural roguelite dungeon
 task.spawn(function()
@@ -21,9 +23,16 @@ task.spawn(function()
 	})
 end)
 
--- When a player confirms their class, equip their weapon and teleport into dungeon spawn
+-- When a player confirms their class, equip their weapon, apply dungeon lighting and teleport into dungeon spawn
 ClassManager.OnClassSelected(function(player: Player, classId: string)
 	WeaponManager.EquipWeapon(player, classId)
+
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local Shared = ReplicatedStorage:FindFirstChild("Shared")
+	if Shared then
+		local AtmosphereManager = require(Shared:FindFirstChild("AtmosphereManager") :: ModuleScript)
+		AtmosphereManager.ApplyDungeonLighting()
+	end
 
 	local char = player.Character
 	if char then
@@ -44,8 +53,6 @@ ClassManager.OnClassSelected(function(player: Player, classId: string)
 			warn(`[Server WARNING] Spawn CFrame not ready for {player.Name}`)
 		end
 
-		local ReplicatedStorage = game:GetService("ReplicatedStorage")
-		local Shared = ReplicatedStorage:FindFirstChild("Shared")
 		if Shared then
 			local AtmosphereManager = require(Shared:FindFirstChild("AtmosphereManager") :: ModuleScript)
 			AtmosphereManager.AttachTorchLight(char)

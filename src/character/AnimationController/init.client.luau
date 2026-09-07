@@ -607,7 +607,7 @@ end
 UserInputService.InputBegan:Connect(function(input, gpe)
 	if gpe then return end
 
-	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift or input.KeyCode == Enum.KeyCode.Q then
+	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
 		if not isSprinting then
 			isSprinting = true
 			playDashShockwaveVFX()
@@ -622,7 +622,7 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift or input.KeyCode == Enum.KeyCode.Q then
+	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
 		isSprinting = false
 		stopSpeedSprintVFX()
 		pcall(function()
@@ -671,9 +671,16 @@ function UpdateMovement()
 		return
 	end
 
-	-- During attack swing, keep character stationary
-	if isAttacking then
-		humanoid.WalkSpeed = 0
+	-- During attack swing or skill cast, keep character stationary (unless skill manages velocity)
+	if isAttacking or character:GetAttribute("IsSkillCasting") == true then
+		if character:GetAttribute("IsSkillCasting") == true and character:GetAttribute("AllowSkillMovement") == true then
+			-- Skill allows movement (e.g. spin attack or dash)
+			if humanoid.WalkSpeed == 0 then
+				humanoid.WalkSpeed = WALK_SPEED
+			end
+		else
+			humanoid.WalkSpeed = 0
+		end
 		stopSpeedSprintVFX()
 		return
 	end

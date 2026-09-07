@@ -53,6 +53,19 @@ if successTorch and TorchLightController then
 	end)
 end
 
+-- Safely require SkillController
+local successSkill, SkillController = pcall(function()
+	return require(script:WaitForChild("SkillController"))
+end)
+
+if successSkill and SkillController then
+	pcall(function()
+		SkillController.Init()
+	end)
+else
+	warn("[Client ERROR] Failed to load SkillController:", SkillController)
+end
+
 if successUI and UIManager then
 	local successInit, err = pcall(function()
 		UIManager.Init(function(selectedClassId: string)

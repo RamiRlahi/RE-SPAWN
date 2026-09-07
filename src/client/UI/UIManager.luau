@@ -27,6 +27,7 @@ local TitleScreen = safeRequire("TitleScreen")
 local SettingsModal = safeRequire("SettingsModal")
 local ClassSelectionScreen = safeRequire("ClassSelectionScreen")
 local MinimapUI = safeRequire("MinimapUI")
+local GameHUD = safeRequire("GameHUD")
 
 local LobbyCamera: any = nil
 pcall(function()
@@ -115,6 +116,14 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 		end)
 	end
 
+	-- 5. Initialize Game HUD (hidden until game starts)
+	if GameHUD then
+		pcall(function()
+			GameHUD.Init()
+			GameHUD.SetVisible(false)
+		end)
+	end
+
 	-- Start on Title Screen
 	if titleScreenGroup then
 		titleScreenGroup.Visible = true
@@ -191,6 +200,13 @@ function UIManager.FadeOutToGame(onComplete: (() -> ())?)
 		if titleScreenGroup then titleScreenGroup.Visible = false end
 		if classSelectGroup then classSelectGroup.Visible = false end
 		if settingsModalGroup then settingsModalGroup.Visible = false end
+
+		-- Show the in-game HUD
+		if GameHUD then
+			pcall(function()
+				GameHUD.SetVisible(true)
+			end)
+		end
 
 		if onComplete then
 			onComplete()

@@ -65,7 +65,7 @@ end
 
 
 function PlayerManager.Init()
-	AtmosphereManager.ApplyDungeonLighting()
+	AtmosphereManager.ApplyLobbyLighting()
 
 	-- Listen for settings save from client
 	local saveSettingsRemote = Network.GetRemoteEvent(Network.Remotes.SaveSettings)

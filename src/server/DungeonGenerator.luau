@@ -27,8 +27,13 @@ local DungeonGenerator = {}
 local FLOOR_SIZE        = 12    -- Floor tile grid unit (12x12 studs)
 local WALL_PIECE_LEN    = 17    -- Wall piece standard dimension (17x17 studs)
 local CORRIDOR_WIDTH    = 2     -- 2 tiles wide = 24 studs for great action combat
-local FLOOR_Y_OFFSET    = 4     -- Floor tile vertical elevation (lowered by 4 studs)
-local WALL_Y_OFFSET     = 11    -- Wall & Pillar vertical elevation (lowered by 1 stud)
+local FLOOR_Y_OFFSET    = 4     -- Tier 0 floor tile elevation (4 studs)
+local WALL_Y_OFFSET     = 11    -- Tier 0 wall elevation (11 studs)
+
+-- Stair & Multi-Floor Dimensions (13 studs vertical rise, 21 studs length, 11 studs width)
+local STAIR_WIDTH       = 11    -- Stair model width (studs)
+local STAIR_HEIGHT      = 13    -- Vertical height per floor tier (13 studs rise)
+local STAIR_LENGTH      = 21    -- Horizontal stair length (21 studs)
 
 -- ── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,9 +52,24 @@ type DoorwayData = {
 	rotY: number,
 }
 
+type StairData = {
+	cframe: CFrame,
+	lowerFloorY: number,
+	upperFloorY: number,
+}
+
+type CellData = {
+	floorY: number,
+	wallY: number,
+	tier: number,
+}
+
 type RoomData = {
 	id: number,
 	roomType: RoomType,
+	tier: number,             -- Vertical floor level (0, 1, 2, etc.)
+	floorY: number,           -- Base floor Y elevation for this room
+	wallY: number,            -- Base wall Y elevation for this room
 	gx: number,
 	gz: number,
 	w: number,
@@ -69,20 +89,22 @@ local activeSeed: number = 0
 
 -- Asset Cache
 local assets = {
-	floors    = {} :: { Instance },
-	walls     = {} :: { Instance },
-	pillars   = {} :: { Instance },
-	gates     = {} :: { Instance },
-	barriers  = {} :: { Instance },
-	rubble    = {} :: { Instance },
-	stairs    = {} :: { Instance },
-	cosmetics = {} :: { Instance },
+	floors       = {} :: { Instance },
+	centerPieces = {} :: { Instance },
+	walls        = {} :: { Instance },
+	pillars      = {} :: { Instance },
+	gates        = {} :: { Instance },
+	barriers     = {} :: { Instance },
+	rubble       = {} :: { Instance },
+	stairs       = {} :: { Instance },
+	cosmetics    = {} :: { Instance },
 }
 
 -- ── Asset Discovery & Category Separation ────────────────────────────────────
 
 local function loadAssets()
 	table.clear(assets.floors)
+	table.clear(assets.centerPieces)
 	table.clear(assets.walls)
 	table.clear(assets.pillars)
 	table.clear(assets.gates)
@@ -109,7 +131,40 @@ local function loadAssets()
 		end
 	end
 
-	scanFolder("Floor", assets.floors)
+	-- Discover Floors & Center Pieces (subfolder under Floor as well as root level)
+	local floorFolder = nil
+	for _, child in ipairs(root:GetChildren()) do
+		if string.lower(child.Name) == "floor" or string.lower(child.Name) == "floors" then
+			floorFolder = child
+			break
+		end
+	end
+
+	if floorFolder then
+		for _, item in ipairs(floorFolder:GetChildren()) do
+			if item:IsA("Folder") and string.lower(item.Name):find("center") then
+				for _, cp in ipairs(item:GetChildren()) do
+					if cp:IsA("Model") or cp:IsA("BasePart") then
+						table.insert(assets.centerPieces, cp)
+					end
+				end
+			elseif item:IsA("Model") or item:IsA("BasePart") then
+				table.insert(assets.floors, item)
+			end
+		end
+	end
+
+	-- Also scan root-level center pieces folder if present outside Floor
+	for _, child in ipairs(root:GetChildren()) do
+		if child:IsA("Folder") and string.lower(child.Name):find("center") and child ~= floorFolder then
+			for _, cp in ipairs(child:GetChildren()) do
+				if cp:IsA("Model") or cp:IsA("BasePart") then
+					table.insert(assets.centerPieces, cp)
+				end
+			end
+		end
+	end
+
 	scanFolder("barriers (low level)", assets.barriers)
 	scanFolder("rubble", assets.rubble)
 	scanFolder("stairs", assets.stairs)
@@ -140,13 +195,14 @@ local function loadAssets()
 
 	print(`[DungeonGenerator] Assets Cataloged:`)
 	print(`  • Floors: { #assets.floors } (12x12, Y={FLOOR_Y_OFFSET})`)
+	print(`  • Center Pieces: { #assets.centerPieces } (Center floor tiles)`)
 	print(`  • Walls: { #assets.walls } (17x17, Y={WALL_Y_OFFSET})`)
 	print(`  • Pillars: { #assets.pillars } (Corner columns)`)
 	print(`  • Gates: { #assets.gates } (Pure corridor archways, no pillars)`)
 	print(`  • Stairs: { #assets.stairs }`)
 	print(`  • Barriers: { #assets.barriers }`)
 	print(`  • Rubble: { #assets.rubble }`)
-	print(`  • Cosmetics: { #assets.cosmetics }`)
+	print(`  • Cosmetics: { #assets.cosmetics } (Raised +3.2 studs near walls/center)`)
 end
 
 -- ── Geometry & Cloner Helpers ────────────────────────────────────────────────
@@ -177,22 +233,27 @@ end
 
 -- ── 1. Graph & Layout Generation (Deterministic Critical Path + Branches) ────
 
-local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomData }, { [string]: boolean }, { DoorwayData })
+local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomData }, { [string]: CellData }, { DoorwayData }, { StairData })
 	local totalRooms = config.totalRooms or rng:NextInteger(8, 11)
 	local minTiles = config.minRoomTiles or 5
 	local maxTiles = config.maxRoomTiles or 8
 	local branchProb = config.branchProbability or 0.45
 
 	local rooms: { RoomData } = {}
-	local floorGrid: { [string]: boolean } = {}
+	local floorGrid: { [string]: CellData } = {}
 	local doorwayList: { DoorwayData } = {}
+	local stairList: { StairData } = {}
 
-	local function markFloor(x: number, z: number)
-		floorGrid[`{x}_{z}`] = true
+	local function markFloor(x: number, z: number, floorY: number, wallY: number, tier: number)
+		floorGrid[`{x}_{z}`] = {
+			floorY = floorY,
+			wallY = wallY,
+			tier = tier,
+		}
 	end
 
-	local function markDoorway(pos: Vector3, rotY: number)
-		table.insert(doorwayList, { position = pos, rotY = rotY })
+	local function hasFloor(x: number, z: number): boolean
+		return floorGrid[`{x}_{z}`] ~= nil
 	end
 
 	local function doesRoomOverlap(gx: number, gz: number, w: number, d: number, padding: number): boolean
@@ -205,12 +266,15 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 		return false
 	end
 
-	-- 1. Create Start Room
+	-- 1. Create Start Room (Tier 0)
 	local startW = rng:NextInteger(minTiles, minTiles + 1)
 	local startD = rng:NextInteger(minTiles, minTiles + 1)
 	local startRoom: RoomData = {
 		id = 1,
 		roomType = "Start",
+		tier = 0,
+		floorY = FLOOR_Y_OFFSET,
+		wallY = WALL_Y_OFFSET,
 		gx = 0,
 		gz = 0,
 		w = startW,
@@ -221,60 +285,163 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 	table.insert(rooms, startRoom)
 	for x = 0, startW - 1 do
 		for z = 0, startD - 1 do
-			markFloor(x, z)
+			markFloor(x, z, FLOOR_Y_OFFSET, WALL_Y_OFFSET, 0)
 		end
 	end
 
-	-- Corridor carver with gate/doorway placement
-	local function carveCorridor(fromRoom: RoomData, toGX: number, toGZ: number, toW: number, toD: number, dir: number, corridorLen: number)
+	-- Multi-floor corridor carver with inter-floor stair placement
+	local function carveCorridor(
+		fromRoom: RoomData,
+		toRoomTier: number,
+		toRoomFloorY: number,
+		toRoomWallY: number,
+		toGX: number,
+		toGZ: number,
+		toW: number,
+		toD: number,
+		dir: number,
+		corridorLen: number
+	)
+		local t1, y1, wY1 = fromRoom.tier, fromRoom.floorY, fromRoom.wallY
+		local t2, y2, wY2 = toRoomTier, toRoomFloorY, toRoomWallY
+		local isStair = (t1 ~= t2)
+		local midStep = math.floor(corridorLen / 2)
+
 		if dir == 0 then -- North (-Z)
 			local startX = fromRoom.gx + math.floor((fromRoom.w - CORRIDOR_WIDTH) / 2)
-			for step = 1, corridorLen do
+			if isStair then
 				for offset = 0, CORRIDOR_WIDTH - 1 do
 					local fx = startX + offset
-					local fz = fromRoom.gz - step
-					markFloor(fx, fz)
+					markFloor(fx, fromRoom.gz - 1, y1, wY1, t1)
+					for step = 3, corridorLen do
+						markFloor(fx, fromRoom.gz - step, y2, wY2, t2)
+					end
 				end
+
+				local gatePos = Vector3.new((startX + 0.5) * FLOOR_SIZE, wY1, (fromRoom.gz - 0.5) * FLOOR_SIZE)
+				table.insert(doorwayList, { position = gatePos, rotY = 180 })
+
+				local minFY = math.min(y1, y2)
+				local stairZ = (fromRoom.gz - 2) * FLOOR_SIZE
+				local stairX = (startX + (CORRIDOR_WIDTH / 2) - 0.5) * FLOOR_SIZE
+				local rotY = (t2 > t1) and 180 or 0
+				local stairCF = CFrame.new(stairX, minFY, stairZ) * CFrame.Angles(0, math.rad(rotY), 0)
+				table.insert(stairList, { cframe = stairCF, lowerFloorY = minFY, upperFloorY = math.max(y1, y2) })
+
+				local archwayPos = Vector3.new(stairX, wY2, (fromRoom.gz - 2.5) * FLOOR_SIZE)
+				table.insert(doorwayList, { position = archwayPos, rotY = 180 })
+			else
+				for step = 1, corridorLen do
+					for offset = 0, CORRIDOR_WIDTH - 1 do
+						markFloor(startX + offset, fromRoom.gz - step, y1, wY1, t1)
+					end
+				end
+				local gatePos = Vector3.new((startX + 0.5) * FLOOR_SIZE, wY1, (fromRoom.gz - 0.5) * FLOOR_SIZE)
+				table.insert(doorwayList, { position = gatePos, rotY = 180 })
 			end
-			local gatePos = Vector3.new((startX + 0.5) * FLOOR_SIZE, WALL_Y_OFFSET, (fromRoom.gz - 0.5) * FLOOR_SIZE)
-			markDoorway(gatePos, 180)
+
 		elseif dir == 1 then -- South (+Z)
 			local startX = fromRoom.gx + math.floor((fromRoom.w - CORRIDOR_WIDTH) / 2)
-			for step = 1, corridorLen do
+			if isStair then
 				for offset = 0, CORRIDOR_WIDTH - 1 do
 					local fx = startX + offset
-					local fz = fromRoom.gz + fromRoom.d + step - 1
-					markFloor(fx, fz)
+					markFloor(fx, fromRoom.gz + fromRoom.d, y1, wY1, t1)
+					for step = 3, corridorLen do
+						markFloor(fx, fromRoom.gz + fromRoom.d + step - 1, y2, wY2, t2)
+					end
 				end
+
+				local gatePos = Vector3.new((startX + 0.5) * FLOOR_SIZE, wY1, (fromRoom.gz + fromRoom.d - 0.5) * FLOOR_SIZE)
+				table.insert(doorwayList, { position = gatePos, rotY = 0 })
+
+				local minFY = math.min(y1, y2)
+				local stairZ = (fromRoom.gz + fromRoom.d + 1) * FLOOR_SIZE
+				local stairX = (startX + (CORRIDOR_WIDTH / 2) - 0.5) * FLOOR_SIZE
+				local rotY = (t2 > t1) and 0 or 180
+				local stairCF = CFrame.new(stairX, minFY, stairZ) * CFrame.Angles(0, math.rad(rotY), 0)
+				table.insert(stairList, { cframe = stairCF, lowerFloorY = minFY, upperFloorY = math.max(y1, y2) })
+
+				local archwayPos = Vector3.new(stairX, wY2, (fromRoom.gz + fromRoom.d + 1.5) * FLOOR_SIZE)
+				table.insert(doorwayList, { position = archwayPos, rotY = 0 })
+			else
+				for step = 1, corridorLen do
+					for offset = 0, CORRIDOR_WIDTH - 1 do
+						markFloor(startX + offset, fromRoom.gz + fromRoom.d + step - 1, y1, wY1, t1)
+					end
+				end
+				local gatePos = Vector3.new((startX + 0.5) * FLOOR_SIZE, wY1, (fromRoom.gz + fromRoom.d - 0.5) * FLOOR_SIZE)
+				table.insert(doorwayList, { position = gatePos, rotY = 0 })
 			end
-			local gatePos = Vector3.new((startX + 0.5) * FLOOR_SIZE, WALL_Y_OFFSET, (fromRoom.gz + fromRoom.d - 0.5) * FLOOR_SIZE)
-			markDoorway(gatePos, 0)
+
 		elseif dir == 2 then -- East (+X)
 			local startZ = fromRoom.gz + math.floor((fromRoom.d - CORRIDOR_WIDTH) / 2)
-			for step = 1, corridorLen do
+			if isStair then
 				for offset = 0, CORRIDOR_WIDTH - 1 do
-					local fx = fromRoom.gx + fromRoom.w + step - 1
 					local fz = startZ + offset
-					markFloor(fx, fz)
+					markFloor(fromRoom.gx + fromRoom.w, fz, y1, wY1, t1)
+					for step = 3, corridorLen do
+						markFloor(fromRoom.gx + fromRoom.w + step - 1, fz, y2, wY2, t2)
+					end
 				end
+
+				local gatePos = Vector3.new((fromRoom.gx + fromRoom.w - 0.5) * FLOOR_SIZE, wY1, (startZ + 0.5) * FLOOR_SIZE)
+				table.insert(doorwayList, { position = gatePos, rotY = 90 })
+
+				local minFY = math.min(y1, y2)
+				local stairX = (fromRoom.gx + fromRoom.w + 1) * FLOOR_SIZE
+				local stairZ = (startZ + (CORRIDOR_WIDTH / 2) - 0.5) * FLOOR_SIZE
+				local rotY = (t2 > t1) and 90 or -90
+				local stairCF = CFrame.new(stairX, minFY, stairZ) * CFrame.Angles(0, math.rad(rotY), 0)
+				table.insert(stairList, { cframe = stairCF, lowerFloorY = minFY, upperFloorY = math.max(y1, y2) })
+
+				local archwayPos = Vector3.new((fromRoom.gx + fromRoom.w + 1.5) * FLOOR_SIZE, wY2, stairZ)
+				table.insert(doorwayList, { position = archwayPos, rotY = 90 })
+			else
+				for step = 1, corridorLen do
+					for offset = 0, CORRIDOR_WIDTH - 1 do
+						markFloor(fromRoom.gx + fromRoom.w + step - 1, startZ + offset, y1, wY1, t1)
+					end
+				end
+				local gatePos = Vector3.new((fromRoom.gx + fromRoom.w - 0.5) * FLOOR_SIZE, wY1, (startZ + 0.5) * FLOOR_SIZE)
+				table.insert(doorwayList, { position = gatePos, rotY = 90 })
 			end
-			local gatePos = Vector3.new((fromRoom.gx + fromRoom.w - 0.5) * FLOOR_SIZE, WALL_Y_OFFSET, (startZ + 0.5) * FLOOR_SIZE)
-			markDoorway(gatePos, 90)
+
 		else -- West (-X)
 			local startZ = fromRoom.gz + math.floor((fromRoom.d - CORRIDOR_WIDTH) / 2)
-			for step = 1, corridorLen do
+			if isStair then
 				for offset = 0, CORRIDOR_WIDTH - 1 do
-					local fx = fromRoom.gx - step
 					local fz = startZ + offset
-					markFloor(fx, fz)
+					markFloor(fromRoom.gx - 1, fz, y1, wY1, t1)
+					for step = 3, corridorLen do
+						markFloor(fromRoom.gx - step, fz, y2, wY2, t2)
+					end
 				end
+
+				local gatePos = Vector3.new((fromRoom.gx - 0.5) * FLOOR_SIZE, wY1, (startZ + 0.5) * FLOOR_SIZE)
+				table.insert(doorwayList, { position = gatePos, rotY = -90 })
+
+				local minFY = math.min(y1, y2)
+				local stairX = (fromRoom.gx - 2) * FLOOR_SIZE
+				local stairZ = (startZ + (CORRIDOR_WIDTH / 2) - 0.5) * FLOOR_SIZE
+				local rotY = (t2 > t1) and -90 or 90
+				local stairCF = CFrame.new(stairX, minFY, stairZ) * CFrame.Angles(0, math.rad(rotY), 0)
+				table.insert(stairList, { cframe = stairCF, lowerFloorY = minFY, upperFloorY = math.max(y1, y2) })
+
+				local archwayPos = Vector3.new((fromRoom.gx - 2.5) * FLOOR_SIZE, wY2, stairZ)
+				table.insert(doorwayList, { position = archwayPos, rotY = -90 })
+			else
+				for step = 1, corridorLen do
+					for offset = 0, CORRIDOR_WIDTH - 1 do
+						markFloor(fromRoom.gx - step, startZ + offset, y1, wY1, t1)
+					end
+				end
+				local gatePos = Vector3.new((fromRoom.gx - 0.5) * FLOOR_SIZE, wY1, (startZ + 0.5) * FLOOR_SIZE)
+				table.insert(doorwayList, { position = gatePos, rotY = -90 })
 			end
-			local gatePos = Vector3.new((fromRoom.gx - 0.5) * FLOOR_SIZE, WALL_Y_OFFSET, (startZ + 0.5) * FLOOR_SIZE)
-			markDoorway(gatePos, -90)
 		end
 	end
 
-	-- 2. Build Critical Path
+	-- 2. Build Critical Path across Multi-Floor Tiers
 	local criticalLength = math.max(4, totalRooms - 3)
 	local activeRoom = startRoom
 
@@ -287,6 +454,11 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 			rD = maxTiles + 1
 		end
 
+		-- Progress vertical tier every 2 rooms (Tier 0 -> Tier 1 -> Tier 2...)
+		local nextTier = math.floor((i - 1) / 2)
+		local nextFY = FLOOR_Y_OFFSET + (nextTier * STAIR_HEIGHT)
+		local nextWY = WALL_Y_OFFSET + (nextTier * STAIR_HEIGHT)
+
 		local placed = false
 		local directions = { 0, 1, 2, 3 }
 		for d = #directions, 2, -1 do
@@ -295,7 +467,7 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 		end
 
 		for _, dir in ipairs(directions) do
-			local corrLen = rng:NextInteger(3, 5)
+			local corrLen = (nextTier ~= activeRoom.tier) and 4 or rng:NextInteger(3, 5)
 			local candidateGX = activeRoom.gx
 			local candidateGZ = activeRoom.gz
 
@@ -305,15 +477,18 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 			else candidateGX = activeRoom.gx - corrLen - rW end
 
 			if not doesRoomOverlap(candidateGX, candidateGZ, rW, rD, 2) then
-				carveCorridor(activeRoom, candidateGX, candidateGZ, rW, rD, dir, corrLen)
+				carveCorridor(activeRoom, nextTier, nextFY, nextWY, candidateGX, candidateGZ, rW, rD, dir, corrLen)
 				local newRoom: RoomData = {
 					id = i,
 					roomType = isBoss and "Boss" or "Combat",
+					tier = nextTier,
+					floorY = nextFY,
+					wallY = nextWY,
 					gx = candidateGX,
 					gz = candidateGZ,
 					w = rW,
 					d = rD,
-					centerWorld = Vector3.new((candidateGX + rW / 2) * FLOOR_SIZE, FLOOR_Y_OFFSET, (candidateGZ + rD / 2) * FLOOR_SIZE),
+					centerWorld = Vector3.new((candidateGX + rW / 2) * FLOOR_SIZE, nextFY, (candidateGZ + rD / 2) * FLOOR_SIZE),
 					connections = { activeRoom.id },
 				}
 				table.insert(activeRoom.connections, i)
@@ -321,7 +496,7 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 
 				for x = candidateGX, candidateGX + rW - 1 do
 					for z = candidateGZ, candidateGZ + rD - 1 do
-						markFloor(x, z)
+						markFloor(x, z, nextFY, nextWY, nextTier)
 					end
 				end
 
@@ -332,32 +507,58 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 		end
 
 		if not placed then
-			local corrLen = 4
-			local candidateGX = activeRoom.gx + activeRoom.w + corrLen
-			local candidateGZ = activeRoom.gz
-			carveCorridor(activeRoom, candidateGX, candidateGZ, rW, rD, 2, corrLen)
-			local newRoom: RoomData = {
-				id = i,
-				roomType = isBoss and "Boss" or "Combat",
-				gx = candidateGX,
-				gz = candidateGZ,
-				w = rW,
-				d = rD,
-				centerWorld = Vector3.new((candidateGX + rW / 2) * FLOOR_SIZE, FLOOR_Y_OFFSET, (candidateGZ + rD / 2) * FLOOR_SIZE),
-				connections = { activeRoom.id },
-			}
-			table.insert(activeRoom.connections, i)
-			table.insert(rooms, newRoom)
-			for x = candidateGX, candidateGX + rW - 1 do
-				for z = candidateGZ, candidateGZ + rD - 1 do
-					markFloor(x, z)
+			-- Fallback: try progressively larger offsets in all 4 directions to find non-overlapping XZ position
+			local fallbackDirs = { 2, 1, 0, 3 } -- East, South, North, West
+			local fallbackPlaced = false
+
+			for _, fbDir in ipairs(fallbackDirs) do
+				for offsetMul = 1, 4 do
+					local corrLen = 4 + offsetMul
+					local candidateGX = activeRoom.gx
+					local candidateGZ = activeRoom.gz
+
+					if fbDir == 0 then candidateGZ = activeRoom.gz - corrLen - rD
+					elseif fbDir == 1 then candidateGZ = activeRoom.gz + activeRoom.d + corrLen
+					elseif fbDir == 2 then candidateGX = activeRoom.gx + activeRoom.w + corrLen
+					else candidateGX = activeRoom.gx - corrLen - rW end
+
+					if not doesRoomOverlap(candidateGX, candidateGZ, rW, rD, 2) then
+						carveCorridor(activeRoom, nextTier, nextFY, nextWY, candidateGX, candidateGZ, rW, rD, fbDir, corrLen)
+						local newRoom: RoomData = {
+							id = i,
+							roomType = isBoss and "Boss" or "Combat",
+							tier = nextTier,
+							floorY = nextFY,
+							wallY = nextWY,
+							gx = candidateGX,
+							gz = candidateGZ,
+							w = rW,
+							d = rD,
+							centerWorld = Vector3.new((candidateGX + rW / 2) * FLOOR_SIZE, nextFY, (candidateGZ + rD / 2) * FLOOR_SIZE),
+							connections = { activeRoom.id },
+						}
+						table.insert(activeRoom.connections, i)
+						table.insert(rooms, newRoom)
+						for x = candidateGX, candidateGX + rW - 1 do
+							for z = candidateGZ, candidateGZ + rD - 1 do
+								markFloor(x, z, nextFY, nextWY, nextTier)
+							end
+						end
+						activeRoom = newRoom
+						fallbackPlaced = true
+						break
+					end
 				end
+				if fallbackPlaced then break end
 			end
-			activeRoom = newRoom
+
+			if not fallbackPlaced then
+				warn(`[DungeonGenerator] Could not place room #{i} without XZ overlap — skipping.`)
+			end
 		end
 	end
 
-	-- 3. Side Branches (Treasure, Shop, Elite, Event)
+	-- 3. Side Branches across Multi-Floor Tiers
 	local branchTypes: { RoomType } = { "Treasure", "Shop", "Elite", "Event" }
 	local nextId = #rooms + 1
 
@@ -368,8 +569,12 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 			local bW = rng:NextInteger(minTiles, minTiles + 2)
 			local bD = rng:NextInteger(minTiles, minTiles + 2)
 
+			local branchTier = mainRoom.tier + (rng:NextNumber() < 0.5 and 1 or 0)
+			local bFY = FLOOR_Y_OFFSET + (branchTier * STAIR_HEIGHT)
+			local bWY = WALL_Y_OFFSET + (branchTier * STAIR_HEIGHT)
+
 			for dir = 0, 3 do
-				local corrLen = rng:NextInteger(3, 4)
+				local corrLen = (branchTier ~= mainRoom.tier) and 4 or rng:NextInteger(3, 4)
 				local candidateGX = mainRoom.gx
 				local candidateGZ = mainRoom.gz
 
@@ -379,15 +584,18 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 				else candidateGX = mainRoom.gx - corrLen - bW end
 
 				if not doesRoomOverlap(candidateGX, candidateGZ, bW, bD, 2) then
-					carveCorridor(mainRoom, candidateGX, candidateGZ, bW, bD, dir, corrLen)
+					carveCorridor(mainRoom, branchTier, bFY, bWY, candidateGX, candidateGZ, bW, bD, dir, corrLen)
 					local branchRoom: RoomData = {
 						id = nextId,
 						roomType = bType,
+						tier = branchTier,
+						floorY = bFY,
+						wallY = bWY,
 						gx = candidateGX,
 						gz = candidateGZ,
 						w = bW,
 						d = bD,
-						centerWorld = Vector3.new((candidateGX + bW / 2) * FLOOR_SIZE, FLOOR_Y_OFFSET, (candidateGZ + bD / 2) * FLOOR_SIZE),
+						centerWorld = Vector3.new((candidateGX + bW / 2) * FLOOR_SIZE, bFY, (candidateGZ + bD / 2) * FLOOR_SIZE),
 						connections = { mainRoom.id },
 					}
 					table.insert(mainRoom.connections, nextId)
@@ -395,7 +603,7 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 
 					for x = candidateGX, candidateGX + bW - 1 do
 						for z = candidateGZ, candidateGZ + bD - 1 do
-							markFloor(x, z)
+							markFloor(x, z, bFY, bWY, branchTier)
 						end
 					end
 
@@ -406,26 +614,69 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 		end
 	end
 
-	return rooms, floorGrid, doorwayList
+	return rooms, floorGrid, doorwayList, stairList
 end
 
 -- ── 2. Seamless Wall, Pure Gate & Pillar Placement ────────────────────────────
 
 local function constructPerimeterWallsAndPillars(
 	rooms: { RoomData },
-	floorGrid: { [string]: boolean },
+	floorGrid: { [string]: CellData },
 	doorwayList: { DoorwayData },
+	stairList: { StairData },
 	wallsFolder: Folder,
 	rng: Random
 )
 	local function hasFloor(gx: number, gz: number): boolean
-		return floorGrid[`{gx}_{gz}`] == true
+		return floorGrid[`{gx}_{gz}`] ~= nil
+	end
+
+	-- Helper: Check if a wall piece is blocking the entrance or exit opening of a staircase
+	local function isBlockingStairOpening(pos: Vector3, normal: Vector3): boolean
+		for _, stair in ipairs(stairList) do
+			local stairPos = stair.cframe.Position
+			local stairDir = (stair.cframe * CFrame.new(0, 0, -1)).Position - stairPos
+			local dirNorm = Vector3.new(stairDir.X, 0, stairDir.Z).Unit
+
+			-- Wall normal parallel to the stair length direction means it cuts across the walking path
+			local dot = math.abs(normal.X * dirNorm.X + normal.Z * dirNorm.Z)
+			if dot > 0.5 then
+				local dx = pos.X - stairPos.X
+				local dz = pos.Z - stairPos.Z
+				if math.sqrt(dx * dx + dz * dz) < 24 then
+					return true
+				end
+			end
+		end
+		return false
+	end
+
+	local function isNearStair(pos: Vector3, maxDist: number): boolean
+		for _, stair in ipairs(stairList) do
+			local stairPos = stair.cframe.Position
+			local dx = pos.X - stairPos.X
+			local dz = pos.Z - stairPos.Z
+			if math.sqrt(dx * dx + dz * dz) < maxDist then
+				return true
+			end
+		end
+		return false
+	end
+
+	-- Helper: Get wallY for a given grid cell (uses cell's tier-based wallY)
+	local function getWallY(gx: number, gz: number): number
+		local cell = floorGrid[`{gx}_{gz}`]
+		if cell then
+			return cell.wallY or WALL_Y_OFFSET
+		end
+		return WALL_Y_OFFSET
 	end
 
 	-- 1. Spawn Pure Gate Models at Corridor Entrances (NO pillars in gates)
 	local gatePositions: { Vector3 } = {}
 	for _, door in ipairs(doorwayList) do
-		local doorPosWorld = Vector3.new(door.position.X, WALL_Y_OFFSET, door.position.Z)
+		-- Use the door's own Y from the corridor carver (already tier-aware)
+		local doorPosWorld = door.position
 		table.insert(gatePositions, doorPosWorld)
 
 		local gateTemplate = pickRandom(assets.gates, rng)
@@ -437,7 +688,10 @@ local function constructPerimeterWallsAndPillars(
 
 	local function isNearGate(pos: Vector3, maxDist: number): boolean
 		for _, gPos in ipairs(gatePositions) do
-			if (pos - gPos).Magnitude < maxDist then
+			-- Compare only XZ distance for multi-floor (ignore Y difference)
+			local dx = pos.X - gPos.X
+			local dz = pos.Z - gPos.Z
+			if math.sqrt(dx * dx + dz * dz) < maxDist then
 				return true
 			end
 		end
@@ -475,7 +729,7 @@ local function constructPerimeterWallsAndPillars(
 		end
 	end
 
-	-- 3. Aggregate consecutive 12-stud edge tiles into continuous straight segments
+	-- 3. Aggregate consecutive 12-stud edge tiles into continuous straight segments (per-tier wallY)
 	type LineSegment = {
 		p1: Vector3,
 		p2: Vector3,
@@ -497,13 +751,15 @@ local function constructPerimeterWallsAndPillars(
 			while i <= #gxList do
 				local startX = gxList[i]
 				local endX = startX
-				while i + 1 <= #gxList and gxList[i + 1] == endX + 1 do
+				-- Only merge consecutive tiles that share the same tier wallY
+				local segWallY = getWallY(startX, gz)
+				while i + 1 <= #gxList and gxList[i + 1] == endX + 1 and getWallY(gxList[i + 1], gz) == segWallY do
 					i += 1
 					endX = gxList[i]
 				end
 
-				local p1 = Vector3.new((startX - 0.5) * FLOOR_SIZE, WALL_Y_OFFSET, (gz + zOffset) * FLOOR_SIZE)
-				local p2 = Vector3.new((endX + 0.5) * FLOOR_SIZE, WALL_Y_OFFSET, (gz + zOffset) * FLOOR_SIZE)
+				local p1 = Vector3.new((startX - 0.5) * FLOOR_SIZE, segWallY, (gz + zOffset) * FLOOR_SIZE)
+				local p2 = Vector3.new((endX + 0.5) * FLOOR_SIZE, segWallY, (gz + zOffset) * FLOOR_SIZE)
 
 				table.insert(segments, { p1 = p1, p2 = p2, normal = normal, rotY = rotY })
 				corners[`{math.round(p1.X)}_{math.round(p1.Z)}`] = p1
@@ -526,13 +782,15 @@ local function constructPerimeterWallsAndPillars(
 			while i <= #gzList do
 				local startZ = gzList[i]
 				local endZ = startZ
-				while i + 1 <= #gzList and gzList[i + 1] == endZ + 1 do
+				-- Only merge consecutive tiles that share the same tier wallY
+				local segWallY = getWallY(gx, startZ)
+				while i + 1 <= #gzList and gzList[i + 1] == endZ + 1 and getWallY(gx, gzList[i + 1]) == segWallY do
 					i += 1
 					endZ = gzList[i]
 				end
 
-				local p1 = Vector3.new((gx + xOffset) * FLOOR_SIZE, WALL_Y_OFFSET, (startZ - 0.5) * FLOOR_SIZE)
-				local p2 = Vector3.new((gx + xOffset) * FLOOR_SIZE, WALL_Y_OFFSET, (endZ + 0.5) * FLOOR_SIZE)
+				local p1 = Vector3.new((gx + xOffset) * FLOOR_SIZE, segWallY, (startZ - 0.5) * FLOOR_SIZE)
+				local p2 = Vector3.new((gx + xOffset) * FLOOR_SIZE, segWallY, (endZ + 0.5) * FLOOR_SIZE)
 
 				table.insert(segments, { p1 = p1, p2 = p2, normal = normal, rotY = rotY })
 				corners[`{math.round(p1.X)}_{math.round(p1.Z)}`] = p1
@@ -574,9 +832,9 @@ local function constructPerimeterWallsAndPillars(
 		return false
 	end
 
-	-- 4. Spawn Corner Pillars ONLY at room corners (strictly NO pillars in corridors/hallways or near gates)
+	-- 4. Spawn Corner Pillars ONLY at room corners (strictly NO pillars in corridors/hallways, near gates, or near stairs)
 	for _, cornerPos in pairs(corners) do
-		if not isNearGate(cornerPos, 16) and not isCorridorArea(cornerPos) then
+		if not isNearGate(cornerPos, 16) and not isCorridorArea(cornerPos) and not isNearStair(cornerPos, 18) then
 			local pillarTemplate = pickRandom(assets.pillars, rng)
 			if pillarTemplate then
 				local pillarCF = CFrame.new(cornerPos)
@@ -585,7 +843,7 @@ local function constructPerimeterWallsAndPillars(
 		end
 	end
 
-	-- 5. Tile 17-stud Wall Pieces end-to-end along each segment with zero gaps
+	-- 5. Tile 17-stud Wall Pieces end-to-end along each segment with zero gaps (filtering out walls across stair openings)
 	for _, seg in ipairs(segments) do
 		local vec = seg.p2 - seg.p1
 		local length = vec.Magnitude
@@ -596,7 +854,7 @@ local function constructPerimeterWallsAndPillars(
 
 		for i = 1, numWalls do
 			local wallCenter = seg.p1 + tangent * ((i - 0.5) * step)
-			if not isNearGate(wallCenter, 10) then
+			if not isNearGate(wallCenter, 12) and not isBlockingStairOpening(wallCenter, seg.normal) then
 				local wallCF = CFrame.new(wallCenter) * CFrame.Angles(0, math.rad(seg.rotY), 0)
 				local wallPiece = pickRandom(assets.walls, rng)
 				if wallPiece then
@@ -694,14 +952,14 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 		local minX, maxX = room.gx, room.gx + room.w - 1
 		local minZ, maxZ = room.gz, room.gz + room.d - 1
 
-		-- 1. Rubble: Generously placed along wall perimeters and in all room corners
+		-- 1. Rubble: Generously placed along wall perimeters and in all room corners (raised +3 studs)
 		if #assets.rubble > 0 then
 			local rubbleClusters = rng:NextInteger(3, 6)
 			for _ = 1, rubbleClusters do
 				local side = rng:NextInteger(1, 4)
 				local rx = (side == 1 and minX) or (side == 2 and maxX) or rng:NextInteger(minX, maxX)
 				local rz = (side == 3 and minZ) or (side == 4 and maxZ) or rng:NextInteger(minZ, maxZ)
-				local rubPos = Vector3.new(rx * FLOOR_SIZE, FLOOR_Y_OFFSET + 0.2, rz * FLOOR_SIZE)
+				local rubPos = Vector3.new(rx * FLOOR_SIZE, room.floorY + 3.2, rz * FLOOR_SIZE)
 				local rubTemplate = pickRandom(assets.rubble, rng)
 				if rubTemplate then
 					local cf = CFrame.new(rubPos) * CFrame.Angles(0, math.rad(rng:NextInteger(0, 3) * 90), 0)
@@ -716,7 +974,7 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 			for _ = 1, barrierCount do
 				local bx = rng:NextInteger(minX + 1, maxX - 1)
 				local bz = rng:NextInteger(minZ + 1, maxZ - 1)
-				local bPos = Vector3.new(bx * FLOOR_SIZE, FLOOR_Y_OFFSET + 0.2, bz * FLOOR_SIZE)
+				local bPos = Vector3.new(bx * FLOOR_SIZE, room.floorY + 0.2, bz * FLOOR_SIZE)
 				local barTemplate = pickRandom(assets.barriers, rng)
 				if barTemplate then
 					local cf = CFrame.new(bPos) * CFrame.Angles(0, math.rad(rng:NextInteger(0, 3) * 90), 0)
@@ -725,39 +983,39 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 			end
 		end
 
-		-- 3. Cosmetics: Placed abundantly across all rooms (torches, pillars, chests, urns, crates)
+		-- 3. Cosmetics: Exactly 1 per room, placed near a wall facing opposite of the wall (into the room), raised by +6.2 studs (+3 studs higher)
 		if #assets.cosmetics > 0 then
-			if room.roomType == "Start" then
-				for _ = 1, rng:NextInteger(2, 3) do
-					local cosPos = room.centerWorld + Vector3.new(rng:NextInteger(-6, 6), 0.2, rng:NextInteger(-6, 6))
-					local cosTemplate = pickRandom(assets.cosmetics, rng)
-					if cosTemplate then
-						local cf = CFrame.new(cosPos) * CFrame.Angles(0, math.rad(rng:NextInteger(0, 3) * 90), 0)
-						spawnInstance(cosTemplate, cf, propsFolder)
-					end
+			local cosTemplate = pickRandom(assets.cosmetics, rng)
+			if cosTemplate then
+				local wallSide = rng:NextInteger(1, 4)
+				local offsetFromWall = 2.0 -- 2 studs inward from wall edge
+				local cosPos: Vector3
+				local rotY: number
+
+				if wallSide == 1 then
+					-- North wall (minZ): placed near North wall, facing South (+Z into room)
+					local rx = rng:NextInteger(minX + 1, maxX - 1)
+					cosPos = Vector3.new(rx * FLOOR_SIZE, room.floorY + 6.2, (minZ * FLOOR_SIZE) + offsetFromWall)
+					rotY = 180
+				elseif wallSide == 2 then
+					-- South wall (maxZ): placed near South wall, facing North (-Z into room)
+					local rx = rng:NextInteger(minX + 1, maxX - 1)
+					cosPos = Vector3.new(rx * FLOOR_SIZE, room.floorY + 6.2, (maxZ * FLOOR_SIZE) - offsetFromWall)
+					rotY = 0
+				elseif wallSide == 3 then
+					-- West wall (minX): placed near West wall, facing East (+X into room)
+					local rz = rng:NextInteger(minZ + 1, maxZ - 1)
+					cosPos = Vector3.new((minX * FLOOR_SIZE) + offsetFromWall, room.floorY + 6.2, rz * FLOOR_SIZE)
+					rotY = -90
+				else
+					-- East wall (maxX): placed near East wall, facing West (-X into room)
+					local rz = rng:NextInteger(minZ + 1, maxZ - 1)
+					cosPos = Vector3.new((maxX * FLOOR_SIZE) - offsetFromWall, room.floorY + 6.2, rz * FLOOR_SIZE)
+					rotY = 90
 				end
-			elseif room.roomType == "Combat" or room.roomType == "Elite" then
-				for _ = 1, rng:NextInteger(3, 5) do
-					local side = rng:NextInteger(1, 4)
-					local cx = (side == 1 and minX) or (side == 2 and maxX) or rng:NextInteger(minX, maxX)
-					local cz = (side == 3 and minZ) or (side == 4 and maxZ) or rng:NextInteger(minZ, maxZ)
-					local cosPos = Vector3.new(cx * FLOOR_SIZE, FLOOR_Y_OFFSET + 0.2, cz * FLOOR_SIZE)
-					local cosTemplate = pickRandom(assets.cosmetics, rng)
-					if cosTemplate then
-						local cf = CFrame.new(cosPos) * CFrame.Angles(0, math.rad(rng:NextInteger(0, 3) * 90), 0)
-						spawnInstance(cosTemplate, cf, propsFolder)
-					end
-				end
-			elseif room.roomType == "Treasure" or room.roomType == "Shop" or room.roomType == "Boss" then
-				for _ = 1, rng:NextInteger(4, 6) do
-					local offset = Vector3.new(rng:NextInteger(-8, 8), 0.2, rng:NextInteger(-8, 8))
-					local cosPos = room.centerWorld + offset
-					local cosTemplate = pickRandom(assets.cosmetics, rng)
-					if cosTemplate then
-						local cf = CFrame.new(cosPos) * CFrame.Angles(0, math.rad(rng:NextInteger(0, 3) * 90), 0)
-						spawnInstance(cosTemplate, cf, propsFolder)
-					end
-				end
+
+				local cf = CFrame.new(cosPos) * CFrame.Angles(0, math.rad(rotY), 0)
+				spawnInstance(cosTemplate, cf, propsFolder)
 			end
 		end
 	end
@@ -789,21 +1047,71 @@ function DungeonGenerator.Generate(config: DungeonConfig?): (CFrame, CFrame, CFr
 	print(`[DungeonGenerator] ─── Building Roguelite Dungeon (Seed: {seed}, Floor Y: {FLOOR_Y_OFFSET}, Wall Y: {WALL_Y_OFFSET}) ───`)
 
 	-- 1. Graph Layout Construction
-	local rooms, floorGrid, doorwayList = buildDungeonGraph(rng, cfg)
+	local rooms, floorGrid, doorwayList, stairList = buildDungeonGraph(rng, cfg)
 	local startRoom = rooms[1]
 	local bossRoom = rooms[#rooms]
 
 	cachedSpawnCFrame = CFrame.new(startRoom.centerWorld + Vector3.new(0, 3, 0))
 	cachedBossCFrame  = CFrame.new(bossRoom.centerWorld + Vector3.new(0, 3, 0))
 
-	-- 2. Floor Placement (Exact 12x12 Snapping at FLOOR_Y_OFFSET = 4)
-	for key, _ in pairs(floorGrid) do
+	-- 2. Floor Placement (Exact 12x12 Snapping at FLOOR_Y_OFFSET = 4 with Center Pieces)
+	local centerPieceGrid: { [string]: boolean } = {}
+	for _, room in ipairs(rooms) do
+		local centerGX = room.gx + math.floor((room.w - 1) / 2)
+		local centerGZ = room.gz + math.floor((room.d - 1) / 2)
+		local patternChoice = rng:NextInteger(1, 4)
+
+		if patternChoice == 1 then
+			-- 1 piece in center
+			centerPieceGrid[`{centerGX}_{centerGZ}`] = true
+		elseif patternChoice == 2 and room.w >= 4 and room.d >= 4 then
+			-- 2x2 block (4 pieces) in center
+			for dx = 0, 1 do
+				for dz = 0, 1 do
+					centerPieceGrid[`{centerGX + dx}_{centerGZ + dz}`] = true
+				end
+			end
+		elseif patternChoice == 3 and room.w >= 6 and room.d >= 6 then
+			-- 4x4 block (16 pieces) in center
+			local startX = centerGX - 1
+			local startZ = centerGZ - 1
+			for dx = 0, 3 do
+				for dz = 0, 3 do
+					centerPieceGrid[`{startX + dx}_{startZ + dz}`] = true
+				end
+			end
+		else
+			-- Circle / Ring pattern around center
+			local cxFloat = room.gx + (room.w / 2) - 0.5
+			local czFloat = room.gz + (room.d / 2) - 0.5
+			local radius = (math.min(room.w, room.d) >= 6) and 1.8 or 1.2
+			for x = room.gx, room.gx + room.w - 1 do
+				for z = room.gz, room.gz + room.d - 1 do
+					local dist = math.sqrt((x - cxFloat) ^ 2 + (z - czFloat) ^ 2)
+					if dist <= radius then
+						centerPieceGrid[`{x}_{z}`] = true
+					end
+				end
+			end
+		end
+	end
+
+	for key, cellData in pairs(floorGrid) do
 		local coords = string.split(key, "_")
 		local gx = tonumber(coords[1]) :: number
 		local gz = tonumber(coords[2]) :: number
-		local pos = Vector3.new(gx * FLOOR_SIZE, FLOOR_Y_OFFSET, gz * FLOOR_SIZE)
+		local cellFloorY = cellData.floorY or FLOOR_Y_OFFSET
+		local pos = Vector3.new(gx * FLOOR_SIZE, cellFloorY, gz * FLOOR_SIZE)
 
-		local floorTemplate = pickRandom(assets.floors, rng)
+		local isCenterPiece = (centerPieceGrid[key] == true)
+		local floorTemplate: Instance? = nil
+
+		if isCenterPiece and #assets.centerPieces > 0 then
+			floorTemplate = pickRandom(assets.centerPieces, rng)
+		else
+			floorTemplate = pickRandom(assets.floors, rng)
+		end
+
 		if floorTemplate then
 			local rotY = rng:NextInteger(0, 3) * 90
 			local cf = CFrame.new(pos) * CFrame.Angles(0, math.rad(rotY), 0)
@@ -820,25 +1128,76 @@ function DungeonGenerator.Generate(config: DungeonConfig?): (CFrame, CFrame, CFr
 	end
 
 	-- 3. Continuous Perimeter Wall, Pure Gate & Corner Pillar Construction
-	constructPerimeterWallsAndPillars(rooms, floorGrid, doorwayList, wallsFolder, rng)
+	constructPerimeterWallsAndPillars(rooms, floorGrid, doorwayList, stairList, wallsFolder, rng)
 
-	-- 4. Exit Staircase & Pitch-Black Abyss in the Boss Chamber
-	local stairsTemplate = pickRandom(assets.stairs, rng)
+	-- 4. Inter-Floor Staircase Placement (connecting tiers)
+	if #stairList > 0 then
+		print(`[DungeonGenerator] Placing {#stairList} inter-floor staircase(s)...`)
+		for idx, stairData in ipairs(stairList) do
+			local stairTemplate = pickRandom(assets.stairs, rng)
+			local heightDiff = stairData.upperFloorY - stairData.lowerFloorY
+			print(`[DungeonGenerator]   Stair #{idx}: LowerY={stairData.lowerFloorY}, UpperY={stairData.upperFloorY}, HeightDiff={heightDiff}, Pos={stairData.cframe.Position}`)
+
+			-- Shift stair 1 stud back along its orientation
+			local adjustedCF = stairData.cframe * CFrame.new(0, 0, 1)
+			local stairPos = adjustedCF.Position
+			local _, stairRotY, _ = adjustedCF:ToEulerAnglesYXZ()
+
+			if stairTemplate then
+				-- Raise by +7 studs (half of 14-stud model height) so bottom sits on the floor
+				local raisedCF = adjustedCF * CFrame.new(0, 7, 0)
+				spawnInstance(stairTemplate, raisedCF, stairsFolder)
+				print(`[DungeonGenerator]   → Placed stair asset: {stairTemplate.Name} (raised +7, pushed back 1 stud)`)
+			else
+				-- Fallback: procedural walkable ramp connecting lower to upper floor
+				local rampLen = math.sqrt(STAIR_LENGTH * STAIR_LENGTH + heightDiff * heightDiff)
+				local rampAngle = math.atan2(heightDiff, STAIR_LENGTH)
+
+				-- Position ramp at midpoint between lower and upper floor
+				local midY = (stairData.lowerFloorY + stairData.upperFloorY) / 2
+
+				local ramp = Instance.new("Part")
+				ramp.Name = "ProceduralStairRamp"
+				ramp.Size = Vector3.new(STAIR_WIDTH, 2, rampLen)
+				-- Position at stair XZ, midpoint Y, then rotate by corridor direction, then tilt by slope angle
+				ramp.CFrame = CFrame.new(stairPos.X, midY, stairPos.Z)
+					* CFrame.Angles(0, stairRotY, 0)
+					* CFrame.Angles(-rampAngle, 0, 0)
+				ramp.Anchored = true
+				ramp.CanCollide = true
+				ramp.Material = Enum.Material.Cobblestone
+				ramp.Color = Color3.fromRGB(55, 55, 60)
+				ramp.Parent = stairsFolder
+				print(`[DungeonGenerator]   → Placed fallback ramp (no stair assets found). Size={ramp.Size}`)
+			end
+		end
+	else
+		print("[DungeonGenerator] No inter-floor stairs generated (all rooms may be on same tier).")
+	end
+
+	-- 5. Exit Staircase & Pitch-Black Abyss in the Boss Chamber
+	local exitStairTemplate = pickRandom(assets.stairs, rng)
 	local stairPos = Vector3.new(
 		(bossRoom.gx + bossRoom.w / 2) * FLOOR_SIZE,
-		FLOOR_Y_OFFSET,
+		bossRoom.floorY + 7, -- Raise by +7 (half of 14-stud model height)
 		(bossRoom.gz + bossRoom.d - 1) * FLOOR_SIZE
 	)
 	local stairCF = CFrame.new(stairPos) * CFrame.Angles(0, 0, 0)
 	cachedExitCFrame = stairCF
 
-	if stairsTemplate then
-		spawnInstance(stairsTemplate, stairCF, stairsFolder)
+	if exitStairTemplate then
+		spawnInstance(exitStairTemplate, stairCF, stairsFolder)
 	end
 	constructPitchBlackExit(stairCF, stairsFolder)
 
 	-- 5. Interior Decorating (Abundant Corner/Perimeter Rubble, Barriers, Cosmetics)
 	decorateRooms(rooms, propsFolder, rng)
+
+	-- Debug: Log each room's tier and elevation
+	print("[DungeonGenerator] Room Layout Summary:")
+	for _, rm in ipairs(rooms) do
+		print(`  Room #{rm.id} ({rm.roomType}): Tier={rm.tier}, FloorY={rm.floorY}, WallY={rm.wallY}, Grid=({rm.gx},{rm.gz}), Size={rm.w}x{rm.d}`)
+	end
 
 	-- Broadcast map grid payload to clients for minimap overlay
 	local roomListPayload = {}
