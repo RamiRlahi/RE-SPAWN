@@ -17,6 +17,57 @@ local SkillManager = {}
 -- playerCooldowns[player][skillIndex] = lastCastTime
 local playerCooldowns: { [Player]: { [number]: number } } = {}
 
+-- Character visibility storage for skill 3 (Phoenix Dash invisibility)
+local savedTransparencies: { [Model]: { [Instance]: number } } = {}
+
+local function setCharacterVisibility(char: Model, visible: boolean)
+	if not char then return end
+
+	if not visible then
+		local charSaved = savedTransparencies[char]
+		if not charSaved then
+			charSaved = {}
+			savedTransparencies[char] = charSaved
+		end
+
+		for _, desc in ipairs(char:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				if charSaved[desc] == nil then
+					charSaved[desc] = desc.Transparency
+				end
+				desc.Transparency = 1
+			elseif desc:IsA("Decal") or desc:IsA("Texture") then
+				if charSaved[desc] == nil then
+					charSaved[desc] = desc.Transparency
+				end
+				desc.Transparency = 1
+			end
+		end
+	else
+		local charSaved = savedTransparencies[char]
+		if charSaved then
+			for inst, origTrans in pairs(charSaved) do
+				if inst and inst.Parent then
+					inst.Transparency = origTrans
+				end
+			end
+			savedTransparencies[char] = nil
+		else
+			for _, desc in ipairs(char:GetDescendants()) do
+				if desc:IsA("BasePart") then
+					if desc.Name == "HumanoidRootPart" then
+						desc.Transparency = 1
+					else
+						desc.Transparency = 0
+					end
+				elseif desc:IsA("Decal") or desc:IsA("Texture") then
+					desc.Transparency = 0
+				end
+			end
+		end
+	end
+end
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Helper: Find all target humanoids in workspace (excluding caster)
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -80,6 +131,9 @@ local function executeSpinAttack(player: Player, casterChar: Model, origin: Vect
 	local totalTicks = math.floor(duration / tickInterval)
 	local casterRoot = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
 
+	casterChar:SetAttribute("IsSkill1Active", true)
+	casterChar:SetAttribute("IsSpinAttackActive", true)
+
 	task.spawn(function()
 		for i = 1, totalTicks do
 			if not casterChar or not casterChar.Parent then break end
@@ -105,6 +159,11 @@ local function executeSpinAttack(player: Player, casterChar: Model, origin: Vect
 			end
 
 			task.wait(tickInterval)
+		end
+
+		if casterChar and casterChar.Parent then
+			casterChar:SetAttribute("IsSkill1Active", false)
+			casterChar:SetAttribute("IsSpinAttackActive", false)
 		end
 	end)
 end
@@ -178,7 +237,10 @@ local function executePhoenixDash(player: Player, casterChar: Model, origin: Vec
 	local hitTargets: { [Model]: boolean } = {}
 	local casterRoot = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
 
-	-- Check hits continuously during the 0.3s dash
+	-- Make caster invisible during the dash
+	setCharacterVisibility(casterChar, false)
+
+	-- Check hits continuously during the 0.35s dash
 	task.spawn(function()
 		local startTime = os.clock()
 		while os.clock() - startTime < 0.35 do
@@ -202,6 +264,68 @@ local function executePhoenixDash(player: Player, casterChar: Model, origin: Vec
 			end
 			task.wait(0.05)
 		end
+		-- Restore caster visibility when dash completes
+		setCharacterVisibility(casterChar, true)
+	end)
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Hitbox: Skill 4 — Infernal Wrath (Ultimate: High Damage Impact Slash)
+-- ─────────────────────────────────────────────────────────────────────────────
+local function executeInfernalWrath(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
+	local damage = config.damage or 100
+	local radius = config.range or 24
+	local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
+	local travelDist = 28.0
+	local impactPos = origin + flatDir * travelDist
+
+	task.spawn(function()
+		-- Wait 2.0s for windup + swing, then track travel across 3.0s
+		task.wait(2.0)
+		if not casterChar or not casterChar.Parent then return end
+
+		local hitDuringTravel: { [Model]: boolean } = {}
+		local travelStartTime = os.clock()
+		local travelDur = 3.0
+		local slashStartPos = origin + flatDir * 3.0
+
+		while os.clock() - travelStartTime < travelDur do
+			local alpha = math.clamp((os.clock() - travelStartTime) / travelDur, 0, 1)
+			local curPos = slashStartPos:Lerp(impactPos, alpha)
+
+			local targets = getPotentialTargets(casterChar)
+			for _, target in ipairs(targets) do
+				if not hitDuringTravel[target.character] then
+					local dist = (target.rootPart.Position - curPos).Magnitude
+					if dist <= 8.0 then
+						hitDuringTravel[target.character] = true
+						target.humanoid:TakeDamage(math.floor(damage * 0.4))
+						local kbDir = (flatDir + Vector3.new(0, 0.4, 0)).Unit
+						target.rootPart:ApplyImpulse(kbDir * (target.rootPart.AssemblyMass * 25))
+						print(`[SkillManager] Infernal Wrath Slash Wave hit {target.character.Name}!`)
+					end
+				end
+			end
+			task.wait(0.06)
+		end
+
+		-- Explosion Impact at t = 5.0s
+		if not casterChar or not casterChar.Parent then return end
+		local targets = getPotentialTargets(casterChar)
+		for _, target in ipairs(targets) do
+			local dist = (target.rootPart.Position - impactPos).Magnitude
+			if dist <= radius then
+				local finalDmg = hitDuringTravel[target.character] and math.floor(damage * 0.6) or damage
+				target.humanoid:TakeDamage(finalDmg)
+				
+				-- Heavy explosive knockback upward and outward
+				local outward = (target.rootPart.Position - impactPos)
+				local flatOutward = Vector3.new(outward.X, 0, outward.Z)
+				local kbDir = (flatOutward.Magnitude > 0.1 and flatOutward.Unit or flatDir) + Vector3.new(0, 0.7, 0)
+				target.rootPart:ApplyImpulse(kbDir.Unit * (target.rootPart.AssemblyMass * 45))
+				print(`[SkillManager] Infernal Wrath (Ultimate Impact) hit {target.character.Name} for {finalDmg} damage!`)
+			end
+		end
 	end)
 end
 
@@ -223,6 +347,12 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 
 	-- Block skills in lobby
 	if player:GetAttribute("InLobby") == true then return end
+
+	-- Block skill use while Skill 1 (Spin Attack) is active
+	if char:GetAttribute("IsSkill1Active") == true or char:GetAttribute("IsSpinAttackActive") == true then
+		warn(`[SkillManager] {player.Name} attempted to cast skill while Skill 1 was active!`)
+		return
+	end
 
 	local classId = player:GetAttribute("SelectedClass") or "heavy_knight"
 	local config = SkillData.GetSkill(classId, skillIndex)
@@ -264,6 +394,8 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 		executeFlameSlash(player, char, origin, direction, config)
 	elseif skillIndex == 3 then
 		executePhoenixDash(player, char, origin, direction, config)
+	elseif skillIndex == 4 then
+		executeInfernalWrath(player, char, origin, direction, config)
 	end
 
 	-- Replicate VFX to other players

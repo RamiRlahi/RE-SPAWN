@@ -96,6 +96,7 @@ function PlayerManager.Init()
 		if player:GetAttribute("InLobby") == true then return end
 		local character = player.Character
 		if not character then return end
+		if character:GetAttribute("IsSkill1Active") == true or character:GetAttribute("IsSpinAttackActive") == true then return end
 		print(`[PlayerManager] {player.Name} performed attack:`, attackData)
 	end)
 

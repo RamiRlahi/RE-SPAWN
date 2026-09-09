@@ -16,6 +16,8 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local SkillData = require(Shared:WaitForChild("SkillData"))
 
+local UltimateCameraChoreography = require(script.Parent:WaitForChild("UltimateCameraChoreography"))
+
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
 
@@ -40,6 +42,58 @@ local activeCooldowns: { [number]: { startTime: number, duration: number } } = {
 
 -- Loaded animation tracks per skill index
 local loadedSkillTracks: { [number]: AnimationTrack } = {}
+local loadedSkillSlashTracks: { [number]: AnimationTrack } = {}
+
+-- Character visibility storage for skill 3 (Phoenix Dash invisibility)
+local savedTransparencies: { [Model]: { [Instance]: number } } = {}
+
+local function setCharacterVisibility(char: Model, visible: boolean)
+	if not char then return end
+
+	if not visible then
+		local charSaved = savedTransparencies[char]
+		if not charSaved then
+			charSaved = {}
+			savedTransparencies[char] = charSaved
+		end
+
+		for _, desc in ipairs(char:GetDescendants()) do
+			if desc:IsA("BasePart") then
+				if charSaved[desc] == nil then
+					charSaved[desc] = desc.Transparency
+				end
+				desc.Transparency = 1
+			elseif desc:IsA("Decal") or desc:IsA("Texture") then
+				if charSaved[desc] == nil then
+					charSaved[desc] = desc.Transparency
+				end
+				desc.Transparency = 1
+			end
+		end
+	else
+		local charSaved = savedTransparencies[char]
+		if charSaved then
+			for inst, origTrans in pairs(charSaved) do
+				if inst and inst.Parent then
+					inst.Transparency = origTrans
+				end
+			end
+			savedTransparencies[char] = nil
+		else
+			for _, desc in ipairs(char:GetDescendants()) do
+				if desc:IsA("BasePart") then
+					if desc.Name == "HumanoidRootPart" then
+						desc.Transparency = 1
+					else
+						desc.Transparency = 0
+					end
+				elseif desc:IsA("Decal") or desc:IsA("Texture") then
+					desc.Transparency = 0
+				end
+			end
+		end
+	end
+end
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- VFX Utility Helpers
@@ -101,27 +155,8 @@ local function makeEmberEmitter(parent: Instance, count: number): ParticleEmitte
 end
 
 local function spawnGroundScorch(position: Vector3, size: number, duration: number)
-	local scorch = Instance.new("Part")
-	scorch.Name = "GroundScorch"
-	scorch.Shape = Enum.PartType.Cylinder
-	scorch.Size = Vector3.new(0.1, size, size)
-	scorch.CFrame = CFrame.new(position + Vector3.new(0, 0.05, 0)) * CFrame.Angles(0, 0, math.rad(90))
-	scorch.Material = Enum.Material.Neon
-	scorch.Color = Color3.fromRGB(255, 100, 20)
-	scorch.Transparency = 0.3
-	scorch.Anchored = true
-	scorch.CanCollide = false
-	scorch.CanTouch = false
-	scorch.CanQuery = false
-	scorch.Parent = Workspace
-
-	TweenService:Create(scorch, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-		Transparency = 1,
-		Color = Color3.fromRGB(30, 20, 20),
-		Size = Vector3.new(0.1, size * 1.15, size * 1.15),
-	}):Play()
-
-	Debris:AddItem(scorch, duration + 0.1)
+	-- Removed extra red ground circle VFX when casting abilities
+	return
 end
 
 local function triggerCameraShake(intensity: number, duration: number)
@@ -474,6 +509,9 @@ local function playPhoenixDashVFX(char: Model, origin: Vector3, lookDir: Vector3
 	local humanoid = char:FindFirstChildOfClass("Humanoid")
 	if not rootPart or not humanoid then return end
 
+	-- Make player invisible when using 3rd ability (Phoenix Dash)
+	setCharacterVisibility(char, false)
+
 	local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
 	local dashDist = 24
 	local dashSpeed = 80
@@ -595,6 +633,8 @@ local function playPhoenixDashVFX(char: Model, origin: Vector3, lookDir: Vector3
 
 	-- 5. Cleanup dash after duration
 	task.delay(duration, function()
+		setCharacterVisibility(char, true)
+
 		if lv and lv.Parent then lv:Destroy() end
 		if att and att.Parent then att:Destroy() end
 		vortexPE.Enabled = false
@@ -634,6 +674,400 @@ local function playPhoenixDashVFX(char: Model, origin: Vector3, lookDir: Vector3
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Skill 4: Infernal Wrath VFX (Ultimate: Flaming Sword + Impact Slash + Cube Crater)
+-- ─────────────────────────────────────────────────────────────────────────────
+local function createCraterCube(position: Vector3, radius: number)
+	local angle = math.random() * math.pi * 2
+	local dist = math.random() * (radius * 0.75) + (radius * 0.25)
+	local offset = Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+	local targetPos = position + offset
+
+	local cube = Instance.new("Part")
+	cube.Name = "CraterDebrisCube"
+	cube.Shape = Enum.PartType.Block
+	local sz = math.random(8, 16) / 10 -- 0.8 to 1.6 studs cube
+	cube.Size = Vector3.new(sz, sz, sz)
+	cube.Material = Enum.Material.Slate
+	cube.Color = Color3.fromRGB(60, 55, 50)
+	cube.CanCollide = false
+	cube.CanTouch = false
+	cube.CanQuery = false
+	cube.Anchored = true
+
+	-- Start slightly below ground level
+	local tiltX = math.rad(math.random(-35, 35))
+	local tiltZ = math.rad(math.random(-35, 35))
+	local rotY = math.rad(math.random(0, 360))
+	local startCF = CFrame.new(targetPos - Vector3.new(0, 1.2, 0)) * CFrame.Angles(tiltX, rotY, tiltZ)
+	cube.CFrame = startCF
+	cube.Parent = Workspace
+
+	-- Burst upward & outward forming crater rim blocks
+	local riseHeight = math.random(12, 26) / 10
+	local endCF = CFrame.new(targetPos + Vector3.new(0, riseHeight * 0.5, 0)) * CFrame.Angles(
+		tiltX + math.rad(math.random(15, 45)),
+		rotY,
+		tiltZ + math.rad(math.random(15, 45))
+	)
+
+	TweenService:Create(cube, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		CFrame = endCF,
+	}):Play()
+
+	-- Fade and sink back into earth
+	task.delay(1.8, function()
+		if cube and cube.Parent then
+			TweenService:Create(cube, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+				CFrame = endCF - Vector3.new(0, 2.5, 0),
+				Transparency = 1,
+				Size = cube.Size * 0.2,
+			}):Play()
+			Debris:AddItem(cube, 0.65)
+		end
+	end)
+end
+
+local function spawnCraterDebris(impactPos: Vector3, radius: number, count: number)
+	for i = 1, count do
+		createCraterCube(impactPos, radius)
+	end
+end
+
+local function attachSwordFlameAura(char: Model)
+	local tool = char:FindFirstChildOfClass("Tool") or player.Backpack:FindFirstChildOfClass("Tool")
+	local bladeMesh: BasePart? = nil
+
+	if tool then
+		local handle = tool:FindFirstChild("Handle") :: BasePart?
+		bladeMesh = handle
+		for _, desc in ipairs(tool:GetDescendants()) do
+			if (desc:IsA("MeshPart") or desc:IsA("BasePart")) and desc.Name ~= "Handle" then
+				bladeMesh = desc
+				break
+			end
+		end
+	end
+
+	if not bladeMesh then
+		bladeMesh = char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm") or char:FindFirstChild("HumanoidRootPart")
+	end
+	if not bladeMesh then return end
+
+	-- Create Attachment along the blade axis (oriented ALONG the sword blade)
+	local bladeAtt = Instance.new("Attachment")
+	bladeAtt.Name = "UltSwordFlameAttachment"
+
+	local sz = bladeMesh.Size
+	if sz.Y > sz.X and sz.Y > sz.Z then
+		bladeAtt.Position = Vector3.new(0, sz.Y * 0.15, 0)
+		bladeAtt.Orientation = Vector3.new(90, 0, 0)
+	elseif sz.Z > sz.Y and sz.Z > sz.X then
+		bladeAtt.Position = Vector3.new(0, 0, sz.Z * 0.15)
+		bladeAtt.Orientation = Vector3.new(0, 0, 0)
+	else
+		bladeAtt.Position = Vector3.new(0, 0, 0)
+		bladeAtt.Orientation = Vector3.new(90, 0, 0)
+	end
+	bladeAtt.Parent = bladeMesh
+
+	-- Flame Emitter streaming parallel along the length of the blade
+	local flamePE = makeFlameEmitter(bladeAtt, 130, 2.6, 14)
+	flamePE.Name = "SwordBladeFlamePE"
+	flamePE.Orientation = Enum.ParticleOrientation.VelocityParallel
+	flamePE.SpreadAngle = Vector2.new(12, 12)
+	flamePE.Speed = NumberRange.new(10, 22)
+	flamePE.Lifetime = NumberRange.new(0.25, 0.45)
+
+	-- Ember Sparkle Emitter along blade
+	local emberPE = makeEmberEmitter(bladeAtt, 60)
+	emberPE.Name = "SwordBladeEmberPE"
+	emberPE.Orientation = Enum.ParticleOrientation.FacingCamera
+	emberPE.Speed = NumberRange.new(12, 28)
+
+	-- Dynamic Light on blade
+	local light = Instance.new("PointLight")
+	light.Name = "UltSwordLight"
+	light.Color = Color3.fromRGB(255, 170, 30)
+	light.Brightness = 12
+	light.Range = 28
+	light.Parent = bladeMesh
+
+	return bladeAtt, flamePE, emberPE, light
+end
+
+local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vector3)
+	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not rootPart then return end
+
+	local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
+	local travelDist = 28.0
+	local impactPos = origin + flatDir * travelDist
+
+	-- 1. Find and clone custom hk_ULT asset from ReplicatedStorage.generalVFX
+	local ultTemplate = findVFXAsset("hk_ULT") or findVFXAsset("hk_ult") or findVFXAsset("ULT") or findVFXAsset("ult")
+	local spawnedUltVFX: Instance? = nil
+
+	-- Find sword blade mesh
+	local tool = char:FindFirstChildOfClass("Tool") or player.Backpack:FindFirstChildOfClass("Tool")
+	local bladeMesh: BasePart? = nil
+	if tool then
+		local handle = tool:FindFirstChild("Handle") :: BasePart?
+		bladeMesh = handle
+		for _, desc in ipairs(tool:GetDescendants()) do
+			if (desc:IsA("MeshPart") or desc:IsA("BasePart")) and desc.Name ~= "Handle" then
+				bladeMesh = desc
+				break
+			end
+		end
+	end
+	if not bladeMesh then
+		bladeMesh = char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm") or rootPart
+	end
+
+	if ultTemplate and bladeMesh then
+		local clone = ultTemplate:Clone()
+		spawnedUltVFX = clone
+
+		for _, inst in ipairs(clone:GetDescendants()) do
+			if inst:IsA("BasePart") then
+				inst.CanCollide = false
+				inst.CanTouch = false
+				inst.CanQuery = false
+				inst.Massless = true
+				inst.Anchored = false
+			elseif inst:IsA("ParticleEmitter") or inst:IsA("Beam") or inst:IsA("Trail") then
+				inst.Enabled = true
+				if inst:IsA("ParticleEmitter") then
+					inst.Orientation = Enum.ParticleOrientation.VelocityParallel
+					inst:Emit(20)
+				end
+			end
+		end
+
+		local sz = bladeMesh.Size
+		local bladeOrientCF = bladeMesh.CFrame
+		if sz.Y > sz.X and sz.Y > sz.Z then
+			bladeOrientCF = bladeMesh.CFrame * CFrame.Angles(math.rad(90), 0, 0)
+		end
+
+		if clone:IsA("Model") then
+			local primary = clone.PrimaryPart or clone:FindFirstChildWhichIsA("BasePart")
+			if primary then
+				primary.CanCollide = false
+				primary.Massless = true
+				primary.Anchored = false
+				clone:PivotTo(bladeOrientCF)
+
+				local weld = Instance.new("WeldConstraint")
+				weld.Part0 = bladeMesh
+				weld.Part1 = primary
+				weld.Parent = primary
+
+				for _, p in ipairs(clone:GetChildren()) do
+					if p:IsA("BasePart") and p ~= primary then
+						p.CanCollide = false
+						p.Massless = true
+						p.Anchored = false
+						local w = Instance.new("WeldConstraint")
+						w.Part0 = primary
+						w.Part1 = p
+						w.Parent = p
+					end
+				end
+			end
+			clone.Parent = char
+		elseif clone:IsA("BasePart") then
+			clone.CanCollide = false
+			clone.Massless = true
+			clone.Anchored = false
+			clone.CFrame = bladeOrientCF
+
+			local weld = Instance.new("WeldConstraint")
+			weld.Part0 = bladeMesh
+			weld.Part1 = clone
+			weld.Parent = clone
+			clone.Parent = char
+		elseif clone:IsA("Attachment") then
+			clone.Parent = bladeMesh
+		else
+			clone.Parent = char
+		end
+	end
+
+	-- 2. Ignite sword with extra flame aura ALONG the blade & enlarge weapon trail
+	local bladeAtt, flamePE, emberPE, light = attachSwordFlameAura(char)
+	setWeaponTrailEnlarged(char, true)
+
+	-- Moving traveling slash wave projectile (Shot 3: travels for 3.0s from t=2.0s to t=5.0s)
+	local slashProjectileModel: Model? = nil
+	local function spawnTravelingSlashVFX()
+		if not char or not char.Parent then return end
+		local slashModel = Instance.new("Model")
+		slashModel.Name = "InfernalWrath_SlashWave"
+
+		local rootSlash = Instance.new("Part")
+		rootSlash.Name = "SlashRoot"
+		rootSlash.Size = Vector3.new(6, 1.5, 3)
+		rootSlash.Shape = Enum.PartType.Block
+		rootSlash.Material = Enum.Material.Neon
+		rootSlash.Color = Color3.fromRGB(255, 110, 20)
+		rootSlash.Transparency = 0.4
+		rootSlash.CanCollide = false
+		rootSlash.CanTouch = false
+		rootSlash.CanQuery = false
+		rootSlash.Anchored = true
+		rootSlash.CastShadow = false
+
+		local slashStartPos = rootPart.Position + flatDir * 3.0
+		rootSlash.CFrame = CFrame.lookAt(slashStartPos, slashStartPos + flatDir)
+		rootSlash.Parent = slashModel
+		slashModel.PrimaryPart = rootSlash
+
+		local slashAtt = Instance.new("Attachment")
+		slashAtt.Parent = rootSlash
+
+		local pSlash = makeFlameEmitter(slashAtt, 28, 4.0, 24)
+		pSlash.SpreadAngle = Vector2.new(60, 20)
+		local pEmbers = makeEmberEmitter(slashAtt, 22)
+
+		local slashLight = Instance.new("PointLight")
+		slashLight.Color = Color3.fromRGB(255, 120, 20)
+		slashLight.Brightness = 10
+		slashLight.Range = 24
+		slashLight.Parent = rootSlash
+
+		slashModel.Parent = Workspace.Terrain
+		slashProjectileModel = slashModel
+
+		-- Animate slash travel across 3.0 seconds
+		task.spawn(function()
+			local travelDuration = 3.0
+			local travelStart = os.clock()
+			local startP = slashStartPos
+			local endP = impactPos
+
+			while os.clock() - travelStart < travelDuration do
+				local alpha = math.clamp((os.clock() - travelStart) / travelDuration, 0, 1)
+				local curP = startP:Lerp(endP, alpha)
+				if rootSlash and rootSlash.Parent then
+					rootSlash.CFrame = CFrame.lookAt(curP, curP + flatDir)
+				end
+				RunService.RenderStepped:Wait()
+			end
+
+			if slashModel and slashModel.Parent then
+				if pSlash then pSlash.Enabled = false end
+				if pEmbers then pEmbers.Enabled = false end
+				if slashLight then
+					TweenService:Create(slashLight, TweenInfo.new(0.3), { Brightness = 0 }):Play()
+				end
+				Debris:AddItem(slashModel, 0.4)
+			end
+		end)
+	end
+
+	local function triggerImpactVFX()
+		if not char or not char.Parent then return end
+
+		-- Spawn Crater Debris (Small Earth/Rock Cubes)
+		spawnCraterDebris(impactPos, 10.0, 28)
+
+		-- Fiery Impact Shockwave Burst
+		local impactAtt = Instance.new("Attachment")
+		impactAtt.CFrame = CFrame.new(impactPos)
+		impactAtt.Parent = Workspace.Terrain
+
+		local impactFlame = makeFlameEmitter(impactAtt, 0, 6.5, 36)
+		impactFlame.SpreadAngle = Vector2.new(180, 70)
+		impactFlame:Emit(55)
+
+		local impactEmbers = makeEmberEmitter(impactAtt, 0)
+		impactEmbers.Speed = NumberRange.new(22, 48)
+		impactEmbers:Emit(45)
+
+		local impactLight = Instance.new("PointLight")
+		impactLight.Color = Color3.fromRGB(255, 140, 20)
+		impactLight.Brightness = 18
+		impactLight.Range = 42
+		impactLight.Parent = impactAtt
+
+		TweenService:Create(impactLight, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Brightness = 0,
+			Range = 0,
+		}):Play()
+
+		task.wait(0.8)
+		impactAtt:Destroy()
+	end
+
+	-- Trigger 4-shot Ultimate Camera Choreography for local player
+	if char == player.Character then
+		-- Shot 2 begins at t=1.0s: switch animation from windup to slash
+		local function onSlashStart()
+			local windupTrack = loadedSkillTracks[4]
+			if windupTrack and windupTrack.IsPlaying then
+				windupTrack:Stop(0.12)
+			end
+			local slashTrack = loadedSkillSlashTracks[4]
+			if slashTrack then
+				slashTrack:Play(0.08)
+			end
+			-- Launch traveling slash wave at t=2.0s (Shot 3 start)
+			task.delay(1.0, function()
+				spawnTravelingSlashVFX()
+			end)
+		end
+
+		UltimateCameraChoreography.PlaySequence(
+			char,
+			flatDir,
+			function()
+				-- Triggered at t = 5.0s (Shot 4: impact explosion)
+				triggerImpactVFX()
+			end,
+			function()
+				-- Completed at t = 6.5s
+			end,
+			onSlashStart
+		)
+	else
+		-- For non-local players
+		task.delay(1.0, function()
+			task.delay(1.0, function()
+				spawnTravelingSlashVFX()
+			end)
+		end)
+		task.delay(5.0, function()
+			triggerImpactVFX()
+		end)
+	end
+
+	-- Cleanup sword aura and hk_ULT asset after cinematic sequence
+	task.delay(6.8, function()
+		setWeaponTrailEnlarged(char, false)
+		if flamePE then flamePE.Enabled = false end
+		if emberPE then emberPE.Enabled = false end
+
+		if spawnedUltVFX then
+			for _, inst in ipairs(spawnedUltVFX:GetDescendants()) do
+				if inst:IsA("ParticleEmitter") or inst:IsA("Beam") or inst:IsA("Trail") then
+					inst.Enabled = false
+				end
+			end
+			Debris:AddItem(spawnedUltVFX, 0.5)
+		end
+
+		if light and light.Parent then
+			TweenService:Create(light, TweenInfo.new(0.4), { Brightness = 0 }):Play()
+			Debris:AddItem(light, 0.45)
+		end
+		if bladeAtt and bladeAtt.Parent then
+			Debris:AddItem(bladeAtt, 0.5)
+		end
+	end)
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Animation Loading
 -- ─────────────────────────────────────────────────────────────────────────────
 local function loadSkillAnimations(char: Model)
@@ -654,6 +1088,15 @@ local function loadSkillAnimations(char: Model)
 			track.Looped = false
 			loadedSkillTracks[skillIndex] = track
 		end
+		if (config :: any).slashAnimationId then
+			local slashAnim = Instance.new("Animation")
+			slashAnim.Name = `SkillAnimSlash_{skillIndex}`
+			slashAnim.AnimationId = (config :: any).slashAnimationId
+			local slashTrack = animator:LoadAnimation(slashAnim)
+			slashTrack.Priority = Enum.AnimationPriority.Action4
+			slashTrack.Looped = false
+			loadedSkillSlashTracks[skillIndex] = slashTrack
+		end
 	end
 end
 
@@ -666,6 +1109,12 @@ function SkillController.UseSkill(skillIndex: number)
 	local char = player.Character
 	if not char then return end
 
+	-- Block casting any spells while using the 1st ability (Spin Attack)
+	if char:GetAttribute("IsSkill1Active") == true or char:GetAttribute("IsSpinAttackActive") == true then
+		print("[SkillController] Cannot cast other spells while using the 1st ability!")
+		return
+	end
+
 	local humanoid = char:FindFirstChildOfClass("Humanoid")
 	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not humanoid or not rootPart or humanoid.Health <= 0 then return end
@@ -673,12 +1122,6 @@ function SkillController.UseSkill(skillIndex: number)
 	local classId = player:GetAttribute("SelectedClass") or "heavy_knight"
 	local config = SkillData.GetSkill(classId, skillIndex)
 	if not config then return end
-
-	-- Skill 4 (Ultimate) placeholder
-	if skillIndex == 4 then
-		print("[SkillController] Ultimate skill is charging...")
-		return
-	end
 
 	-- Check Cooldown
 	local now = os.clock()
@@ -705,8 +1148,11 @@ function SkillController.UseSkill(skillIndex: number)
 	char:SetAttribute("IsSkillCasting", true)
 
 	if skillIndex == 1 then
-		-- Spin attack allows moving for the 5s duration
+		-- Spin attack allows moving for the 5s duration, but blocks other spells/attacks
 		char:SetAttribute("AllowSkillMovement", true)
+		char:SetAttribute("IsSkill1Active", true)
+		char:SetAttribute("IsSpinAttackActive", true)
+
 		local track = loadedSkillTracks[1]
 		if track then
 			track.Looped = true
@@ -715,11 +1161,15 @@ function SkillController.UseSkill(skillIndex: number)
 				if track.IsPlaying then track:Stop(0.2) end
 				char:SetAttribute("IsSkillCasting", false)
 				char:SetAttribute("AllowSkillMovement", false)
+				char:SetAttribute("IsSkill1Active", false)
+				char:SetAttribute("IsSpinAttackActive", false)
 			end)
 		else
 			task.delay(5.0, function()
 				char:SetAttribute("IsSkillCasting", false)
 				char:SetAttribute("AllowSkillMovement", false)
+				char:SetAttribute("IsSkill1Active", false)
+				char:SetAttribute("IsSpinAttackActive", false)
 			end)
 		end
 		playSpinAttackVFX(char, rootPart.Position, aimDir)
@@ -755,6 +1205,22 @@ function SkillController.UseSkill(skillIndex: number)
 			char:SetAttribute("AllowSkillMovement", false)
 		end)
 		playPhoenixDashVFX(char, rootPart.Position, aimDir)
+	elseif skillIndex == 4 then
+		char:SetAttribute("AllowSkillMovement", false)
+		local track = loadedSkillTracks[4]
+		if track then
+			track:Play(0.08)
+			task.delay(6.8, function()
+				char:SetAttribute("IsSkillCasting", false)
+				char:SetAttribute("AllowSkillMovement", false)
+			end)
+		else
+			task.delay(6.8, function()
+				char:SetAttribute("IsSkillCasting", false)
+				char:SetAttribute("AllowSkillMovement", false)
+			end)
+		end
+		playInfernalWrathVFX(char, rootPart.Position, aimDir)
 	end
 
 	-- Fire Server Remote
@@ -842,6 +1308,8 @@ function SkillController.Init()
 			playFlameSlashVFX(char, origin, direction)
 		elseif skillIndex == 3 then
 			playPhoenixDashVFX(char, origin, direction)
+		elseif skillIndex == 4 then
+			playInfernalWrathVFX(char, origin, direction)
 		end
 	end)
 

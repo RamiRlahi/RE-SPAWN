@@ -506,6 +506,13 @@ local function performAttack()
 	if player:GetAttribute("InLobby") == true then return end
 	if humanoid.Health <= 0 then return end
 
+	-- Block attacks while using the 1st ability (Spin Attack) or casting skills
+	if character:GetAttribute("IsSkill1Active") == true
+		or character:GetAttribute("IsSpinAttackActive") == true
+		or character:GetAttribute("IsSkillCasting") == true then
+		return
+	end
+
 	local now = os.clock()
 
 	-- If currently in an attack swing, buffer the input if we're past 40% of the animation

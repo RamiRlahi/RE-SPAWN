@@ -45,6 +45,7 @@ local OCCLUSION_RADIUS      = 3.0 -- Tight character-sized radius along camera s
 -- ─────────────────────────────────────────────────────────────────────────────
 
 local isActive = false
+local isPaused = false
 local renderConnection: RBXScriptConnection? = nil
 local currentFocusPos: Vector3? = nil
 
@@ -439,7 +440,7 @@ function IsometricCamera.Start(transitionDuration: number?)
 	if renderConnection then renderConnection:Disconnect() end
 
 	renderConnection = RunService.RenderStepped:Connect(function(dt)
-		if not isActive then return end
+		if not isActive or isPaused then return end
 
 		local currentRoot, _ = getCharacterRoot()
 		if not currentRoot then return end
@@ -499,6 +500,22 @@ player.CharacterAdded:Connect(function()
 		clearAllOcclusions()
 	end
 end)
+
+function IsometricCamera.Pause()
+	isPaused = true
+end
+
+function IsometricCamera.Resume()
+	isPaused = false
+end
+
+function IsometricCamera.IsActive(): boolean
+	return isActive
+end
+
+function IsometricCamera.IsPaused(): boolean
+	return isPaused
+end
 
 function IsometricCamera.Stop()
 	if not isActive then return end
