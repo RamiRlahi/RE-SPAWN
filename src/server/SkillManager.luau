@@ -169,58 +169,49 @@ local function executeSpinAttack(player: Player, casterChar: Model, origin: Vect
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- Hitbox: Skill 2 — Flame Slash (Ranged Projectile)
+-- Hitbox: Skill 2 — Missile Barrage (Buff: Attacks launch guided missiles)
 -- ─────────────────────────────────────────────────────────────────────────────
-local function executeFlameSlash(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
-	local range = config.range or 45
-	local speed = config.projectileSpeed or 70
-	local damage = config.damage or 30
-	local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
+local function executeMissileBuff(player: Player, casterChar: Model, config: any)
+	local duration = config.duration or 8.0
+	casterChar:SetAttribute("IsMissileBuffActive", true)
 
-	local travelDuration = range / speed
-	local startTime = os.clock()
-	local hitTargets: { [Model]: boolean } = {}
+	task.delay(duration, function()
+		if casterChar and casterChar.Parent then
+			casterChar:SetAttribute("IsMissileBuffActive", false)
+		end
+	end)
+
+	print(`[SkillManager] {player.Name} activated Missile Barrage buff for {duration}s!`)
+end
+
+function SkillManager.HandleMissileAttack(player: Player, casterChar: Model)
+	local root = casterChar:FindFirstChild("HumanoidRootPart") or casterChar.PrimaryPart
+	if not root then return end
+	local origin = root.Position
 
 	task.spawn(function()
-		local elapsed = 0
-		local stepInterval = 0.05
-		local lastPos = origin
+		-- Give missile travel delay before server impact evaluation
+		task.wait(0.35)
+		if not casterChar or not casterChar.Parent then return end
 
-		while elapsed < travelDuration do
-			task.wait(stepInterval)
-			elapsed = os.clock() - startTime
-			local currentDist = math.min(elapsed * speed, range)
-			local currentPos = origin + flatDir * currentDist
+		local targets = getPotentialTargets(casterChar)
+		local closestTarget = nil
+		local closestDist = 55
 
-			-- Raycast segment to check wall collision
-			local raycastParams = RaycastParams.new()
-			raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-			raycastParams.FilterDescendantsInstances = { casterChar }
-			local rayResult = Workspace:Raycast(lastPos, currentPos - lastPos, raycastParams)
-
-			local targets = getPotentialTargets(casterChar)
-			for _, target in ipairs(targets) do
-				if not hitTargets[target.character] then
-					local targetPos = target.rootPart.Position
-					local distToLine = (targetPos - currentPos).Magnitude
-					if distToLine <= 5.5 then
-						hitTargets[target.character] = true
-						target.humanoid:TakeDamage(damage)
-						
-						-- Knockback along projectile path
-						local kbDir = (flatDir + Vector3.new(0, 0.25, 0)).Unit
-						target.rootPart:ApplyImpulse(kbDir * (target.rootPart.AssemblyMass * 25))
-						print(`[SkillManager] Flame Slash pierced {target.character.Name} for {damage} damage!`)
-					end
-				end
+		for _, t in ipairs(targets) do
+			local d = (t.rootPart.Position - origin).Magnitude
+			if d < closestDist then
+				closestDist = d
+				closestTarget = t
 			end
+		end
 
-			if rayResult and rayResult.Instance and rayResult.Instance.CanCollide then
-				-- Hit a wall or obstacle
-				break
-			end
-
-			lastPos = currentPos
+		if closestTarget and closestTarget.humanoid and closestTarget.humanoid.Health > 0 then
+			local damage = 35
+			closestTarget.humanoid:TakeDamage(damage)
+			local kbDir = (closestTarget.rootPart.Position - origin).Unit + Vector3.new(0, 0.35, 0)
+			closestTarget.rootPart:ApplyImpulse(kbDir.Unit * (closestTarget.rootPart.AssemblyMass * 20))
+			print(`[SkillManager] Guided Missile struck {closestTarget.character.Name} for {damage} damage!`)
 		end
 	end)
 end
@@ -276,17 +267,17 @@ local function executeInfernalWrath(player: Player, casterChar: Model, origin: V
 	local damage = config.damage or 100
 	local radius = config.range or 24
 	local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
-	local travelDist = 28.0
+	local travelDist = 32.0
 	local impactPos = origin + flatDir * travelDist
 
 	task.spawn(function()
-		-- Wait 2.0s for windup + swing, then track travel across 3.0s
-		task.wait(2.0)
+		-- Wait 1.70s for windup + swing, then fast travel across 1.10s (t=1.70s to t=2.80s)
+		task.wait(1.70)
 		if not casterChar or not casterChar.Parent then return end
 
 		local hitDuringTravel: { [Model]: boolean } = {}
 		local travelStartTime = os.clock()
-		local travelDur = 3.0
+		local travelDur = 1.10
 		local slashStartPos = origin + flatDir * 3.0
 
 		while os.clock() - travelStartTime < travelDur do
@@ -306,10 +297,10 @@ local function executeInfernalWrath(player: Player, casterChar: Model, origin: V
 					end
 				end
 			end
-			task.wait(0.06)
+			task.wait(0.04)
 		end
 
-		-- Explosion Impact at t = 5.0s
+		-- Explosion Impact at t = 2.80s
 		if not casterChar or not casterChar.Parent then return end
 		local targets = getPotentialTargets(casterChar)
 		for _, target in ipairs(targets) do
@@ -391,7 +382,7 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	if skillIndex == 1 then
 		executeSpinAttack(player, char, origin, direction, config)
 	elseif skillIndex == 2 then
-		executeFlameSlash(player, char, origin, direction, config)
+		executeMissileBuff(player, char, config)
 	elseif skillIndex == 3 then
 		executePhoenixDash(player, char, origin, direction, config)
 	elseif skillIndex == 4 then

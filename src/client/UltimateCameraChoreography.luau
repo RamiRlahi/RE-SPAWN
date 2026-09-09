@@ -2,21 +2,21 @@
 	UltimateCameraChoreography.luau
 	Client-side camera choreography controller for Ultimate attack cinematic.
 	
-	4-shot cinematic matching reference timeline (wide zoomed-out camera angles):
+	4-shot cinematic matching reference timeline (faster projectile & wide framing):
 	
 	SHOT 1 (0.00–1.00s, 1.0s): Broad cinematic angle behind character showing full body + glowing sword.
 	                           Windup animation (84579017139529) plays. Sword charges up with flame aura.
 	
-	SHOT 2 (1.00–2.00s, 1.0s): Wide-angle dynamic pullback showing entire character mid-swing + massive flame burst.
+	SHOT 2 (1.00–1.70s, 0.7s): Wide-angle dynamic pullback showing character mid-swing + slash start.
 	                           Slash animation (108875775887071) begins.
 	
-	SHOT 3 (2.00–5.00s, 3.0s): Elevated low-angle wide tracking shot following the traveling slash wave
-	                           across the terrain for 3 full seconds.
+	SHOT 3 (1.70–2.80s, 1.1s): Fast low-angle tracking shot following the traveling 'hk_ult_slash'
+	                           speeding forward across the terrain.
 	
-	SHOT 4 (5.00–6.50s, 1.5s): Wide third-person view well behind character looking down the corridor
-	                           at the massive explosion, debris, and shockwave.
+	SHOT 4 (2.80–4.00s, 1.2s): Wide third-person view looking down the corridor at the 'Light Explosion VFX'
+	                           impact explosion and shockwave.
 	
-	Hard cuts between all shots. Restores camera afterward.
+	Hard cuts between all shots. Restores camera cleanly to gameplay view at t = 4.00s.
 --]]
 
 local Workspace = game:GetService("Workspace")
@@ -111,7 +111,7 @@ function UltimateCameraChoreography.PlaySequence(
 	local function restoreCamera()
 		if activeSequenceToken ~= myToken then return end
 		if wasIsoActive and successIso and IsometricCamera then
-			IsometricCamera.Resume()
+			IsometricCamera.Resume(0.4)
 		else
 			camera.CameraType = Enum.CameraType.Custom
 			camera.FieldOfView = 70
@@ -128,8 +128,6 @@ function UltimateCameraChoreography.PlaySequence(
 		-- =====================================================================
 		-- SHOT 1: 0.00s – 1.00s | Wide Over-Shoulder Charge View
 		-- Generous camera distance showing full character stance + glowing sword.
-		-- Camera behind and to the side, looking at character & blade.
-		-- Subtle push-in during charge-up.
 		-- =====================================================================
 		local charPos = rootPart.Position
 		local swordPart = getSwordPart()
@@ -166,23 +164,22 @@ function UltimateCameraChoreography.PlaySequence(
 		if not isStillActive() then restoreCamera() return end
 
 		-- =====================================================================
-		-- SHOT 2: 1.00s – 2.00s | Wide Dynamic Pullback (Full Swing & VFX Burst)
-		-- Hard cut. Wide angle pulled far back showing full character body swing
-		-- and the giant energy/fire VFX bursting outward.
+		-- SHOT 2: 1.00s – 1.70s | Wide Dynamic Swing Pullback
+		-- Hard cut. Wide angle showing full character mid-swing.
 		-- =====================================================================
-		local SHOT2_DUR = 1.00
+		local SHOT2_DUR = 0.70
 
 		if onSlashStart then
 			pcall(onSlashStart)
 		end
 
 		local swingFocus = rootPart.Position + Vector3.new(0, 2.0, 0) + lookVec * 3.0
-		local shot2Start = rootPart.Position - lookVec * 11.0 + rightVec * 8.5 + Vector3.new(0, 6.0, 0)
-		local shot2End = rootPart.Position - lookVec * 16.0 + rightVec * 11.5 + Vector3.new(0, 8.0, 0)
+		local shot2Start = rootPart.Position - lookVec * 10.0 + rightVec * 7.5 + Vector3.new(0, 5.5, 0)
+		local shot2End = rootPart.Position - lookVec * 14.0 + rightVec * 10.0 + Vector3.new(0, 7.0, 0)
 
 		-- Hard cut
 		camera.CFrame = CFrame.lookAt(shot2Start, swingFocus)
-		camera.FieldOfView = 68
+		camera.FieldOfView = 66
 
 		local shot2Conn: RBXScriptConnection? = nil
 		local shot2StartTime = os.clock()
@@ -199,7 +196,7 @@ function UltimateCameraChoreography.PlaySequence(
 			local curPos = shot2Start:Lerp(shot2End, smooth)
 			local curFocus = rootPart.Position + Vector3.new(0, 2.2, 0) + lookVec * (3.0 + 4.0 * smooth)
 			camera.CFrame = CFrame.lookAt(curPos, curFocus)
-			camera.FieldOfView = 68 + (78 - 68) * smooth
+			camera.FieldOfView = 66 + (76 - 66) * smooth
 		end)
 
 		task.wait(SHOT2_DUR)
@@ -207,21 +204,20 @@ function UltimateCameraChoreography.PlaySequence(
 		if not isStillActive() then restoreCamera() return end
 
 		-- =====================================================================
-		-- SHOT 3: 2.00s – 5.00s | Wide Low Tracking of Traveling Slash VFX (3.0s)
-		-- Hard cut. Wide tracking angle with generous side and height clearance,
-		-- following the moving slash wave as it travels across the terrain.
+		-- SHOT 3: 1.70s – 2.80s | Fast Low Tracking of 'hk_ult_slash' (1.1s)
+		-- Hard cut. Fast tracking angle following the speeding slash wave.
 		-- =====================================================================
-		local SHOT3_DUR = 3.00
+		local SHOT3_DUR = 1.10
 
 		local vfxStartPos = rootPart.Position + lookVec * 3.0
-		local vfxEndPos = rootPart.Position + lookVec * 28.0
+		local vfxEndPos = rootPart.Position + lookVec * 32.0
 		local groundY = rootPart.Position.Y - 2.5
 		local lowHeight = groundY + 2.0
 
-		local cam3Offset = rightVec * 9.0 + Vector3.new(0, lowHeight - rootPart.Position.Y + 4.5, 0)
+		local cam3Offset = rightVec * 8.0 + Vector3.new(0, lowHeight - rootPart.Position.Y + 4.0, 0)
 
 		-- Hard cut
-		camera.FieldOfView = 72
+		camera.FieldOfView = 70
 
 		local shot3Conn: RBXScriptConnection? = nil
 		local shot3StartTime = os.clock()
@@ -235,21 +231,21 @@ function UltimateCameraChoreography.PlaySequence(
 			local alpha = math.clamp(elapsed / SHOT3_DUR, 0, 1)
 			local smooth = alpha
 
-			-- Current slash wave position moving forward
+			-- Current slash wave position moving forward fast
 			local vfxPos = vfxStartPos:Lerp(vfxEndPos, smooth)
 
-			-- Camera travels alongside with wide distance
-			local camPos = vfxPos + cam3Offset - lookVec * (8.5 + 3.5 * (1 - alpha))
-			camPos = Vector3.new(camPos.X, lowHeight + math.sin(alpha * math.pi * 0.5) * 0.6, camPos.Z)
+			-- Camera travels alongside
+			local camPos = vfxPos + cam3Offset - lookVec * (7.5 + 3.0 * (1 - alpha))
+			camPos = Vector3.new(camPos.X, lowHeight + math.sin(alpha * math.pi * 0.5) * 0.5, camPos.Z)
 
 			-- Look ahead of traveling slash wave
 			local lookTarget = vfxPos + lookVec * 6.0 + Vector3.new(0, 1.2, 0)
 
 			camera.CFrame = CFrame.lookAt(camPos, lookTarget)
-			camera.FieldOfView = 72 + (80 - 72) * (alpha * 0.8)
+			camera.FieldOfView = 70 + (78 - 70) * (alpha * 0.8)
 
 			-- Dynamic rumble as slash moves
-			local shakeMag = 0.10 + 0.15 * alpha
+			local shakeMag = 0.12 + 0.18 * alpha
 			local shakeOff = Vector3.new(
 				(math.random() - 0.5) * shakeMag,
 				(math.random() - 0.5) * shakeMag * 0.4,
@@ -263,32 +259,31 @@ function UltimateCameraChoreography.PlaySequence(
 		if not isStillActive() then restoreCamera() return end
 
 		-- =====================================================================
-		-- SHOT 4: 5.00s – 6.50s | Wide Third-Person Corridor Explosion
-		-- Hard cut. Wide view well behind the character looking down the corridor
-		-- at the full explosion, crater debris, and shockwave.
+		-- SHOT 4: 2.80s – 4.00s | Wide Corridor Impact View (Light Explosion VFX)
+		-- Hard cut. Wide view looking down the corridor at the explosion.
 		-- FOV pop on impact + camera shake.
 		-- =====================================================================
-		local SHOT4_DUR = 1.50
-		local impactPos = rootPart.Position + lookVec * 28.0
+		local SHOT4_DUR = 1.20
+		local impactPos = rootPart.Position + lookVec * 32.0
 
-		-- Fire impact VFX callback at t = 5.0s
+		-- Fire impact VFX callback at t = 2.80s
 		if onImpact then
 			pcall(onImpact)
 		end
 
-		local shoulderStart = rootPart.Position - lookVec * 12.5 + rightVec * 5.5 + Vector3.new(0, 6.5, 0)
-		local shoulderEnd = rootPart.Position - lookVec * 10.5 + rightVec * 4.5 + Vector3.new(0, 5.5, 0)
+		local shoulderStart = rootPart.Position - lookVec * 11.5 + rightVec * 5.0 + Vector3.new(0, 6.0, 0)
+		local shoulderEnd = rootPart.Position - lookVec * 9.5 + rightVec * 4.0 + Vector3.new(0, 5.0, 0)
 
 		local explosionFocus = impactPos + Vector3.new(0, 1.8, 0)
 
 		-- Hard cut
 		camera.CFrame = CFrame.lookAt(shoulderStart, explosionFocus)
-		camera.FieldOfView = 90
+		camera.FieldOfView = 85
 
 		local fovTween = TweenService:Create(
 			camera,
-			TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-			{ FieldOfView = 75 }
+			TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ FieldOfView = 72 }
 		)
 		fovTween:Play()
 
@@ -316,7 +311,7 @@ function UltimateCameraChoreography.PlaySequence(
 		if shot4Conn then shot4Conn:Disconnect() end
 
 		-- =====================================================================
-		-- RESTORATION: Return camera control
+		-- RESTORATION: Return camera control cleanly
 		-- =====================================================================
 		restoreCamera()
 	end)
@@ -328,7 +323,7 @@ function UltimateCameraChoreography.StopSequence()
 		return require(script.Parent:WaitForChild("IsometricCamera"))
 	end)
 	if successIso and IsometricCamera and IsometricCamera.IsPaused and IsometricCamera.IsPaused() then
-		IsometricCamera.Resume()
+		IsometricCamera.Resume(0.35)
 	else
 		camera.CameraType = Enum.CameraType.Custom
 		camera.FieldOfView = 70

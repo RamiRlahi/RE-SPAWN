@@ -208,12 +208,15 @@ local function findVFXAsset(name: string): Instance?
 		string.upper(name),
 		string.gsub(name, " ", "_"),
 		string.gsub(name, "_", " "),
+		string.gsub(string.lower(name), " ", "_"),
+		string.gsub(string.lower(name), "_", " "),
 	}
 
 	local roots = {
 		ReplicatedStorage:FindFirstChild("generalVFX"),
 		ReplicatedStorage:FindFirstChild("Assets") and ReplicatedStorage.Assets:FindFirstChild("generalVFX"),
 		ReplicatedStorage:FindFirstChild("Assets") and ReplicatedStorage.Assets:FindFirstChild("VFX"),
+		ReplicatedStorage:FindFirstChild("VFX"),
 		ReplicatedStorage:FindFirstChild("Assets"),
 		ReplicatedStorage,
 	}
@@ -390,114 +393,206 @@ local function playSpinAttackVFX(char: Model, origin: Vector3, lookDir: Vector3)
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- Skill 2: Flame Slash VFX (Ranged Projectile)
+-- Skill 2: Missile Barrage Buff & Guided Missile System
 -- ─────────────────────────────────────────────────────────────────────────────
-local function playFlameSlashVFX(char: Model, origin: Vector3, lookDir: Vector3)
-	local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
-	local startPos = origin + Vector3.new(0, 1.2, 0) + flatDir * 2
-	local range = 45
-	local speed = 70
-	local duration = range / speed
+local function playMissileBuffVFX(char: Model)
+	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not rootPart then return end
 
-	-- Create Projectile Carrier
-	local proj = Instance.new("Part")
-	proj.Name = "FlameSlashProjectile"
-	proj.Size = Vector3.new(6.0, 0.4, 2.2)
-	proj.Material = Enum.Material.Neon
-	proj.Color = Color3.fromRGB(255, 170, 35)
-	proj.Transparency = 0.1
-	proj.CanCollide = false
-	proj.CanTouch = false
-	proj.CanQuery = false
-	proj.Massless = true
-	proj.Anchored = true
-	proj.CFrame = CFrame.lookAt(startPos, startPos + flatDir) * CFrame.Angles(0, 0, math.rad(15))
-	proj.Parent = Workspace
+	char:SetAttribute("IsMissileBuffActive", true)
 
-	-- Slash crescent shape mesh
-	local mesh = Instance.new("SpecialMesh")
-	mesh.MeshType = Enum.MeshType.Sphere
-	mesh.Scale = Vector3.new(1, 0.15, 0.5)
-	mesh.Parent = proj
+	-- Brief activation flash on character
+	local buffAtt = Instance.new("Attachment")
+	buffAtt.Name = "MissileBuffActivation"
+	buffAtt.Position = Vector3.new(0, 1.5, 0)
+	buffAtt.Parent = rootPart
 
-	-- Fiery PointLight
-	local light = Instance.new("PointLight")
-	light.Color = Color3.fromRGB(255, 160, 40)
-	light.Brightness = 5
-	light.Range = 16
-	light.Parent = proj
+	local flamePE = makeFlameEmitter(buffAtt, 0, 3.5, 18)
+	flamePE:Emit(25)
 
-	-- Particles on projectile
-	local flamePE = makeFlameEmitter(proj, 40, 2.0, 8)
-	local emberPE = makeEmberEmitter(proj, 25)
+	local emberPE = makeEmberEmitter(buffAtt, 0)
+	emberPE:Emit(20)
 
-	-- Fiery Trail behind projectile
-	local att0 = Instance.new("Attachment")
-	att0.Position = Vector3.new(-3, 0, 0)
-	att0.Parent = proj
+	task.delay(0.6, function()
+		if buffAtt and buffAtt.Parent then
+			buffAtt:Destroy()
+		end
+	end)
 
-	local att1 = Instance.new("Attachment")
-	att1.Position = Vector3.new(3, 0, 0)
-	att1.Parent = proj
+	-- Buff duration: 8.0 seconds
+	task.delay(8.0, function()
+		if char and char.Parent then
+			char:SetAttribute("IsMissileBuffActive", false)
+		end
+	end)
+end
 
-	local trail = Instance.new("Trail")
-	trail.Attachment0 = att0
-	trail.Attachment1 = att1
-	trail.Color = FLAME_COLOR_SEQUENCE
-	trail.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.1),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	trail.Lifetime = 0.28
-	trail.LightEmission = 1
-	trail.LightInfluence = 0
-	trail.FaceCamera = true
-	trail.Parent = proj
+function SkillController.LaunchMissile(casterChar: Model)
+	local rootPart = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not rootPart then return end
 
-	-- Move projectile forward
+	local lookVec = rootPart.CFrame.LookVector
+	local rightVec = rootPart.CFrame.RightVector
+
+	-- Randomize shoulder launch side (left or right behind back)
+	local sideSign = (math.random() > 0.5 and 1 or -1)
+	local spawnOffset = -lookVec * 1.5 + rightVec * (sideSign * 1.2) + Vector3.new(0, 2.2, 0)
+	local spawnPos = rootPart.Position + spawnOffset
+
+	-- Initial trajectory: launches backward and upward away from the player
+	local initialDir = (-lookVec * 0.85 + Vector3.new(0, 0.45, 0) + rightVec * (sideSign * 0.35)).Unit
+	local currentPos = spawnPos
+	local currentVel = initialDir * 32.0
+
+	-- Find missile VFX asset from ReplicatedStorage
+	local missileTemplate = findVFXAsset("missile") or findVFXAsset("Missile") or findVFXAsset("hk_missile")
+	local missileInstance: Instance? = nil
+
+	if missileTemplate then
+		missileInstance = missileTemplate:Clone()
+		if missileInstance:IsA("Model") then
+			local prim = missileInstance.PrimaryPart or missileInstance:FindFirstChildWhichIsA("BasePart")
+			if prim then
+				prim.CanCollide = false
+				prim.CanTouch = false
+				prim.CanQuery = false
+				prim.Anchored = true
+				missileInstance:PivotTo(CFrame.lookAt(spawnPos, spawnPos + initialDir))
+			end
+			for _, d in ipairs(missileInstance:GetDescendants()) do
+				if d:IsA("BasePart") then
+					d.CanCollide = false
+					d.CanTouch = false
+					d.CanQuery = false
+					d.Anchored = true
+				elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+					d.Enabled = true
+				end
+			end
+		elseif missileInstance:IsA("BasePart") then
+			missileInstance.CanCollide = false
+			missileInstance.CanTouch = false
+			missileInstance.CanQuery = false
+			missileInstance.Anchored = true
+			missileInstance.CFrame = CFrame.lookAt(spawnPos, spawnPos + initialDir)
+			for _, d in ipairs(missileInstance:GetDescendants()) do
+				if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+					d.Enabled = true
+				end
+			end
+		elseif missileInstance:IsA("Attachment") then
+			local carrier = Instance.new("Part")
+			carrier.Size = Vector3.new(0.5, 0.5, 1)
+			carrier.Transparency = 1
+			carrier.CanCollide = false
+			carrier.Anchored = true
+			carrier.CFrame = CFrame.lookAt(spawnPos, spawnPos + initialDir)
+			missileInstance.Parent = carrier
+			missileInstance = carrier
+		end
+		missileInstance.Parent = Workspace.Terrain
+	end
+
+	-- Search for nearest enemy target in workspace
+	local function findNearestEnemy(pos: Vector3): (Model?, BasePart?)
+		local bestDist = 60
+		local bestTarget: Model? = nil
+		local bestPart: BasePart? = nil
+
+		for _, inst in ipairs(Workspace:GetChildren()) do
+			if inst:IsA("Model") and inst ~= casterChar then
+				local hum = inst:FindFirstChildOfClass("Humanoid")
+				local root = inst:FindFirstChild("HumanoidRootPart") or inst.PrimaryPart
+				if hum and root and hum.Health > 0 then
+					local dist = (root.Position - pos).Magnitude
+					if dist < bestDist then
+						bestDist = dist
+						bestTarget = inst
+						bestPart = root :: BasePart
+					end
+				end
+			end
+		end
+		return bestTarget, bestPart
+	end
+
 	task.spawn(function()
 		local startTime = os.clock()
-		local lastPos = startPos
+		local maxLifetime = 3.2
+		local targetModel, targetRoot = findNearestEnemy(spawnPos)
 
-		while os.clock() - startTime < duration do
+		while os.clock() - startTime < maxLifetime do
 			local dt = RunService.RenderStepped:Wait()
 			local elapsed = os.clock() - startTime
-			local currentPos = startPos + flatDir * (elapsed * speed)
 
-			proj.CFrame = CFrame.lookAt(currentPos, currentPos + flatDir) * CFrame.Angles(0, 0, math.rad(15 + math.sin(elapsed * 20) * 8))
-
-			-- Check wall raycast
-			local raycastParams = RaycastParams.new()
-			raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-			raycastParams.FilterDescendantsInstances = { char, proj }
-			local ray = Workspace:Raycast(lastPos, currentPos - lastPos, raycastParams)
-			if ray and ray.Instance and ray.Instance.CanCollide then
-				currentPos = ray.Position
-				break
+			-- Re-check target if lost
+			if not targetModel or not targetModel.Parent or not targetRoot or not targetRoot.Parent then
+				targetModel, targetRoot = findNearestEnemy(currentPos)
 			end
 
-			lastPos = currentPos
+			if targetRoot and targetRoot.Parent and elapsed > 0.12 then
+				-- Target detected: smoothly steer and curve velocity toward enemy like a guided missile
+				local targetAimPos = targetRoot.Position + Vector3.new(0, 0.8, 0)
+				local toTarget = (targetAimPos - currentPos)
+				local distToTarget = toTarget.Magnitude
+
+				if distToTarget < 2.5 then
+					-- Hit target!
+					break
+				end
+
+				local desiredDir = toTarget.Unit
+				local steerSpeed = 11.0
+				local targetSpeed = 50.0
+				currentVel = currentVel:Lerp(desiredDir * targetSpeed, math.clamp(dt * steerSpeed, 0, 1))
+			else
+				-- No target nearby: continue curving gracefully into the air behind player
+				currentVel = currentVel + Vector3.new(0, 3.5 * dt, 0)
+			end
+
+			currentPos = currentPos + currentVel * dt
+
+			if missileInstance and missileInstance.Parent then
+				local orientCF = CFrame.lookAt(currentPos, currentPos + currentVel)
+				if missileInstance:IsA("Model") then
+					missileInstance:PivotTo(orientCF)
+				elseif missileInstance:IsA("BasePart") then
+					missileInstance.CFrame = orientCF
+				end
+			end
 		end
 
-		-- Explosion burst on impact / expiration
-		flamePE.Enabled = false
-		emberPE.Enabled = false
-		proj.Transparency = 1
+		-- Explosion on impact or lifetime end
+		if missileInstance and missileInstance.Parent then
+			for _, d in ipairs(missileInstance:GetDescendants()) do
+				if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+					d.Enabled = false
+				end
+			end
+			Debris:AddItem(missileInstance, 0.4)
+		end
 
-		local burstAtt = Instance.new("Attachment")
-		burstAtt.CFrame = CFrame.new(proj.Position)
-		burstAtt.Parent = Workspace.Terrain
-
-		local burstPE = makeFlameEmitter(burstAtt, 0, 4.0, 20)
-		local burstEmbers = makeEmberEmitter(burstAtt, 0)
-		burstPE:Emit(25)
-		burstEmbers:Emit(20)
-
-		spawnGroundScorch(proj.Position, 7, 1.8)
-
-		task.wait(0.5)
-		burstAtt:Destroy()
-		proj:Destroy()
+		-- Spawn impact explosion VFX if available
+		local explTemplate = findVFXAsset("Light Explosion VFX") or findVFXAsset("Light Explosion") or findVFXAsset("Explosion")
+		if explTemplate then
+			local explClone = explTemplate:Clone()
+			if explClone:IsA("Model") then
+				explClone:PivotTo(CFrame.new(currentPos))
+				for _, d in ipairs(explClone:GetDescendants()) do
+					if d:IsA("BasePart") then d.CanCollide = false; d.Anchored = true end
+					if d:IsA("ParticleEmitter") then d:Emit(15) end
+				end
+			elseif explClone:IsA("BasePart") then
+				explClone.CanCollide = false
+				explClone.Anchored = true
+				explClone.CFrame = CFrame.new(currentPos)
+				for _, d in ipairs(explClone:GetDescendants()) do
+					if d:IsA("ParticleEmitter") then d:Emit(15) end
+				end
+			end
+			explClone.Parent = Workspace.Terrain
+			Debris:AddItem(explClone, 0.8)
+		end
 	end)
 end
 
@@ -800,7 +895,7 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 	if not rootPart then return end
 
 	local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
-	local travelDist = 28.0
+	local travelDist = 32.0
 	local impactPos = origin + flatDir * travelDist
 
 	-- 1. Find and clone custom hk_ULT asset from ReplicatedStorage.generalVFX
@@ -898,106 +993,148 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 	local bladeAtt, flamePE, emberPE, light = attachSwordFlameAura(char)
 	setWeaponTrailEnlarged(char, true)
 
-	-- Moving traveling slash wave projectile (Shot 3: travels for 3.0s from t=2.0s to t=5.0s)
-	local slashProjectileModel: Model? = nil
+	-- 3. Moving traveling slash wave (Shot 3: uses 'hk_ult_slash' asset, travels fast in 1.1s from t=1.70s to t=2.80s)
 	local function spawnTravelingSlashVFX()
 		if not char or not char.Parent then return end
-		local slashModel = Instance.new("Model")
-		slashModel.Name = "InfernalWrath_SlashWave"
+		local slashTemplate = findVFXAsset("hk_ult_slash") or findVFXAsset("hk_ult") or findVFXAsset("ult_slash")
+		local slashClone: Instance? = nil
+		local slashStartPos = rootPart.Position + flatDir * 3.0 + Vector3.new(0, 1.2, 0)
+		local endP = impactPos + Vector3.new(0, 1.2, 0)
 
-		local rootSlash = Instance.new("Part")
-		rootSlash.Name = "SlashRoot"
-		rootSlash.Size = Vector3.new(6, 1.5, 3)
-		rootSlash.Shape = Enum.PartType.Block
-		rootSlash.Material = Enum.Material.Neon
-		rootSlash.Color = Color3.fromRGB(255, 110, 20)
-		rootSlash.Transparency = 0.4
-		rootSlash.CanCollide = false
-		rootSlash.CanTouch = false
-		rootSlash.CanQuery = false
-		rootSlash.Anchored = true
-		rootSlash.CastShadow = false
+		if slashTemplate then
+			slashClone = slashTemplate:Clone()
+			if slashClone:IsA("Model") then
+				local prim = slashClone.PrimaryPart or slashClone:FindFirstChildWhichIsA("BasePart")
+				if prim then
+					prim.CanCollide = false
+					prim.CanTouch = false
+					prim.CanQuery = false
+					prim.Anchored = true
+					slashClone:PivotTo(CFrame.lookAt(slashStartPos, slashStartPos + flatDir))
+				end
+				for _, d in ipairs(slashClone:GetDescendants()) do
+					if d:IsA("BasePart") then
+						d.CanCollide = false
+						d.CanTouch = false
+						d.CanQuery = false
+						d.Anchored = true
+					elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+						d.Enabled = true
+					end
+				end
+			elseif slashClone:IsA("BasePart") then
+				slashClone.CanCollide = false
+				slashClone.CanTouch = false
+				slashClone.CanQuery = false
+				slashClone.Anchored = true
+				slashClone.CFrame = CFrame.lookAt(slashStartPos, slashStartPos + flatDir)
+				for _, d in ipairs(slashClone:GetDescendants()) do
+					if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+						d.Enabled = true
+					end
+				end
+			elseif slashClone:IsA("Attachment") then
+				local carrier = Instance.new("Part")
+				carrier.Size = Vector3.new(1, 1, 1)
+				carrier.Transparency = 1
+				carrier.CanCollide = false
+				carrier.Anchored = true
+				carrier.CFrame = CFrame.lookAt(slashStartPos, slashStartPos + flatDir)
+				slashClone.Parent = carrier
+				slashClone = carrier
+			end
+			slashClone.Parent = Workspace.Terrain
+		end
 
-		local slashStartPos = rootPart.Position + flatDir * 3.0
-		rootSlash.CFrame = CFrame.lookAt(slashStartPos, slashStartPos + flatDir)
-		rootSlash.Parent = slashModel
-		slashModel.PrimaryPart = rootSlash
-
-		local slashAtt = Instance.new("Attachment")
-		slashAtt.Parent = rootSlash
-
-		local pSlash = makeFlameEmitter(slashAtt, 28, 4.0, 24)
-		pSlash.SpreadAngle = Vector2.new(60, 20)
-		local pEmbers = makeEmberEmitter(slashAtt, 22)
-
-		local slashLight = Instance.new("PointLight")
-		slashLight.Color = Color3.fromRGB(255, 120, 20)
-		slashLight.Brightness = 10
-		slashLight.Range = 24
-		slashLight.Parent = rootSlash
-
-		slashModel.Parent = Workspace.Terrain
-		slashProjectileModel = slashModel
-
-		-- Animate slash travel across 3.0 seconds
+		-- Fast travel: 1.10s duration across 32 studs
 		task.spawn(function()
-			local travelDuration = 3.0
+			local travelDuration = 1.10
 			local travelStart = os.clock()
-			local startP = slashStartPos
-			local endP = impactPos
 
 			while os.clock() - travelStart < travelDuration do
 				local alpha = math.clamp((os.clock() - travelStart) / travelDuration, 0, 1)
-				local curP = startP:Lerp(endP, alpha)
-				if rootSlash and rootSlash.Parent then
-					rootSlash.CFrame = CFrame.lookAt(curP, curP + flatDir)
+				local curP = slashStartPos:Lerp(endP, alpha)
+				if slashClone and slashClone.Parent then
+					local orientCF = CFrame.lookAt(curP, curP + flatDir)
+					if slashClone:IsA("Model") then
+						slashClone:PivotTo(orientCF)
+					elseif slashClone:IsA("BasePart") then
+						slashClone.CFrame = orientCF
+					end
 				end
 				RunService.RenderStepped:Wait()
 			end
 
-			if slashModel and slashModel.Parent then
-				if pSlash then pSlash.Enabled = false end
-				if pEmbers then pEmbers.Enabled = false end
-				if slashLight then
-					TweenService:Create(slashLight, TweenInfo.new(0.3), { Brightness = 0 }):Play()
+			if slashClone and slashClone.Parent then
+				for _, d in ipairs(slashClone:GetDescendants()) do
+					if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+						d.Enabled = false
+					end
 				end
-				Debris:AddItem(slashModel, 0.4)
+				Debris:AddItem(slashClone, 0.4)
 			end
 		end)
 	end
 
+	-- 4. Impact explosion using 'Light Explosion VFX' asset
 	local function triggerImpactVFX()
 		if not char or not char.Parent then return end
 
-		-- Spawn Crater Debris (Small Earth/Rock Cubes)
+		-- Spawn Crater Debris
 		spawnCraterDebris(impactPos, 10.0, 28)
 
-		-- Fiery Impact Shockwave Burst
-		local impactAtt = Instance.new("Attachment")
-		impactAtt.CFrame = CFrame.new(impactPos)
-		impactAtt.Parent = Workspace.Terrain
+		-- Spawn 'Light Explosion VFX' asset
+		local explTemplate = findVFXAsset("Light Explosion VFX") or findVFXAsset("Light Explosion") or findVFXAsset("Light_Explosion_VFX") or findVFXAsset("Explosion")
+		if explTemplate then
+			local explClone = explTemplate:Clone()
+			if explClone:IsA("Model") then
+				explClone:PivotTo(CFrame.new(impactPos))
+				for _, d in ipairs(explClone:GetDescendants()) do
+					if d:IsA("BasePart") then
+						d.CanCollide = false
+						d.CanTouch = false
+						d.CanQuery = false
+						d.Anchored = true
+					elseif d:IsA("ParticleEmitter") then
+						d.Enabled = true
+						d:Emit(35)
+					elseif d:IsA("Beam") or d:IsA("Trail") then
+						d.Enabled = true
+					end
+				end
+			elseif explClone:IsA("BasePart") then
+				explClone.CanCollide = false
+				explClone.Anchored = true
+				explClone.CFrame = CFrame.new(impactPos)
+				for _, d in ipairs(explClone:GetDescendants()) do
+					if d:IsA("ParticleEmitter") then
+						d.Enabled = true
+						d:Emit(35)
+					end
+				end
+			elseif explClone:IsA("Attachment") then
+				explClone.CFrame = CFrame.new(impactPos)
+				explClone.Parent = Workspace.Terrain
+				for _, d in ipairs(explClone:GetDescendants()) do
+					if d:IsA("ParticleEmitter") then
+						d.Enabled = true
+						d:Emit(35)
+					end
+				end
+			end
+			explClone.Parent = Workspace.Terrain
 
-		local impactFlame = makeFlameEmitter(impactAtt, 0, 6.5, 36)
-		impactFlame.SpreadAngle = Vector2.new(180, 70)
-		impactFlame:Emit(55)
-
-		local impactEmbers = makeEmberEmitter(impactAtt, 0)
-		impactEmbers.Speed = NumberRange.new(22, 48)
-		impactEmbers:Emit(45)
-
-		local impactLight = Instance.new("PointLight")
-		impactLight.Color = Color3.fromRGB(255, 140, 20)
-		impactLight.Brightness = 18
-		impactLight.Range = 42
-		impactLight.Parent = impactAtt
-
-		TweenService:Create(impactLight, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-			Brightness = 0,
-			Range = 0,
-		}):Play()
-
-		task.wait(0.8)
-		impactAtt:Destroy()
+			task.delay(1.5, function()
+				if explClone and explClone.Parent then
+					for _, d in ipairs(explClone:GetDescendants()) do
+						if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+							d.Enabled = false
+						end
+					end
+					Debris:AddItem(explClone, 0.5)
+				end
+			end)
+		end
 	end
 
 	-- Trigger 4-shot Ultimate Camera Choreography for local player
@@ -1012,8 +1149,8 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 			if slashTrack then
 				slashTrack:Play(0.08)
 			end
-			-- Launch traveling slash wave at t=2.0s (Shot 3 start)
-			task.delay(1.0, function()
+			-- Launch traveling slash wave at t=1.70s (Shot 3 start)
+			task.delay(0.70, function()
 				spawnTravelingSlashVFX()
 			end)
 		end
@@ -1022,28 +1159,28 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 			char,
 			flatDir,
 			function()
-				-- Triggered at t = 5.0s (Shot 4: impact explosion)
+				-- Triggered at t = 2.80s (Shot 4: impact explosion)
 				triggerImpactVFX()
 			end,
 			function()
-				-- Completed at t = 6.5s
+				-- Completed at t = 4.00s
 			end,
 			onSlashStart
 		)
 	else
 		-- For non-local players
 		task.delay(1.0, function()
-			task.delay(1.0, function()
+			task.delay(0.70, function()
 				spawnTravelingSlashVFX()
 			end)
 		end)
-		task.delay(5.0, function()
+		task.delay(2.80, function()
 			triggerImpactVFX()
 		end)
 	end
 
-	-- Cleanup sword aura and hk_ULT asset after cinematic sequence
-	task.delay(6.8, function()
+	-- Cleanup sword aura and hk_ULT asset after sequence
+	task.delay(4.5, function()
 		setWeaponTrailEnlarged(char, false)
 		if flamePE then flamePE.Enabled = false end
 		if emberPE then emberPE.Enabled = false end
@@ -1174,26 +1311,10 @@ function SkillController.UseSkill(skillIndex: number)
 		end
 		playSpinAttackVFX(char, rootPart.Position, aimDir)
 	elseif skillIndex == 2 then
-		char:SetAttribute("AllowSkillMovement", false)
-		local track = loadedSkillTracks[2]
-		if track then
-			track:Play(0.08)
-			local stoppedConn: RBXScriptConnection? = nil
-			stoppedConn = track.Stopped:Connect(function()
-				if stoppedConn then
-					stoppedConn:Disconnect()
-					stoppedConn = nil
-				end
-				char:SetAttribute("IsSkillCasting", false)
-				char:SetAttribute("AllowSkillMovement", false)
-			end)
-		else
-			task.delay(0.4, function()
-				char:SetAttribute("IsSkillCasting", false)
-				char:SetAttribute("AllowSkillMovement", false)
-			end)
-		end
-		playFlameSlashVFX(char, rootPart.Position, aimDir)
+		-- Skill 2: Missile Barrage Buff (instant cast buff, enables missile launch on every attack)
+		char:SetAttribute("AllowSkillMovement", true)
+		char:SetAttribute("IsSkillCasting", false)
+		playMissileBuffVFX(char)
 	elseif skillIndex == 3 then
 		char:SetAttribute("AllowSkillMovement", true)
 		local track = loadedSkillTracks[3]
@@ -1210,12 +1331,12 @@ function SkillController.UseSkill(skillIndex: number)
 		local track = loadedSkillTracks[4]
 		if track then
 			track:Play(0.08)
-			task.delay(6.8, function()
+			task.delay(4.2, function()
 				char:SetAttribute("IsSkillCasting", false)
 				char:SetAttribute("AllowSkillMovement", false)
 			end)
 		else
-			task.delay(6.8, function()
+			task.delay(4.2, function()
 				char:SetAttribute("IsSkillCasting", false)
 				char:SetAttribute("AllowSkillMovement", false)
 			end)

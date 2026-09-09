@@ -569,6 +569,19 @@ local function performAttack()
 		})
 	end)
 
+	-- If Missile Barrage Buff is active, launch a guided missile
+	if character:GetAttribute("IsMissileBuffActive") == true then
+		local PlayerScripts = player:FindFirstChild("PlayerScripts")
+		local clientScript = PlayerScripts and (PlayerScripts:FindFirstChild("SoloProjectClient") or PlayerScripts:FindFirstChild("client"))
+		local skillModule = clientScript and clientScript:FindFirstChild("SkillController")
+		if skillModule then
+			local success, mod = pcall(require, skillModule)
+			if success and mod and mod.LaunchMissile then
+				mod.LaunchMissile(character)
+			end
+		end
+	end
+
 	-- Apply a physical forward nudge using LinearVelocity constraint
 	local rootPart = character:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if rootPart then

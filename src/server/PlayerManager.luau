@@ -98,6 +98,15 @@ function PlayerManager.Init()
 		if not character then return end
 		if character:GetAttribute("IsSkill1Active") == true or character:GetAttribute("IsSpinAttackActive") == true then return end
 		print(`[PlayerManager] {player.Name} performed attack:`, attackData)
+
+		if character:GetAttribute("IsMissileBuffActive") == true then
+			local successMod, SkillManager = pcall(function()
+				return require(script.Parent:WaitForChild("SkillManager"))
+			end)
+			if successMod and SkillManager and SkillManager.HandleMissileAttack then
+				SkillManager.HandleMissileAttack(player, character)
+			end
+		end
 	end)
 
 	-- Handle player joining

@@ -505,8 +505,27 @@ function IsometricCamera.Pause()
 	isPaused = true
 end
 
-function IsometricCamera.Resume()
+function IsometricCamera.Resume(transitionDuration: number?)
 	isPaused = false
+	local cam = getCamera()
+	cam.CameraType = Enum.CameraType.Scriptable
+
+	local root, _ = getCharacterRoot()
+	if root then
+		local rawTargetPos = root.Position + Vector3.new(0, TARGET_HEIGHT, 0)
+		currentFocusPos = rawTargetPos
+		local desiredCamPos = rawTargetPos + CAMERA_OFFSET
+		local targetCFrame = CFrame.lookAt(desiredCamPos, rawTargetPos)
+
+		local dur = transitionDuration or 0.35
+		TweenService:Create(
+			cam,
+			TweenInfo.new(dur, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out),
+			{ CFrame = targetCFrame, FieldOfView = CAMERA_FOV }
+		):Play()
+	else
+		cam.FieldOfView = CAMERA_FOV
+	end
 end
 
 function IsometricCamera.IsActive(): boolean
