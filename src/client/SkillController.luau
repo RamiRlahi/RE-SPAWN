@@ -1046,9 +1046,9 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 			slashClone.Parent = Workspace.Terrain
 		end
 
-		-- Fast travel: 1.10s duration across 32 studs
+		-- Fast travel: 0.60s duration across 32 studs (very fast slash)
 		task.spawn(function()
-			local travelDuration = 1.10
+			local travelDuration = 0.60
 			local travelStart = os.clock()
 
 			while os.clock() - travelStart < travelDuration do
@@ -1081,7 +1081,7 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 		if not char or not char.Parent then return end
 
 		-- Spawn Crater Debris
-		spawnCraterDebris(impactPos, 10.0, 28)
+		spawnCraterDebris(impactPos, 8.0, 16)
 
 		-- Spawn 'Light Explosion VFX' asset
 		local explTemplate = findVFXAsset("Light Explosion VFX") or findVFXAsset("Light Explosion") or findVFXAsset("Light_Explosion_VFX") or findVFXAsset("Explosion")
@@ -1097,7 +1097,7 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 						d.Anchored = true
 					elseif d:IsA("ParticleEmitter") then
 						d.Enabled = true
-						d:Emit(35)
+						d:Emit(15)
 					elseif d:IsA("Beam") or d:IsA("Trail") then
 						d.Enabled = true
 					end
@@ -1109,7 +1109,7 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 				for _, d in ipairs(explClone:GetDescendants()) do
 					if d:IsA("ParticleEmitter") then
 						d.Enabled = true
-						d:Emit(35)
+						d:Emit(15)
 					end
 				end
 			elseif explClone:IsA("Attachment") then
@@ -1118,7 +1118,7 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 				for _, d in ipairs(explClone:GetDescendants()) do
 					if d:IsA("ParticleEmitter") then
 						d.Enabled = true
-						d:Emit(35)
+						d:Emit(15)
 					end
 				end
 			end
@@ -1140,6 +1140,7 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 	-- Trigger 4-shot Ultimate Camera Choreography for local player
 	if char == player.Character then
 		-- Shot 2 begins at t=1.0s: switch animation from windup to slash
+		-- Slash VFX launches AFTER the animation finishes (0.50s later, at t=1.50s)
 		local function onSlashStart()
 			local windupTrack = loadedSkillTracks[4]
 			if windupTrack and windupTrack.IsPlaying then
@@ -1149,8 +1150,8 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 			if slashTrack then
 				slashTrack:Play(0.08)
 			end
-			-- Launch traveling slash wave at t=1.70s (Shot 3 start)
-			task.delay(0.70, function()
+			-- Wait for slash animation to finish, then launch the traveling slash wave
+			task.delay(0.50, function()
 				spawnTravelingSlashVFX()
 			end)
 		end
@@ -1159,28 +1160,26 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 			char,
 			flatDir,
 			function()
-				-- Triggered at t = 2.80s (Shot 4: impact explosion)
+				-- Triggered at t = 2.10s (Shot 4: impact explosion)
 				triggerImpactVFX()
 			end,
 			function()
-				-- Completed at t = 4.00s
+				-- Completed at t = 3.10s
 			end,
 			onSlashStart
 		)
 	else
-		-- For non-local players
-		task.delay(1.0, function()
-			task.delay(0.70, function()
-				spawnTravelingSlashVFX()
-			end)
+		-- For non-local players — slash launches at t=1.50s (after animation)
+		task.delay(1.50, function()
+			spawnTravelingSlashVFX()
 		end)
-		task.delay(2.80, function()
+		task.delay(2.10, function()
 			triggerImpactVFX()
 		end)
 	end
 
 	-- Cleanup sword aura and hk_ULT asset after sequence
-	task.delay(4.5, function()
+	task.delay(3.5, function()
 		setWeaponTrailEnlarged(char, false)
 		if flamePE then flamePE.Enabled = false end
 		if emberPE then emberPE.Enabled = false end
@@ -1331,12 +1330,12 @@ function SkillController.UseSkill(skillIndex: number)
 		local track = loadedSkillTracks[4]
 		if track then
 			track:Play(0.08)
-			task.delay(4.2, function()
+			task.delay(3.3, function()
 				char:SetAttribute("IsSkillCasting", false)
 				char:SetAttribute("AllowSkillMovement", false)
 			end)
 		else
-			task.delay(4.2, function()
+			task.delay(3.3, function()
 				char:SetAttribute("IsSkillCasting", false)
 				char:SetAttribute("AllowSkillMovement", false)
 			end)

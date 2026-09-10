@@ -14,6 +14,47 @@ local SkillData = require(Shared:WaitForChild("SkillData"))
 
 local SkillManager = {}
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Helper: Find VFX asset in ReplicatedStorage (server can read ReplicatedStorage)
+-- ─────────────────────────────────────────────────────────────────────────────
+local function findVFXAsset(name: string): Instance?
+	local searchNames = {
+		name,
+		string.lower(name),
+		string.upper(name),
+		string.gsub(name, " ", "_"),
+		string.gsub(name, "_", " "),
+		string.gsub(string.lower(name), " ", "_"),
+		string.gsub(string.lower(name), "_", " "),
+	}
+
+	local roots = {
+		ReplicatedStorage:FindFirstChild("generalVFX"),
+		ReplicatedStorage:FindFirstChild("Assets") and ReplicatedStorage.Assets:FindFirstChild("generalVFX"),
+		ReplicatedStorage:FindFirstChild("Assets") and ReplicatedStorage.Assets:FindFirstChild("VFX"),
+		ReplicatedStorage:FindFirstChild("VFX"),
+		ReplicatedStorage:FindFirstChild("Assets"),
+		ReplicatedStorage,
+	}
+
+	for _, folder in ipairs(roots) do
+		if folder then
+			for _, n in ipairs(searchNames) do
+				local found = folder:FindFirstChild(n)
+				if found then return found end
+			end
+			for _, child in ipairs(folder:GetChildren()) do
+				for _, n in ipairs(searchNames) do
+					if string.lower(child.Name) == string.lower(n) then
+						return child
+					end
+				end
+			end
+		end
+	end
+	return nil
+end
+
 -- playerCooldowns[player][skillIndex] = lastCastTime
 local playerCooldowns: { [Player]: { [number]: number } } = {}
 
@@ -262,7 +303,15 @@ end
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Hitbox: Skill 4 — Infernal Wrath (Ultimate: High Damage Impact Slash)
+-- Server-authoritative hitboxes + server-side VFX spawning for all-player visibility.
+--
+-- Timeline:
+--   t=0.00–1.00s : Windup (client camera Shot 1)
+--   t=1.00–1.60s : Slash travels fast (0.60s). Server spawns hk_ult_slash in Workspace.
+--   t=1.60s       : Explosion impact. Server spawns Light Explosion VFX in Workspace.
 -- ─────────────────────────────────────────────────────────────────────────────
+local Debris = game:GetService("Debris")
+
 local function executeInfernalWrath(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
 	local damage = config.damage or 100
 	local radius = config.range or 24
@@ -271,18 +320,70 @@ local function executeInfernalWrath(player: Player, casterChar: Model, origin: V
 	local impactPos = origin + flatDir * travelDist
 
 	task.spawn(function()
-		-- Wait 1.70s for windup + swing, then fast travel across 1.10s (t=1.70s to t=2.80s)
-		task.wait(1.70)
+		-- Wait 1.50s for windup + slash animation, then slash wave travels fast across 0.60s
+		task.wait(1.50)
 		if not casterChar or not casterChar.Parent then return end
 
+		-- ── Server-side Slash VFX (visible to all players) ──
+		local slashStartPos = origin + flatDir * 3.0 + Vector3.new(0, 1.2, 0)
+		local slashEndPos = impactPos + Vector3.new(0, 1.2, 0)
+		local slashTemplate = findVFXAsset("hk_ult_slash") or findVFXAsset("hk_ult") or findVFXAsset("ult_slash")
+		local slashClone: Instance? = nil
+
+		if slashTemplate then
+			slashClone = slashTemplate:Clone()
+			if slashClone:IsA("Model") then
+				local prim = slashClone.PrimaryPart or slashClone:FindFirstChildWhichIsA("BasePart")
+				if prim then
+					prim.CanCollide = false
+					prim.CanTouch = false
+					prim.CanQuery = false
+					prim.Anchored = true
+					slashClone:PivotTo(CFrame.lookAt(slashStartPos, slashStartPos + flatDir))
+				end
+				for _, d in ipairs(slashClone:GetDescendants()) do
+					if d:IsA("BasePart") then
+						d.CanCollide = false
+						d.CanTouch = false
+						d.CanQuery = false
+						d.Anchored = true
+					elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+						d.Enabled = true
+					end
+				end
+			elseif slashClone:IsA("BasePart") then
+				slashClone.CanCollide = false
+				slashClone.CanTouch = false
+				slashClone.CanQuery = false
+				slashClone.Anchored = true
+				slashClone.CFrame = CFrame.lookAt(slashStartPos, slashStartPos + flatDir)
+				for _, d in ipairs(slashClone:GetDescendants()) do
+					if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+						d.Enabled = true
+					end
+				end
+			end
+			slashClone.Parent = Workspace.Terrain
+		end
+
+		-- ── Hitbox: Fast slash travel across 0.60s ──
 		local hitDuringTravel: { [Model]: boolean } = {}
 		local travelStartTime = os.clock()
-		local travelDur = 1.10
-		local slashStartPos = origin + flatDir * 3.0
+		local travelDur = 0.60
 
 		while os.clock() - travelStartTime < travelDur do
 			local alpha = math.clamp((os.clock() - travelStartTime) / travelDur, 0, 1)
-			local curPos = slashStartPos:Lerp(impactPos, alpha)
+			local curPos = slashStartPos:Lerp(slashEndPos, alpha)
+
+			-- Move the server-side slash VFX model
+			if slashClone and slashClone.Parent then
+				local orientCF = CFrame.lookAt(curPos, curPos + flatDir)
+				if slashClone:IsA("Model") then
+					slashClone:PivotTo(orientCF)
+				elseif slashClone:IsA("BasePart") then
+					slashClone.CFrame = orientCF
+				end
+			end
 
 			local targets = getPotentialTargets(casterChar)
 			for _, target in ipairs(targets) do
@@ -300,8 +401,65 @@ local function executeInfernalWrath(player: Player, casterChar: Model, origin: V
 			task.wait(0.04)
 		end
 
-		-- Explosion Impact at t = 2.80s
+		-- Cleanup slash VFX
+		if slashClone and slashClone.Parent then
+			for _, d in ipairs(slashClone:GetDescendants()) do
+				if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+					d.Enabled = false
+				end
+			end
+			Debris:AddItem(slashClone, 0.4)
+		end
+
+		-- ── Explosion Impact at t ≈ 1.60s ──
 		if not casterChar or not casterChar.Parent then return end
+
+		-- Server-side Explosion VFX (visible to all players)
+		local explTemplate = findVFXAsset("Light Explosion VFX") or findVFXAsset("Light Explosion") or findVFXAsset("Light_Explosion_VFX") or findVFXAsset("Explosion")
+		if explTemplate then
+			local explClone = explTemplate:Clone()
+			if explClone:IsA("Model") then
+				explClone:PivotTo(CFrame.new(impactPos))
+				for _, d in ipairs(explClone:GetDescendants()) do
+					if d:IsA("BasePart") then
+						d.CanCollide = false
+						d.CanTouch = false
+						d.CanQuery = false
+						d.Anchored = true
+					elseif d:IsA("ParticleEmitter") then
+						d.Enabled = true
+						d:Emit(15)
+					elseif d:IsA("Beam") or d:IsA("Trail") then
+						d.Enabled = true
+					end
+				end
+			elseif explClone:IsA("BasePart") then
+				explClone.CanCollide = false
+				explClone.Anchored = true
+				explClone.CFrame = CFrame.new(impactPos)
+				for _, d in ipairs(explClone:GetDescendants()) do
+					if d:IsA("ParticleEmitter") then
+						d.Enabled = true
+						d:Emit(15)
+					end
+				end
+			end
+			explClone.Parent = Workspace.Terrain
+
+			-- Cleanup explosion after it fades
+			task.delay(1.2, function()
+				if explClone and explClone.Parent then
+					for _, d in ipairs(explClone:GetDescendants()) do
+						if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+							d.Enabled = false
+						end
+					end
+					Debris:AddItem(explClone, 0.5)
+				end
+			end)
+		end
+
+		-- Hitbox: Explosion damage
 		local targets = getPotentialTargets(casterChar)
 		for _, target in ipairs(targets) do
 			local dist = (target.rootPart.Position - impactPos).Magnitude
@@ -389,16 +547,21 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 		executeInfernalWrath(player, char, origin, direction, config)
 	end
 
-	-- Replicate VFX to other players
+	-- Replicate VFX to other players (for Skill 4, fire to ALL including caster
+	-- since server handles the main VFX and caster needs client-side camera/particles)
 	local vfxRemote = Network.GetRemoteEvent(Network.Remotes.SkillVFX)
 	for _, otherPlayer in ipairs(Players:GetPlayers()) do
-		if otherPlayer ~= player then
-			vfxRemote:FireClient(otherPlayer, {
-				player = player,
-				skillIndex = skillIndex,
-				origin = origin,
-				direction = direction,
-			})
+		-- For skill 4: server spawns main VFX, so only send for client-side extras
+		-- For other skills: send to everyone except caster (caster already plays locally)
+		if otherPlayer ~= player or skillIndex == 4 then
+			if skillIndex ~= 4 or otherPlayer ~= player then
+				vfxRemote:FireClient(otherPlayer, {
+					player = player,
+					skillIndex = skillIndex,
+					origin = origin,
+					direction = direction,
+				})
+			end
 		end
 	end
 

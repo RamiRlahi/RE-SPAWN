@@ -2,21 +2,21 @@
 	UltimateCameraChoreography.luau
 	Client-side camera choreography controller for Ultimate attack cinematic.
 	
-	4-shot cinematic matching reference timeline (faster projectile & wide framing):
+	4-shot cinematic matching reference timeline (fast zoom-out + snappy slash):
 	
 	SHOT 1 (0.00–1.00s, 1.0s): Broad cinematic angle behind character showing full body + glowing sword.
 	                           Windup animation (84579017139529) plays. Sword charges up with flame aura.
 	
-	SHOT 2 (1.00–1.70s, 0.7s): Wide-angle dynamic pullback showing character mid-swing + slash start.
-	                           Slash animation (108875775887071) begins.
+	SHOT 2 (1.00–1.50s, 0.5s): FAST dramatic zoom-out pullback. VFX slash launches at t=1.00s
+	                           simultaneously with the zoom out. Slash animation begins.
 	
-	SHOT 3 (1.70–2.80s, 1.1s): Fast low-angle tracking shot following the traveling 'hk_ult_slash'
-	                           speeding forward across the terrain.
+	SHOT 3 (1.50–2.10s, 0.6s): Fast low-angle tracking shot following the traveling 'hk_ult_slash'
+	                           speeding forward across the terrain (very fast travel).
 	
-	SHOT 4 (2.80–4.00s, 1.2s): Wide third-person view looking down the corridor at the 'Light Explosion VFX'
-	                           impact explosion and shockwave.
+	SHOT 4 (2.10–3.10s, 1.0s): Wide third-person view of the impact explosion — smaller and less
+	                           blinding than before. Reduced shake and FOV pop.
 	
-	Hard cuts between all shots. Restores camera cleanly to gameplay view at t = 4.00s.
+	Hard cuts between all shots. Restores camera cleanly to gameplay view at t = 3.10s.
 --]]
 
 local Workspace = game:GetService("Workspace")
@@ -126,19 +126,24 @@ function UltimateCameraChoreography.PlaySequence(
 
 	task.spawn(function()
 		-- =====================================================================
-		-- SHOT 1: 0.00s – 1.00s | Wide Over-Shoulder Charge View
-		-- Generous camera distance showing full character stance + glowing sword.
+		-- SHOT 1: 0.00s – 1.00s | Front Close-Up View (1.0s)
+		-- Camera in FRONT of character, slightly above and to the right,
+		-- looking back at the character's face/upper body during windup.
 		-- =====================================================================
 		local charPos = rootPart.Position
 		local swordPart = getSwordPart()
 
-		local swordFocus = swordPart.Position
-		local behindOffset = -lookVec * 8.5 + rightVec * 4.0 + Vector3.new(0, 4.8, 0)
-		local shot1Start = charPos + behindOffset
-		local shot1End = charPos + behindOffset + lookVec * 1.2 - Vector3.new(0, 0.4, 0)
+		-- Camera positioned in front of the character, slightly right and above
+		local frontOffset = lookVec * 5.5 + rightVec * 2.5 + Vector3.new(0, 3.2, 0)
+		local shot1Start = charPos + frontOffset
+		-- Subtle drift: camera creeps slightly closer and lower over the 1s
+		local shot1End = charPos + lookVec * 4.8 + rightVec * 2.2 + Vector3.new(0, 2.8, 0)
 
-		camera.CFrame = CFrame.lookAt(shot1Start, swordFocus)
-		camera.FieldOfView = 60
+		-- Focus on character's upper body / face area
+		local faceFocus = charPos + Vector3.new(0, 2.2, 0)
+
+		camera.CFrame = CFrame.lookAt(shot1Start, faceFocus)
+		camera.FieldOfView = 55
 
 		local shot1Conn: RBXScriptConnection? = nil
 		local shot1StartTime = os.clock()
@@ -154,9 +159,10 @@ function UltimateCameraChoreography.PlaySequence(
 			local smooth = 1 - math.pow(1 - alpha, 2)
 
 			local curPos = shot1Start:Lerp(shot1End, smooth)
-			local curSwordPos = swordPart and swordPart.Position or (rootPart.Position + Vector3.new(0, 3, 0))
-			camera.CFrame = CFrame.lookAt(curPos, curSwordPos)
-			camera.FieldOfView = 60 + (64 - 60) * smooth
+			-- Track the character's head/chest area as focus point
+			local curFocus = rootPart.Position + Vector3.new(0, 2.2, 0)
+			camera.CFrame = CFrame.lookAt(curPos, curFocus)
+			camera.FieldOfView = 55 + (58 - 55) * smooth
 		end)
 
 		task.wait(SHOT1_DUR)
@@ -164,22 +170,28 @@ function UltimateCameraChoreography.PlaySequence(
 		if not isStillActive() then restoreCamera() return end
 
 		-- =====================================================================
-		-- SHOT 2: 1.00s – 1.70s | Wide Dynamic Swing Pullback
-		-- Hard cut. Wide angle showing full character mid-swing.
+		-- SHOT 2: 1.00s – 1.50s | FAST Front Zoom-Out (0.50s)
+		-- NO hard cut — continues from Shot 1's front position and rapidly
+		-- pulls back and up, revealing the full character from the front.
+		-- VFX slash launches simultaneously with the zoom out.
 		-- =====================================================================
-		local SHOT2_DUR = 0.70
+		local SHOT2_DUR = 0.50
 
+		-- Fire slash start callback immediately — VFX launches WITH the zoom out
 		if onSlashStart then
 			pcall(onSlashStart)
 		end
 
-		local swingFocus = rootPart.Position + Vector3.new(0, 2.0, 0) + lookVec * 3.0
-		local shot2Start = rootPart.Position - lookVec * 10.0 + rightVec * 7.5 + Vector3.new(0, 5.5, 0)
-		local shot2End = rootPart.Position - lookVec * 14.0 + rightVec * 10.0 + Vector3.new(0, 7.0, 0)
+		-- Start from where Shot 1 ended (front of character, close)
+		local shot2Start = rootPart.Position + lookVec * 4.8 + rightVec * 2.2 + Vector3.new(0, 2.8, 0)
+		-- Pull way back and up from the front — dramatic fast zoom out
+		local shot2End = rootPart.Position + lookVec * 14.0 + rightVec * 5.0 + Vector3.new(0, 8.0, 0)
 
-		-- Hard cut
-		camera.CFrame = CFrame.lookAt(shot2Start, swingFocus)
-		camera.FieldOfView = 66
+		-- Focus stays on character
+		local shot2Focus = rootPart.Position + Vector3.new(0, 2.0, 0)
+
+		camera.CFrame = CFrame.lookAt(shot2Start, shot2Focus)
+		camera.FieldOfView = 58
 
 		local shot2Conn: RBXScriptConnection? = nil
 		local shot2StartTime = os.clock()
@@ -191,12 +203,14 @@ function UltimateCameraChoreography.PlaySequence(
 			end
 			local elapsed = os.clock() - shot2StartTime
 			local alpha = math.clamp(elapsed / SHOT2_DUR, 0, 1)
-			local smooth = 1 - math.pow(1 - alpha, 3)
+			-- Very aggressive easing for fast zoom-out feel
+			local smooth = 1 - math.pow(1 - alpha, 4)
 
 			local curPos = shot2Start:Lerp(shot2End, smooth)
-			local curFocus = rootPart.Position + Vector3.new(0, 2.2, 0) + lookVec * (3.0 + 4.0 * smooth)
+			local curFocus = rootPart.Position + Vector3.new(0, 2.0 + 1.0 * smooth, 0)
 			camera.CFrame = CFrame.lookAt(curPos, curFocus)
-			camera.FieldOfView = 66 + (76 - 66) * smooth
+			-- Dramatic FOV ramp for zoom-out effect
+			camera.FieldOfView = 58 + (80 - 58) * smooth
 		end)
 
 		task.wait(SHOT2_DUR)
@@ -204,10 +218,10 @@ function UltimateCameraChoreography.PlaySequence(
 		if not isStillActive() then restoreCamera() return end
 
 		-- =====================================================================
-		-- SHOT 3: 1.70s – 2.80s | Fast Low Tracking of 'hk_ult_slash' (1.1s)
+		-- SHOT 3: 1.50s – 2.10s | Fast Low Tracking of 'hk_ult_slash' (0.6s)
 		-- Hard cut. Fast tracking angle following the speeding slash wave.
 		-- =====================================================================
-		local SHOT3_DUR = 1.10
+		local SHOT3_DUR = 0.60
 
 		local vfxStartPos = rootPart.Position + lookVec * 3.0
 		local vfxEndPos = rootPart.Position + lookVec * 32.0
@@ -259,14 +273,14 @@ function UltimateCameraChoreography.PlaySequence(
 		if not isStillActive() then restoreCamera() return end
 
 		-- =====================================================================
-		-- SHOT 4: 2.80s – 4.00s | Wide Corridor Impact View (Light Explosion VFX)
-		-- Hard cut. Wide view looking down the corridor at the explosion.
-		-- FOV pop on impact + camera shake.
+		-- SHOT 4: 2.10s – 3.10s | Impact Explosion View (1.0s)
+		-- Hard cut. Wide view of the explosion — smaller and less blinding.
+		-- Reduced FOV pop and shake intensity.
 		-- =====================================================================
-		local SHOT4_DUR = 1.20
+		local SHOT4_DUR = 1.00
 		local impactPos = rootPart.Position + lookVec * 32.0
 
-		-- Fire impact VFX callback at t = 2.80s
+		-- Fire impact VFX callback at t = 2.10s
 		if onImpact then
 			pcall(onImpact)
 		end
@@ -278,17 +292,18 @@ function UltimateCameraChoreography.PlaySequence(
 
 		-- Hard cut
 		camera.CFrame = CFrame.lookAt(shoulderStart, explosionFocus)
-		camera.FieldOfView = 85
+		camera.FieldOfView = 78
 
+		-- Smaller FOV pop (was 85→72, now 78→70) — less blinding
 		local fovTween = TweenService:Create(
 			camera,
 			TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-			{ FieldOfView = 72 }
+			{ FieldOfView = 70 }
 		)
 		fovTween:Play()
 
-		-- Strong impact shake
-		triggerShake(1.3, 0.4)
+		-- Reduced impact shake (was 1.3 intensity, now 0.7)
+		triggerShake(0.7, 0.35)
 
 		local shot4Conn: RBXScriptConnection? = nil
 		local shot4StartTime = os.clock()
