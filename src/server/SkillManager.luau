@@ -11,8 +11,10 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local SkillData = require(Shared:WaitForChild("SkillData"))
+local PlayerStats = require(script.Parent:WaitForChild("PlayerStats"))
 
 local SkillManager = {}
+local basicAttackTimes: { [Player]: number } = {}
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Helper: Find VFX asset in ReplicatedStorage (server can read ReplicatedStorage)
@@ -140,13 +142,27 @@ local function getPotentialTargets(casterChar: Model): { { character: Model, hum
 	return targets
 end
 
+-- Keep combat authoritative while giving the attacking player immediate, exact
+-- feedback about the damage that was actually applied to a target.
+local function dealDamage(player: Player, target: { character: Model, humanoid: Humanoid, rootPart: BasePart }, amount: number, source: string)
+	local finalAmount = math.max(0, math.floor(amount))
+	if finalAmount <= 0 or target.humanoid.Health <= 0 then return end
+
+	target.humanoid:TakeDamage(finalAmount)
+	Network.GetRemoteEvent(Network.Remotes.DamageDealt):FireClient(player, {
+		position = target.rootPart.Position + Vector3.new(0, 2.5, 0),
+		amount = finalAmount,
+		source = source,
+	})
+end
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Hitbox: Skill 1 — Spin Attack (5s Continuous AoE Whirlwind)
 -- ─────────────────────────────────────────────────────────────────────────────
 local function executeSpinAttack(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
 	local duration = config.duration or 5.0
 	local damage = config.damage or 16
-	local radius = config.range or 14
+	local radius = (config.range or 14) * (config.areaMultiplier or 1)
 	local tickInterval = 0.4
 	local totalTicks = math.floor(duration / tickInterval)
 	local casterRoot = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
@@ -166,7 +182,7 @@ local function executeSpinAttack(player: Player, casterChar: Model, origin: Vect
 			for _, target in ipairs(targets) do
 				local dist = (target.rootPart.Position - currentPos).Magnitude
 				if dist <= radius then
-					target.humanoid:TakeDamage(damage)
+					dealDamage(player, target, damage, "WHIRLWIND")
 
 					-- Outward centrifugal impulse
 					local diff = target.rootPart.Position - currentPos
@@ -210,7 +226,9 @@ function SkillManager.HandleMissileAttack(player: Player, casterChar: Model)
 	local origin = root.Position
 
 	task.spawn(function()
-		for i = 1, 5 do
+		local extraProjectiles = math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount") or 0))
+		local missileCount = 5 + extraProjectiles
+		for i = 1, missileCount do
 			task.wait(i == 1 and 0.28 or 0.055)
 			if not casterChar or not casterChar.Parent then break end
 
@@ -228,7 +246,7 @@ function SkillManager.HandleMissileAttack(player: Player, casterChar: Model)
 
 			if closestTarget and closestTarget.humanoid and closestTarget.humanoid.Health > 0 then
 				local damage = 16 -- 16 damage per missile (total 80 damage across 5 missiles)
-				closestTarget.humanoid:TakeDamage(damage)
+				dealDamage(player, closestTarget, damage, "MISSILE")
 				local kbDir = (closestTarget.rootPart.Position - origin).Unit + Vector3.new(0, 0.2, 0)
 				closestTarget.rootPart:ApplyImpulse(kbDir.Unit * (closestTarget.rootPart.AssemblyMass * 8))
 				print(`[SkillManager] Guided Missile #{i} struck {closestTarget.character.Name} for {damage} damage!`)
@@ -243,7 +261,7 @@ end
 local function executePhoenixDash(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
 	local dashDist = config.dashDistance or 24
 	local damage = config.damage or 25
-	local radius = config.range or 8
+	local radius = (config.range or 8) * (config.areaMultiplier or 1)
 	local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
 
 	local hitTargets: { [Model]: boolean } = {}
@@ -260,7 +278,7 @@ local function executePhoenixDash(player: Player, casterChar: Model, origin: Vec
 					local dist = (target.rootPart.Position - currentPos).Magnitude
 					if dist <= radius then
 						hitTargets[target.character] = true
-						target.humanoid:TakeDamage(damage)
+						dealDamage(player, target, damage, "PHOENIX DASH")
 						
 						-- Whirlwind upward burst
 						local outwardDir = (target.rootPart.Position - currentPos)
@@ -289,7 +307,7 @@ local Debris = game:GetService("Debris")
 
 local function executeInfernalWrath(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
 	local damage = config.damage or 100
-	local radius = config.range or 24
+	local radius = (config.range or 24) * (config.areaMultiplier or 1)
 	local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
 	local travelDist = 32.0
 	local impactPos = origin + flatDir * travelDist
@@ -366,7 +384,7 @@ local function executeInfernalWrath(player: Player, casterChar: Model, origin: V
 					local dist = (target.rootPart.Position - curPos).Magnitude
 					if dist <= 8.0 then
 						hitDuringTravel[target.character] = true
-						target.humanoid:TakeDamage(math.floor(damage * 0.4))
+						dealDamage(player, target, math.floor(damage * 0.4), "INFERNAL WRATH")
 						local kbDir = (flatDir + Vector3.new(0, 0.4, 0)).Unit
 						target.rootPart:ApplyImpulse(kbDir * (target.rootPart.AssemblyMass * 25))
 						print(`[SkillManager] Infernal Wrath Slash Wave hit {target.character.Name}!`)
@@ -440,7 +458,7 @@ local function executeInfernalWrath(player: Player, casterChar: Model, origin: V
 			local dist = (target.rootPart.Position - impactPos).Magnitude
 			if dist <= radius then
 				local finalDmg = hitDuringTravel[target.character] and math.floor(damage * 0.6) or damage
-				target.humanoid:TakeDamage(finalDmg)
+				dealDamage(player, target, finalDmg, "INFERNAL WRATH")
 				
 				-- Heavy explosive knockback upward and outward
 				local outward = (target.rootPart.Position - impactPos)
@@ -481,6 +499,16 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	local classId = player:GetAttribute("SelectedClass") or "heavy_knight"
 	local config = SkillData.GetSkill(classId, skillIndex)
 	if not config then return end
+	local effectiveConfig = table.clone(config)
+	effectiveConfig.damage *= PlayerStats.GetStat(player, "damage")
+	effectiveConfig.cooldown *= PlayerStats.GetStat(player, "abilityCooldown")
+	if effectiveConfig.duration then
+		effectiveConfig.duration *= PlayerStats.GetStat(player, "abilityDuration")
+	end
+	if effectiveConfig.projectileSpeed then
+		effectiveConfig.projectileSpeed *= PlayerStats.GetStat(player, "projectileSpeed")
+	end
+	effectiveConfig.areaMultiplier = PlayerStats.GetStat(player, "size")
 
 	-- Validate Cooldown
 	local now = os.clock()
@@ -490,7 +518,7 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 
 	local lastUsed = playerCooldowns[player][skillIndex] or 0
 	local cdBuffer = 0.12 -- 120ms leeway for latency
-	if now - lastUsed < (config.cooldown - cdBuffer) then
+	if now - lastUsed < (effectiveConfig.cooldown - cdBuffer) then
 		warn(`[SkillManager] {player.Name} attempted to use Skill {skillIndex} before cooldown expired!`)
 		return
 	end
@@ -513,13 +541,13 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 
 	-- Execute authoritative skill logic
 	if skillIndex == 1 then
-		executeSpinAttack(player, char, origin, direction, config)
+		executeSpinAttack(player, char, origin, direction, effectiveConfig)
 	elseif skillIndex == 2 then
-		executeMissileBuff(player, char, config)
+		executeMissileBuff(player, char, effectiveConfig)
 	elseif skillIndex == 3 then
-		executePhoenixDash(player, char, origin, direction, config)
+		executePhoenixDash(player, char, origin, direction, effectiveConfig)
 	elseif skillIndex == 4 then
-		executeInfernalWrath(player, char, origin, direction, config)
+		executeInfernalWrath(player, char, origin, direction, effectiveConfig)
 	end
 
 	-- Replicate VFX to other players (for Skill 4, fire to ALL including caster
@@ -544,7 +572,7 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	local cdRemote = Network.GetRemoteEvent(Network.Remotes.SkillCooldownUpdate)
 	cdRemote:FireClient(player, {
 		skillIndex = skillIndex,
-		cooldown = config.cooldown,
+		cooldown = effectiveConfig.cooldown,
 	})
 
 	print(`[SkillManager] {player.Name} successfully cast Skill {skillIndex} ({config.name})`)
@@ -558,6 +586,10 @@ function SkillManager.HandleBasicAttack(player: Player)
 	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not humanoid or not rootPart or humanoid.Health <= 0 then return end
 	if player:GetAttribute("InLobby") == true then return end
+	local now = os.clock()
+	local attackInterval = 0.38 / math.max(PlayerStats.GetStat(player, "basicAttackSpeed"), 0.1)
+	if now - (basicAttackTimes[player] or 0) < attackInterval then return end
+	basicAttackTimes[player] = now
 
 	local origin = rootPart.Position
 	local lookDir = rootPart.CFrame.LookVector
@@ -573,8 +605,8 @@ function SkillManager.HandleBasicAttack(player: Player)
 			local flatDiff = Vector3.new(diff.X, 0, diff.Z).Unit
 			local dot = flatLook:Dot(flatDiff)
 			if dot > -0.1 or dist <= 6.0 then
-				local damage = 35
-				target.humanoid:TakeDamage(damage)
+				local damage = math.floor(35 * PlayerStats.GetStat(player, "damage"))
+				dealDamage(player, target, damage, "BASIC ATTACK")
 				hitCount += 1
 
 				local kbDir = (flatLook + Vector3.new(0, 0.25, 0)).Unit
@@ -603,6 +635,7 @@ function SkillManager.Init()
 
 	Players.PlayerRemoving:Connect(function(player: Player)
 		playerCooldowns[player] = nil
+		basicAttackTimes[player] = nil
 	end)
 
 	print("[SkillManager] Server SkillManager initialized.")

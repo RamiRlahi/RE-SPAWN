@@ -4,11 +4,14 @@ local Players = game:GetService("Players")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local ClassData = require(Shared:WaitForChild("ClassData"))
+local TomeController = require(script:WaitForChild("TomeController"))
 
 local player = Players.LocalPlayer
 local StarterGui = game:GetService("StarterGui")
 
 print("[Client] Initializing SoloProject Client...")
+
+TomeController.Init()
 
 -- Disable default Roblox Backpack UI
 task.spawn(function()

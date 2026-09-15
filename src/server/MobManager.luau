@@ -10,6 +10,7 @@ local TweenService = game:GetService("TweenService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local PlayerStats = require(script.Parent:WaitForChild("PlayerStats"))
 
 local MobManager = {}
 
@@ -121,10 +122,12 @@ local function createMobHealthBar(mobModel: Model, humanoid: Humanoid, rootPart:
 	local bb = Instance.new("BillboardGui")
 	bb.Name = "MobHealthBar"
 	bb.Adornee = rootPart
-	bb.Size = isBoss and UDim2.new(0, 160, 0, 24) or UDim2.new(0, 110, 0, 16)
+	bb.Size = isBoss and UDim2.new(0, 180, 0, 38) or UDim2.new(0, 132, 0, 30)
 	bb.StudsOffset = Vector3.new(0, (extents.Y * 0.5) + (isBoss and 2.5 or 1.8), 0)
 	bb.AlwaysOnTop = true
-	bb.MaxDistance = isBoss and 70 or 45
+	-- A zero MaxDistance keeps every active mob's HP visible instead of hiding
+	-- normal enemies once they are more than a short distance away.
+	bb.MaxDistance = 0
 	bb.Parent = mobModel
 
 	-- Background frame
@@ -148,8 +151,8 @@ local function createMobHealthBar(mobModel: Model, humanoid: Humanoid, rootPart:
 	-- Fill bar
 	local fill = Instance.new("Frame")
 	fill.Name = "Fill"
-	fill.Size = UDim2.new(1, -4, 1, -4)
-	fill.Position = UDim2.new(0, 2, 0, 2)
+	fill.Size = UDim2.new(1, -6, 0, 8)
+	fill.Position = UDim2.new(0, 3, 1, -11)
 	fill.BackgroundColor3 = isBoss and Color3.fromRGB(255, 65, 50) or Color3.fromRGB(230, 45, 45)
 	fill.BorderSizePixel = 0
 	fill.Parent = bg
@@ -161,22 +164,24 @@ local function createMobHealthBar(mobModel: Model, humanoid: Humanoid, rootPart:
 	-- Name & HP Text Label
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Name = "MobName"
-	nameLabel.Size = UDim2.new(1, 0, 1, 0)
+	nameLabel.Size = UDim2.new(1, -8, 1, -12)
+	nameLabel.Position = UDim2.fromOffset(4, 1)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.Font = Enum.Font.GothamBold
 	nameLabel.TextSize = isBoss and 13 or 10
 	nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 	nameLabel.TextStrokeTransparency = 0.4
 	nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-	nameLabel.Text = isBoss and "★ Slime Boss" or mobModel.Name
+	nameLabel.Text = `{isBoss and "★ Slime Boss" or mobModel.Name}\n{math.ceil(humanoid.Health)} / {math.ceil(humanoid.MaxHealth)} HP`
 	nameLabel.Parent = bg
 
 	-- Update on health change
 	humanoid.HealthChanged:Connect(function(health)
 		local alpha = math.clamp(health / humanoid.MaxHealth, 0, 1)
 		TweenService:Create(fill, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-			Size = UDim2.new(alpha, -4, 1, -4)
+			Size = UDim2.new(alpha, -6, 0, 8)
 		}):Play()
+		nameLabel.Text = `{isBoss and "★ Slime Boss" or mobModel.Name}\n{math.max(0, math.ceil(health))} / {math.ceil(humanoid.MaxHealth)} HP`
 
 		if health <= 0 then
 			bb.Enabled = false
@@ -306,6 +311,13 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 		while mobModel.Parent and humanoid.Health > 0 do
 			task.wait(0.35)
 			if not rootPart.Parent then break end
+			if Workspace:GetAttribute("TomesPaused") == true then
+				humanoid:Move(Vector3.zero)
+				rootPart.Anchored = true
+				repeat task.wait(0.1) until Workspace:GetAttribute("TomesPaused") ~= true or not mobModel.Parent or humanoid.Health <= 0
+				if rootPart.Parent then rootPart.Anchored = false end
+				continue
+			end
 
 			local mobPos = rootPart.Position
 			local closestPlayerChar: Model? = nil
@@ -356,6 +368,13 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 		print(`[MobManager] Mob '{mobModel.Name}' died at {pos} — spawning Blue Star VFX!`)
 
 		triggerBlueStarDeathVFX(pos)
+		local xpReward = isBoss and 100 or 25
+		for _, player in ipairs(Players:GetPlayers()) do
+			local playerRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if player:GetAttribute("InLobby") ~= true and playerRoot and (playerRoot.Position - pos).Magnitude <= 120 then
+				PlayerStats.AwardXP(player, xpReward)
+			end
+		end
 
 		task.spawn(function()
 			for _, desc in ipairs(mobModel:GetDescendants()) do

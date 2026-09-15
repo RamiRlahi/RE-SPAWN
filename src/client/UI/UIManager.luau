@@ -153,6 +153,12 @@ function UIManager.ShowTitle()
 end
 
 function UIManager.ShowSettings()
+	-- Settings is a separate screen state; fade the title controls so they do not
+	-- remain visible through the modal's translucent backdrop.
+	if titleScreenGroup and titleScreenGroup.Visible then
+		fadeCanvas(titleScreenGroup, 1, 0.15)
+	end
+
 	if settingsModalGroup then
 		settingsModalGroup.Visible = true
 		fadeCanvas(settingsModalGroup, 0, 0.2)
@@ -163,6 +169,10 @@ function UIManager.CloseSettings()
 	if settingsModalGroup then
 		fadeCanvas(settingsModalGroup, 1, 0.2, function()
 			settingsModalGroup.Visible = false
+			if titleScreenGroup then
+				titleScreenGroup.Visible = true
+				fadeCanvas(titleScreenGroup, 0, 0.15)
+			end
 		end)
 	end
 end
@@ -205,6 +215,13 @@ function UIManager.FadeOutToGame(onComplete: (() -> ())?)
 		if GameHUD then
 			pcall(function()
 				GameHUD.SetVisible(true)
+			end)
+		end
+		-- The minimap is constructed at startup to receive map data, but should only
+		-- be revealed once the player has entered the playable dungeon state.
+		if MinimapUI then
+			pcall(function()
+				MinimapUI.SetVisible(true)
 			end)
 		end
 

@@ -5,10 +5,12 @@ local AnimationManager  = require(script:WaitForChild("AnimationManager"))
 local SkillManager      = require(script:WaitForChild("SkillManager"))
 local DungeonGenerator  = require(script:WaitForChild("DungeonGenerator"))
 local MobManager        = require(script:WaitForChild("MobManager"))
+local PlayerStats       = require(script:WaitForChild("PlayerStats"))
 
 print("[Server] Initializing SoloProject Game Server...")
 
 ClassManager.Init()
+PlayerStats.Init()
 PlayerManager.Init()
 WeaponManager.Init()
 AnimationManager.Init()

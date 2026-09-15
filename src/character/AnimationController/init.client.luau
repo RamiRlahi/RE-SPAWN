@@ -592,6 +592,10 @@ local function performAttack()
 	end
 
 	trackToPlay:Play(0.1)
+	local attackSpeed = player:GetAttribute("Stat_basicAttackSpeed")
+	if typeof(attackSpeed) == "number" and attackSpeed > 0 then
+		trackToPlay:AdjustSpeed(attackSpeed)
+	end
 	print(`[Combat] Executed {attackType} attack (Hit: {currentCombo})`)
 
 	-- Attack completion handler

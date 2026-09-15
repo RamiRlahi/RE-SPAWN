@@ -9,6 +9,7 @@ local AtmosphereManager = require(Shared:WaitForChild("AtmosphereManager"))
 local ClassData = require(Shared:WaitForChild("ClassData"))
 local ClassManager = require(script.Parent:WaitForChild("ClassManager"))
 local AnimationManager = require(script.Parent:WaitForChild("AnimationManager"))
+local PlayerStats = require(script.Parent:WaitForChild("PlayerStats"))
 
 
 local PlayerManager = {}
@@ -65,7 +66,8 @@ local function setupCharacter(player: Player, character: Model)
 		rootPart.Anchored = false
 		humanoid.WalkSpeed = 16
 		humanoid.JumpPower = 50
-		humanoid.JumpHeight = 7.2
+			humanoid.JumpHeight = 7.2
+			PlayerStats.RefreshCharacter(player)
 	end
 end
 
@@ -86,12 +88,14 @@ function PlayerManager.Init()
 	setSprintRemote.OnServerEvent:Connect(function(player: Player, sprinting: any)
 		if typeof(sprinting) ~= "boolean" then return end
 		if player:GetAttribute("InLobby") == true then return end
+		player:SetAttribute("IsSprinting", sprinting)
 
 		local character = player.Character
 		if character then
 			local humanoid = character:FindFirstChildOfClass("Humanoid")
 			if humanoid and humanoid.Health > 0 then
-				humanoid.WalkSpeed = sprinting and 34 or 16
+				local baseSpeed = PlayerStats.GetStat(player, "movementSpeed")
+				humanoid.WalkSpeed = sprinting and baseSpeed * (34 / 16) or baseSpeed
 			end
 		end
 	end)
@@ -105,7 +109,7 @@ function PlayerManager.Init()
 		if character:GetAttribute("IsSkill1Active") == true or character:GetAttribute("IsSpinAttackActive") == true then return end
 		print(`[PlayerManager] {player.Name} performed attack:`, attackData)
 
-		if character:GetAttribute("IsMissileBuffActive") == true then
+		if false and character:GetAttribute("IsMissileBuffActive") == true then
 			local successMod, SkillManager = pcall(function()
 				return require(script.Parent:WaitForChild("SkillManager"))
 			end)
@@ -372,6 +376,7 @@ end
 			-- Equip permanent server-side armor
 			equipClassArmor(character, classId)
 		end
+		PlayerStats.StartRun(player)
 
 
 		print(`[PlayerManager] {player.Name} successfully entered the game as {classId}`)

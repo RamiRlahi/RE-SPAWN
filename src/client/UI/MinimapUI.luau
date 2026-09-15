@@ -46,6 +46,9 @@ local function createMinimapGui()
 	screenGui.Name = "DungeonMinimapGui"
 	screenGui.ResetOnSpawn = false
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	-- The map is built early so it can receive dungeon data, but it stays hidden
+	-- until the player has left the lobby and entered the run.
+	screenGui.Enabled = false
 	screenGui.Parent = playerGui
 	gui = screenGui
 
@@ -218,6 +221,12 @@ function MinimapUI.Init()
 
 	startTrackingLoop()
 	print("[MinimapUI] Top-Left Minimap Overlay initialized successfully.")
+end
+
+function MinimapUI.SetVisible(visible: boolean)
+	if gui then
+		gui.Enabled = visible
+	end
 end
 
 return MinimapUI

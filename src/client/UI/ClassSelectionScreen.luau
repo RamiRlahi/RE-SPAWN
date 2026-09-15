@@ -6,6 +6,7 @@ local Players = game:GetService("Players")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local UITheme = require(Shared:WaitForChild("UITheme"))
 local ClassData = require(Shared:WaitForChild("ClassData"))
+local SkillData = require(Shared:WaitForChild("SkillData"))
 local SoundManager = require(script.Parent:WaitForChild("SoundManager"))
 
 local player = Players.LocalPlayer
@@ -14,6 +15,41 @@ local player = Players.LocalPlayer
 local CLASS_ARMOR_FOLDERS: { [string]: string } = {
 	heavy_knight = "heavy knight armor",
 }
+
+local KNIGHT_HAIR_COLOR = Color3.fromRGB(250, 205, 101)
+local originalHairColors: { [BasePart]: Color3 } = {}
+
+local function isHairPiece(part: BasePart): boolean
+	if string.find(string.lower(part.Name), "hair", 1, true) then
+		return true
+	end
+
+	local accessory = part:FindFirstAncestorWhichIsA("Accessory")
+	if not accessory then
+		return false
+	end
+
+	return string.find(string.lower(accessory.Name), "hair", 1, true) ~= nil
+		or accessory:FindFirstChild("HairAttachment", true) ~= nil
+end
+
+local function tintKnightHair(character: Model?, classId: string)
+	if not character then return end
+
+	for _, desc in ipairs(character:GetDescendants()) do
+		if desc:IsA("BasePart") and isHairPiece(desc) then
+			if classId == "heavy_knight" then
+				if originalHairColors[desc] == nil then
+					originalHairColors[desc] = desc.Color
+				end
+				desc.Color = KNIGHT_HAIR_COLOR
+			elseif originalHairColors[desc] then
+				desc.Color = originalHairColors[desc]
+				originalHairColors[desc] = nil
+			end
+		end
+	end
+end
 
 -- Maps armor piece name -> R6 body part name it should be welded to
 local ARMOR_WELD_MAP: { [string]: string } = {
@@ -183,8 +219,153 @@ local function findWeaponTemplate(name: string): Instance?
 	return nil
 end
 
+-- Disable CanCollide and set Massless on every BasePart inside a tool.
+local function disableCollision(root: Instance)
+	if root:IsA("BasePart") then
+		(root :: BasePart).CanCollide = false
+		(root :: BasePart).Massless   = true
+	end
+	for _, part in ipairs(root:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.CanCollide = false
+			part.Massless   = true
+		end
+	end
+end
+
+-- Weld every BasePart in the tool (except Handle) TO the Handle.
+local function weldLoosePartsToHandle(tool: Tool, handle: BasePart)
+	for _, part in ipairs(tool:GetDescendants()) do
+		if part:IsA("BasePart") and part ~= handle then
+			local alreadyWelded = false
+			for _, w in ipairs(part:GetChildren()) do
+				if w:IsA("Weld") or w:IsA("WeldConstraint") or w:IsA("Motor6D") then
+					alreadyWelded = true
+					break
+				end
+			end
+			if not alreadyWelded then
+				for _, w in ipairs(handle:GetChildren()) do
+					if (w:IsA("Weld") or w:IsA("WeldConstraint"))
+						and ((w :: Weld).Part0 == part or (w :: Weld).Part1 == part) then
+						alreadyWelded = true
+						break
+					end
+				end
+			end
+
+			if not alreadyWelded then
+				local wc      = Instance.new("WeldConstraint")
+				wc.Part0      = handle
+				wc.Part1      = part :: BasePart
+				wc.Parent     = handle
+			end
+		end
+	end
+end
+
+local currentAnimToken = 0
+local currentPreviewTrack: AnimationTrack? = nil
+local currentScreenContainer: CanvasGroup? = nil
+
+local function stopPreviewAnimation()
+	currentAnimToken += 1
+	if currentPreviewTrack then
+		currentPreviewTrack:Stop(0.2)
+		currentPreviewTrack:Destroy()
+		currentPreviewTrack = nil
+	end
+	local character = player.Character
+	if character then
+		for _, instance in ipairs(character:GetChildren()) do
+			-- Never remove gameplay tools here. The real weapon is equipped on the
+			-- server as the selection screen is fading away, so only clean previews.
+			if instance:GetAttribute("PreviewWeapon") or instance.Name == "PreviewGreatsword" then
+				instance:Destroy()
+			end
+		end
+	end
+	if player.Backpack then
+		for _, instance in ipairs(player.Backpack:GetChildren()) do
+			if instance:GetAttribute("PreviewWeapon") or instance.Name == "PreviewGreatsword" then
+				instance:Destroy()
+			end
+		end
+	end
+end
+
+local function playPreviewAnimation(character: Model, classId: string)
+	currentAnimToken += 1
+	local myToken = currentAnimToken
+	if currentPreviewTrack then
+		currentPreviewTrack:Stop(0.2)
+		currentPreviewTrack:Destroy()
+		currentPreviewTrack = nil
+	end
+
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return end
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
+
+	local CLASS_PREVIEW_POSES: { [string]: string } = {
+		heavy_knight = "rbxassetid://101434181844277",
+	}
+
+	local animId = CLASS_PREVIEW_POSES[classId]
+	if not animId or animId == "" then
+		local skills = SkillData.GetSkills(classId)
+		local ultConfig = skills and skills[4]
+		animId = ultConfig and ultConfig.animationId
+	end
+	if not animId or animId == "" then
+		animId = "rbxassetid://101434181844277"
+	end
+
+	local anim = Instance.new("Animation")
+	anim.Name = `PreviewAnim_{classId}`
+	anim.AnimationId = animId
+
+	local track = animator:LoadAnimation(anim)
+	track.Priority = Enum.AnimationPriority.Action4
+	track.Looped = false
+	track:Play(0.2)
+	currentPreviewTrack = track
+
+	-- Freeze at the last keyframe of the animation so the pose is held indefinitely
+	task.spawn(function()
+		local waitStart = os.clock()
+		while track.Length == 0 and os.clock() - waitStart < 3.0 do
+			task.wait()
+			if currentAnimToken ~= myToken or not track.IsPlaying then return end
+		end
+
+		local length = track.Length
+		if length > 0 then
+			local holdTime = math.max(0.01, length - 0.06)
+			local elapsed = os.clock() - waitStart
+			local remaining = holdTime - elapsed
+			if remaining > 0 then
+				task.wait(remaining)
+			end
+			if currentAnimToken == myToken and track.IsPlaying then
+				track:AdjustSpeed(0)
+				track.TimePosition = holdTime
+			end
+		end
+	end)
+end
+
 local function applyClassCosmetics(classId: string)
 	task.spawn(function()
+		-- Only apply cosmetic pose/weapon if the character selection screen is actively visible
+		if currentScreenContainer and not currentScreenContainer.Visible then
+			return
+		end
+
 		local character = player.Character
 		if not character or not character.Parent then
 			character = player.CharacterAdded:Wait()
@@ -194,17 +375,23 @@ local function applyClassCosmetics(classId: string)
 			return
 		end
 
+		if currentScreenContainer and not currentScreenContainer.Visible then
+			return
+		end
+
 		local rootPart = character:WaitForChild("HumanoidRootPart", 5)
 		if not rootPart then
 			warn("[DEBUG-ClientCosmetics] No HumanoidRootPart found on character!")
 			return
 		end
 
-		print(`[DEBUG-ClientCosmetics] Applying cosmetics for classId: "{classId}" on {character.Name}`)
+		print(`[DEBUG-ClientCosmetics] Applying cosmetics & ultimate pose for classId: "{classId}" on {character.Name}`)
+
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
 
 		-- Remove all previously applied preview armor and preview weapons
 		for _, instance in ipairs(character:GetChildren()) do
-			if instance:GetAttribute("PreviewArmor") or instance:GetAttribute("PreviewWeapon") or instance.Name == "PreviewGreatsword" or instance.Name == "EquippedWeapon" or instance:IsA("Tool") then
+			if instance:GetAttribute("PreviewArmor") or instance:GetAttribute("PreviewWeapon") or instance.Name == "PreviewGreatsword" then
 				instance:Destroy()
 			end
 		end
@@ -224,96 +411,40 @@ local function applyClassCosmetics(classId: string)
 			end
 		end
 
-		-- 1. If Heavy Knight, preview equip the Greatsword attached to hand
-		if classId == "heavy_knight" then
+		-- 1. If Heavy Knight, preview equip the Greatsword via Humanoid:EquipTool (matching gameplay)
+		if classId == "heavy_knight" and humanoid then
 			local swordTemplate = findWeaponTemplate("Greatsword")
 
 			if swordTemplate then
-				local rightLimb = character:FindFirstChild("Right Arm") or character:FindFirstChild("RightHand") :: BasePart?
-				if not rightLimb then
-					rightLimb = character:WaitForChild("Right Arm", 3) or character:WaitForChild("RightHand", 3) :: BasePart?
+				local tool = swordTemplate:Clone()
+				if not tool:IsA("Tool") then
+					local inner = tool:FindFirstChildWhichIsA("Tool")
+					if inner then
+						tool = inner
+					end
 				end
 
-				if not rightLimb then
-					warn(`[DEBUG-ClientCosmetics] ❌ Cannot find Right Arm / RightHand on character {character.Name}!`)
-					for _, c in ipairs(character:GetChildren()) do
-						print(`   Limb: {c.Name} ({c.ClassName})`)
-					end
-				else
-					local tool = swordTemplate:Clone()
-					if not tool:IsA("Tool") then
-						local inner = tool:FindFirstChildWhichIsA("Tool")
-						if inner then
-							tool = inner
-						end
-					end
+				tool.Name = "PreviewGreatsword"
+				tool:SetAttribute("PreviewWeapon", true)
 
-					tool.Name = "PreviewGreatsword"
-					tool:SetAttribute("PreviewArmor", true)
-					tool:SetAttribute("PreviewWeapon", true)
+				disableCollision(tool)
 
-					for _, d in ipairs(tool:GetDescendants()) do
-						if d:IsA("BasePart") then
-							d.CanCollide = false
-							d.Massless = true
-						end
-					end
-
-					local handle = tool:FindFirstChild("Handle") :: BasePart? or tool:FindFirstChildWhichIsA("BasePart")
-					if handle then
-						-- Weld any loose MeshPart or child BasePart to Handle
-						for _, part in ipairs(tool:GetDescendants()) do
-							if part:IsA("BasePart") and part ~= handle then
-								local alreadyWelded = false
-								for _, w in ipairs(part:GetChildren()) do
-									if w:IsA("Weld") or w:IsA("WeldConstraint") or w:IsA("Motor6D") then
-										alreadyWelded = true
-										break
-									end
-								end
-								if not alreadyWelded then
-									local wc = Instance.new("WeldConstraint")
-									wc.Part0 = handle
-									wc.Part1 = part
-									wc.Parent = handle
-								end
-							end
-						end
-
-						-- Connect Handle to Right Arm / RightHand using the Tool's native Grip
-						local gripWeld = Instance.new("Weld")
-						gripWeld.Name = "RightGrip"
-						gripWeld:SetAttribute("PreviewWeapon", true)
-						gripWeld.Part0 = rightLimb
-						gripWeld.Part1 = handle
-
-						if rightLimb.Name == "Right Arm" then
-							-- Standard R6 Right Arm tool grip C0
-							gripWeld.C0 = CFrame.new(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, -1, 0)
-						else
-							-- R15 RightHand tool grip C0
-							local gripAtt = rightLimb:FindFirstChild("RightGripAttachment")
-							if gripAtt and gripAtt:IsA("Attachment") then
-								gripWeld.C0 = gripAtt.CFrame
-							else
-								gripWeld.C0 = CFrame.identity
-							end
-						end
-
-						gripWeld.C1 = (tool:IsA("Tool") and tool.Grip) or CFrame.identity
-						gripWeld.Parent = rightLimb
-
-						handle.CFrame = rightLimb.CFrame * gripWeld.C0 * gripWeld.C1:Inverse()
-					end
-
-					tool.Parent = character
-
-					print(`[DEBUG-ClientCosmetics] Preview equipped Tool '{tool.Name}' directly on {character.Name}`)
+				local handle = tool:FindFirstChild("Handle") :: BasePart? or tool:FindFirstChildWhichIsA("BasePart")
+				if handle and tool:IsA("Tool") then
+					weldLoosePartsToHandle(tool, handle)
 				end
+
+				tool.Parent = player.Backpack
+				humanoid:EquipTool(tool)
+
+				print(`[DEBUG-ClientCosmetics] Preview equipped Tool '{tool.Name}' via Humanoid:EquipTool directly on {character.Name}`)
 			end
 		end
 
-		-- 2. Find and equip the armor folder for this class (Disabled for now)
+		-- 2. Play the ultimate's first pose / animation for this class
+		playPreviewAnimation(character, classId)
+
+		-- 3. Find and equip the armor folder for this class (Disabled for now)
 		local ENABLE_PREVIEW_ARMOR = false
 		if not ENABLE_PREVIEW_ARMOR then return end
 
@@ -433,6 +564,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	container.GroupTransparency = 1
 	container.Visible = false
 	container.Parent = parent
+	currentScreenContainer = container
 
 	-- Subtle Dark Vignette Border (Keep center open to see the 3D character clearly)
 	local vignette = Instance.new("Frame")
@@ -938,6 +1070,10 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		local info = ClassData.GetClass(classId)
 		if not info then return end
 
+		-- Hovering or selecting Heavy Knight immediately applies the requested
+		-- blond-gold hair tint; navigating away restores the original color.
+		tintKnightHair(player.Character, classId)
+
 		-- Apply class-specific cosmetic armor preview on the character
 		applyClassCosmetics(classId)
 
@@ -1140,6 +1276,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	-- Hook Confirm Button
 	UITheme.MakeButtonInteractive(confirmBtn, confirmStroke, UITheme.Colors.GoldLight, SoundManager.PlayHover, function()
 		SoundManager.PlayConfirm()
+		stopPreviewAnimation()
 		local selectedClassId = ClassData.Order[currentIndex]
 		callbacks.onConfirmClass(selectedClassId)
 	end)
@@ -1155,15 +1292,26 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 			navigateCarousel(1)
 		elseif input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.Space then
 			SoundManager.PlayConfirm()
+			stopPreviewAnimation()
 			local selectedClassId = ClassData.Order[currentIndex]
 			callbacks.onConfirmClass(selectedClassId)
 		end
 	end)
 
-	-- Dynamic Re-renders when screen opens
+	-- Dynamic Re-renders when screen opens / closes
 	container:GetPropertyChangedSignal("Visible"):Connect(function()
 		if container.Visible then
 			updateCarouselUI(currentIndex, false)
+		else
+			stopPreviewAnimation()
+			local char = player.Character
+			if char then
+				for _, instance in ipairs(char:GetChildren()) do
+					if instance:GetAttribute("PreviewWeapon") or instance.Name == "PreviewGreatsword" then
+						instance:Destroy()
+					end
+				end
+			end
 		end
 	end)
 

@@ -19,6 +19,11 @@ Network.Remotes = {
 	SkillVFX            = "SkillVFX",        -- server → client: { player, skillIndex, origin, direction }
 	DungeonMapData      = "DungeonMapData",  -- server → client: map grid payload for minimap overlay
 	MobDeathVFX         = "MobDeathVFX",     -- server → client: { position }
+	DamageDealt         = "DamageDealt",     -- server → attacking client: { position, amount, source }
+	TomeProgress        = "TomeProgress",    -- server → client: { level, xp, xpToNext }
+	TomeChoices         = "TomeChoices",     -- server → client: { choices = TomeDefinition[] }
+	ChooseTome          = "ChooseTome",      -- client → server: tome id
+	RerollTomes         = "RerollTomes",     -- client → server: reroll the current tome choices
 }
 
 local function getFolder(): Folder

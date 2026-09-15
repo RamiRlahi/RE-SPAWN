@@ -267,6 +267,8 @@ end
 local function playSpinAttackVFX(char: Model, origin: Vector3, lookDir: Vector3)
 	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not rootPart then return end
+	local caster = Players:GetPlayerFromCharacter(char)
+	local sizeMultiplier = caster and caster:GetAttribute("Stat_size") or 1
 
 	local duration = 5.0
 
@@ -280,6 +282,11 @@ local function playSpinAttackVFX(char: Model, origin: Vector3, lookDir: Vector3)
 	if spinTemplate then
 		local clone = spinTemplate:Clone()
 		spawnedVFX = clone
+		if clone:IsA("Model") then
+			clone:ScaleTo(sizeMultiplier)
+		elseif clone:IsA("BasePart") then
+			clone.Size *= sizeMultiplier
+		end
 
 		for _, inst in ipairs(clone:GetDescendants()) do
 			if inst:IsA("BasePart") then
@@ -340,7 +347,7 @@ local function playSpinAttackVFX(char: Model, origin: Vector3, lookDir: Vector3)
 	vortexAtt.Position = Vector3.new(0, -0.8, 0)
 	vortexAtt.Parent = rootPart
 
-	local vortexPE = makeFlameEmitter(vortexAtt, 90, 3.8, 18)
+	local vortexPE = makeFlameEmitter(vortexAtt, 90, 3.8 * sizeMultiplier, 18)
 	vortexPE.SpreadAngle = Vector2.new(180, 45)
 	vortexPE.Speed = NumberRange.new(14, 26)
 	vortexPE.Lifetime = NumberRange.new(0.3, 0.55)
@@ -352,7 +359,7 @@ local function playSpinAttackVFX(char: Model, origin: Vector3, lookDir: Vector3)
 	local spinLight = Instance.new("PointLight")
 	spinLight.Color = Color3.fromRGB(255, 140, 30)
 	spinLight.Brightness = 7
-	spinLight.Range = 22
+	spinLight.Range = 22 * sizeMultiplier
 	spinLight.Parent = rootPart
 
 	-- 4. Ground Scorch pulses & camera pulses every 0.45s for 5.0 seconds
@@ -360,7 +367,7 @@ local function playSpinAttackVFX(char: Model, origin: Vector3, lookDir: Vector3)
 	task.spawn(function()
 		while os.clock() - startTime < duration do
 			if not char or not char.Parent or not rootPart or not rootPart.Parent then break end
-			spawnGroundScorch(rootPart.Position, 9.0, 1.4)
+			spawnGroundScorch(rootPart.Position, 9.0 * sizeMultiplier, 1.4)
 			if char == player.Character then
 				triggerCameraShake(0.35, 0.2)
 			end
@@ -678,7 +685,13 @@ end
 
 function SkillController.LaunchMissile(casterChar: Model)
 	task.spawn(function()
-		for i = 1, 5 do
+		local charPlayer = Players:GetPlayerFromCharacter(casterChar) or (player.Character == casterChar and player)
+		local extraProjectiles = 0
+		if charPlayer then
+			extraProjectiles = math.max(0, math.floor(charPlayer:GetAttribute("Stat_projectileCount") or 0))
+		end
+		local missileCount = 5 + extraProjectiles
+		for i = 1, missileCount do
 			if not casterChar or not casterChar.Parent then break end
 			launchSingleMissile(casterChar, i)
 			task.wait(0.055)
@@ -1482,9 +1495,70 @@ local function updateCooldowns()
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Damage Output
+-- ─────────────────────────────────────────────────────────────────────────────
+local function showDamageNumber(payload: any)
+	if typeof(payload) ~= "table" or typeof(payload.position) ~= "Vector3" or typeof(payload.amount) ~= "number" then
+		return
+	end
+
+	local anchor = Instance.new("Part")
+	anchor.Name = "LocalDamageNumberAnchor"
+	anchor.Size = Vector3.new(0.1, 0.1, 0.1)
+	anchor.Transparency = 1
+	anchor.Anchored = true
+	anchor.CanCollide = false
+	anchor.CanTouch = false
+	anchor.CanQuery = false
+	anchor.CFrame = CFrame.new(payload.position)
+	anchor.Parent = Workspace
+
+	local billboard = Instance.new("BillboardGui")
+	billboard.Name = "DamageNumber"
+	billboard.Adornee = anchor
+	billboard.Size = UDim2.fromOffset(124, 56)
+	billboard.AlwaysOnTop = true
+	billboard.LightInfluence = 0
+	billboard.StudsOffsetWorldSpace = Vector3.new(math.random(-7, 7) / 10, 0, 0)
+	billboard.Parent = anchor
+
+	local number = Instance.new("TextLabel")
+	number.Size = UDim2.new(1, 0, 0, 34)
+	number.BackgroundTransparency = 1
+	number.Font = Enum.Font.Antique
+	number.Text = `-{math.floor(payload.amount)}`
+	number.TextSize = 28
+	number.TextColor3 = payload.source == "INFERNAL WRATH" and Color3.fromRGB(255, 108, 52) or Color3.fromRGB(255, 218, 104)
+	number.TextStrokeColor3 = Color3.fromRGB(38, 10, 5)
+	number.TextStrokeTransparency = 0
+	number.Parent = billboard
+
+	local source = Instance.new("TextLabel")
+	source.Size = UDim2.new(1, 0, 0, 16)
+	source.Position = UDim2.fromOffset(0, 30)
+	source.BackgroundTransparency = 1
+	source.Font = Enum.Font.GothamBold
+	source.Text = typeof(payload.source) == "string" and payload.source or "HIT"
+	source.TextSize = 9
+	source.TextColor3 = Color3.fromRGB(255, 239, 191)
+	source.TextStrokeColor3 = Color3.fromRGB(38, 10, 5)
+	source.TextStrokeTransparency = 0.15
+	source.Parent = billboard
+
+	local fadeInfo = TweenInfo.new(0.72, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	TweenService:Create(billboard, fadeInfo, { StudsOffsetWorldSpace = billboard.StudsOffsetWorldSpace + Vector3.new(0, 3.2, 0) }):Play()
+	TweenService:Create(number, fadeInfo, { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	TweenService:Create(source, fadeInfo, { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	Debris:AddItem(anchor, 0.8)
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Initialization & Event Connections
 -- ─────────────────────────────────────────────────────────────────────────────
 function SkillController.Init()
+	local damageRemote = Network.GetRemoteEvent(Network.Remotes.DamageDealt)
+	damageRemote.OnClientEvent:Connect(showDamageNumber)
+
 	-- Keybind Listeners: M1 (Basic Attack), E (1: Spin), F (2: Slash), Q (3: Dash), R (4: Ultimate)
 	local lastBasicAttack = 0
 	UserInputService.InputBegan:Connect(function(input, gpe)
@@ -1496,7 +1570,8 @@ function SkillController.Init()
 			if not char then return end
 
 			local now = os.clock()
-			if now - lastBasicAttack < 0.38 then return end
+			local attackSpeed = player:GetAttribute("Stat_basicAttackSpeed") or 1
+			if now - lastBasicAttack < 0.38 / math.max(attackSpeed, 0.1) then return end
 			lastBasicAttack = now
 
 			local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
