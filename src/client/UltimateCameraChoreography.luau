@@ -75,15 +75,15 @@ function UltimateCameraChoreography.PlaySequence(
 
 	-- Find the sword/weapon part for tracking
 	local function getSwordPart(): BasePart
-		local tool = character:FindFirstChildOfClass("Tool")
-		if tool then
-			for _, desc in ipairs(tool:GetDescendants()) do
+		local weapon = character:FindFirstChild("EquippedWeapon") or character:FindFirstChild("PreviewGreatsword") or character:FindFirstChildOfClass("Tool")
+		if weapon then
+			for _, desc in ipairs(weapon:GetDescendants()) do
 				if desc:IsA("MeshPart") or (desc:IsA("BasePart") and desc.Name ~= "Handle") then
 					return desc
 				end
 			end
-			if tool:FindFirstChild("Handle") then
-				return tool.Handle :: BasePart
+			if weapon:FindFirstChild("Handle") then
+				return weapon.Handle :: BasePart
 			end
 		end
 		return character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm") or rootPart

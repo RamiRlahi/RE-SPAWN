@@ -6,6 +6,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
 local AtmosphereManager = require(Shared:WaitForChild("AtmosphereManager"))
+local ClassData = require(Shared:WaitForChild("ClassData"))
 local ClassManager = require(script.Parent:WaitForChild("ClassManager"))
 local AnimationManager = require(script.Parent:WaitForChild("AnimationManager"))
 
@@ -35,8 +36,9 @@ local function setupCharacter(player: Player, character: Model)
 
 	if not humanoid or not rootPart then return end
 
-	-- Attach player torch light & embers
+	-- Attach player torch light & embers, and visual outline
 	AtmosphereManager.AttachTorchLight(character)
+	AtmosphereManager.AttachCharacterOutline(character)
 
 	local inLobby = player:GetAttribute("InLobby")
 	if inLobby == nil or inLobby == true then
@@ -54,6 +56,10 @@ local function setupCharacter(player: Player, character: Model)
 		local selectedClass = player:GetAttribute("SelectedClass")
 		if selectedClass then
 			character:SetAttribute("Class", selectedClass)
+			local classInfo = ClassData.GetClass(selectedClass)
+			local maxHp = (classInfo and classInfo.stats and classInfo.stats.maxHealth) or 100
+			humanoid.MaxHealth = maxHp
+			humanoid.Health = maxHp
 			task.spawn(equipClassArmor, character, selectedClass)
 		end
 		rootPart.Anchored = false
@@ -237,7 +243,11 @@ local function weldArmorPiece(piece: Model | BasePart, targetPart: BasePart, pie
 end
 
 
+local ENABLE_CLASS_ARMOR = false
+
 local function equipClassArmor(character: Model, classId: string)
+	if not ENABLE_CLASS_ARMOR then return end
+
 	local CLASS_ARMOR_FOLDERS = {
 		heavy_knight = "heavy knight armor",
 	}
@@ -350,6 +360,10 @@ end
 				rootPart.Anchored = false
 			end
 			if humanoid then
+				local classInfo = ClassData.GetClass(classId)
+				local maxHp = (classInfo and classInfo.stats and classInfo.stats.maxHealth) or 100
+				humanoid.MaxHealth = maxHp
+				humanoid.Health = maxHp
 				humanoid.WalkSpeed = 16
 				humanoid.JumpPower = 50
 				humanoid.JumpHeight = 7.2

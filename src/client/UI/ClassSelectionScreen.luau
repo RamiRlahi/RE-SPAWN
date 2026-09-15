@@ -142,115 +142,281 @@ local function weldArmorPiece(piece: Model | BasePart, targetPart: BasePart, pie
 	end
 end
 
+local function findWeaponTemplate(name: string): Instance?
+	local targetName = string.lower(name)
+	print(`[DEBUG-ClientWeapon] Searching for weapon template: "{name}" in ReplicatedStorage...`)
+
+	local exact = ReplicatedStorage:FindFirstChild(name)
+		or ReplicatedStorage:FindFirstChild(name, true)
+	if exact then
+		print(`[DEBUG-ClientWeapon] Found exact match: {exact:GetFullName()} ({exact.ClassName})`)
+		return exact
+	end
+
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	if assets then
+		local inAssets = assets:FindFirstChild(name) or assets:FindFirstChild(name, true)
+		if inAssets then
+			print(`[DEBUG-ClientWeapon] Found in Assets: {inAssets:GetFullName()} ({inAssets.ClassName})`)
+			return inAssets
+		end
+	end
+
+	for _, child in ipairs(ReplicatedStorage:GetDescendants()) do
+		if string.lower(child.Name) == targetName then
+			print(`[DEBUG-ClientWeapon] Found case-insensitive match: {child:GetFullName()} ({child.ClassName})`)
+			return child
+		end
+	end
+	for _, child in ipairs(ReplicatedStorage:GetDescendants()) do
+		local lower = string.lower(child.Name)
+		if (child:IsA("Tool") or child:IsA("Model") or child:IsA("BasePart")) and (string.find(lower, "greatsword") or string.find(lower, "great_sword") or string.find(lower, "sword")) then
+			print(`[DEBUG-ClientWeapon] Found partial match: {child:GetFullName()} ({child.ClassName})`)
+			return child
+		end
+	end
+
+	warn(`[DEBUG-ClientWeapon] ❌ Weapon "{name}" NOT found in ReplicatedStorage! Listing top-level ReplicatedStorage children:`)
+	for _, child in ipairs(ReplicatedStorage:GetChildren()) do
+		warn(`   RS Child: "{child.Name}" ({child.ClassName})`)
+	end
+	return nil
+end
+
 local function applyClassCosmetics(classId: string)
-	local character = player.Character
-	if not character then return end
-
-	-- Remove all previously applied preview armor
-	for _, instance in ipairs(character:GetChildren()) do
-		if instance:GetAttribute("PreviewArmor") then
-			instance:Destroy()
+	task.spawn(function()
+		local character = player.Character
+		if not character or not character.Parent then
+			character = player.CharacterAdded:Wait()
 		end
-	end
-
-	-- Find the armor folder for this class
-	local folderName = CLASS_ARMOR_FOLDERS[classId]
-	if not folderName then return end
-
-	local armorFolder = ReplicatedStorage
-		:FindFirstChild("Assets")
-		:FindFirstChild("Classes")
-		:FindFirstChild(folderName)
-
-	if not armorFolder then
-		warn("[ClassSelection] Armor folder not found:", folderName)
-		return
-	end
-
-	-- Position each armor piece individually on its target limb
-	for _, piece in ipairs(armorFolder:GetChildren()) do
-		local clone = piece:Clone()
-		clone:SetAttribute("PreviewArmor", true)
-
-		-- Scale first
-		local pieceScale = ARMOR_PIECE_SCALES[piece.Name] or ARMOR_SCALE
-		scaleArmorPiece(clone, pieceScale)
-
-		-- Determine the target R6 body part
-		local targetPartName = ARMOR_WELD_MAP[piece.Name] or "Torso"
-		local targetPart = character:FindFirstChild(targetPartName) :: BasePart?
-		if not targetPart then
-			clone.Parent = character
-			continue
+		if not character then
+			warn("[DEBUG-ClientCosmetics] No player.Character found when applying cosmetics!")
+			return
 		end
 
-		-- Get the rotation offset for this piece
-		local rotOffset = ARMOR_CFRAME_OFFSETS[piece.Name] or CFrame.identity
+		local rootPart = character:WaitForChild("HumanoidRootPart", 5)
+		if not rootPart then
+			warn("[DEBUG-ClientCosmetics] No HumanoidRootPart found on character!")
+			return
+		end
 
-		-- Get the bounding box center of this piece
-		local pieceCF: CFrame
-		if clone:IsA("Model") then
-			pieceCF = clone:GetBoundingBox()
-		elseif clone:IsA("Accessory") then
-			local handle = clone:FindFirstChild("Handle") :: BasePart?
-			if handle then
-				pieceCF = handle.CFrame
+		print(`[DEBUG-ClientCosmetics] Applying cosmetics for classId: "{classId}" on {character.Name}`)
+
+		-- Remove all previously applied preview armor and preview weapons
+		for _, instance in ipairs(character:GetChildren()) do
+			if instance:GetAttribute("PreviewArmor") or instance:GetAttribute("PreviewWeapon") or instance.Name == "PreviewGreatsword" or instance.Name == "EquippedWeapon" or instance:IsA("Tool") then
+				instance:Destroy()
+			end
+		end
+		for _, instance in ipairs(player.Backpack:GetChildren()) do
+			if instance:GetAttribute("PreviewArmor") or instance:GetAttribute("PreviewWeapon") or instance.Name == "PreviewGreatsword" then
+				instance:Destroy()
+			end
+		end
+		for _, limbName in ipairs({ "Right Arm", "RightHand" }) do
+			local limb = character:FindFirstChild(limbName)
+			if limb then
+				for _, w in ipairs(limb:GetChildren()) do
+					if w.Name == "RightGrip" or w.Name == "PreviewGrip" or w:GetAttribute("PreviewArmor") or w:GetAttribute("PreviewWeapon") then
+						w:Destroy()
+					end
+				end
+			end
+		end
+
+		-- 1. If Heavy Knight, preview equip the Greatsword attached to hand
+		if classId == "heavy_knight" then
+			local swordTemplate = findWeaponTemplate("Greatsword")
+
+			if swordTemplate then
+				local rightLimb = character:FindFirstChild("Right Arm") or character:FindFirstChild("RightHand") :: BasePart?
+				if not rightLimb then
+					rightLimb = character:WaitForChild("Right Arm", 3) or character:WaitForChild("RightHand", 3) :: BasePart?
+				end
+
+				if not rightLimb then
+					warn(`[DEBUG-ClientCosmetics] ❌ Cannot find Right Arm / RightHand on character {character.Name}!`)
+					for _, c in ipairs(character:GetChildren()) do
+						print(`   Limb: {c.Name} ({c.ClassName})`)
+					end
+				else
+					local tool = swordTemplate:Clone()
+					if not tool:IsA("Tool") then
+						local inner = tool:FindFirstChildWhichIsA("Tool")
+						if inner then
+							tool = inner
+						end
+					end
+
+					tool.Name = "PreviewGreatsword"
+					tool:SetAttribute("PreviewArmor", true)
+					tool:SetAttribute("PreviewWeapon", true)
+
+					for _, d in ipairs(tool:GetDescendants()) do
+						if d:IsA("BasePart") then
+							d.CanCollide = false
+							d.Massless = true
+						end
+					end
+
+					local handle = tool:FindFirstChild("Handle") :: BasePart? or tool:FindFirstChildWhichIsA("BasePart")
+					if handle then
+						-- Weld any loose MeshPart or child BasePart to Handle
+						for _, part in ipairs(tool:GetDescendants()) do
+							if part:IsA("BasePart") and part ~= handle then
+								local alreadyWelded = false
+								for _, w in ipairs(part:GetChildren()) do
+									if w:IsA("Weld") or w:IsA("WeldConstraint") or w:IsA("Motor6D") then
+										alreadyWelded = true
+										break
+									end
+								end
+								if not alreadyWelded then
+									local wc = Instance.new("WeldConstraint")
+									wc.Part0 = handle
+									wc.Part1 = part
+									wc.Parent = handle
+								end
+							end
+						end
+
+						-- Connect Handle to Right Arm / RightHand using the Tool's native Grip
+						local gripWeld = Instance.new("Weld")
+						gripWeld.Name = "RightGrip"
+						gripWeld:SetAttribute("PreviewWeapon", true)
+						gripWeld.Part0 = rightLimb
+						gripWeld.Part1 = handle
+
+						if rightLimb.Name == "Right Arm" then
+							-- Standard R6 Right Arm tool grip C0
+							gripWeld.C0 = CFrame.new(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, -1, 0)
+						else
+							-- R15 RightHand tool grip C0
+							local gripAtt = rightLimb:FindFirstChild("RightGripAttachment")
+							if gripAtt and gripAtt:IsA("Attachment") then
+								gripWeld.C0 = gripAtt.CFrame
+							else
+								gripWeld.C0 = CFrame.identity
+							end
+						end
+
+						gripWeld.C1 = (tool:IsA("Tool") and tool.Grip) or CFrame.identity
+						gripWeld.Parent = rightLimb
+
+						handle.CFrame = rightLimb.CFrame * gripWeld.C0 * gripWeld.C1:Inverse()
+					end
+
+					tool.Parent = character
+
+					print(`[DEBUG-ClientCosmetics] Preview equipped Tool '{tool.Name}' directly on {character.Name}`)
+				end
+			end
+		end
+
+		-- 2. Find and equip the armor folder for this class (Disabled for now)
+		local ENABLE_PREVIEW_ARMOR = false
+		if not ENABLE_PREVIEW_ARMOR then return end
+
+		local folderName = CLASS_ARMOR_FOLDERS[classId]
+		if not folderName then return end
+
+		local armorFolder = ReplicatedStorage
+			:FindFirstChild("Assets")
+			:FindFirstChild("Classes")
+			:FindFirstChild(folderName)
+
+		if not armorFolder then
+			warn("[ClassSelection] Armor folder not found:", folderName)
+			return
+		end
+
+		-- Position each armor piece individually on its target limb
+		for _, piece in ipairs(armorFolder:GetChildren()) do
+			local clone = piece:Clone()
+			clone:SetAttribute("PreviewArmor", true)
+
+			-- Scale first
+			local pieceScale = ARMOR_PIECE_SCALES[piece.Name] or ARMOR_SCALE
+			scaleArmorPiece(clone, pieceScale)
+
+			-- Determine the target R6 body part
+			local targetPartName = ARMOR_WELD_MAP[piece.Name] or "Torso"
+			local targetPart = character:FindFirstChild(targetPartName) :: BasePart?
+			if not targetPart then
+				targetPart = character:WaitForChild(targetPartName, 2) :: BasePart?
+			end
+			if not targetPart then
+				clone.Parent = character
+				continue
+			end
+
+			-- Get the rotation offset for this piece
+			local rotOffset = ARMOR_CFRAME_OFFSETS[piece.Name] or CFrame.identity
+
+			-- Get the bounding box center of this piece
+			local pieceCF: CFrame
+			if clone:IsA("Model") then
+				pieceCF = clone:GetBoundingBox()
+			elseif clone:IsA("Accessory") then
+				local handle = clone:FindFirstChild("Handle") :: BasePart?
+				if handle then
+					pieceCF = handle.CFrame
+				else
+					pieceCF = CFrame.identity
+				end
+			elseif clone:IsA("BasePart") then
+				pieceCF = clone.CFrame
 			else
-				pieceCF = CFrame.identity
+				clone.Parent = character
+				continue
 			end
-		elseif clone:IsA("BasePart") then
-			pieceCF = clone.CFrame
-		else
+
+			-- Snap the piece center to the limb center with rotation
+			local targetCF = targetPart.CFrame * rotOffset
+			local transform = targetCF * pieceCF:Inverse()
+
+
+			-- Apply transform to all parts
+			for _, desc in ipairs(clone:GetDescendants()) do
+				if desc:IsA("BasePart") then
+					desc.CanCollide = false
+					desc.CanTouch = false
+					desc.CanQuery = false
+					desc.Massless = true
+					desc.CFrame = transform * desc.CFrame
+				end
+			end
+			if clone:IsA("BasePart") then
+				local bp = clone :: BasePart
+				bp.CanCollide = false
+				bp.CanTouch = false
+				bp.CanQuery = false
+				bp.Massless = true
+				bp.CFrame = transform * bp.CFrame
+			end
+
 			clone.Parent = character
-			continue
-		end
 
-		-- Snap the piece center to the limb center with rotation
-		local targetCF = targetPart.CFrame * rotOffset
-		local transform = targetCF * pieceCF:Inverse()
-
-
-		-- Apply transform to all parts
-		for _, desc in ipairs(clone:GetDescendants()) do
-			if desc:IsA("BasePart") then
-				desc.CanCollide = false
-				desc.CanTouch = false
-				desc.CanQuery = false
-				desc.Massless = true
-				desc.CFrame = transform * desc.CFrame
+			-- Weld every BasePart in this piece to the target limb
+			for _, desc in ipairs(clone:GetDescendants()) do
+				if desc:IsA("BasePart") then
+					local weld = Instance.new("WeldConstraint")
+					weld.Name = "ArmorWeld"
+					weld.Part0 = targetPart
+					weld.Part1 = desc
+					weld.Parent = desc
+				end
 			end
-		end
-		if clone:IsA("BasePart") then
-			local bp = clone :: BasePart
-			bp.CanCollide = false
-			bp.CanTouch = false
-			bp.CanQuery = false
-			bp.Massless = true
-			bp.CFrame = transform * bp.CFrame
-		end
-
-		clone.Parent = character
-
-		-- Weld every BasePart in this piece to the target limb
-		for _, desc in ipairs(clone:GetDescendants()) do
-			if desc:IsA("BasePart") then
+			if clone:IsA("BasePart") then
 				local weld = Instance.new("WeldConstraint")
 				weld.Name = "ArmorWeld"
 				weld.Part0 = targetPart
-				weld.Part1 = desc
-				weld.Parent = desc
+				weld.Part1 = clone :: BasePart
+				weld.Parent = clone
 			end
 		end
-		if clone:IsA("BasePart") then
-			local weld = Instance.new("WeldConstraint")
-			weld.Name = "ArmorWeld"
-			weld.Part0 = targetPart
-			weld.Part1 = clone :: BasePart
-			weld.Parent = clone
-		end
-	end
+	end)
 end
-
 
 export type ClassSelectionCallbacks = {
 	onBackToTitle: () -> (),
@@ -461,7 +627,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	statsLayout.Parent = statsBox
 
 	local statBars: { [string]: { Frame } } = {}
-	local statKeys = { "offense", "defense", "agility", "difficulty" }
+	local statKeys = { "strength", "vitality", "defense", "agility" }
 
 	for idx, key in ipairs(statKeys) do
 		local statRow = Instance.new("Frame")
@@ -950,10 +1116,17 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		navigateCarousel(1)
 	end)
 
-	-- Hook Dots Clicking
+	-- Hook Dots Clicking & Hovering
 	for dIdx, dot in ipairs(dotFrames) do
 		local dotBtn = dot:FindFirstChildOfClass("TextButton")
 		if dotBtn then
+			dotBtn.MouseEnter:Connect(function()
+				if currentIndex ~= dIdx and not isTransitioning then
+					currentIndex = dIdx
+					SoundManager.PlayHover()
+					updateCarouselUI(currentIndex, true)
+				end
+			end)
 			dotBtn.MouseButton1Click:Connect(function()
 				if currentIndex ~= dIdx and not isTransitioning then
 					currentIndex = dIdx
@@ -989,6 +1162,14 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 
 	-- Dynamic Re-renders when screen opens
 	container:GetPropertyChangedSignal("Visible"):Connect(function()
+		if container.Visible then
+			updateCarouselUI(currentIndex, false)
+		end
+	end)
+
+	-- Listen for Character spawning
+	player.CharacterAdded:Connect(function()
+		task.wait(0.2)
 		if container.Visible then
 			updateCarouselUI(currentIndex, false)
 		end

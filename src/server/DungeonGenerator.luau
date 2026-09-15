@@ -937,7 +937,7 @@ local function constructPitchBlackExit(stairCF: CFrame, parentFolder: Folder)
 					DungeonGenerator.Generate({ seed = newSeed })
 					local newSpawn = DungeonGenerator.GetSpawnCFrame()
 					if char:FindFirstChild("HumanoidRootPart") then
-						char:PivotTo(newSpawn)
+						char:PivotTo(newSpawn + Vector3.new(0, 5, 0))
 					end
 				end)
 			end
@@ -1051,8 +1051,8 @@ function DungeonGenerator.Generate(config: DungeonConfig?): (CFrame, CFrame, CFr
 	local startRoom = rooms[1]
 	local bossRoom = rooms[#rooms]
 
-	cachedSpawnCFrame = CFrame.new(startRoom.centerWorld + Vector3.new(0, 3, 0))
-	cachedBossCFrame  = CFrame.new(bossRoom.centerWorld + Vector3.new(0, 3, 0))
+	cachedSpawnCFrame = CFrame.new(startRoom.centerWorld + Vector3.new(0, 8, 0))
+	cachedBossCFrame  = CFrame.new(bossRoom.centerWorld + Vector3.new(0, 8, 0))
 
 	-- 2. Floor Placement (Exact 12x12 Snapping at FLOOR_Y_OFFSET = 4 with Center Pieces)
 	local centerPieceGrid: { [string]: boolean } = {}
@@ -1228,6 +1228,12 @@ function DungeonGenerator.Generate(config: DungeonConfig?): (CFrame, CFrame, CFr
 		end
 	end)
 
+	-- Spawn 20 mobs per room (except spawn room) via MobManager
+	pcall(function()
+		local MobManager = require(script.Parent:WaitForChild("MobManager"))
+		MobManager.SpawnRoomMobs(rooms)
+	end)
+
 	print(`[DungeonGenerator] ✅ Procedural Dungeon Ready! ({#rooms} rooms generated).`)
 	print(`  • Spawn: {cachedSpawnCFrame.Position}`)
 	print(`  • Boss:  {cachedBossCFrame.Position}`)
@@ -1253,6 +1259,10 @@ end)
 -- ── Public API ───────────────────────────────────────────────────────────────
 
 function DungeonGenerator.Clear()
+	pcall(function()
+		local MobManager = require(script.Parent:WaitForChild("MobManager"))
+		MobManager.Clear()
+	end)
 	if currentDungeonFolder and currentDungeonFolder.Parent then
 		currentDungeonFolder:Destroy()
 		currentDungeonFolder = nil

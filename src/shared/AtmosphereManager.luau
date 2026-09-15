@@ -46,61 +46,61 @@ function AtmosphereManager.ApplyLobbyLighting()
 end
 
 function AtmosphereManager.ApplyDungeonLighting()
-	-- Configure global dim indoor lighting (dim & visible, not pitch black)
-	Lighting.Ambient = Color3.fromRGB(52, 48, 62)          -- Dim cool indoor shadows (visible details)
-	Lighting.OutdoorAmbient = Color3.fromRGB(42, 38, 50)    -- Visible perimeter ambient
-	Lighting.Brightness = 0.75                              -- Atmospheric dim global illumination
-	Lighting.ClockTime = 0                                  -- Midnight darkness baseline
+	-- Configure clear, high-visibility indoor lighting (almost null dimming)
+	Lighting.Ambient = Color3.fromRGB(175, 175, 185)        -- Bright, clear ambient shadows
+	Lighting.OutdoorAmbient = Color3.fromRGB(150, 150, 160)  -- Bright outdoor/perimeter ambient
+	Lighting.Brightness = 1.9                                -- High global brightness
+	Lighting.ClockTime = 14                                  -- Daytime illumination (removes midnight blackness)
 	Lighting.GlobalShadows = true
 
 	pcall(function()
-		Lighting.EnvironmentDiffuseScale = 0.25
-		Lighting.EnvironmentSpecularScale = 0.2
+		Lighting.EnvironmentDiffuseScale = 0.9
+		Lighting.EnvironmentSpecularScale = 0.9
 	end)
 
 	pcall(function()
 		Lighting.Technology = Enum.Technology.ShadowMap
 	end)
 
-	-- 1. ColorCorrection Effect
+	-- 1. ColorCorrection Effect (clean and neutral)
 	local colorCorr = Lighting:FindFirstChild("DungeonColorCorrection") :: ColorCorrectionEffect?
 	if not colorCorr then
 		colorCorr = Instance.new("ColorCorrectionEffect")
 		colorCorr.Name = "DungeonColorCorrection"
 		colorCorr.Parent = Lighting
 	end
-	colorCorr.Brightness = 0.02
-	colorCorr.Contrast = 0.12
-	colorCorr.Saturation = -0.04
-	colorCorr.TintColor = Color3.fromRGB(252, 245, 235)
+	colorCorr.Brightness = 0.0
+	colorCorr.Contrast = 0.04
+	colorCorr.Saturation = 0.0
+	colorCorr.TintColor = Color3.fromRGB(255, 255, 255)
 	colorCorr.Enabled = true
 
-	-- 2. Warm Bloom Effect
+	-- 2. Subtle Bloom Effect
 	local bloom = Lighting:FindFirstChild("DungeonTorchBloom") :: BloomEffect?
 	if not bloom then
 		bloom = Instance.new("BloomEffect")
 		bloom.Name = "DungeonTorchBloom"
 		bloom.Parent = Lighting
 	end
-	bloom.Intensity = 0.45
-	bloom.Size = 24
-	bloom.Threshold = 0.75
+	bloom.Intensity = 0.2
+	bloom.Size = 16
+	bloom.Threshold = 0.85
 	bloom.Enabled = true
 
-	-- 3. Atmospheric Dungeon Fog
+	-- 3. Clear Atmosphere (near-zero haze/fog)
 	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
 	if not atmosphere then
 		atmosphere = Instance.new("Atmosphere")
 		atmosphere.Parent = Lighting
 	end
-	atmosphere.Density = 0.25
-	atmosphere.Offset = 0.2
-	atmosphere.Color = Color3.fromRGB(28, 32, 42)
-	atmosphere.Decay = Color3.fromRGB(18, 22, 30)
-	atmosphere.Haze = 0.4
+	atmosphere.Density = 0.02
+	atmosphere.Offset = 0
+	atmosphere.Color = Color3.fromRGB(200, 215, 230)
+	atmosphere.Decay = Color3.fromRGB(120, 140, 160)
+	atmosphere.Haze = 0
 	atmosphere.Glare = 0
 
-	print("[AtmosphereManager] Dungeon atmosphere & lighting applied successfully.")
+	print("[AtmosphereManager] Dungeon atmosphere & high-visibility lighting applied successfully.")
 end
 
 -- ── 2. Player Torch Light Attachment ─────────────────────────────────────────
@@ -165,6 +165,52 @@ function AtmosphereManager.AttachTorchLight(character: Model)
 	end
 
 	print(`[AtmosphereManager] Torch light attached to character: {character.Name}`)
+end
+
+-- ── 3. Character Visual Outline (Per-Limb Cel-Shaded Outline) ─────────────────
+
+local function setupPartOutline(part: Instance): Highlight?
+	if not part:IsA("BasePart") then return nil end
+	if part.Name == "HumanoidRootPart" then return nil end
+	if part.Transparency >= 1 then return nil end
+
+	local existing = part:FindFirstChild("PartOutline") :: Highlight?
+	if existing then
+		return existing
+	end
+
+	local highlight = Instance.new("Highlight")
+	highlight.Name = "PartOutline"
+	highlight.FillColor = Color3.fromRGB(0, 0, 0)
+	highlight.FillTransparency = 1 -- 100% transparent fill so textures and colors are untouched
+	highlight.OutlineColor = Color3.fromRGB(0, 0, 0) -- Crisp solid black outline
+	highlight.OutlineTransparency = 0 -- Fully opaque outline
+	highlight.DepthMode = Enum.HighlightDepthMode.Occluded -- Respects geometry and depth
+	highlight.Adornee = part
+	highlight.Parent = part
+
+	return highlight
+end
+
+function AtmosphereManager.AttachCharacterOutline(character: Model)
+	-- Outline every individual BasePart (Head, Torso, Arms, Legs, Armor, Weapons)
+	for _, desc in ipairs(character:GetDescendants()) do
+		setupPartOutline(desc)
+	end
+
+	-- Connect DescendantAdded so dynamically attached armor/weapons get individual outlines
+	if not character:GetAttribute("OutlineConnected") then
+		character:SetAttribute("OutlineConnected", true)
+		character.DescendantAdded:Connect(function(desc)
+			task.defer(function()
+				if desc.Parent then
+					setupPartOutline(desc)
+				end
+			end)
+		end)
+	end
+
+	print(`[AtmosphereManager] Cel-shaded black outline attached to each limb on: {character.Name}`)
 end
 
 return AtmosphereManager

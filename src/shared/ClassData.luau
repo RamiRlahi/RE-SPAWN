@@ -5,10 +5,13 @@ export type AbilityData = {
 }
 
 export type ClassStats = {
-	offense: number,   -- 1 to 5
-	defense: number,   -- 1 to 5
-	agility: number,   -- 1 to 5
-	difficulty: number -- 1 to 5
+	strength: number,   -- 1 to 5
+	vitality: number,   -- 1 to 5
+	defense: number,    -- 1 to 5
+	agility: number,    -- 1 to 5
+	maxHealth: number?, -- base max HP (e.g. 1000 for heavy knight)
+	offense: number?,
+	difficulty: number?,
 }
 
 export type EquipmentData = {
@@ -40,9 +43,12 @@ local ClassData: { [string]: ClassInfo } = {
 		description = "A fierce martial artist fighting with bare fists and brass fury. Masters stagger combos and close-quarters shockwaves to crush enemy formations.",
 		accentColor = Color3.fromRGB(245, 100, 45),
 		stats = {
-			offense = 5,
+			strength = 5,
+			vitality = 4,
 			defense = 3,
 			agility = 4,
+			maxHealth = 100,
+			offense = 5,
 			difficulty = 2,
 		},
 		abilities = {
@@ -57,6 +63,7 @@ local ClassData: { [string]: ClassInfo } = {
 			rarity = "Relic Weapon",
 			description = "Reinforced knuckle braces carved from ancient dragonbone, converting physical impact into explosive shockwaves.",
 			stats = {
+				["Max Health"] = "100 HP",
 				["Physical DMG"] = "+35%",
 				["Attack Speed"] = "+20%",
 				["Stun Power"] = "+40%",
@@ -69,29 +76,33 @@ local ClassData: { [string]: ClassInfo } = {
 		name = "Heavy Knight",
 		title = "The Bastion of Honor",
 		role = "Tank / Vanguard",
-		description = "Clad in impervious plate armor and carrying a massive tower shield. An unstoppable frontline fortress that protects allies and controls the battlefield.",
+		description = "Clad in impervious plate armor and carrying a colossal greatsword. An unstoppable frontline fortress with unmatched survivability and raw physical might.",
 		accentColor = Color3.fromRGB(230, 190, 80),
 		stats = {
-			offense = 3,
+			strength = 5,
+			vitality = 5,
 			defense = 5,
 			agility = 2,
+			maxHealth = 1000,
+			offense = 4,
 			difficulty = 1,
 		},
 		abilities = {
-			{ name = "Shield Bash", tag = "M1/Primary", description = "Strike with your heavy shield, stunning targets for a brief duration." },
-			{ name = "Bulwark Stance", tag = "Skill 1", description = "Raise shield to block 70% of incoming damage and reflect projectiles." },
-			{ name = "Whirlwind Cleave", tag = "Skill 2", description = "Spin your greatsword in a 360-degree arc, pulling nearby foes in." },
+			{ name = "Heavy Cleave", tag = "M1/Primary", description = "Slash with your colossal greatsword, dealing heavy wide-arc melee damage." },
+			{ name = "Bulwark Stance", tag = "Skill 1", description = "Raise defensive stance to block incoming damage and reflect projectiles." },
+			{ name = "Whirlwind Cleave", tag = "Skill 2", description = "Spin your greatsword in a 360-degree high-damage arc, pulling nearby foes in." },
 			{ name = "Fortress of Valor", tag = "Ultimate", description = "Plant a sacred banner that grants a massive damage barrier to all nearby allies." },
 		},
 		equipment = {
-			name = "Bastion Greatplate & Vanguard Armament",
-			slot = "Heavy Plate & Armament",
+			name = "Bastion Greatplate & Vanguard Greatsword",
+			slot = "Heavy Plate & Greatsword",
 			rarity = "Legendary Vanguard Gear",
-			description = "Impervious gilded armor forged in sacred dragonfire. Grants impenetrable poise and absolute frontline dominion.",
+			description = "Impervious gilded armor forged in sacred dragonfire. Grants impenetrable poise, colossal health pool, and absolute frontline dominion.",
 			stats = {
-				["Armor / Poise"] = "+65%",
-				["Max Health"] = "+350 HP",
-				["Damage Barrier"] = "+40%",
+				["Max Health"] = "1000 HP",
+				["Strength"] = "+95% Power",
+				["Vitality"] = "+90% Poise",
+				["Damage Barrier"] = "+50%",
 			},
 		},
 	},
@@ -104,9 +115,12 @@ local ClassData: { [string]: ClassInfo } = {
 		description = "Wields raw, unbridled arcane energy. Capable of obliterating entire enemy groups from afar with devastating cataclysms and dimensional shifts.",
 		accentColor = Color3.fromRGB(175, 80, 255),
 		stats = {
-			offense = 5,
+			strength = 2,
+			vitality = 2,
 			defense = 1,
 			agility = 3,
+			maxHealth = 100,
+			offense = 5,
 			difficulty = 4,
 		},
 		abilities = {
@@ -121,6 +135,7 @@ local ClassData: { [string]: ClassInfo } = {
 			rarity = "Mythic Arcana",
 			description = "A conduit crowned with a floating cosmic shard that continually funnels raw ether into spell damage.",
 			stats = {
+				["Max Health"] = "100 HP",
 				["Magic Power"] = "+50%",
 				["Mana Regen"] = "+30%",
 				["Spell Radius"] = "+25%",
@@ -136,9 +151,12 @@ local ClassData: { [string]: ClassInfo } = {
 		description = "A swift shadow stalker lethal from behind. Uses deception, smoke, and venom-coated daggers to assassinate priority targets in seconds.",
 		accentColor = Color3.fromRGB(235, 45, 85),
 		stats = {
-			offense = 5,
+			strength = 4,
+			vitality = 2,
 			defense = 1,
 			agility = 5,
+			maxHealth = 100,
+			offense = 5,
 			difficulty = 4,
 		},
 		abilities = {
@@ -153,6 +171,7 @@ local ClassData: { [string]: ClassInfo } = {
 			rarity = "Shadow Relic",
 			description = "Obsidian daggers dipped in basilisk venom that bypass armor on critical backstabs.",
 			stats = {
+				["Max Health"] = "100 HP",
 				["Crit Chance"] = "+35%",
 				["Crit DMG"] = "+75%",
 				["Move Speed"] = "+15%",
@@ -168,9 +187,12 @@ local ClassData: { [string]: ClassInfo } = {
 		description = "Channels the holy light of the divine to mend allies' wounds, cleanse curses, and smite unholy adversaries with sacred righteous power.",
 		accentColor = Color3.fromRGB(255, 220, 110),
 		stats = {
-			offense = 2,
+			strength = 2,
+			vitality = 4,
 			defense = 4,
 			agility = 2,
+			maxHealth = 100,
+			offense = 2,
 			difficulty = 2,
 		},
 		abilities = {
@@ -185,6 +207,7 @@ local ClassData: { [string]: ClassInfo } = {
 			rarity = "Sacred Relic",
 			description = "An illuminated holy scepter channeling restorative sunburst pulses that cleanses all party debuffs.",
 			stats = {
+				["Max Health"] = "100 HP",
 				["Healing Output"] = "+60%",
 				["Aura Radius"] = "+40%",
 				["Max Spirit"] = "+200",
@@ -200,9 +223,12 @@ local ClassData: { [string]: ClassInfo } = {
 		description = "A master of the wild who commands high-precision bows and cunning traps. Dominates long-range engagements with pinpoint accuracy.",
 		accentColor = Color3.fromRGB(60, 210, 120),
 		stats = {
-			offense = 4,
+			strength = 3,
+			vitality = 3,
 			defense = 2,
 			agility = 5,
+			maxHealth = 100,
+			offense = 4,
 			difficulty = 3,
 		},
 		abilities = {
@@ -217,6 +243,7 @@ local ClassData: { [string]: ClassInfo } = {
 			rarity = "Ancient Relic",
 			description = "A recurve bow bent from sacred elderwood. Arrow trajectories accelerate as they cut through air currents.",
 			stats = {
+				["Max Health"] = "100 HP",
 				["Ranged DMG"] = "+45%",
 				["Arrow Velocity"] = "+50%",
 				["Crit Multiplier"] = "+40%",
@@ -232,9 +259,12 @@ local ClassData: { [string]: ClassInfo } = {
 		description = "A stylish dual-revolver daredevil. Blends agile acrobatics with rapid-fire bullet storms to execute high-octane trick shots.",
 		accentColor = Color3.fromRGB(250, 150, 50),
 		stats = {
-			offense = 4,
+			strength = 3,
+			vitality = 3,
 			defense = 2,
 			agility = 5,
+			maxHealth = 100,
+			offense = 4,
 			difficulty = 4,
 		},
 		abilities = {
@@ -249,6 +279,7 @@ local ClassData: { [string]: ClassInfo } = {
 			rarity = "Outlaw Masterpiece",
 			description = "Custom chrome-engraved six-shooters with lightning hammer actions and explosive fire-rounds.",
 			stats = {
+				["Max Health"] = "100 HP",
 				["Fire Rate"] = "+40%",
 				["Reload Speed"] = "+35%",
 				["Headshot DMG"] = "+60%",
@@ -264,9 +295,12 @@ local ClassData: { [string]: ClassInfo } = {
 		description = "Harnesses sub-zero arctic blizzards to lock down battlefield zones, construct impenetrable glacial barriers, and freeze enemies solid.",
 		accentColor = Color3.fromRGB(70, 220, 255),
 		stats = {
-			offense = 4,
+			strength = 2,
+			vitality = 3,
 			defense = 3,
 			agility = 2,
+			maxHealth = 100,
+			offense = 4,
 			difficulty = 3,
 		},
 		abilities = {
@@ -281,6 +315,7 @@ local ClassData: { [string]: ClassInfo } = {
 			rarity = "Frozen Relic",
 			description = "A floating sphere of pure unmelting absolute-zero ice that continually chills the surrounding atmosphere.",
 			stats = {
+				["Max Health"] = "100 HP",
 				["Frost Slow Effect"] = "+30%",
 				["Freeze Duration"] = "+1.5s",
 				["Spell Area"] = "+35%",

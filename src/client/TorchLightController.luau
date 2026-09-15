@@ -19,6 +19,7 @@ local renderConnection: RBXScriptConnection? = nil
 local function ensureTorchAttached(char: Model)
 	if AtmosphereManager then
 		AtmosphereManager.AttachTorchLight(char)
+		AtmosphereManager.AttachCharacterOutline(char)
 	else
 		local rootPart = (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart) :: BasePart?
 		if rootPart and not rootPart:FindFirstChild("PlayerTorchLight") then
@@ -29,6 +30,18 @@ local function ensureTorchAttached(char: Model)
 			torchLight.Brightness = 2.4
 			torchLight.Shadows = true
 			torchLight.Parent = rootPart
+		end
+		for _, desc in ipairs(char:GetDescendants()) do
+			if desc:IsA("BasePart") and desc.Name ~= "HumanoidRootPart" and desc.Transparency < 1 and not desc:FindFirstChild("PartOutline") then
+				local highlight = Instance.new("Highlight")
+				highlight.Name = "PartOutline"
+				highlight.FillTransparency = 1
+				highlight.OutlineColor = Color3.fromRGB(0, 0, 0)
+				highlight.OutlineTransparency = 0
+				highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+				highlight.Adornee = desc
+				highlight.Parent = desc
+			end
 		end
 	end
 end

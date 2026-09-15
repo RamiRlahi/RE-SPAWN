@@ -1,20 +1,15 @@
 --[[
 	WeaponManager
-	Equips class weapons and fixes large-mesh clipping.
+	Equips class weapons using Roblox's native Tool Grip system.
 
-	Root cause of the "holding air" bug:
-	  The Greatsword's actual mesh is a MeshPart child of Handle (not Handle itself).
-	  Roblox's GripWeld only attaches Handle to the hand — the MeshPart has no
-	  weld at all so it sits at world origin (invisible at your feet).
-
-	Strategy:
-	  1. Call Humanoid:EquipTool() so Roblox's GripWeld is created on Handle.
-	  2. Wait a frame for the weld to exist.
-	  3. Replace the GripWeld with our offset one (corrects hand position).
-	  4. Weld every OTHER BasePart in the tool (the MeshPart sword geometry)
-	     to Handle so they follow it correctly.
-	  5. CanCollide = false + Massless = true on everything so the big mesh
-	     never clips through floors, walls, or other geometry.
+	Key Features:
+	  1. Uses Roblox's built-in Tool Grip configured with Tool Grip Editor.
+	  2. Welds loose MeshParts / BaseParts inside the Tool to Handle via WeldConstraint
+	     so multi-part weapons (like Greatsword with a MeshPart blade) follow the Handle.
+	  3. Humanoid:EquipTool() equips the tool natively and waits for Roblox's RightGrip weld.
+	  4. Leaves RightGrip untouched without custom CFrame overrides.
+	  5. Disables collisions (CanCollide = false, Massless = true) to prevent physics glitches.
+	  6. Sets up the SlashTrail for melee swings.
 --]]
 
 local Players = game:GetService("Players")
@@ -22,15 +17,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Configuration
--- gripOffset moves the Handle (and therefore the whole sword) relative to RightHand.
---   CFrame.new(X, Y, Z)         X=left/right  Y=up/down  Z=forward/back
---   * CFrame.Angles(rX, rY, rZ)  rotates the blade (use math.rad() for degrees)
 -- ─────────────────────────────────────────────────────────────────────────────
-local WEAPON_CONFIG: { [string]: { toolName: string, gripOffset: CFrame } } = {
+local WEAPON_CONFIG: { [string]: { toolName: string } } = {
 	heavy_knight = {
-		toolName   = "Greatsword",
-		-- Adjust Y/Angles until the grip sits comfortably in the palm.
-		gripOffset = CFrame.new(0, -2.5, 0) * CFrame.Angles(0, 0, 0),
+		toolName = "Greatsword",
 	},
 }
 
@@ -38,7 +28,7 @@ local WeaponManager = {}
 
 -- ── helpers ───────────────────────────────────────────────────────────────────
 
--- Disable CanCollide and Massless on every BasePart inside a tool.
+-- Disable CanCollide and set Massless on every BasePart inside a tool.
 local function disableCollision(root: Instance)
 	if root:IsA("BasePart") then
 		(root :: BasePart).CanCollide = false
@@ -53,8 +43,8 @@ local function disableCollision(root: Instance)
 end
 
 -- Weld every BasePart in the tool (except Handle) TO the Handle.
--- This is the key fix: the MeshPart that holds the sword geometry
--- is a loose child of Handle with no weld, so it falls to world origin.
+-- This ensures that any MeshPart geometry parented to the Tool/Handle
+-- stays locked to the Handle when equipped in the character's hand.
 local function weldLoosePartsToHandle(tool: Tool, handle: BasePart)
 	for _, part in ipairs(tool:GetDescendants()) do
 		if part:IsA("BasePart") and part ~= handle then
@@ -66,11 +56,13 @@ local function weldLoosePartsToHandle(tool: Tool, handle: BasePart)
 					break
 				end
 			end
-			for _, w in ipairs(handle:GetChildren()) do
-				if (w:IsA("Weld") or w:IsA("WeldConstraint"))
-					and ((w :: Weld).Part0 == part or (w :: Weld).Part1 == part) then
-					alreadyWelded = true
-					break
+			if not alreadyWelded then
+				for _, w in ipairs(handle:GetChildren()) do
+					if (w:IsA("Weld") or w:IsA("WeldConstraint"))
+						and ((w :: Weld).Part0 == part or (w :: Weld).Part1 == part) then
+						alreadyWelded = true
+						break
+					end
 				end
 			end
 
@@ -79,29 +71,36 @@ local function weldLoosePartsToHandle(tool: Tool, handle: BasePart)
 				wc.Part0      = handle
 				wc.Part1      = part :: BasePart
 				wc.Parent     = handle
-				print(`[WeaponManager]   welded loose part '{part.Name}' ({part.ClassName}) to Handle`)
+				print(`[WeaponManager]   Welded loose part '{part.Name}' ({part.ClassName}) to Handle`)
 			end
 		end
 	end
 end
 
--- Replace Roblox's auto-generated GripWeld with our offset-corrected one.
-local function replaceGripWeld(handle: BasePart, limb: BasePart, offset: CFrame)
-	for _, w in ipairs(handle:GetChildren()) do
-		if (w:IsA("Weld") or w:IsA("Motor6D")) and w.Name ~= "PartWeld" then
-			print(`[WeaponManager]   removed weld: {w.Name}`)
-			w:Destroy()
-		end
+local function findWeaponTemplate(name: string): Instance?
+	local targetName = string.lower(name)
+	local exact = ReplicatedStorage:FindFirstChild(name)
+		or ReplicatedStorage:FindFirstChild(name, true)
+	if exact then return exact end
+
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	if assets then
+		local inAssets = assets:FindFirstChild(name) or assets:FindFirstChild(name, true)
+		if inAssets then return inAssets end
 	end
 
-	local weld  = Instance.new("Weld")
-	weld.Name   = "GripWeld"
-	weld.Part0  = limb
-	weld.Part1  = handle
-	weld.C0     = offset
-	weld.C1     = CFrame.identity
-	weld.Parent = handle
-	print(`[WeaponManager]   new GripWeld → Part0={limb.Name}  Part1={handle.Name}`)
+	for _, child in ipairs(ReplicatedStorage:GetDescendants()) do
+		if string.lower(child.Name) == targetName then
+			return child
+		end
+	end
+	for _, child in ipairs(ReplicatedStorage:GetDescendants()) do
+		local lower = string.lower(child.Name)
+		if (child:IsA("Tool") or child:IsA("Model") or child:IsA("BasePart")) and (string.find(lower, "greatsword") or string.find(lower, "great_sword")) then
+			return child
+		end
+	end
+	return nil
 end
 
 -- ── main equip ────────────────────────────────────────────────────────────────
@@ -113,7 +112,7 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 		return
 	end
 
-	print(`[WeaponManager] Equipping '{config.toolName}' for {player.Name}`)
+	print(`[WeaponManager] Equipping weapon '{config.toolName}' for {player.Name}`)
 
 	local character = player.Character
 	if not character then
@@ -121,72 +120,80 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 		return
 	end
 
-	-- 1. Find the Tool
-	local tool = character:FindFirstChild(config.toolName)
-		or player.Backpack:FindFirstChild(config.toolName)
+	-- 1. Remove any old tool or equipped weapon copies in character or backpack
+	local oldEquipped = character:FindFirstChild("EquippedWeapon")
+	if oldEquipped then oldEquipped:Destroy() end
+	local oldCharTool = character:FindFirstChild(config.toolName)
+	if oldCharTool then oldCharTool:Destroy() end
+	local oldBackpackTool = player.Backpack:FindFirstChild(config.toolName)
+	if oldBackpackTool then oldBackpackTool:Destroy() end
 
-	if not tool then
-		local foundTemplate = ReplicatedStorage:FindFirstChild(config.toolName, true)
-		if foundTemplate and foundTemplate:IsA("Tool") then
-			tool = foundTemplate:Clone()
-			tool.Parent = player.Backpack
+	-- 2. Fetch tool template directly from ReplicatedStorage
+	local toolTemplate = findWeaponTemplate(config.toolName)
+
+	if not toolTemplate then
+		warn(`[WeaponManager] ❌ Tool '{config.toolName}' not found in ReplicatedStorage!`)
+		for _, child in ipairs(ReplicatedStorage:GetChildren()) do
+			warn(`   RS Child: "{child.Name}" ({child.ClassName})`)
+		end
+		return
+	end
+
+	print(`[WeaponManager] Found weapon template: '{toolTemplate:GetFullName()}' ({toolTemplate.ClassName})`)
+
+	-- 3. Clone Tool
+	local tool = toolTemplate:Clone()
+	if not tool:IsA("Tool") then
+		local innerTool = tool:FindFirstChildWhichIsA("Tool")
+		if innerTool then
+			tool = innerTool
 		end
 	end
 
-	if not tool or not tool:IsA("Tool") then
-		warn(`[WeaponManager] Tool '{config.toolName}' not found.`)
-		return
-	end
-	print(`[WeaponManager] Tool found in '{tool.Parent and tool.Parent.Name}'`)
-
-	-- 2. Find Handle
-	local handle = tool:FindFirstChild("Handle") :: BasePart?
-	if not handle or not handle:IsA("BasePart") then
-		warn(`[WeaponManager] '{tool.Name}' has no BasePart called 'Handle'.`)
-		return
-	end
-
-	-- 3. Find Humanoid
-	local humanoid = character:FindFirstChildOfClass("Humanoid") :: Humanoid?
-	if not humanoid then
-		warn("[WeaponManager] No Humanoid found.")
-		return
-	end
-
-	-- 4. Pre-disable collision on all parts
 	disableCollision(tool)
 
-	-- 5. Weld all loose parts (e.g. the sword MeshPart) to Handle NOW,
-	--    before equip, so they travel with Handle from the start.
-	weldLoosePartsToHandle(tool, handle)
-
-	-- 6. Equip via Humanoid so Roblox creates the GripWeld on Handle
-	if tool.Parent ~= character then
-		print("[WeaponManager] Calling Humanoid:EquipTool()...")
-		humanoid:EquipTool(tool)
-	else
-		print("[WeaponManager] Tool already in character.")
+	local handle = tool:FindFirstChild("Handle") :: BasePart?
+	if not handle then
+		handle = tool:FindFirstChildWhichIsA("BasePart")
 	end
 
-	-- 7. Replace Roblox's GripWeld with our offset one after a frame
-	task.spawn(function()
-		task.wait()  -- one frame so EquipTool's GripWeld is created
+	-- 4. Verify & weld loose MeshParts/BaseParts to Handle
+	if handle and tool:IsA("Tool") then
+		weldLoosePartsToHandle(tool, handle)
+	end
 
-		local limb = character:FindFirstChild("RightHand")   -- R15
-			or character:FindFirstChild("Right Arm") :: BasePart?  -- R6
+	-- 5. Equip Tool natively using Humanoid:EquipTool() and wait for RightGrip
+	local humanoid = character:FindFirstChildOfClass("Humanoid") :: Humanoid?
+	if not humanoid then
+		warn(`[WeaponManager] No humanoid found on character {character.Name}`)
+		tool.Parent = character
+	else
+		tool.Parent = player.Backpack
+		humanoid:EquipTool(tool)
 
-		if not limb or not limb:IsA("BasePart") then
-			warn("[WeaponManager] Could not find hand limb on character.")
-			return
+		-- Wait for Roblox to generate RightGrip using Tool Grip Editor configuration
+		local rightLimb = character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm")
+		if rightLimb then
+			local grip = rightLimb:WaitForChild("RightGrip", 2)
+			if grip then
+				print(`[WeaponManager] RightGrip successfully created on {rightLimb.Name} for {tool.Name}`)
+			else
+				print(`[WeaponManager] RightGrip not immediately in limb, checking character hierarchy...`)
+				local charGrip = character:FindFirstChild("RightGrip", true)
+				if charGrip then
+					print(`[WeaponManager] Found RightGrip inside {charGrip.Parent.Name}`)
+				end
+			end
 		end
+	end
 
-		replaceGripWeld(handle, limb, config.gripOffset)
-		disableCollision(tool)  -- re-apply in case Roblox toggled any back on
+	print(`[WeaponManager] Successfully equipped Tool '{config.toolName}' via Humanoid:EquipTool for {player.Name}`)
 
-		-- Setup sword swing trail (guaranteed setup with auto-attachment generation)
-		local bladeMesh: BasePart = handle
+	-- 6. Setup sword swing trail
+	local bladeMesh: BasePart = handle or tool:FindFirstChildWhichIsA("BasePart")
+	if bladeMesh then
 		for _, part in ipairs(tool:GetDescendants()) do
-			if (part:IsA("MeshPart") or part:IsA("BasePart")) and part ~= handle and part.Size.Magnitude > handle.Size.Magnitude then
+			if (part:IsA("MeshPart") or part:IsA("BasePart")) and part ~= handle and part.Size.Magnitude > (handle and handle.Size.Magnitude or 0) then
 				bladeMesh = part
 				break
 			end
@@ -206,7 +213,6 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 			end
 		end
 
-		-- If attachments are missing or too close, create/re-anchor them along blade length
 		if not startAtt or not endAtt or (startAtt.Position - endAtt.Position).Magnitude < 0.5 then
 			local sz = bladeMesh.Size
 			local halfY = sz.Y * 0.5
@@ -238,7 +244,6 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 			end
 			endAtt.Position = offsetEnd
 		else
-			-- If attachments already exist, extend them outward along blade
 			if startAtt.Parent == endAtt.Parent then
 				local bladeVec = endAtt.Position - startAtt.Position
 				if bladeVec.Magnitude > 0.1 then
@@ -249,7 +254,7 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 			end
 		end
 
-		local trail = tool:FindFirstChild("SlashTrail", true) or handle:FindFirstChild("SlashTrail", true) or bladeMesh:FindFirstChild("SlashTrail", true)
+		local trail = tool:FindFirstChild("SlashTrail", true)
 		if not trail or not trail:IsA("Trail") then
 			trail = Instance.new("Trail")
 			trail.Name = "SlashTrail"
@@ -283,10 +288,9 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 			NumberSequenceKeypoint.new(1, 1),
 		})
 		trail.Enabled = false
-		print(`[WeaponManager] Flame SlashTrail active on '{tool.Name}' (Attachment0={startAtt.Name} on {startAtt.Parent.Name}, Attachment1={endAtt.Name} on {endAtt.Parent.Name})`)
+	end
 
-		print("[WeaponManager] Done — sword should now be visible in hand.")
-	end)
+	print(`[WeaponManager] Weapon '{config.toolName}' successfully ready for {player.Name}`)
 end
 
 -- ── respawn ───────────────────────────────────────────────────────────────────

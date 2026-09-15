@@ -114,45 +114,24 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 local function getPotentialTargets(casterChar: Model): { { character: Model, humanoid: Humanoid, rootPart: BasePart } }
 	local targets = {}
-	
-	for _, inst in ipairs(Workspace:GetChildren()) do
-		if inst:IsA("Model") and inst ~= casterChar then
-			local hum = inst:FindFirstChildOfClass("Humanoid")
-			local root = inst:FindFirstChild("HumanoidRootPart") or inst.PrimaryPart
-			if hum and root and hum.Health > 0 then
-				table.insert(targets, {
-					character = inst,
-					humanoid = hum,
-					rootPart = root :: BasePart,
-				})
-			end
-		end
-	end
+	local addedSet: { [Model]: boolean } = {}
 
-	-- Also check any subfolders like "Enemies" or "Dungeon" or "NPCs"
-	for _, folder in ipairs(Workspace:GetDescendants()) do
-		if folder:IsA("Folder") or folder:IsA("Model") then
-			for _, inst in ipairs(folder:GetChildren()) do
-				if inst:IsA("Model") and inst ~= casterChar and not table.find(targets, inst) then
-					local hum = inst:FindFirstChildOfClass("Humanoid")
-					local root = inst:FindFirstChild("HumanoidRootPart") or inst.PrimaryPart
-					if hum and root and hum.Health > 0 then
-						-- Ensure we haven't already included this character
-						local alreadyAdded = false
-						for _, entry in ipairs(targets) do
-							if entry.character == inst then
-								alreadyAdded = true
-								break
-							end
-						end
-						if not alreadyAdded then
-							table.insert(targets, {
-								character = inst,
-								humanoid = hum,
-								rootPart = root :: BasePart,
-							})
-						end
-					end
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if desc:IsA("Model") and desc ~= casterChar and not addedSet[desc] then
+			-- Don't consider accessories or player character sub-models
+			if desc:FindFirstAncestorOfClass("Accessory") then continue end
+			if desc:IsDescendantOf(casterChar) then continue end
+
+			local hum = desc:FindFirstChildOfClass("Humanoid")
+			if hum and hum.Health > 0 then
+				local root: BasePart? = (desc:FindFirstChild("HumanoidRootPart") or desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")) :: BasePart?
+				if root then
+					addedSet[desc] = true
+					table.insert(targets, {
+						character = desc,
+						humanoid = hum,
+						rootPart = root,
+					})
 				end
 			end
 		end
@@ -231,28 +210,29 @@ function SkillManager.HandleMissileAttack(player: Player, casterChar: Model)
 	local origin = root.Position
 
 	task.spawn(function()
-		-- Give missile travel delay before server impact evaluation
-		task.wait(0.35)
-		if not casterChar or not casterChar.Parent then return end
+		for i = 1, 5 do
+			task.wait(i == 1 and 0.28 or 0.055)
+			if not casterChar or not casterChar.Parent then break end
 
-		local targets = getPotentialTargets(casterChar)
-		local closestTarget = nil
-		local closestDist = 55
+			local targets = getPotentialTargets(casterChar)
+			local closestTarget = nil
+			local closestDist = 95
 
-		for _, t in ipairs(targets) do
-			local d = (t.rootPart.Position - origin).Magnitude
-			if d < closestDist then
-				closestDist = d
-				closestTarget = t
+			for _, t in ipairs(targets) do
+				local d = (t.rootPart.Position - origin).Magnitude
+				if d < closestDist then
+					closestDist = d
+					closestTarget = t
+				end
 			end
-		end
 
-		if closestTarget and closestTarget.humanoid and closestTarget.humanoid.Health > 0 then
-			local damage = 35
-			closestTarget.humanoid:TakeDamage(damage)
-			local kbDir = (closestTarget.rootPart.Position - origin).Unit + Vector3.new(0, 0.35, 0)
-			closestTarget.rootPart:ApplyImpulse(kbDir.Unit * (closestTarget.rootPart.AssemblyMass * 20))
-			print(`[SkillManager] Guided Missile struck {closestTarget.character.Name} for {damage} damage!`)
+			if closestTarget and closestTarget.humanoid and closestTarget.humanoid.Health > 0 then
+				local damage = 16 -- 16 damage per missile (total 80 damage across 5 missiles)
+				closestTarget.humanoid:TakeDamage(damage)
+				local kbDir = (closestTarget.rootPart.Position - origin).Unit + Vector3.new(0, 0.2, 0)
+				closestTarget.rootPart:ApplyImpulse(kbDir.Unit * (closestTarget.rootPart.AssemblyMass * 8))
+				print(`[SkillManager] Guided Missile #{i} struck {closestTarget.character.Name} for {damage} damage!`)
+			end
 		end
 	end)
 end
@@ -268,9 +248,6 @@ local function executePhoenixDash(player: Player, casterChar: Model, origin: Vec
 
 	local hitTargets: { [Model]: boolean } = {}
 	local casterRoot = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
-
-	-- Make caster invisible during the dash
-	setCharacterVisibility(casterChar, false)
 
 	-- Check hits continuously during the 0.35s dash
 	task.spawn(function()
@@ -296,8 +273,6 @@ local function executePhoenixDash(player: Player, casterChar: Model, origin: Vec
 			end
 			task.wait(0.05)
 		end
-		-- Restore caster visibility when dash completes
-		setCharacterVisibility(casterChar, true)
 	end)
 end
 
@@ -575,10 +550,55 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	print(`[SkillManager] {player.Name} successfully cast Skill {skillIndex} ({config.name})`)
 end
 
+function SkillManager.HandleBasicAttack(player: Player)
+	local char = player.Character
+	if not char then return end
+
+	local humanoid = char:FindFirstChildOfClass("Humanoid")
+	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not humanoid or not rootPart or humanoid.Health <= 0 then return end
+	if player:GetAttribute("InLobby") == true then return end
+
+	local origin = rootPart.Position
+	local lookDir = rootPart.CFrame.LookVector
+	local flatLook = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
+
+	local targets = getPotentialTargets(char)
+	local hitCount = 0
+
+	for _, target in ipairs(targets) do
+		local diff = target.rootPart.Position - origin
+		local dist = diff.Magnitude
+		if dist <= 14.0 then
+			local flatDiff = Vector3.new(diff.X, 0, diff.Z).Unit
+			local dot = flatLook:Dot(flatDiff)
+			if dot > -0.1 or dist <= 6.0 then
+				local damage = 35
+				target.humanoid:TakeDamage(damage)
+				hitCount += 1
+
+				local kbDir = (flatLook + Vector3.new(0, 0.25, 0)).Unit
+				target.rootPart:ApplyImpulse(kbDir * (target.rootPart.AssemblyMass * 16))
+				print(`[SkillManager] Basic Attack hit {target.character.Name} for {damage} damage!`)
+			end
+		end
+	end
+
+	-- If Missile Barrage buff is active, launch missile damage on server
+	if char:GetAttribute("IsMissileBuffActive") == true then
+		SkillManager.HandleMissileAttack(player, char)
+	end
+end
+
 function SkillManager.Init()
 	local useSkillRemote = Network.GetRemoteEvent(Network.Remotes.UseSkill)
 	useSkillRemote.OnServerEvent:Connect(function(player: Player, payload: any)
 		SkillManager.HandleSkillUse(player, payload)
+	end)
+
+	local performAttackRemote = Network.GetRemoteEvent(Network.Remotes.PerformAttack)
+	performAttackRemote.OnServerEvent:Connect(function(player: Player)
+		SkillManager.HandleBasicAttack(player)
 	end)
 
 	Players.PlayerRemoving:Connect(function(player: Player)

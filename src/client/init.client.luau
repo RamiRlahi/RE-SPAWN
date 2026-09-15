@@ -6,8 +6,26 @@ local Network = require(Shared:WaitForChild("Network"))
 local ClassData = require(Shared:WaitForChild("ClassData"))
 
 local player = Players.LocalPlayer
+local StarterGui = game:GetService("StarterGui")
 
 print("[Client] Initializing SoloProject Client...")
+
+-- Disable default Roblox Backpack UI
+task.spawn(function()
+	local maxAttempts = 20
+	local attempts = 0
+	while attempts < maxAttempts do
+		local success = pcall(function()
+			StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+		end)
+		if success then
+			print("[Client] Default Backpack UI disabled successfully.")
+			break
+		end
+		attempts += 1
+		task.wait(0.2)
+	end
+end)
 
 -- Safely require UIManager
 local successUI, UIManager = pcall(function()

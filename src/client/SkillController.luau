@@ -427,88 +427,162 @@ local function playMissileBuffVFX(char: Model)
 	end)
 end
 
-function SkillController.LaunchMissile(casterChar: Model)
+local function launchSingleMissile(casterChar: Model, missileIndex: number)
 	local rootPart = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not rootPart then return end
 
 	local lookVec = rootPart.CFrame.LookVector
 	local rightVec = rootPart.CFrame.RightVector
+	local upVec = Vector3.new(0, 1, 0)
 
-	-- Randomize shoulder launch side (left or right behind back)
-	local sideSign = (math.random() > 0.5 and 1 or -1)
-	local spawnOffset = -lookVec * 1.5 + rightVec * (sideSign * 1.2) + Vector3.new(0, 2.2, 0)
+	-- 1. Spawn position & launch angle staggered per missile in succession
+	local sideSigns = { -1, 1, 0.6, -1.1, -0.4 }
+	local sideSign = sideSigns[((missileIndex - 1) % #sideSigns) + 1] or (math.random() > 0.5 and 1 or -1)
+	local spawnOffset = upVec * 1.5 + rightVec * (sideSign * 1.1) - lookVec * 0.2
 	local spawnPos = rootPart.Position + spawnOffset
 
-	-- Initial trajectory: launches backward and upward away from the player
-	local initialDir = (-lookVec * 0.85 + Vector3.new(0, 0.45, 0) + rightVec * (sideSign * 0.35)).Unit
+	-- 2. Initial launch direction: arced wide outward and upward/forward
+	local outwardRatio = (math.random(70, 115) / 100) * sideSign
+	local upwardRatio = math.random(25, 75) / 100 * (missileIndex % 2 == 1 and 1 or 0.6)
+	local forwardRatio = math.random(30, 50) / 100
+	local currentDir = (lookVec * forwardRatio + rightVec * outwardRatio + upVec * upwardRatio).Unit
+	local currentSpeed = 46.0 -- Initial launch speed
+	local maxSpeed = 110.0    -- Terminal cruising speed
 	local currentPos = spawnPos
-	local currentVel = initialDir * 32.0
+	local currentVel = currentDir * currentSpeed
 
-	-- Find missile VFX asset from ReplicatedStorage
+	-- 3. Find missile VFX asset from ReplicatedStorage
 	local missileTemplate = findVFXAsset("missile") or findVFXAsset("Missile") or findVFXAsset("hk_missile")
 	local missileInstance: Instance? = nil
 
 	if missileTemplate then
 		missileInstance = missileTemplate:Clone()
-		if missileInstance:IsA("Model") then
-			local prim = missileInstance.PrimaryPart or missileInstance:FindFirstChildWhichIsA("BasePart")
-			if prim then
-				prim.CanCollide = false
-				prim.CanTouch = false
-				prim.CanQuery = false
-				prim.Anchored = true
-				missileInstance:PivotTo(CFrame.lookAt(spawnPos, spawnPos + initialDir))
+		for _, d in ipairs(missileInstance:GetDescendants()) do
+			if d:IsA("BasePart") then
+				d.CanCollide = false
+				d.CanTouch = false
+				d.CanQuery = false
+				d.Anchored = true
+			elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+				d.Enabled = true
 			end
-			for _, d in ipairs(missileInstance:GetDescendants()) do
-				if d:IsA("BasePart") then
-					d.CanCollide = false
-					d.CanTouch = false
-					d.CanQuery = false
-					d.Anchored = true
-				elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
-					d.Enabled = true
-				end
-			end
-		elseif missileInstance:IsA("BasePart") then
+		end
+		if missileInstance:IsA("BasePart") then
 			missileInstance.CanCollide = false
 			missileInstance.CanTouch = false
 			missileInstance.CanQuery = false
 			missileInstance.Anchored = true
-			missileInstance.CFrame = CFrame.lookAt(spawnPos, spawnPos + initialDir)
-			for _, d in ipairs(missileInstance:GetDescendants()) do
-				if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
-					d.Enabled = true
-				end
-			end
-		elseif missileInstance:IsA("Attachment") then
-			local carrier = Instance.new("Part")
-			carrier.Size = Vector3.new(0.5, 0.5, 1)
-			carrier.Transparency = 1
-			carrier.CanCollide = false
-			carrier.Anchored = true
-			carrier.CFrame = CFrame.lookAt(spawnPos, spawnPos + initialDir)
-			missileInstance.Parent = carrier
-			missileInstance = carrier
 		end
 		missileInstance.Parent = Workspace.Terrain
 	end
 
-	-- Search for nearest enemy target in workspace
+	-- 4. Create carrier part as physics/visual anchor
+	local carrier = Instance.new("Part")
+	carrier.Name = `MissileCarrier_{missileIndex}`
+	carrier.Size = Vector3.new(0.3, 0.3, 0.9)
+	carrier.Transparency = 0.2
+	carrier.Material = Enum.Material.Neon
+	carrier.Color = Color3.fromRGB(255, 120, 20)
+	carrier.CanCollide = false
+	carrier.CanTouch = false
+	carrier.CanQuery = false
+	carrier.Anchored = true
+	carrier.CFrame = CFrame.lookAt(spawnPos, spawnPos + currentDir)
+	carrier.Parent = Workspace.Terrain
+
+	-- Add sleek fire red / amber energy ribbon trail
+	local att0 = Instance.new("Attachment")
+	att0.Position = Vector3.new(0, 0.25, 0)
+	att0.Parent = carrier
+
+	local att1 = Instance.new("Attachment")
+	att1.Position = Vector3.new(0, -0.25, 0)
+	att1.Parent = carrier
+
+	local trail = Instance.new("Trail")
+	trail.Attachment0 = att0
+	trail.Attachment1 = att1
+	trail.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 230, 140)),
+		ColorSequenceKeypoint.new(0.35, Color3.fromRGB(255, 120, 20)),
+		ColorSequenceKeypoint.new(0.75, Color3.fromRGB(230, 40, 10)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(150, 15, 0)),
+	})
+	trail.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.05),
+		NumberSequenceKeypoint.new(0.6, 0.3),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	trail.Lifetime = 0.38
+	trail.WidthScale = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1.3),
+		NumberSequenceKeypoint.new(0.5, 0.8),
+		NumberSequenceKeypoint.new(1, 0.05),
+	})
+	trail.FaceCamera = true
+	trail.Parent = carrier
+
+	-- Fire / Amber exhaust emitter & light
+	local rocketAtt = Instance.new("Attachment")
+	rocketAtt.Parent = carrier
+
+	local energyPE = Instance.new("ParticleEmitter")
+	energyPE.Name = "EnergyEmitter"
+	energyPE.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 240, 180)),
+		ColorSequenceKeypoint.new(0.4, Color3.fromRGB(255, 130, 20)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 30, 5)),
+	})
+	energyPE.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.7),
+		NumberSequenceKeypoint.new(1, 0.1),
+	})
+	energyPE.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.1),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	energyPE.Lifetime = NumberRange.new(0.18, 0.32)
+	energyPE.Rate = 90
+	energyPE.Speed = NumberRange.new(4, 10)
+	energyPE.SpreadAngle = Vector2.new(15, 15)
+	energyPE.Parent = rocketAtt
+
+	local rocketLight = Instance.new("PointLight")
+	rocketLight.Color = Color3.fromRGB(255, 120, 25)
+	rocketLight.Brightness = 4.5
+	rocketLight.Range = 9
+	rocketLight.Parent = carrier
+
+	if missileInstance then
+		if missileInstance:IsA("Model") then
+			missileInstance:PivotTo(carrier.CFrame)
+		elseif missileInstance:IsA("BasePart") then
+			missileInstance.CFrame = carrier.CFrame
+		elseif missileInstance:IsA("Attachment") then
+			missileInstance.Parent = carrier
+		end
+	end
+
+	-- Search for nearest enemy target in workspace (including Workspace.Mobs)
 	local function findNearestEnemy(pos: Vector3): (Model?, BasePart?)
-		local bestDist = 60
+		local bestDist = 140
 		local bestTarget: Model? = nil
 		local bestPart: BasePart? = nil
 
-		for _, inst in ipairs(Workspace:GetChildren()) do
-			if inst:IsA("Model") and inst ~= casterChar then
-				local hum = inst:FindFirstChildOfClass("Humanoid")
-				local root = inst:FindFirstChild("HumanoidRootPart") or inst.PrimaryPart
-				if hum and root and hum.Health > 0 then
-					local dist = (root.Position - pos).Magnitude
-					if dist < bestDist then
-						bestDist = dist
-						bestTarget = inst
-						bestPart = root :: BasePart
+		for _, desc in ipairs(Workspace:GetDescendants()) do
+			if desc:IsA("Model") and desc ~= casterChar and not desc:IsDescendantOf(casterChar) then
+				if desc:FindFirstAncestorOfClass("Accessory") then continue end
+
+				local hum = desc:FindFirstChildOfClass("Humanoid")
+				if hum and hum.Health > 0 then
+					local root = (desc:FindFirstChild("HumanoidRootPart") or desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")) :: BasePart?
+					if root then
+						local dist = (root.Position - pos).Magnitude
+						if dist < bestDist then
+							bestDist = dist
+							bestTarget = desc
+							bestPart = root
+						end
 					end
 				end
 			end
@@ -518,42 +592,65 @@ function SkillController.LaunchMissile(casterChar: Model)
 
 	task.spawn(function()
 		local startTime = os.clock()
-		local maxLifetime = 3.2
+		local maxLifetime = 3.5
 		local targetModel, targetRoot = findNearestEnemy(spawnPos)
 
 		while os.clock() - startTime < maxLifetime do
 			local dt = RunService.RenderStepped:Wait()
 			local elapsed = os.clock() - startTime
 
-			-- Re-check target if lost
-			if not targetModel or not targetModel.Parent or not targetRoot or not targetRoot.Parent then
+			-- Continuously acquire or validate target position every frame
+			if not targetModel or not targetModel.Parent or not targetRoot or not targetRoot.Parent or (targetModel:FindFirstChildOfClass("Humanoid") and targetModel:FindFirstChildOfClass("Humanoid").Health <= 0) then
 				targetModel, targetRoot = findNearestEnemy(currentPos)
 			end
 
-			if targetRoot and targetRoot.Parent and elapsed > 0.12 then
-				-- Target detected: smoothly steer and curve velocity toward enemy like a guided missile
-				local targetAimPos = targetRoot.Position + Vector3.new(0, 0.8, 0)
-				local toTarget = (targetAimPos - currentPos)
-				local distToTarget = toTarget.Magnitude
-
-				if distToTarget < 2.5 then
-					-- Hit target!
-					break
-				end
-
-				local desiredDir = toTarget.Unit
-				local steerSpeed = 11.0
-				local targetSpeed = 50.0
-				currentVel = currentVel:Lerp(desiredDir * targetSpeed, math.clamp(dt * steerSpeed, 0, 1))
+			-- Determine desired aim point
+			local targetAimPos: Vector3
+			if targetRoot and targetRoot.Parent then
+				targetAimPos = targetRoot.Position + Vector3.new(0, 0.5, 0)
 			else
-				-- No target nearby: continue curving gracefully into the air behind player
-				currentVel = currentVel + Vector3.new(0, 3.5 * dt, 0)
+				local casterRoot = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+				local forward = (casterRoot and casterRoot.CFrame.LookVector) or lookVec
+				targetAimPos = currentPos + forward * 80 + Vector3.new(0, 1.5, 0)
 			end
 
+			local toTarget = (targetAimPos - currentPos)
+			local distToTarget = toTarget.Magnitude
+
+			-- Direct impact on target
+			if distToTarget < 2.2 and targetRoot and targetRoot.Parent then
+				break
+			end
+
+			local desiredDir = toTarget.Unit
+
+			-- Continuous smooth spherical curvature toward target (arcing then curving smoothly in)
+			local turnRate = math.clamp(math.rad(140) + elapsed * math.rad(420), math.rad(140), math.rad(720))
+			local maxTurnThisFrame = turnRate * dt
+
+			local dot = math.clamp(currentDir:Dot(desiredDir), -1, 1)
+			local angle = math.acos(dot)
+
+			if angle > 0.001 then
+				local turnStep = math.min(angle, maxTurnThisFrame)
+				local rotAxis = currentDir:Cross(desiredDir)
+				if rotAxis.Magnitude > 0.001 then
+					currentDir = (CFrame.fromAxisAngle(rotAxis.Unit, turnStep) * currentDir).Unit
+				else
+					currentDir = (CFrame.Angles(0, turnStep, 0) * currentDir).Unit
+				end
+			end
+
+			-- Accelerate forward along the newly curved trajectory
+			currentSpeed = math.min(currentSpeed + 65.0 * dt, maxSpeed)
+			currentVel = currentDir * currentSpeed
 			currentPos = currentPos + currentVel * dt
 
+			-- Rotate carrier and missile model to continually face flight direction (tangent to arc)
+			local orientCF = CFrame.lookAt(currentPos, currentPos + currentDir)
+			carrier.CFrame = orientCF
+
 			if missileInstance and missileInstance.Parent then
-				local orientCF = CFrame.lookAt(currentPos, currentPos + currentVel)
 				if missileInstance:IsA("Model") then
 					missileInstance:PivotTo(orientCF)
 				elseif missileInstance:IsA("BasePart") then
@@ -562,36 +659,29 @@ function SkillController.LaunchMissile(casterChar: Model)
 			end
 		end
 
-		-- Explosion on impact or lifetime end
+		-- Cleanup exhaust emitters and carrier (no explosion!)
+		trail.Enabled = false
+		energyPE.Enabled = false
+		TweenService:Create(rocketLight, TweenInfo.new(0.12), { Brightness = 0 }):Play()
+		Debris:AddItem(carrier, 0.35)
+
 		if missileInstance and missileInstance.Parent then
 			for _, d in ipairs(missileInstance:GetDescendants()) do
 				if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
 					d.Enabled = false
 				end
 			end
-			Debris:AddItem(missileInstance, 0.4)
+			Debris:AddItem(missileInstance, 0.35)
 		end
+	end)
+end
 
-		-- Spawn impact explosion VFX if available
-		local explTemplate = findVFXAsset("Light Explosion VFX") or findVFXAsset("Light Explosion") or findVFXAsset("Explosion")
-		if explTemplate then
-			local explClone = explTemplate:Clone()
-			if explClone:IsA("Model") then
-				explClone:PivotTo(CFrame.new(currentPos))
-				for _, d in ipairs(explClone:GetDescendants()) do
-					if d:IsA("BasePart") then d.CanCollide = false; d.Anchored = true end
-					if d:IsA("ParticleEmitter") then d:Emit(15) end
-				end
-			elseif explClone:IsA("BasePart") then
-				explClone.CanCollide = false
-				explClone.Anchored = true
-				explClone.CFrame = CFrame.new(currentPos)
-				for _, d in ipairs(explClone:GetDescendants()) do
-					if d:IsA("ParticleEmitter") then d:Emit(15) end
-				end
-			end
-			explClone.Parent = Workspace.Terrain
-			Debris:AddItem(explClone, 0.8)
+function SkillController.LaunchMissile(casterChar: Model)
+	task.spawn(function()
+		for i = 1, 5 do
+			if not casterChar or not casterChar.Parent then break end
+			launchSingleMissile(casterChar, i)
+			task.wait(0.055)
 		end
 	end)
 end
@@ -604,15 +694,12 @@ local function playPhoenixDashVFX(char: Model, origin: Vector3, lookDir: Vector3
 	local humanoid = char:FindFirstChildOfClass("Humanoid")
 	if not rootPart or not humanoid then return end
 
-	-- Make player invisible when using 3rd ability (Phoenix Dash)
-	setCharacterVisibility(char, false)
-
 	local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
 	local dashDist = 24
 	local dashSpeed = 80
 	local duration = 0.28
 
-	-- 1. Apply physical LinearVelocity
+	-- 1. Apply physical LinearVelocity with zero vertical force
 	local att = Instance.new("Attachment")
 	att.Name = "DashAttachment"
 	att.Parent = rootPart
@@ -620,10 +707,22 @@ local function playPhoenixDashVFX(char: Model, origin: Vector3, lookDir: Vector3
 	local lv = Instance.new("LinearVelocity")
 	lv.Name = "DashLinearVelocity"
 	lv.Attachment0 = att
-	lv.MaxForce = 250000
+	lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
+	lv.MaxAxesForce = Vector3.new(250000, 0, 250000)
 	lv.VectorVelocity = flatDir * dashSpeed
 	lv.RelativeTo = Enum.ActuatorRelativeTo.World
 	lv.Parent = rootPart
+
+	-- Clamp upward vertical velocity during dash so colliding with walls/obstacles cannot launch player
+	local isDashing = true
+	local groundLockConn: RBXScriptConnection? = nil
+	groundLockConn = RunService.Heartbeat:Connect(function()
+		if not isDashing or not rootPart or not rootPart.Parent then return end
+		local vel = rootPart.AssemblyLinearVelocity
+		if vel.Y > 0 then
+			rootPart.AssemblyLinearVelocity = Vector3.new(vel.X, 0, vel.Z)
+		end
+	end)
 
 	-- 2. Cloned Dash VFX asset from ReplicatedStorage.generalVFX ("hk_dash" / "Dash") stuck to player
 	local dashTemplate = findVFXAsset("hk_dash") or findVFXAsset("Dash") or findVFXAsset("dash")
@@ -648,7 +747,7 @@ local function playPhoenixDashVFX(char: Model, origin: Vector3, lookDir: Vector3
 			end
 		end
 
-		local dashOrientCF = CFrame.lookAt(rootPart.Position, rootPart.Position + flatDir) * CFrame.Angles(0, math.rad(-90), 0)
+		local dashOrientCF = CFrame.lookAt(rootPart.Position, rootPart.Position + flatDir) * CFrame.Angles(math.rad(-90), 0, 0)
 
 		if clone:IsA("Model") then
 			local primary = clone.PrimaryPart or clone:FindFirstChildWhichIsA("BasePart")
@@ -728,7 +827,11 @@ local function playPhoenixDashVFX(char: Model, origin: Vector3, lookDir: Vector3
 
 	-- 5. Cleanup dash after duration
 	task.delay(duration, function()
-		setCharacterVisibility(char, true)
+		isDashing = false
+		if groundLockConn then
+			groundLockConn:Disconnect()
+			groundLockConn = nil
+		end
 
 		if lv and lv.Parent then lv:Destroy() end
 		if att and att.Parent then att:Destroy() end
@@ -829,13 +932,13 @@ local function spawnCraterDebris(impactPos: Vector3, radius: number, count: numb
 end
 
 local function attachSwordFlameAura(char: Model)
-	local tool = char:FindFirstChildOfClass("Tool") or player.Backpack:FindFirstChildOfClass("Tool")
+	local weapon = char:FindFirstChild("EquippedWeapon") or char:FindFirstChild("PreviewGreatsword") or char:FindFirstChildOfClass("Tool") or player.Backpack:FindFirstChildOfClass("Tool")
 	local bladeMesh: BasePart? = nil
 
-	if tool then
-		local handle = tool:FindFirstChild("Handle") :: BasePart?
+	if weapon then
+		local handle = weapon:FindFirstChild("Handle") :: BasePart?
 		bladeMesh = handle
-		for _, desc in ipairs(tool:GetDescendants()) do
+		for _, desc in ipairs(weapon:GetDescendants()) do
 			if (desc:IsA("MeshPart") or desc:IsA("BasePart")) and desc.Name ~= "Handle" then
 				bladeMesh = desc
 				break
@@ -903,12 +1006,12 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 	local spawnedUltVFX: Instance? = nil
 
 	-- Find sword blade mesh
-	local tool = char:FindFirstChildOfClass("Tool") or player.Backpack:FindFirstChildOfClass("Tool")
+	local weapon = char:FindFirstChild("EquippedWeapon") or char:FindFirstChild("PreviewGreatsword") or char:FindFirstChildOfClass("Tool") or player.Backpack:FindFirstChildOfClass("Tool")
 	local bladeMesh: BasePart? = nil
-	if tool then
-		local handle = tool:FindFirstChild("Handle") :: BasePart?
+	if weapon then
+		local handle = weapon:FindFirstChild("Handle") :: BasePart?
 		bladeMesh = handle
-		for _, desc in ipairs(tool:GetDescendants()) do
+		for _, desc in ipairs(weapon:GetDescendants()) do
 			if (desc:IsA("MeshPart") or desc:IsA("BasePart")) and desc.Name ~= "Handle" then
 				bladeMesh = desc
 				break
@@ -1382,11 +1485,35 @@ end
 -- Initialization & Event Connections
 -- ─────────────────────────────────────────────────────────────────────────────
 function SkillController.Init()
-	-- Keybind Listeners: E (1: Spin), F (2: Slash), SPACE (3: Dash), R (4: Ultimate)
+	-- Keybind Listeners: M1 (Basic Attack), E (1: Spin), F (2: Slash), Q (3: Dash), R (4: Ultimate)
+	local lastBasicAttack = 0
 	UserInputService.InputBegan:Connect(function(input, gpe)
 		if gpe then return end
 
-		if input.KeyCode == Enum.KeyCode.E then
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			if player:GetAttribute("InLobby") == true then return end
+			local char = player.Character
+			if not char then return end
+
+			local now = os.clock()
+			if now - lastBasicAttack < 0.38 then return end
+			lastBasicAttack = now
+
+			local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if rootPart then
+				local aimDir = getAimDirection(rootPart)
+				rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + aimDir)
+			end
+
+			-- Fire server Remote for basic attack damage
+			local performAttackRemote = Network.GetRemoteEvent(Network.Remotes.PerformAttack)
+			performAttackRemote:FireServer()
+
+			-- If Missile Barrage buff is active, launch missile
+			if char:GetAttribute("IsMissileBuffActive") == true then
+				SkillController.LaunchMissile(char)
+			end
+		elseif input.KeyCode == Enum.KeyCode.E then
 			SkillController.UseSkill(1)
 		elseif input.KeyCode == Enum.KeyCode.F then
 			SkillController.UseSkill(2)
@@ -1394,6 +1521,64 @@ function SkillController.Init()
 			SkillController.UseSkill(3)
 		elseif input.KeyCode == Enum.KeyCode.R then
 			SkillController.UseSkill(4)
+		end
+	end)
+
+	-- Client-side Blue Star Death VFX listener
+	local deathRemote = Network.GetRemoteEvent(Network.Remotes.MobDeathVFX)
+	deathRemote.OnClientEvent:Connect(function(payload: any)
+		if typeof(payload) == "table" and typeof(payload.position) == "Vector3" then
+			local pos = payload.position
+			local playerRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if not playerRoot or (playerRoot.Position - pos).Magnitude > 110 then return end
+			local vfxHolder = Instance.new("Part")
+			vfxHolder.Name = "ClientBlueStarVFX"
+			vfxHolder.Size = Vector3.new(0.5, 0.5, 0.5)
+			vfxHolder.Transparency = 1
+			vfxHolder.CanCollide = false
+			vfxHolder.Anchored = true
+			vfxHolder.CFrame = CFrame.new(pos)
+			vfxHolder.Parent = Workspace.Terrain
+
+			local att = Instance.new("Attachment")
+			att.Parent = vfxHolder
+
+			local starPE = Instance.new("ParticleEmitter")
+			starPE.Name = "BlueStarBurstClient"
+			starPE.Texture = "rbxassetid://1084991219"
+			starPE.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+				ColorSequenceKeypoint.new(0.25, Color3.fromRGB(0, 210, 255)),
+				ColorSequenceKeypoint.new(0.7, Color3.fromRGB(0, 140, 255)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 50, 180)),
+			})
+			starPE.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0),
+				NumberSequenceKeypoint.new(0.7, 0.1),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			starPE.Size = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.5),
+				NumberSequenceKeypoint.new(0.35, 2.5),
+				NumberSequenceKeypoint.new(1, 0.1),
+			})
+			starPE.LightEmission = 1
+			starPE.LightInfluence = 0
+			starPE.Lifetime = NumberRange.new(0.5, 1.2)
+			starPE.Speed = NumberRange.new(16, 35)
+			starPE.SpreadAngle = Vector2.new(180, 180)
+			starPE.Parent = att
+
+			starPE:Emit(50)
+
+			local light = Instance.new("PointLight")
+			light.Color = Color3.fromRGB(0, 210, 255)
+			light.Brightness = 14
+			light.Range = 24
+			light.Parent = vfxHolder
+
+			TweenService:Create(light, TweenInfo.new(0.6), { Brightness = 0, Range = 0 }):Play()
+			Debris:AddItem(vfxHolder, 1.5)
 		end
 	end)
 

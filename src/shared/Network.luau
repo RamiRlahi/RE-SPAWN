@@ -18,6 +18,7 @@ Network.Remotes = {
 	SkillCooldownUpdate = "SkillCooldownUpdate", -- server → client: { skillIndex, duration }
 	SkillVFX            = "SkillVFX",        -- server → client: { player, skillIndex, origin, direction }
 	DungeonMapData      = "DungeonMapData",  -- server → client: map grid payload for minimap overlay
+	MobDeathVFX         = "MobDeathVFX",     -- server → client: { position }
 }
 
 local function getFolder(): Folder

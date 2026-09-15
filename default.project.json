@@ -2,6 +2,13 @@
   "name": "SoloProject",
   "tree": {
     "$className": "DataModel",
+    "Workspace": {
+      "$properties": {
+        "StreamingEnabled": true,
+        "StreamingMinRadius": 64,
+        "StreamingTargetRadius": 256
+      }
+    },
     "ReplicatedStorage": {
       "Shared": {
         "$path": "src/shared"

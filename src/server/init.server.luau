@@ -4,6 +4,7 @@ local WeaponManager     = require(script:WaitForChild("WeaponManager"))
 local AnimationManager  = require(script:WaitForChild("AnimationManager"))
 local SkillManager      = require(script:WaitForChild("SkillManager"))
 local DungeonGenerator  = require(script:WaitForChild("DungeonGenerator"))
+local MobManager        = require(script:WaitForChild("MobManager"))
 
 print("[Server] Initializing SoloProject Game Server...")
 
@@ -12,6 +13,7 @@ PlayerManager.Init()
 WeaponManager.Init()
 AnimationManager.Init()
 SkillManager.Init()
+MobManager.Init()
 
 -- Generate initial procedural roguelite dungeon
 task.spawn(function()
@@ -47,7 +49,7 @@ ClassManager.OnClassSelected(function(player: Player, classId: string)
 
 		if spawnCF ~= CFrame.identity then
 			task.wait(0.2)
-			char:PivotTo(spawnCF)
+			char:PivotTo(spawnCF + Vector3.new(0, 2, 0))
 			print(`[Server] Teleported {player.Name} to Dungeon Spawn room`)
 		else
 			warn(`[Server WARNING] Spawn CFrame not ready for {player.Name}`)
