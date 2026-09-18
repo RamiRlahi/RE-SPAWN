@@ -22,6 +22,9 @@ local WEAPON_CONFIG: { [string]: { toolName: string } } = {
 	heavy_knight = {
 		toolName = "Greatsword",
 	},
+	ranger = {
+		toolName = "Bow",
+	},
 }
 
 local WeaponManager = {}
@@ -120,13 +123,16 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 		return
 	end
 
-	-- 1. Remove any old tool or equipped weapon copies in character or backpack
+	-- 1. Remove any class weapon left by a previously selected class. This keeps
+	-- the ranger loadout limited to its Bow rather than accumulating weapons.
 	local oldEquipped = character:FindFirstChild("EquippedWeapon")
 	if oldEquipped then oldEquipped:Destroy() end
-	local oldCharTool = character:FindFirstChild(config.toolName)
-	if oldCharTool then oldCharTool:Destroy() end
-	local oldBackpackTool = player.Backpack:FindFirstChild(config.toolName)
-	if oldBackpackTool then oldBackpackTool:Destroy() end
+	for _, weaponConfig in pairs(WEAPON_CONFIG) do
+		local oldCharTool = character:FindFirstChild(weaponConfig.toolName)
+		if oldCharTool then oldCharTool:Destroy() end
+		local oldBackpackTool = player.Backpack:FindFirstChild(weaponConfig.toolName)
+		if oldBackpackTool then oldBackpackTool:Destroy() end
+	end
 
 	-- 2. Fetch tool template directly from ReplicatedStorage
 	local toolTemplate = findWeaponTemplate(config.toolName)
@@ -189,7 +195,13 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 
 	print(`[WeaponManager] Successfully equipped Tool '{config.toolName}' via Humanoid:EquipTool for {player.Name}`)
 
-	-- 6. Setup sword swing trail
+	-- 6. Setup sword swing trail (GREATSWORD ONLY)
+	if classId ~= "heavy_knight" then
+		print(`[WeaponManager] Skipping SlashTrail setup — class '{classId}' does not use a greatsword.`)
+		print(`[WeaponManager] Weapon '{config.toolName}' successfully ready for {player.Name}`)
+		return
+	end
+
 	local bladeMesh: BasePart = handle or tool:FindFirstChildWhichIsA("BasePart")
 	if bladeMesh then
 		for _, part in ipairs(tool:GetDescendants()) do

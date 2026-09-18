@@ -29,6 +29,11 @@ local ClassSelectionScreen = safeRequire("ClassSelectionScreen")
 local MinimapUI = safeRequire("MinimapUI")
 local GameHUD = safeRequire("GameHUD")
 
+local SkillController: any = nil
+pcall(function()
+	SkillController = require(script.Parent.Parent:WaitForChild("SkillController"))
+end)
+
 local LobbyCamera: any = nil
 pcall(function()
 	LobbyCamera = require(script.Parent.Parent:WaitForChild("LobbyCamera"))
@@ -45,6 +50,26 @@ local settingsModalGroup: CanvasGroup
 local classSelectGroup: CanvasGroup
 
 local currentSettings = SettingsConfig.CloneDefaultSettings()
+
+local function applySettingsToRuntime(settings: any)
+	if settings and settings.keybinds then
+		for action, key in pairs(settings.keybinds) do
+			player:SetAttribute(`Keybind_{action}`, key)
+		end
+	end
+
+	if GameHUD and GameHUD.SetKeybinds then
+		pcall(function()
+			GameHUD.SetKeybinds(settings and settings.keybinds)
+		end)
+	end
+
+	if SkillController and SkillController.SetKeybinds then
+		pcall(function()
+			SkillController.SetKeybinds(settings and settings.keybinds)
+		end)
+	end
+end
 
 local function fadeCanvas(group: CanvasGroup, targetTrans: number, duration: number?, onComplete: (() -> ())?)
 	if not group then return end
@@ -89,6 +114,7 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 			end,
 			onSave = function(newSettings)
 				currentSettings = newSettings
+				applySettingsToRuntime(currentSettings)
 				local saveRemote = Network.GetRemoteEvent(Network.Remotes.SaveSettings)
 				saveRemote:FireServer(newSettings)
 			end,
@@ -120,9 +146,11 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 	if GameHUD then
 		pcall(function()
 			GameHUD.Init()
+			GameHUD.SetKeybinds(currentSettings.keybinds)
 			GameHUD.SetVisible(false)
 		end)
 	end
+	applySettingsToRuntime(currentSettings)
 
 	-- Start on Title Screen
 	if titleScreenGroup then

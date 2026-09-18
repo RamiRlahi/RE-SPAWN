@@ -9,6 +9,64 @@ local Workspace  = game:GetService("Workspace")
 
 local AtmosphereManager = {}
 
+-- =============================================================================
+-- ⚙️ LIGHTING & DIMMING CONFIGURATION (TWEAK VARIABLES HERE)
+-- =============================================================================
+-- Adjust these variables to get your exact preferred level of dimming and torch intensity:
+AtmosphereManager.Config = {
+	-- ── 1. Dungeon Dimming Controls ──────────────────────────────────────────
+	-- Ambient: Base ambient light in shadows. 
+	-- Lower RGB (e.g. 25, 25, 30) = Very dark / pitch black dungeon.
+	-- Medium RGB (e.g. 45, 45, 55) = Moody, dim grim dungeon (Recommended).
+	-- High RGB (e.g. 120+, 120+, 130+) = Bright visibility.
+	DungeonAmbient = Color3.fromRGB(100, 100, 100),
+	
+	-- OutdoorAmbient: Light coming from ceiling/sky.
+	DungeonOutdoorAmbient = Color3.fromRGB(150, 150, 150),
+
+	-- Brightness: Global sun/moon brightness level (0.0 = dark, 1.0 = moderate, 2.0 = bright).
+	DungeonBrightness = 0.5,
+
+	-- ClockTime: 0 or 24 = Midnight (dark), 14 = Daylight.
+	DungeonClockTime = 0,
+
+	-- ── 2. Player Torch Light Controls ───────────────────────────────────────
+	-- TorchRange: Radius in studs that the torch illuminates around the player (e.g. 24 - 45).
+	TorchRange = 36,
+
+	-- TorchBrightness: Light intensity of the torch flame (e.g. 1.8 - 3.5).
+	TorchBrightness = 2.8,
+
+	-- TorchColor: Color of the flame light.
+	TorchColor = Color3.fromRGB(255, 175, 75),
+
+	-- TorchShadows: Cast real-time shadows from dungeon walls and obstacles.
+	TorchShadows = true,
+
+	-- ── 3. Post-Processing & Fog ─────────────────────────────────────────────
+	ColorCorrection = {
+		Brightness = -0.04,                                -- Overall exposure adjustment (-0.1 to 0.1)
+		Contrast = 0.15,                                  -- Higher contrast gives punchier torch illumination
+		Saturation = -0.08,                               -- Slight desaturation for gritty dungeon vibe
+		TintColor = Color3.fromRGB(240, 242, 255),
+	},
+
+	Atmosphere = {
+		Density = 0.32,                                   -- Fog density (0.0 = crystal clear, 0.5 = heavy fog)
+		Offset = 0,
+		Color = Color3.fromRGB(45, 48, 58),
+		Decay = Color3.fromRGB(25, 28, 35),
+		Haze = 0.8,
+		Glare = 0,
+	},
+
+	Bloom = {
+		Intensity = 0.35,                                 -- Glow around torches and flames
+		Size = 18,
+		Threshold = 0.8,
+	}
+}
+
 -- ── 1. Lighting & Atmosphere Setup ───────────────────────────────────────────
 
 function AtmosphereManager.ApplyLobbyLighting()
@@ -46,61 +104,63 @@ function AtmosphereManager.ApplyLobbyLighting()
 end
 
 function AtmosphereManager.ApplyDungeonLighting()
-	-- Configure clear, high-visibility indoor lighting (almost null dimming)
-	Lighting.Ambient = Color3.fromRGB(175, 175, 185)        -- Bright, clear ambient shadows
-	Lighting.OutdoorAmbient = Color3.fromRGB(150, 150, 160)  -- Bright outdoor/perimeter ambient
-	Lighting.Brightness = 1.9                                -- High global brightness
-	Lighting.ClockTime = 14                                  -- Daytime illumination (removes midnight blackness)
+	local cfg = AtmosphereManager.Config
+
+	-- Configure dim, atmospheric dungeon lighting
+	Lighting.Ambient = cfg.DungeonAmbient
+	Lighting.OutdoorAmbient = cfg.DungeonOutdoorAmbient
+	Lighting.Brightness = cfg.DungeonBrightness
+	Lighting.ClockTime = cfg.DungeonClockTime
 	Lighting.GlobalShadows = true
 
 	pcall(function()
-		Lighting.EnvironmentDiffuseScale = 0.9
-		Lighting.EnvironmentSpecularScale = 0.9
+		Lighting.EnvironmentDiffuseScale = 0.3
+		Lighting.EnvironmentSpecularScale = 0.3
 	end)
 
 	pcall(function()
 		Lighting.Technology = Enum.Technology.ShadowMap
 	end)
 
-	-- 1. ColorCorrection Effect (clean and neutral)
+	-- 1. ColorCorrection Effect
 	local colorCorr = Lighting:FindFirstChild("DungeonColorCorrection") :: ColorCorrectionEffect?
 	if not colorCorr then
 		colorCorr = Instance.new("ColorCorrectionEffect")
 		colorCorr.Name = "DungeonColorCorrection"
 		colorCorr.Parent = Lighting
 	end
-	colorCorr.Brightness = 0.0
-	colorCorr.Contrast = 0.04
-	colorCorr.Saturation = 0.0
-	colorCorr.TintColor = Color3.fromRGB(255, 255, 255)
+	colorCorr.Brightness = cfg.ColorCorrection.Brightness
+	colorCorr.Contrast = cfg.ColorCorrection.Contrast
+	colorCorr.Saturation = cfg.ColorCorrection.Saturation
+	colorCorr.TintColor = cfg.ColorCorrection.TintColor
 	colorCorr.Enabled = true
 
-	-- 2. Subtle Bloom Effect
+	-- 2. Torch Bloom Effect
 	local bloom = Lighting:FindFirstChild("DungeonTorchBloom") :: BloomEffect?
 	if not bloom then
 		bloom = Instance.new("BloomEffect")
 		bloom.Name = "DungeonTorchBloom"
 		bloom.Parent = Lighting
 	end
-	bloom.Intensity = 0.2
-	bloom.Size = 16
-	bloom.Threshold = 0.85
+	bloom.Intensity = cfg.Bloom.Intensity
+	bloom.Size = cfg.Bloom.Size
+	bloom.Threshold = cfg.Bloom.Threshold
 	bloom.Enabled = true
 
-	-- 3. Clear Atmosphere (near-zero haze/fog)
+	-- 3. Dungeon Atmosphere (Atmospheric fog & haze)
 	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
 	if not atmosphere then
 		atmosphere = Instance.new("Atmosphere")
 		atmosphere.Parent = Lighting
 	end
-	atmosphere.Density = 0.02
-	atmosphere.Offset = 0
-	atmosphere.Color = Color3.fromRGB(200, 215, 230)
-	atmosphere.Decay = Color3.fromRGB(120, 140, 160)
-	atmosphere.Haze = 0
-	atmosphere.Glare = 0
+	atmosphere.Density = cfg.Atmosphere.Density
+	atmosphere.Offset = cfg.Atmosphere.Offset
+	atmosphere.Color = cfg.Atmosphere.Color
+	atmosphere.Decay = cfg.Atmosphere.Decay
+	atmosphere.Haze = cfg.Atmosphere.Haze
+	atmosphere.Glare = cfg.Atmosphere.Glare
 
-	print("[AtmosphereManager] Dungeon atmosphere & high-visibility lighting applied successfully.")
+	print("[AtmosphereManager] Dungeon atmosphere & dim lighting applied successfully.")
 end
 
 -- ── 2. Player Torch Light Attachment ─────────────────────────────────────────
@@ -124,12 +184,13 @@ function AtmosphereManager.AttachTorchLight(character: Model)
 	end
 
 	-- 1. Create Warm PointLight (Dynamic Torch)
+	local cfg = AtmosphereManager.Config
 	local torchLight = Instance.new("PointLight")
 	torchLight.Name = "PlayerTorchLight"
-	torchLight.Color = Color3.fromRGB(255, 175, 75) -- Warm flame orange-gold
-	torchLight.Range = 32                           -- Illuminated radius (studs)
-	torchLight.Brightness = 2.4                     -- Brightness intensity
-	torchLight.Shadows = true                       -- Dynamic shadows from walls/pillars
+	torchLight.Color = cfg.TorchColor
+	torchLight.Range = cfg.TorchRange
+	torchLight.Brightness = cfg.TorchBrightness
+	torchLight.Shadows = cfg.TorchShadows
 	torchLight.Parent = rootPart
 
 	-- 2. Create Subtle Floating Torch Embers Attachment

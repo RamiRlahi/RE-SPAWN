@@ -156,6 +156,148 @@ local function dealDamage(player: Player, target: { character: Model, humanoid: 
 	})
 end
 
+local function rotateFlatDirection(direction: Vector3, degrees: number): Vector3
+	local flat = Vector3.new(direction.X, 0, direction.Z)
+	if flat.Magnitude < 0.1 then
+		flat = Vector3.new(0, 0, -1)
+	end
+	return (CFrame.Angles(0, math.rad(degrees), 0) * flat.Unit).Unit
+end
+
+local function getRangerCursorTarget(origin: Vector3, lookDir: Vector3, requestedTarget: any, maxRange: number): Vector3
+	local offset: Vector3? = nil
+	if typeof(requestedTarget) == "Vector3" then
+		offset = Vector3.new(requestedTarget.X - origin.X, 0, requestedTarget.Z - origin.Z)
+	end
+	if not offset or offset.Magnitude < 0.5 then
+		offset = rotateFlatDirection(lookDir, 0)
+	end
+	return origin + offset.Unit * math.min(offset.Magnitude, maxRange)
+end
+
+local function damageFirstTargetOnLine(player: Player, casterChar: Model, origin: Vector3, direction: Vector3, range: number, width: number, damage: number, source: string)
+	local bestTarget = nil
+	local bestAlong = range
+	local flatDir = rotateFlatDirection(direction, 0)
+
+	for _, target in ipairs(getPotentialTargets(casterChar)) do
+		local diff = target.rootPart.Position - origin
+		local flatDiff = Vector3.new(diff.X, 0, diff.Z)
+		local along = flatDiff:Dot(flatDir)
+		if along >= 0 and along <= range then
+			local closest = origin + flatDir * along
+			local lateral = (Vector3.new(target.rootPart.Position.X, origin.Y, target.rootPart.Position.Z) - closest).Magnitude
+			if lateral <= width and along < bestAlong then
+				bestAlong = along
+				bestTarget = target
+			end
+		end
+	end
+
+	if bestTarget then
+		dealDamage(player, bestTarget, damage, source)
+		return bestTarget, bestAlong
+	end
+
+	return nil, nil
+end
+
+local function rootTarget(target: { character: Model, humanoid: Humanoid, rootPart: BasePart }, duration: number)
+	local root = target.rootPart
+	local oldWalkSpeed = target.humanoid.WalkSpeed
+	local oldJumpPower = target.humanoid.JumpPower
+	root.Anchored = true
+	target.humanoid.WalkSpeed = 0
+	target.humanoid.JumpPower = 0
+	task.delay(duration, function()
+		if root and root.Parent then
+			root.Anchored = false
+		end
+		if target.character and target.character.Parent and target.humanoid and target.humanoid.Health > 0 then
+			target.humanoid.WalkSpeed = oldWalkSpeed
+			target.humanoid.JumpPower = oldJumpPower
+		end
+	end)
+end
+
+local function executeRangerThornBarrage(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
+	local damage = config.damage or 22
+	local range = config.range or 64
+	local spread = config.angle or 38
+	local offsets = { -spread / 2, -spread / 4, 0, spread / 4, spread / 2 }
+
+	for _, angle in ipairs(offsets) do
+		damageFirstTargetOnLine(player, casterChar, origin + Vector3.new(0, 1.2, 0), rotateFlatDirection(lookDir, angle), range, 2.4, damage, "THORN BARRAGE")
+	end
+end
+
+local function executeRangerEntanglingArrow(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
+	local flatDir = rotateFlatDirection(lookDir, 0)
+	local range = config.range or 44
+	local arrowOrigin = origin + Vector3.new(0, 1.2, 0)
+	local directHit, hitDistance = damageFirstTargetOnLine(player, casterChar, arrowOrigin, flatDir, range, 2.8, config.damage or 30, "ENTANGLING ARROW")
+	local impactPos = directHit and directHit.rootPart.Position or (origin + flatDir * range)
+	local radius = 10 * (config.areaMultiplier or 1)
+	local damage = math.floor((config.damage or 30) * 0.75)
+	local rootDuration = config.duration or 2.6
+
+	for _, target in ipairs(getPotentialTargets(casterChar)) do
+		local dist = (target.rootPart.Position - impactPos).Magnitude
+		if dist <= radius then
+			if target.character ~= (directHit and directHit.character) then
+				dealDamage(player, target, damage, "ENTANGLING ARROW")
+			end
+			rootTarget(target, rootDuration)
+		end
+	end
+
+	print(`[SkillManager] Entangling Arrow impacted at {math.floor(hitDistance or range)} studs.`)
+end
+
+local function executeRangerToxicCloud(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, targetPosition: any, config: any)
+	local impactPos = getRangerCursorTarget(origin, lookDir, targetPosition, config.range or 34)
+	local radius = 13 * (config.areaMultiplier or 1)
+	local duration = config.duration or 6.0
+	local tickInterval = 0.6
+	local damage = config.damage or 12
+
+	task.spawn(function()
+		local startTime = os.clock()
+		while os.clock() - startTime < duration do
+			if not casterChar or not casterChar.Parent then break end
+			for _, target in ipairs(getPotentialTargets(casterChar)) do
+				if (target.rootPart.Position - impactPos).Magnitude <= radius then
+					dealDamage(player, target, damage, "TOXIC CLOUD")
+				end
+			end
+			task.wait(tickInterval)
+		end
+	end)
+end
+
+local function executeRangerRainOfArrows(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, targetPosition: any, config: any)
+	local center = getRangerCursorTarget(origin, lookDir, targetPosition, config.range or 42)
+	local radius = 18 * (config.areaMultiplier or 1)
+	local damage = config.damage or 24
+	local duration = config.duration or 4.0
+
+	task.spawn(function()
+		task.wait(1.05)
+		local startTime = os.clock()
+		while os.clock() - startTime < duration do
+			if not casterChar or not casterChar.Parent then break end
+			for _, target in ipairs(getPotentialTargets(casterChar)) do
+				if (target.rootPart.Position - center).Magnitude <= radius then
+					dealDamage(player, target, damage, "RAIN OF ARROWS")
+					local push = Vector3.new(0, 1, 0)
+					target.rootPart:ApplyImpulse(push * (target.rootPart.AssemblyMass * 8))
+				end
+			end
+			task.wait(0.45)
+		end
+	end)
+end
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Hitbox: Skill 1 — Spin Attack (5s Continuous AoE Whirlwind)
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -496,7 +638,8 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 		return
 	end
 
-	local classId = player:GetAttribute("SelectedClass") or "heavy_knight"
+	local classId = player:GetAttribute("SelectedClass")
+	if typeof(classId) ~= "string" then return end
 	local config = SkillData.GetSkill(classId, skillIndex)
 	if not config then return end
 	local effectiveConfig = table.clone(config)
@@ -538,15 +681,29 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	if typeof(payload.direction) == "Vector3" and payload.direction.Magnitude > 0.1 then
 		direction = Vector3.new(payload.direction.X, 0, payload.direction.Z).Unit
 	end
+	local targetPosition = payload.targetPosition
+	if classId == "ranger" and (skillIndex == 3 or skillIndex == 4) then
+		targetPosition = getRangerCursorTarget(origin, direction, targetPosition, effectiveConfig.range or 42)
+	end
 
 	-- Execute authoritative skill logic
-	if skillIndex == 1 then
+	if classId == "ranger" then
+		if skillIndex == 1 then
+			executeRangerThornBarrage(player, char, origin, direction, effectiveConfig)
+		elseif skillIndex == 2 then
+			executeRangerEntanglingArrow(player, char, origin, direction, effectiveConfig)
+		elseif skillIndex == 3 then
+			executeRangerToxicCloud(player, char, origin, direction, targetPosition, effectiveConfig)
+		elseif skillIndex == 4 then
+			executeRangerRainOfArrows(player, char, origin, direction, targetPosition, effectiveConfig)
+		end
+	elseif classId == "heavy_knight" and skillIndex == 1 then
 		executeSpinAttack(player, char, origin, direction, effectiveConfig)
-	elseif skillIndex == 2 then
+	elseif classId == "heavy_knight" and skillIndex == 2 then
 		executeMissileBuff(player, char, effectiveConfig)
-	elseif skillIndex == 3 then
+	elseif classId == "heavy_knight" and skillIndex == 3 then
 		executePhoenixDash(player, char, origin, direction, effectiveConfig)
-	elseif skillIndex == 4 then
+	elseif classId == "heavy_knight" and skillIndex == 4 then
 		executeInfernalWrath(player, char, origin, direction, effectiveConfig)
 	end
 
@@ -563,6 +720,7 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 					skillIndex = skillIndex,
 					origin = origin,
 					direction = direction,
+				targetPosition = targetPosition,
 				})
 			end
 		end
@@ -594,6 +752,15 @@ function SkillManager.HandleBasicAttack(player: Player)
 	local origin = rootPart.Position
 	local lookDir = rootPart.CFrame.LookVector
 	local flatLook = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
+	local classId = player:GetAttribute("SelectedClass")
+	if typeof(classId) ~= "string" then return end
+
+	if classId == "ranger" then
+		local damage = math.floor(24 * PlayerStats.GetStat(player, "damage"))
+		damageFirstTargetOnLine(player, char, origin + Vector3.new(0, 1.2, 0), flatLook, 70, 2.0, damage, "VENOM ARROWS")
+		return
+	end
+	if classId ~= "heavy_knight" then return end
 
 	local targets = getPotentialTargets(char)
 	local hitCount = 0

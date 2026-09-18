@@ -72,8 +72,8 @@ function TorchLightController.Start()
 		local flicker2 = math.sin(t * 23.1) * 0.08
 		local noiseVal = (math.noise(t * 6.5, 0, 0) or 0) * 0.28
 
-		local baseBrightness = 2.4
-		local baseRange = 32.0
+		local baseBrightness = (AtmosphereManager and AtmosphereManager.Config and AtmosphereManager.Config.TorchBrightness) or 2.8
+		local baseRange = (AtmosphereManager and AtmosphereManager.Config and AtmosphereManager.Config.TorchRange) or 36.0
 
 		local currentBrightness = baseBrightness + flicker1 + flicker2 + noiseVal
 		local currentRange = baseRange + flicker1 * 3.5 + noiseVal * 2.5
@@ -87,8 +87,8 @@ function TorchLightController.Start()
 				if rootPart then
 					local torchLight = rootPart:FindFirstChild("PlayerTorchLight") :: PointLight?
 					if torchLight then
-						torchLight.Brightness = math.clamp(currentBrightness, 1.8, 3.1)
-						torchLight.Range = math.clamp(currentRange, 26, 38)
+						torchLight.Brightness = math.clamp(currentBrightness, baseBrightness * 0.7, baseBrightness * 1.35)
+						torchLight.Range = math.clamp(currentRange, baseRange * 0.8, baseRange * 1.25)
 					end
 				end
 			end

@@ -149,6 +149,7 @@ local ARMOR_WELD_MAP: { [string]: string } = {
 	Accessory               = "Torso",
 	Cape                    = "Torso",
 	cape                    = "Torso",
+	RangerCloak             = "Torso",
 }
 
 local ROT270 = CFrame.Angles(0, math.rad(270), 0)
@@ -166,6 +167,7 @@ local ARMOR_CFRAME_OFFSETS: { [string]: CFrame } = {
 	Accessory               = CFrame.new(0, -0.5, 1), -- Pushed outward so cape drapes OVER the armor
 	Cape                    = ROT270 * CFrame.new(0, 0, 1),
 	cape                    = ROT270 * CFrame.new(0, 0, 1),
+	RangerCloak             = ROT90 * CFrame.new(0, 0, 0),
 }
 
 
@@ -247,13 +249,14 @@ local function weldArmorPiece(piece: Model | BasePart, targetPart: BasePart, pie
 end
 
 
-local ENABLE_CLASS_ARMOR = false
+local ENABLE_CLASS_ARMOR = true
 
 local function equipClassArmor(character: Model, classId: string)
 	if not ENABLE_CLASS_ARMOR then return end
 
 	local CLASS_ARMOR_FOLDERS = {
 		heavy_knight = "heavy knight armor",
+		ranger = "Ranger armor",
 	}
 
 	local folderName = CLASS_ARMOR_FOLDERS[classId]
@@ -266,6 +269,10 @@ local function equipClassArmor(character: Model, classId: string)
 
 	-- Position each armor piece individually on its target limb
 	for _, piece in ipairs(armorFolder:GetChildren()) do
+		if piece:IsA("Tool") then
+			continue
+		end
+
 		print(`[ArmorEquip] Processing armor piece: "{piece.Name}" (ClassName: {piece.ClassName})`)
 		local clone = piece:Clone()
 

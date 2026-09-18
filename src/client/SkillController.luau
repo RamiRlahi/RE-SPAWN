@@ -15,6 +15,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local SkillData = require(Shared:WaitForChild("SkillData"))
+local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
 
 local UltimateCameraChoreography = require(script.Parent:WaitForChild("UltimateCameraChoreography"))
 
@@ -22,6 +23,8 @@ local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
 
 local SkillController = {}
+
+local currentKeybinds: { [string]: string } = {}
 
 -- Lazy-required GameHUD to avoid circular dependencies
 local GameHUD: any = nil
@@ -43,6 +46,8 @@ local activeCooldowns: { [number]: { startTime: number, duration: number } } = {
 -- Loaded animation tracks per skill index
 local loadedSkillTracks: { [number]: AnimationTrack } = {}
 local loadedSkillSlashTracks: { [number]: AnimationTrack } = {}
+local rangerShootTracks: { [Humanoid]: AnimationTrack } = {}
+local RANGER_SHOOT_ANIMATION_ID = "rbxassetid://86878349532622"
 
 -- Character visibility storage for skill 3 (Phoenix Dash invisibility)
 local savedTransparencies: { [Model]: { [Instance]: number } } = {}
@@ -239,9 +244,17 @@ local function findVFXAsset(name: string): Instance?
 	return nil
 end
 
-local function getAimDirection(rootPart: BasePart): Vector3
+local function getCursorWorldPosition(rootPart: BasePart): Vector3
 	local mousePos = UserInputService:GetMouseLocation()
 	local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+	raycastParams.FilterDescendantsInstances = { player.Character }
+	raycastParams.IgnoreWater = true
+	local hit = Workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
+	if hit then
+		return hit.Position
+	end
 	
 	-- Intersect ray with horizontal plane at character Y
 	local planeY = rootPart.Position.Y
@@ -252,13 +265,29 @@ local function getAimDirection(rootPart: BasePart): Vector3
 			local hitPoint = ray.Origin + dir * t
 			local diff = hitPoint - rootPart.Position
 			local flatDiff = Vector3.new(diff.X, 0, diff.Z)
-			if flatDiff.Magnitude > 0.5 then
-				return flatDiff.Unit
-			end
+			if flatDiff.Magnitude > 0.5 then return hitPoint end
 		end
 	end
 
-	return rootPart.CFrame.LookVector
+	return rootPart.Position + rootPart.CFrame.LookVector * 100
+end
+
+local function getAimDirection(rootPart: BasePart): Vector3
+	local diff = getCursorWorldPosition(rootPart) - rootPart.Position
+	local flatDiff = Vector3.new(diff.X, 0, diff.Z)
+	return flatDiff.Magnitude > 0.5 and flatDiff.Unit or rootPart.CFrame.LookVector
+end
+
+local function clampRangerCursorTarget(origin: Vector3, target: Vector3, maxRange: number, fallbackDirection: Vector3): Vector3
+	local offset = Vector3.new(target.X - origin.X, 0, target.Z - origin.Z)
+	if offset.Magnitude < 0.5 then
+		offset = Vector3.new(fallbackDirection.X, 0, fallbackDirection.Z)
+		if offset.Magnitude < 0.1 then
+			offset = Vector3.new(0, 0, -1)
+		end
+		return origin + offset.Unit * maxRange
+	end
+	return origin + offset.Unit * math.min(offset.Magnitude, maxRange)
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -1319,6 +1348,314 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 	end)
 end
 
+local NATURE_GREEN = Color3.fromRGB(72, 210, 92)
+local FOREST_GREEN = Color3.fromRGB(18, 92, 42)
+local POISON_PURPLE = Color3.fromRGB(145, 55, 190)
+
+local function flatUnit(direction: Vector3): Vector3
+	local flat = Vector3.new(direction.X, 0, direction.Z)
+	if flat.Magnitude < 0.1 then
+		return Vector3.new(0, 0, -1)
+	end
+	return flat.Unit
+end
+
+local function rotatedFlat(direction: Vector3, degrees: number): Vector3
+	return (CFrame.Angles(0, math.rad(degrees), 0) * flatUnit(direction)).Unit
+end
+
+local function makeRangerArrow(startPos: Vector3, direction: Vector3, distance: number, color: Color3, width: number?, lifetime: number?)
+	local dir = direction.Magnitude > 0.1 and direction.Unit or Vector3.new(0, 0, -1)
+	local arrow = Instance.new("Part")
+	arrow.Name = "RangerArrowVFX"
+	arrow.Size = Vector3.new(width or 0.22, width or 0.22, 2.8)
+	arrow.Material = Enum.Material.Neon
+	arrow.Color = color
+	arrow.CanCollide = false
+	arrow.CanTouch = false
+	arrow.CanQuery = false
+	arrow.Anchored = true
+	arrow.CFrame = CFrame.lookAt(startPos, startPos + dir)
+	arrow.Parent = Workspace.Terrain
+
+	local att0 = Instance.new("Attachment")
+	att0.Position = Vector3.new(0, 0, 0.9)
+	att0.Parent = arrow
+	local att1 = Instance.new("Attachment")
+	att1.Position = Vector3.new(0, 0, -1.1)
+	att1.Parent = arrow
+
+	local trail = Instance.new("Trail")
+	trail.Attachment0 = att0
+	trail.Attachment1 = att1
+	trail.Color = ColorSequence.new(color, POISON_PURPLE)
+	trail.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.05),
+		NumberSequenceKeypoint.new(0.7, 0.35),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	trail.Lifetime = 0.28
+	trail.WidthScale = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, width or 0.55),
+		NumberSequenceKeypoint.new(1, 0.04),
+	})
+	trail.FaceCamera = true
+	trail.Parent = arrow
+
+	local travelTime = lifetime or 0.32
+	local endPos = startPos + dir * distance
+	TweenService:Create(arrow, TweenInfo.new(travelTime, Enum.EasingStyle.Linear), {
+		CFrame = CFrame.lookAt(endPos, endPos + dir),
+	}):Play()
+	Debris:AddItem(arrow, travelTime + 0.35)
+	return endPos
+end
+
+local function playRangerBasicAttackVFX(char: Model, lookDir: Vector3)
+	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not rootPart then return end
+	local startPos = rootPart.Position + Vector3.new(0, 1.4, 0) + flatUnit(lookDir) * 2
+	makeRangerArrow(startPos, lookDir, 70, NATURE_GREEN, 0.18, 0.26)
+end
+
+local function playRangerShootAnimation(char: Model)
+	local humanoid = char:FindFirstChildOfClass("Humanoid")
+	local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+	if not humanoid or not animator then return end
+
+	local track = rangerShootTracks[humanoid]
+	if not track then
+		local animation = Instance.new("Animation")
+		animation.Name = "RangerShoot"
+		animation.AnimationId = RANGER_SHOOT_ANIMATION_ID
+		track = animator:LoadAnimation(animation)
+		track.Priority = Enum.AnimationPriority.Action4
+		rangerShootTracks[humanoid] = track
+	end
+
+	if track.IsPlaying then track:Stop(0.05) end
+	track:Play(0.05)
+end
+
+local function findRangerArrowImpact(casterChar: Model, origin: Vector3, direction: Vector3, range: number, width: number): Vector3
+	local bestAlong = range
+	local bestPos = origin + flatUnit(direction) * range
+	local flatDir = flatUnit(direction)
+
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if desc:IsA("Model") and desc ~= casterChar and not desc:IsDescendantOf(casterChar) and not desc:FindFirstAncestorOfClass("Accessory") then
+			local hum = desc:FindFirstChildOfClass("Humanoid")
+			if hum and hum.Health > 0 then
+				local root = (desc:FindFirstChild("HumanoidRootPart") or desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")) :: BasePart?
+				if root then
+					local diff = root.Position - origin
+					local flatDiff = Vector3.new(diff.X, 0, diff.Z)
+					local along = flatDiff:Dot(flatDir)
+					if along >= 0 and along <= range then
+						local closest = origin + flatDir * along
+						local lateral = (Vector3.new(root.Position.X, origin.Y, root.Position.Z) - closest).Magnitude
+						if lateral <= width and along < bestAlong then
+							bestAlong = along
+							bestPos = root.Position
+						end
+					end
+				end
+			end
+		end
+	end
+
+	return bestPos
+end
+
+local function spawnVinePinRing(targetRoot: BasePart, duration: number)
+	local ring = Instance.new("Model")
+	ring.Name = "PinnedVineRingVFX"
+	ring.Parent = Workspace.Terrain
+	local segments: { BasePart } = {}
+	for i = 1, 20 do
+		local vine = Instance.new("Part")
+		vine.Name = "PinnedVine"
+		vine.Shape = Enum.PartType.Ball
+		vine.Size = Vector3.new(0.3, 0.3, 0.3)
+		vine.Material = Enum.Material.Neon
+		vine.Color = i % 3 == 0 and POISON_PURPLE or FOREST_GREEN
+		vine.CanCollide = false
+		vine.CanTouch = false
+		vine.CanQuery = false
+		vine.Anchored = true
+		vine.Parent = ring
+		table.insert(segments, vine)
+	end
+
+	local startTime = os.clock()
+	local connection: RBXScriptConnection?
+	connection = RunService.Heartbeat:Connect(function()
+		if not targetRoot.Parent or not ring.Parent then
+			if connection then connection:Disconnect() end
+			ring:Destroy()
+			return
+		end
+		local progress = math.clamp((os.clock() - startTime) / duration, 0, 1)
+		for i, vine in ipairs(segments) do
+			local angle = (i / #segments) * math.pi * 5 + os.clock() * 2.4
+			local height = -1.8 + ((i - 1) / (#segments - 1)) * 3.8
+			local radius = 0.82 + math.sin(i * 1.7) * 0.12
+			vine.Position = targetRoot.Position + Vector3.new(math.cos(angle) * radius, height, math.sin(angle) * radius)
+			vine.Transparency = progress > 0.8 and (progress - 0.8) * 5 or 0
+		end
+		if progress >= 1 then
+			if connection then connection:Disconnect() end
+			ring:Destroy()
+		end
+	end)
+end
+
+local function showPinnedTargets(casterChar: Model, center: Vector3, radius: number, duration: number)
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if desc:IsA("Model") and desc ~= casterChar and not desc:IsDescendantOf(casterChar) and not desc:FindFirstAncestorOfClass("Accessory") then
+			local humanoid = desc:FindFirstChildOfClass("Humanoid")
+			local root = (desc:FindFirstChild("HumanoidRootPart") or desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")) :: BasePart?
+			if humanoid and humanoid.Health > 0 and root and (root.Position - center).Magnitude <= radius then
+				spawnVinePinRing(root, duration)
+			end
+		end
+	end
+end
+
+local function spawnPoisonEmitter(center: Vector3, radius: number, duration: number)
+	local holder = Instance.new("Part")
+	holder.Name = "ToxicCloudVFX"
+	holder.Size = Vector3.new(1, 1, 1)
+	holder.Transparency = 1
+	holder.CanCollide = false
+	holder.CanTouch = false
+	holder.CanQuery = false
+	holder.Anchored = true
+	holder.CFrame = CFrame.new(center + Vector3.new(0, 0.6, 0))
+	holder.Parent = Workspace.Terrain
+
+	local att = Instance.new("Attachment")
+	att.Parent = holder
+
+	local cloud = Instance.new("ParticleEmitter")
+	cloud.Name = "PoisonSpores"
+	cloud.Texture = "rbxassetid://258128463"
+	cloud.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(90, 230, 85)),
+		ColorSequenceKeypoint.new(0.55, Color3.fromRGB(48, 120, 54)),
+		ColorSequenceKeypoint.new(1, POISON_PURPLE),
+	})
+	cloud.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.18),
+		NumberSequenceKeypoint.new(1, 0.85),
+	})
+	cloud.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 3.5),
+		NumberSequenceKeypoint.new(1, radius * 0.75),
+	})
+	cloud.Lifetime = NumberRange.new(1.8, 2.8)
+	cloud.Rate = 90
+	cloud.Speed = NumberRange.new(2, 7)
+	cloud.SpreadAngle = Vector2.new(180, 45)
+	cloud.Rotation = NumberRange.new(0, 360)
+	cloud.RotSpeed = NumberRange.new(-45, 45)
+	cloud.Parent = att
+
+	local light = Instance.new("PointLight")
+	light.Color = NATURE_GREEN
+	light.Brightness = 3
+	light.Range = radius * 1.6
+	light.Parent = holder
+
+	task.delay(duration, function()
+		cloud.Enabled = false
+		TweenService:Create(light, TweenInfo.new(0.5), { Brightness = 0 }):Play()
+		Debris:AddItem(holder, 3.0)
+	end)
+end
+
+local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vector3, lookDir: Vector3, targetPosition: Vector3?)
+	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not rootPart then return end
+	local baseOrigin = rootPart.Position + Vector3.new(0, 1.35, 0)
+
+	if skillIndex == 1 then
+		local offsets = { -19, -9.5, 0, 9.5, 19 }
+		for _, angle in ipairs(offsets) do
+			makeRangerArrow(baseOrigin + rotatedFlat(lookDir, angle) * 2, rotatedFlat(lookDir, angle), 64, NATURE_GREEN, 0.24, 0.32)
+		end
+	elseif skillIndex == 2 then
+		local arrowStart = baseOrigin + flatUnit(lookDir) * 2
+		local impactPos = findRangerArrowImpact(char, arrowStart, lookDir, 44, 2.8)
+		local travelDistance = (impactPos - arrowStart).Magnitude
+		makeRangerArrow(arrowStart, lookDir, travelDistance, Color3.fromRGB(105, 245, 110), 0.32, 0.38)
+		task.delay(0.38, function()
+			showPinnedTargets(char, impactPos, 10, 2.6)
+			triggerCameraShake(char == player.Character and 0.35 or 0, 0.2)
+		end)
+	elseif skillIndex == 3 then
+		local target = targetPosition or (origin + flatUnit(lookDir) * 34)
+		local pod = Instance.new("Part")
+		pod.Name = "SporePodVFX"
+		pod.Shape = Enum.PartType.Ball
+		pod.Size = Vector3.new(1.15, 1.15, 1.15)
+		pod.Material = Enum.Material.Neon
+		pod.Color = POISON_PURPLE
+		pod.CanCollide = false
+		pod.CanTouch = false
+		pod.CanQuery = false
+		pod.Anchored = true
+		pod.CFrame = CFrame.new(baseOrigin)
+		pod.Parent = Workspace.Terrain
+		local mid = baseOrigin:Lerp(target + Vector3.new(0, 0.4, 0), 0.5) + Vector3.new(0, 11, 0)
+		task.spawn(function()
+			local start = os.clock()
+			while os.clock() - start < 0.62 do
+				local alpha = math.clamp((os.clock() - start) / 0.62, 0, 1)
+				local a = baseOrigin:Lerp(mid, alpha)
+				local b = mid:Lerp(target, alpha)
+				local pos = a:Lerp(b, alpha)
+				pod.CFrame = CFrame.new(pos)
+				RunService.RenderStepped:Wait()
+			end
+			pod:Destroy()
+			spawnPoisonEmitter(target, 13, 6.0)
+		end)
+	elseif skillIndex == 4 then
+		makeRangerArrow(baseOrigin, Vector3.new(0, 0, -1), 0.1, Color3.fromRGB(185, 255, 145), 0.4, 0.08)
+		local center = targetPosition or (origin + flatUnit(lookDir) * 42)
+		local marker = Instance.new("Part")
+		marker.Name = "RainOfArrowsMarker"
+		marker.Shape = Enum.PartType.Cylinder
+		marker.Size = Vector3.new(0.12, 36, 36)
+		marker.Material = Enum.Material.Neon
+		marker.Color = Color3.fromRGB(70, 180, 80)
+		marker.Transparency = 0.62
+		marker.CanCollide = false
+		marker.CanTouch = false
+		marker.CanQuery = false
+		marker.Anchored = true
+		marker.CFrame = CFrame.new(center + Vector3.new(0, 0.06, 0)) * CFrame.Angles(0, 0, math.rad(90))
+		marker.Parent = Workspace.Terrain
+		task.delay(1.05, function()
+			for i = 1, 70 do
+				task.delay(i * 0.035, function()
+					local angle = math.random() * math.pi * 2
+					local dist = math.sqrt(math.random()) * 18
+					local ground = center + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
+					makeRangerArrow(ground + Vector3.new(0, 38, 0), Vector3.new(0, -1, 0), 38, i % 4 == 0 and POISON_PURPLE or NATURE_GREEN, 0.18, 0.18)
+				end)
+			end
+		end)
+		task.delay(5.2, function()
+			if marker and marker.Parent then
+				TweenService:Create(marker, TweenInfo.new(0.35), { Transparency = 1 }):Play()
+				Debris:AddItem(marker, 0.4)
+			end
+		end)
+	end
+end
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Animation Loading
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -1327,8 +1664,9 @@ local function loadSkillAnimations(char: Model)
 	local animator = humanoid and (humanoid:WaitForChild("Animator", 5) :: Animator?)
 	if not animator then return end
 
-	local classId = player:GetAttribute("SelectedClass") or "heavy_knight"
-	local skills = SkillData.GetSkills(classId)
+	local classId = player:GetAttribute("SelectedClass")
+	if typeof(classId) ~= "string" then return end
+	local skills = SkillData.GetSkills(classId) or {}
 
 	for skillIndex, config in pairs(skills) do
 		if config.animationId then
@@ -1371,7 +1709,8 @@ function SkillController.UseSkill(skillIndex: number)
 	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not humanoid or not rootPart or humanoid.Health <= 0 then return end
 
-	local classId = player:GetAttribute("SelectedClass") or "heavy_knight"
+	local classId = player:GetAttribute("SelectedClass")
+	if typeof(classId) ~= "string" then return end
 	local config = SkillData.GetSkill(classId, skillIndex)
 	if not config then return end
 
@@ -1390,7 +1729,10 @@ function SkillController.UseSkill(skillIndex: number)
 	}
 
 	-- Calculate Aim Direction
+	local cursorPosition = getCursorWorldPosition(rootPart)
 	local aimDir = getAimDirection(rootPart)
+	local rangerTargetPosition = classId == "ranger" and (skillIndex == 3 or skillIndex == 4)
+		and clampRangerCursorTarget(rootPart.Position, cursorPosition, config.range or 42, aimDir) or nil
 
 	-- Pivot character towards aim direction smoothly
 	local targetCF = CFrame.lookAt(rootPart.Position, rootPart.Position + aimDir)
@@ -1399,7 +1741,19 @@ function SkillController.UseSkill(skillIndex: number)
 	-- Set casting attribute & play skill animation
 	char:SetAttribute("IsSkillCasting", true)
 
-	if skillIndex == 1 then
+	if classId == "ranger" then
+		char:SetAttribute("AllowSkillMovement", true)
+		local track = loadedSkillTracks[skillIndex]
+		if track then
+			track:Play(0.08)
+		end
+		local castLock = skillIndex == 4 and 1.1 or 0.35
+		task.delay(castLock, function()
+			char:SetAttribute("IsSkillCasting", false)
+			char:SetAttribute("AllowSkillMovement", false)
+		end)
+		playRangerSkillVFX(char, skillIndex, rootPart.Position, aimDir, rangerTargetPosition)
+	elseif classId == "heavy_knight" and skillIndex == 1 then
 		-- Spin attack allows moving for the 5s duration, but blocks other spells/attacks
 		char:SetAttribute("AllowSkillMovement", true)
 		char:SetAttribute("IsSkill1Active", true)
@@ -1425,12 +1779,12 @@ function SkillController.UseSkill(skillIndex: number)
 			end)
 		end
 		playSpinAttackVFX(char, rootPart.Position, aimDir)
-	elseif skillIndex == 2 then
+	elseif classId == "heavy_knight" and skillIndex == 2 then
 		-- Skill 2: Missile Barrage Buff (instant cast buff, enables missile launch on every attack)
 		char:SetAttribute("AllowSkillMovement", true)
 		char:SetAttribute("IsSkillCasting", false)
 		playMissileBuffVFX(char)
-	elseif skillIndex == 3 then
+	elseif classId == "heavy_knight" and skillIndex == 3 then
 		char:SetAttribute("AllowSkillMovement", true)
 		local track = loadedSkillTracks[3]
 		if track then
@@ -1441,7 +1795,7 @@ function SkillController.UseSkill(skillIndex: number)
 			char:SetAttribute("AllowSkillMovement", false)
 		end)
 		playPhoenixDashVFX(char, rootPart.Position, aimDir)
-	elseif skillIndex == 4 then
+	elseif classId == "heavy_knight" and skillIndex == 4 then
 		char:SetAttribute("AllowSkillMovement", false)
 		local track = loadedSkillTracks[4]
 		if track then
@@ -1466,6 +1820,7 @@ function SkillController.UseSkill(skillIndex: number)
 			skillIndex = skillIndex,
 			origin = rootPart.Position,
 			direction = aimDir,
+			targetPosition = rangerTargetPosition,
 		})
 	end)
 
@@ -1552,49 +1907,88 @@ local function showDamageNumber(payload: any)
 	Debris:AddItem(anchor, 0.8)
 end
 
+local function cloneKeybinds(keybinds: { [string]: string }?)
+	currentKeybinds = {}
+	for action, key in pairs(SettingsConfig.DefaultSettings.keybinds) do
+		currentKeybinds[action] = key
+	end
+	if keybinds then
+		for action, key in pairs(keybinds) do
+			currentKeybinds[action] = key
+		end
+	end
+end
+
+local function inputMatchesAction(input: InputObject, action: string): boolean
+	local keyName = currentKeybinds[action] or SettingsConfig.DefaultSettings.keybinds[action]
+	if not keyName or keyName == "" or keyName == "None" then
+		return false
+	end
+
+	if input.UserInputType == Enum.UserInputType.Keyboard then
+		return input.KeyCode.Name == keyName
+	end
+
+	return input.UserInputType.Name == keyName
+end
+
+function SkillController.SetKeybinds(keybinds: { [string]: string }?)
+	cloneKeybinds(keybinds)
+end
+
+local lastBasicAttack = 0
+
+local function performBasicAttack()
+	if player:GetAttribute("InLobby") == true then return end
+	local char = player.Character
+	if not char then return end
+
+	local now = os.clock()
+	local attackSpeed = player:GetAttribute("Stat_basicAttackSpeed") or 1
+	if now - lastBasicAttack < 0.38 / math.max(attackSpeed, 0.1) then return end
+	lastBasicAttack = now
+
+	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if rootPart then
+		local aimDir = getAimDirection(rootPart)
+		rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + aimDir)
+		if player:GetAttribute("SelectedClass") == "ranger" then
+			playRangerShootAnimation(char)
+			playRangerBasicAttackVFX(char, aimDir)
+		end
+	end
+
+	-- Fire server Remote for basic attack damage
+	local performAttackRemote = Network.GetRemoteEvent(Network.Remotes.PerformAttack)
+	performAttackRemote:FireServer()
+
+	-- If Missile Barrage buff is active, launch missile
+	if char:GetAttribute("IsMissileBuffActive") == true then
+		SkillController.LaunchMissile(char)
+	end
+end
+
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Initialization & Event Connections
 -- ─────────────────────────────────────────────────────────────────────────────
 function SkillController.Init()
 	local damageRemote = Network.GetRemoteEvent(Network.Remotes.DamageDealt)
 	damageRemote.OnClientEvent:Connect(showDamageNumber)
+	cloneKeybinds(nil)
 
-	-- Keybind Listeners: M1 (Basic Attack), E (1: Spin), F (2: Slash), Q (3: Dash), R (4: Ultimate)
-	local lastBasicAttack = 0
+	-- Keybind listeners use current settings so the controls match the settings UI and HUD.
 	UserInputService.InputBegan:Connect(function(input, gpe)
 		if gpe then return end
 
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			if player:GetAttribute("InLobby") == true then return end
-			local char = player.Character
-			if not char then return end
-
-			local now = os.clock()
-			local attackSpeed = player:GetAttribute("Stat_basicAttackSpeed") or 1
-			if now - lastBasicAttack < 0.38 / math.max(attackSpeed, 0.1) then return end
-			lastBasicAttack = now
-
-			local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
-			if rootPart then
-				local aimDir = getAimDirection(rootPart)
-				rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + aimDir)
-			end
-
-			-- Fire server Remote for basic attack damage
-			local performAttackRemote = Network.GetRemoteEvent(Network.Remotes.PerformAttack)
-			performAttackRemote:FireServer()
-
-			-- If Missile Barrage buff is active, launch missile
-			if char:GetAttribute("IsMissileBuffActive") == true then
-				SkillController.LaunchMissile(char)
-			end
-		elseif input.KeyCode == Enum.KeyCode.E then
+		if inputMatchesAction(input, "PrimaryAttack") then
+			performBasicAttack()
+		elseif inputMatchesAction(input, "Skill1") then
 			SkillController.UseSkill(1)
-		elseif input.KeyCode == Enum.KeyCode.F then
+		elseif inputMatchesAction(input, "Skill2") then
 			SkillController.UseSkill(2)
-		elseif input.KeyCode == Enum.KeyCode.Q then
+		elseif inputMatchesAction(input, "Skill3") then
 			SkillController.UseSkill(3)
-		elseif input.KeyCode == Enum.KeyCode.R then
+		elseif inputMatchesAction(input, "Ultimate") then
 			SkillController.UseSkill(4)
 		end
 	end)
@@ -1682,13 +2076,16 @@ function SkillController.Init()
 		local direction = payload.direction or char:GetPivot().LookVector
 		local skillIndex = payload.skillIndex
 
-		if skillIndex == 1 then
+		local classId = castingPlayer:GetAttribute("SelectedClass")
+		if classId == "ranger" then
+			playRangerSkillVFX(char, skillIndex, origin, direction, payload.targetPosition)
+		elseif classId == "heavy_knight" and skillIndex == 1 then
 			playSpinAttackVFX(char, origin, direction)
-		elseif skillIndex == 2 then
-			playFlameSlashVFX(char, origin, direction)
-		elseif skillIndex == 3 then
+		elseif classId == "heavy_knight" and skillIndex == 2 then
+			playMissileBuffVFX(char)
+		elseif classId == "heavy_knight" and skillIndex == 3 then
 			playPhoenixDashVFX(char, origin, direction)
-		elseif skillIndex == 4 then
+		elseif classId == "heavy_knight" and skillIndex == 4 then
 			playInfernalWrathVFX(char, origin, direction)
 		end
 	end)

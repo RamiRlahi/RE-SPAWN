@@ -7,6 +7,7 @@ local Players = game:GetService("Players")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
 
 local player = Players.LocalPlayer
 local character = script.Parent
@@ -55,15 +56,6 @@ local ATTACK_ANIMATIONS = {
 			"rbxassetid://139832137467263", -- Attack 2
 			"rbxassetid://88609851560221",  -- Attack 3
 			"rbxassetid://86943794416151",  -- Attack 4
-		},
-	},
-	default = {
-		running = "rbxassetid://97959206991231",
-		combo = {
-			"rbxassetid://89799832930197",
-			"rbxassetid://139832137467263",
-			"rbxassetid://88609851560221",
-			"rbxassetid://86943794416151",
 		},
 	},
 }
@@ -440,27 +432,29 @@ local function loadClassAnimations(classId: string)
 	loadedComboTracks = {}
 	loadedRunningTrack = nil
 
-	local attackSet = ATTACK_ANIMATIONS[classId] or ATTACK_ANIMATIONS.default
-	for i, attackId in ipairs(attackSet.combo) do
-		local animObj = Instance.new("Animation")
-		animObj.Name = `Attack{i}`
-		animObj.AnimationId = attackId
-		local track = animator:LoadAnimation(animObj)
-		track.Priority = Enum.AnimationPriority.Action4
-		track.Looped = false
-		table.insert(loadedComboTracks, track)
-		monitorTrack(`Attack{i}`, track)
-	end
+	local attackSet = ATTACK_ANIMATIONS[classId]
+	if attackSet then
+		for i, attackId in ipairs(attackSet.combo) do
+			local animObj = Instance.new("Animation")
+			animObj.Name = `Attack{i}`
+			animObj.AnimationId = attackId
+			local track = animator:LoadAnimation(animObj)
+			track.Priority = Enum.AnimationPriority.Action4
+			track.Looped = false
+			table.insert(loadedComboTracks, track)
+			monitorTrack(`Attack{i}`, track)
+		end
 
-	if attackSet.running then
-		local animObj = Instance.new("Animation")
-		animObj.Name = "RunningAttack"
-		animObj.AnimationId = attackSet.running
-		local track = animator:LoadAnimation(animObj)
-		track.Priority = Enum.AnimationPriority.Action4
-		track.Looped = false
-		loadedRunningTrack = track
-		monitorTrack("RunningAttack", track)
+		if attackSet.running then
+			local animObj = Instance.new("Animation")
+			animObj.Name = "RunningAttack"
+			animObj.AnimationId = attackSet.running
+			local track = animator:LoadAnimation(animObj)
+			track.Priority = Enum.AnimationPriority.Action4
+			track.Looped = false
+			loadedRunningTrack = track
+			monitorTrack("RunningAttack", track)
+		end
 	end
 
 	-- Wait for locomotion animation assets to finish downloading
@@ -628,10 +622,23 @@ end
 -- Input Handling
 -- ─────────────────────────────────────────────────────────────────────────────
 
+local function inputMatchesAction(input: InputObject, action: string): boolean
+	local keyName = player:GetAttribute(`Keybind_{action}`) or SettingsConfig.DefaultSettings.keybinds[action]
+	if typeof(keyName) ~= "string" or keyName == "" or keyName == "None" then
+		return false
+	end
+
+	if input.UserInputType == Enum.UserInputType.Keyboard then
+		return input.KeyCode.Name == keyName
+	end
+
+	return input.UserInputType.Name == keyName
+end
+
 UserInputService.InputBegan:Connect(function(input, gpe)
 	if gpe then return end
 
-	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
+	if inputMatchesAction(input, "Sprint") then
 		if not isSprinting then
 			isSprinting = true
 			playDashShockwaveVFX()
@@ -640,13 +647,13 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 				setSprintRemote:FireServer(true)
 			end)
 		end
-	elseif input.UserInputType == Enum.UserInputType.MouseButton1 or input.KeyCode == Enum.KeyCode.ButtonR2 then
+	elseif inputMatchesAction(input, "PrimaryAttack") or input.KeyCode == Enum.KeyCode.ButtonR2 then
 		performAttack()
 	end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-	if input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then
+	if inputMatchesAction(input, "Sprint") then
 		isSprinting = false
 		stopSpeedSprintVFX()
 		pcall(function()
