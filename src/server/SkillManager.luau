@@ -230,7 +230,7 @@ local function findRangerArrowTemplate(): Instance?
 	return nil
 end
 
-local function fireRangerArrowVisual(origin: Vector3, direction: Vector3, distance: number)
+local function fireRangerArrowVisual(origin: Vector3, direction: Vector3, distance: number, speedMultiplier: number)
 	local template = findRangerArrowTemplate()
 	if not template then
 		warn("[SkillManager] Ranger Arrow model not found in ReplicatedStorage.")
@@ -263,7 +263,7 @@ local function fireRangerArrowVisual(origin: Vector3, direction: Vector3, distan
 	arrow.Name = "RangerArrowProjectile"
 	arrow.Parent = Workspace
 	local flatDirection = rotateFlatDirection(direction, 0)
-	local travelTime = math.max(0.05, distance / 180)
+	local travelTime = math.max(0.05, distance / (180 * math.max(speedMultiplier, 0.1)))
 	task.spawn(function()
 		local startTime = os.clock()
 		while arrow.Parent do
@@ -276,6 +276,12 @@ local function fireRangerArrowVisual(origin: Vector3, direction: Vector3, distan
 		end
 		if arrow.Parent then arrow:Destroy() end
 	end)
+end
+
+local function applyRangerArrowKnockback(target: any, direction: Vector3, multiplier: number)
+	if not target then return end
+	local pushDirection = (rotateFlatDirection(direction, 0) + Vector3.new(0, 0.12, 0)).Unit
+	target.rootPart:ApplyImpulse(pushDirection * (target.rootPart.AssemblyMass * 8 * multiplier))
 end
 
 local function rootTarget(target: { character: Model, humanoid: Humanoid, rootPart: BasePart }, duration: number)
@@ -300,10 +306,16 @@ local function executeRangerThornBarrage(player: Player, casterChar: Model, orig
 	local damage = config.damage or 22
 	local range = config.range or 64
 	local spread = config.angle or 38
-	local offsets = { -spread / 2, -spread / 4, 0, spread / 4, spread / 2 }
+	local projectileCount = 5 + math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount")))
+	local width = 2.4 * (config.areaMultiplier or 1)
+	local knockback = PlayerStats.GetStat(player, "knockback")
 
-	for _, angle in ipairs(offsets) do
-		damageFirstTargetOnLine(player, casterChar, origin + Vector3.new(0, 1.2, 0), rotateFlatDirection(lookDir, angle), range, 2.4, damage, "THORN BARRAGE")
+	for index = 1, projectileCount do
+		local alpha = projectileCount == 1 and 0.5 or (index - 1) / (projectileCount - 1)
+		local angle = -spread / 2 + spread * alpha
+		local direction = rotateFlatDirection(lookDir, angle)
+		local target = damageFirstTargetOnLine(player, casterChar, origin + Vector3.new(0, 1.2, 0), direction, range, width, damage, "THORN BARRAGE")
+		applyRangerArrowKnockback(target, direction, knockback)
 	end
 end
 
@@ -311,7 +323,7 @@ local function executeRangerEntanglingArrow(player: Player, casterChar: Model, o
 	local flatDir = rotateFlatDirection(lookDir, 0)
 	local range = config.range or 44
 	local arrowOrigin = origin + Vector3.new(0, 1.2, 0)
-	local directHit, hitDistance = damageFirstTargetOnLine(player, casterChar, arrowOrigin, flatDir, range, 2.8, config.damage or 30, "ENTANGLING ARROW")
+	local directHit, hitDistance = damageFirstTargetOnLine(player, casterChar, arrowOrigin, flatDir, range, 2.8 * (config.areaMultiplier or 1), config.damage or 30, "ENTANGLING ARROW")
 	local impactPos = directHit and directHit.rootPart.Position or (origin + flatDir * range)
 	local radius = 10 * (config.areaMultiplier or 1)
 	local damage = math.floor((config.damage or 30) * 0.75)
@@ -840,8 +852,17 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 	if classId == "ranger" then
 		local damage = math.floor(24 * PlayerStats.GetStat(player, "damage"))
 		local arrowOrigin = origin + Vector3.new(0, 1.2, 0)
-		local _, hitDistance = damageFirstTargetOnLine(player, char, arrowOrigin, flatLook, 70, 2.0, damage, "VENOM ARROWS")
-		fireRangerArrowVisual(arrowOrigin, flatLook, hitDistance or 70)
+		local projectileCount = 1 + math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount")))
+		local hitWidth = 2.0 * PlayerStats.GetStat(player, "size")
+		local knockback = PlayerStats.GetStat(player, "knockback")
+		local projectileSpeed = PlayerStats.GetStat(player, "projectileSpeed")
+		for index = 1, projectileCount do
+			local alpha = projectileCount == 1 and 0.5 or (index - 1) / (projectileCount - 1)
+			local direction = rotateFlatDirection(flatLook, (alpha - 0.5) * 16)
+			local target, hitDistance = damageFirstTargetOnLine(player, char, arrowOrigin, direction, 70, hitWidth, damage, "VENOM ARROWS")
+			applyRangerArrowKnockback(target, direction, knockback)
+			fireRangerArrowVisual(arrowOrigin, direction, hitDistance or 70, projectileSpeed)
+		end
 		return
 	end
 	if classId ~= "heavy_knight" then return end

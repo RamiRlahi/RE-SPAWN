@@ -1469,6 +1469,12 @@ local function findRangerArrowImpact(casterChar: Model, origin: Vector3, directi
 end
 
 local function spawnVinePinRing(targetRoot: BasePart, duration: number)
+	local targetModel = targetRoot:FindFirstAncestorOfClass("Model")
+	local bounds = targetModel and targetModel:GetExtentsSize() or Vector3.new(2, 5, 2)
+	local coilRadius = math.clamp(math.max(bounds.X, bounds.Z) * 0.65, 1.25, 9)
+	local coilBottom = -math.clamp(bounds.Y * 0.45, 2.15, 6)
+	local coilHeight = math.clamp(bounds.Y * 0.9, 4.5, 12)
+
 	local ring = Instance.new("Model")
 	ring.Name = "PinnedVineRingVFX"
 	ring.Parent = Workspace.Terrain
@@ -1515,8 +1521,8 @@ local function spawnVinePinRing(targetRoot: BasePart, duration: number)
 		local positions: { Vector3 } = {}
 		for i, vine in ipairs(segments) do
 			local angle = (i / #segments) * math.pi * 5 + os.clock() * 2.4
-			local height = -2.15 + ((i - 1) / (#segments - 1)) * 4.5
-			local radius = 1.25 + math.sin(i * 1.7) * 0.16
+			local height = coilBottom + ((i - 1) / (#segments - 1)) * coilHeight
+			local radius = coilRadius + math.sin(i * 1.7) * (coilRadius * 0.13)
 			local position = targetRoot.Position + Vector3.new(math.cos(angle) * radius, height, math.sin(angle) * radius)
 			positions[i] = position
 			vine.Position = position
@@ -1610,8 +1616,10 @@ local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vecto
 	local baseOrigin = rootPart.Position + Vector3.new(0, 1.35, 0)
 
 	if skillIndex == 1 then
-		local offsets = { -19, -9.5, 0, 9.5, 19 }
-		for _, angle in ipairs(offsets) do
+		local projectileCount = 5 + math.max(0, math.floor(player:GetAttribute("Stat_projectileCount") or 0))
+		for index = 1, projectileCount do
+			local alpha = projectileCount == 1 and 0.5 or (index - 1) / (projectileCount - 1)
+			local angle = -19 + 38 * alpha
 			makeRangerArrow(baseOrigin + rotatedFlat(lookDir, angle) * 2, rotatedFlat(lookDir, angle), 64, NATURE_GREEN, 0.24, 0.32)
 		end
 	elseif skillIndex == 2 then
