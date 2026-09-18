@@ -238,6 +238,7 @@ local function weldArmorPiece(piece: Model | BasePart, targetPart: BasePart, pie
 		part.CanTouch = false
 		part.CanQuery = false
 		part.Massless = true
+		part.Anchored = false
 		part.CFrame = transform * part.CFrame
 
 		local weld = Instance.new("WeldConstraint")
@@ -281,6 +282,22 @@ local function equipClassArmor(character: Model, classId: string)
 		local pieceScale = ARMOR_PIECE_SCALES[piece.Name] or ARMOR_SCALE
 		scaleArmorPiece(clone, pieceScale)
 
+		-- RangerCloak has an authored "root" part. Align that root to the
+		-- character root (with a small visual drop) instead of centering the
+		-- whole model on the torso.
+		local cloakRoot: BasePart? = nil
+		local rootAlignedCloak = classId == "ranger" and piece.Name == "RangerCloak"
+		if rootAlignedCloak then
+			local foundRoot = clone:FindFirstChild("root", true)
+			if foundRoot and foundRoot:IsA("BasePart") then
+				cloakRoot = foundRoot
+			else
+				warn("[ArmorEquip] RangerCloak needs a BasePart named 'root'.")
+				clone:Destroy()
+				continue
+			end
+		end
+
 		-- Determine target R6 limb
 		local targetPartName = ARMOR_WELD_MAP[piece.Name] or "Torso"
 		local targetPart = character:FindFirstChild(targetPartName) :: BasePart?
@@ -290,11 +307,13 @@ local function equipClassArmor(character: Model, classId: string)
 		end
 
 		-- Get the rotation offset for this piece
-		local rotOffset = ARMOR_CFRAME_OFFSETS[piece.Name] or CFrame.identity
+		local rotOffset = rootAlignedCloak and CFrame.new(0, 0.15, 0) or (ARMOR_CFRAME_OFFSETS[piece.Name] or CFrame.identity)
 
 		-- Get the bounding box center of this piece
 		local pieceCF: CFrame
-		if clone:IsA("Model") then
+		if rootAlignedCloak and cloakRoot then
+			pieceCF = cloakRoot.CFrame
+		elseif clone:IsA("Model") then
 			pieceCF = clone:GetBoundingBox()
 		elseif clone:IsA("Accessory") then
 			local handle = clone:FindFirstChild("Handle") :: BasePart?
@@ -321,6 +340,7 @@ local function equipClassArmor(character: Model, classId: string)
 				desc.CanTouch = false
 				desc.CanQuery = false
 				desc.Massless = true
+				desc.Anchored = false
 				desc.CFrame = transform * desc.CFrame
 			end
 		end
@@ -330,6 +350,7 @@ local function equipClassArmor(character: Model, classId: string)
 			bp.CanTouch = false
 			bp.CanQuery = false
 			bp.Massless = true
+			bp.Anchored = false
 			bp.CFrame = transform * bp.CFrame
 		end
 

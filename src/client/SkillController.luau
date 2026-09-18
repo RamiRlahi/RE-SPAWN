@@ -1430,6 +1430,7 @@ local function playRangerShootAnimation(char: Model)
 		animation.AnimationId = RANGER_SHOOT_ANIMATION_ID
 		track = animator:LoadAnimation(animation)
 		track.Priority = Enum.AnimationPriority.Action4
+		track.Looped = false
 		rangerShootTracks[humanoid] = track
 	end
 
@@ -1472,11 +1473,12 @@ local function spawnVinePinRing(targetRoot: BasePart, duration: number)
 	ring.Name = "PinnedVineRingVFX"
 	ring.Parent = Workspace.Terrain
 	local segments: { BasePart } = {}
+	local connectors: { BasePart } = {}
 	for i = 1, 20 do
 		local vine = Instance.new("Part")
 		vine.Name = "PinnedVine"
 		vine.Shape = Enum.PartType.Ball
-		vine.Size = Vector3.new(0.3, 0.3, 0.3)
+		vine.Size = Vector3.new(0.46, 0.46, 0.46)
 		vine.Material = Enum.Material.Neon
 		vine.Color = i % 3 == 0 and POISON_PURPLE or FOREST_GREEN
 		vine.CanCollide = false
@@ -1485,6 +1487,20 @@ local function spawnVinePinRing(targetRoot: BasePart, duration: number)
 		vine.Anchored = true
 		vine.Parent = ring
 		table.insert(segments, vine)
+
+		if i > 1 then
+			local connector = Instance.new("Part")
+			connector.Name = "PinnedVineConnector"
+			connector.Size = Vector3.new(0.2, 0.2, 1)
+			connector.Material = Enum.Material.Neon
+			connector.Color = i % 3 == 0 and POISON_PURPLE or FOREST_GREEN
+			connector.CanCollide = false
+			connector.CanTouch = false
+			connector.CanQuery = false
+			connector.Anchored = true
+			connector.Parent = ring
+			table.insert(connectors, connector)
+		end
 	end
 
 	local startTime = os.clock()
@@ -1496,12 +1512,26 @@ local function spawnVinePinRing(targetRoot: BasePart, duration: number)
 			return
 		end
 		local progress = math.clamp((os.clock() - startTime) / duration, 0, 1)
+		local positions: { Vector3 } = {}
 		for i, vine in ipairs(segments) do
 			local angle = (i / #segments) * math.pi * 5 + os.clock() * 2.4
-			local height = -1.8 + ((i - 1) / (#segments - 1)) * 3.8
-			local radius = 0.82 + math.sin(i * 1.7) * 0.12
-			vine.Position = targetRoot.Position + Vector3.new(math.cos(angle) * radius, height, math.sin(angle) * radius)
+			local height = -2.15 + ((i - 1) / (#segments - 1)) * 4.5
+			local radius = 1.25 + math.sin(i * 1.7) * 0.16
+			local position = targetRoot.Position + Vector3.new(math.cos(angle) * radius, height, math.sin(angle) * radius)
+			positions[i] = position
+			vine.Position = position
 			vine.Transparency = progress > 0.8 and (progress - 0.8) * 5 or 0
+		end
+		-- Join consecutive nodes into a continuous twisting vine. The two parts
+		-- together preserve the rounded, organic coil while making the restraint
+		-- visibly connected around the target.
+		for i, connector in ipairs(connectors) do
+			local startPos = positions[i]
+			local endPos = positions[i + 1]
+			local length = (endPos - startPos).Magnitude
+			connector.Size = Vector3.new(0.2, 0.2, length)
+			connector.CFrame = CFrame.lookAt((startPos + endPos) * 0.5, endPos)
+			connector.Transparency = progress > 0.8 and (progress - 0.8) * 5 or 0
 		end
 		if progress >= 1 then
 			if connection then connection:Disconnect() end
@@ -1949,18 +1979,19 @@ local function performBasicAttack()
 	lastBasicAttack = now
 
 	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local aimDirection: Vector3? = nil
 	if rootPart then
 		local aimDir = getAimDirection(rootPart)
+		aimDirection = aimDir
 		rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + aimDir)
 		if player:GetAttribute("SelectedClass") == "ranger" then
 			playRangerShootAnimation(char)
-			playRangerBasicAttackVFX(char, aimDir)
 		end
 	end
 
 	-- Fire server Remote for basic attack damage
 	local performAttackRemote = Network.GetRemoteEvent(Network.Remotes.PerformAttack)
-	performAttackRemote:FireServer()
+	performAttackRemote:FireServer({ direction = aimDirection })
 
 	-- If Missile Barrage buff is active, launch missile
 	if char:GetAttribute("IsMissileBuffActive") == true then

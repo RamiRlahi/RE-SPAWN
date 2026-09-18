@@ -202,6 +202,82 @@ local function damageFirstTargetOnLine(player: Player, casterChar: Model, origin
 	return nil, nil
 end
 
+local function findRangerArrowTemplate(): Instance?
+	-- Prefer the dedicated projectile asset placed directly in ReplicatedStorage.
+	-- The recursive lookup keeps this resilient if it is later organized into a
+	-- different ReplicatedStorage folder.
+	local arrow = ReplicatedStorage:FindFirstChild("Arrow") or ReplicatedStorage:FindFirstChild("arrow")
+	if arrow and (arrow:IsA("Model") or arrow:IsA("BasePart")) then return arrow end
+	for _, descendant in ipairs(ReplicatedStorage:GetDescendants()) do
+		if string.lower(descendant.Name) == "arrow" and (descendant:IsA("Model") or descendant:IsA("BasePart")) then
+			return descendant
+		end
+	end
+
+	-- Backwards-compatible fallback for the original Ranger armor location.
+	local assets = ReplicatedStorage:FindFirstChild("Assets")
+	local classes = assets and assets:FindFirstChild("Classes")
+	local rangerArmor = classes and classes:FindFirstChild("Ranger armor")
+	if not rangerArmor then return nil end
+
+	arrow = rangerArmor:FindFirstChild("Arrow") or rangerArmor:FindFirstChild("arrow")
+	if arrow and (arrow:IsA("Model") or arrow:IsA("BasePart")) then return arrow end
+	for _, child in ipairs(rangerArmor:GetChildren()) do
+		if (child:IsA("Model") or child:IsA("BasePart")) and string.find(string.lower(child.Name), "arrow") then
+			return child
+		end
+	end
+	return nil
+end
+
+local function fireRangerArrowVisual(origin: Vector3, direction: Vector3, distance: number)
+	local template = findRangerArrowTemplate()
+	if not template then
+		warn("[SkillManager] Ranger Arrow model not found in ReplicatedStorage.")
+		return
+	end
+
+	local arrow = template:Clone()
+	local function positionArrow(cframe: CFrame)
+		if arrow:IsA("Model") then
+			arrow:PivotTo(cframe)
+		elseif arrow:IsA("BasePart") then
+			arrow.CFrame = cframe
+		end
+	end
+	for _, descendant in ipairs(arrow:GetDescendants()) do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.CanTouch = false
+			descendant.CanQuery = false
+		end
+	end
+	if arrow:IsA("BasePart") then
+		arrow.Anchored = true
+		arrow.CanCollide = false
+		arrow.CanTouch = false
+		arrow.CanQuery = false
+	end
+
+	arrow.Name = "RangerArrowProjectile"
+	arrow.Parent = Workspace
+	local flatDirection = rotateFlatDirection(direction, 0)
+	local travelTime = math.max(0.05, distance / 180)
+	task.spawn(function()
+		local startTime = os.clock()
+		while arrow.Parent do
+			local progress = math.clamp((os.clock() - startTime) / travelTime, 0, 1)
+			local position = origin + flatDirection * (distance * progress)
+			local lookCF = CFrame.lookAt(position, position + flatDirection)
+			positionArrow(lookCF * CFrame.Angles(0, math.rad(-90), 0))
+			if progress >= 1 then break end
+			task.wait()
+		end
+		if arrow.Parent then arrow:Destroy() end
+	end)
+end
+
 local function rootTarget(target: { character: Model, humanoid: Humanoid, rootPart: BasePart }, duration: number)
 	local root = target.rootPart
 	local oldWalkSpeed = target.humanoid.WalkSpeed
@@ -736,7 +812,7 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	print(`[SkillManager] {player.Name} successfully cast Skill {skillIndex} ({config.name})`)
 end
 
-function SkillManager.HandleBasicAttack(player: Player)
+function SkillManager.HandleBasicAttack(player: Player, payload: any)
 	local char = player.Character
 	if not char then return end
 
@@ -751,13 +827,21 @@ function SkillManager.HandleBasicAttack(player: Player)
 
 	local origin = rootPart.Position
 	local lookDir = rootPart.CFrame.LookVector
+	if typeof(payload) == "table" and typeof(payload.direction) == "Vector3" then
+		local requestedDirection = Vector3.new(payload.direction.X, 0, payload.direction.Z)
+		if requestedDirection.Magnitude > 0.1 then
+			lookDir = requestedDirection.Unit
+		end
+	end
 	local flatLook = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
 	local classId = player:GetAttribute("SelectedClass")
 	if typeof(classId) ~= "string" then return end
 
 	if classId == "ranger" then
 		local damage = math.floor(24 * PlayerStats.GetStat(player, "damage"))
-		damageFirstTargetOnLine(player, char, origin + Vector3.new(0, 1.2, 0), flatLook, 70, 2.0, damage, "VENOM ARROWS")
+		local arrowOrigin = origin + Vector3.new(0, 1.2, 0)
+		local _, hitDistance = damageFirstTargetOnLine(player, char, arrowOrigin, flatLook, 70, 2.0, damage, "VENOM ARROWS")
+		fireRangerArrowVisual(arrowOrigin, flatLook, hitDistance or 70)
 		return
 	end
 	if classId ~= "heavy_knight" then return end
@@ -796,8 +880,8 @@ function SkillManager.Init()
 	end)
 
 	local performAttackRemote = Network.GetRemoteEvent(Network.Remotes.PerformAttack)
-	performAttackRemote.OnServerEvent:Connect(function(player: Player)
-		SkillManager.HandleBasicAttack(player)
+	performAttackRemote.OnServerEvent:Connect(function(player: Player, payload: any)
+		SkillManager.HandleBasicAttack(player, payload)
 	end)
 
 	Players.PlayerRemoving:Connect(function(player: Player)
