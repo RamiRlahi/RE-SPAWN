@@ -1534,81 +1534,441 @@ local function findRangerArrowImpact(casterChar: Model, origin: Vector3, directi
 	return bestPos
 end
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Skill 2: Entangling Arrow VFX (Realistic Thick Woodland Briar Vines with Leaves)
+-- Recreates thick gnarled briar vines, ground root matting, body-binding helical
+-- coils wrapping the legs/chest/arms, and arching tendrils with glowing lime leaves.
+-- ─────────────────────────────────────────────────────────────────────────────
+local VINE_BARK_DARK = Color3.fromRGB(46, 72, 32)
+local VINE_BARK_MID = Color3.fromRGB(60, 94, 42)
+local VINE_BARK_LIGHT = Color3.fromRGB(76, 116, 52)
+local LEAF_LIME = Color3.fromRGB(155, 245, 75)
+local LEAF_GLOW = Color3.fromRGB(188, 255, 95)
+local LEAF_DEEP = Color3.fromRGB(105, 195, 55)
+
+local function createVineSegment(parent: Instance, p1: Vector3, p2: Vector3, thickness: number, color: Color3, material: Enum.Material?): BasePart?
+	local diff = p2 - p1
+	local length = diff.Magnitude
+	if length < 0.04 then return nil end
+
+	local part = Instance.new("Part")
+	part.Name = "VineStem"
+	part.Shape = Enum.PartType.Cylinder
+	part.Size = Vector3.new(length, thickness, thickness)
+	part.Color = color
+	part.Material = material or Enum.Material.Wood
+	part.CanCollide = false
+	part.CanTouch = false
+	part.CanQuery = false
+	part.Anchored = true
+	part.CFrame = CFrame.lookAt((p1 + p2) * 0.5, p2) * CFrame.Angles(0, math.rad(90), 0)
+	part.Parent = parent
+	return part
+end
+
+local function createVineJointNode(parent: Instance, pos: Vector3, size: number, color: Color3): BasePart
+	local node = Instance.new("Part")
+	node.Name = "VineNode"
+	node.Shape = Enum.PartType.Ball
+	node.Size = Vector3.new(size, size, size)
+	node.Color = color
+	node.Material = Enum.Material.Wood
+	node.CanCollide = false
+	node.CanTouch = false
+	node.CanQuery = false
+	node.Anchored = true
+	node.CFrame = CFrame.new(pos)
+	node.Parent = parent
+	return node
+end
+
+local function createLeafSprout(parent: Instance, position: Vector3, normal: Vector3, scale: number?): BasePart
+	local s = scale or 1.0
+	local leaf = Instance.new("Part")
+	leaf.Name = "VineLeaf"
+	leaf.Size = Vector3.new(0.32 * s, 0.08 * s, 0.72 * s)
+	leaf.Material = Enum.Material.Neon
+	leaf.Color = math.random() > 0.35 and LEAF_LIME or LEAF_GLOW
+	leaf.CanCollide = false
+	leaf.CanTouch = false
+	leaf.CanQuery = false
+	leaf.Anchored = true
+
+	local mesh = Instance.new("SpecialMesh")
+	mesh.MeshType = Enum.MeshType.Sphere
+	mesh.Scale = Vector3.new(1, 0.18, 1.85)
+	mesh.Parent = leaf
+
+	local outDir = (normal + Vector3.new((math.random() - 0.5) * 0.3, 0.25, (math.random() - 0.5) * 0.3)).Unit
+	local cf = CFrame.lookAt(position, position + outDir) * CFrame.Angles(
+		math.rad(math.random(-15, 15)),
+		0,
+		math.rad(math.random(-25, 25))
+	)
+	leaf.CFrame = cf
+	leaf.Parent = parent
+	return leaf
+end
+
 local function spawnVinePinRing(targetRoot: BasePart, duration: number)
 	local targetModel = targetRoot:FindFirstAncestorOfClass("Model")
-	local bounds = targetModel and targetModel:GetExtentsSize() or Vector3.new(2, 5, 2)
-	local coilRadius = math.clamp(math.max(bounds.X, bounds.Z) * 0.65, 1.25, 9)
-	local coilBottom = -math.clamp(bounds.Y * 0.45, 2.15, 6)
-	local coilHeight = math.clamp(bounds.Y * 0.9, 4.5, 12)
+	local bounds = targetModel and targetModel:GetExtentsSize() or Vector3.new(2.5, 5.0, 2.5)
+	local rootPos = targetRoot.Position
+	local charRadius = math.clamp(math.max(bounds.X, bounds.Z) * 0.52, 1.35, 3.8)
+	local charHeight = math.clamp(bounds.Y, 4.4, 10.0)
 
-	local ring = Instance.new("Model")
-	ring.Name = "PinnedVineRingVFX"
-	ring.Parent = Workspace.Terrain
-	local segments: { BasePart } = {}
-	local connectors: { BasePart } = {}
-	for i = 1, 20 do
-		local vine = Instance.new("Part")
-		vine.Name = "PinnedVine"
-		vine.Shape = Enum.PartType.Ball
-		vine.Size = Vector3.new(0.46, 0.46, 0.46)
-		vine.Material = Enum.Material.Neon
-		vine.Color = i % 3 == 0 and POISON_PURPLE or FOREST_GREEN
-		vine.CanCollide = false
-		vine.CanTouch = false
-		vine.CanQuery = false
-		vine.Anchored = true
-		vine.Parent = ring
-		table.insert(segments, vine)
+	-- Find ground surface directly beneath target
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	rayParams.FilterDescendantsInstances = { targetModel or targetRoot }
+	rayParams.IgnoreWater = true
+	local groundRay = Workspace:Raycast(rootPos, Vector3.new(0, -7, 0), rayParams)
+	local groundY = groundRay and groundRay.Position.Y or (rootPos.Y - (charHeight * 0.5))
+	local centerBase = Vector3.new(rootPos.X, groundY, rootPos.Z)
 
-		if i > 1 then
-			local connector = Instance.new("Part")
-			connector.Name = "PinnedVineConnector"
-			connector.Size = Vector3.new(0.2, 0.2, 1)
-			connector.Material = Enum.Material.Neon
-			connector.Color = i % 3 == 0 and POISON_PURPLE or FOREST_GREEN
-			connector.CanCollide = false
-			connector.CanTouch = false
-			connector.CanQuery = false
-			connector.Anchored = true
-			connector.Parent = ring
-			table.insert(connectors, connector)
+	local prison = Instance.new("Model")
+	prison.Name = "EntangleVinePrisonVFX"
+	prison.Parent = Workspace.Terrain
+
+	local allParts: { BasePart } = {}
+
+	-- Helper to track and register parts
+	local function regPart(p: BasePart?)
+		if p then table.insert(allParts, p) end
+		return p
+	end
+
+	-- =========================================================================
+	-- 1. GROUND ROOT MAT (Radial crawling roots across the floor)
+	-- =========================================================================
+	local numRoots = 9
+	for r = 1, numRoots do
+		local baseAngle = (r / numRoots) * math.pi * 2 + (math.random() - 0.5) * 0.35
+		local rootLength = math.random(34, 52) / 10
+		local steps = 4
+		local prevP = centerBase + Vector3.new(math.cos(baseAngle) * 0.6, 0.08, math.sin(baseAngle) * 0.6)
+
+		for s = 1, steps do
+			local distFraction = s / steps
+			local curDist = 0.6 + (rootLength - 0.6) * distFraction
+			local curveAngle = baseAngle + math.sin(s * 1.8 + r) * 0.28
+			local curP = centerBase + Vector3.new(
+				math.cos(curveAngle) * curDist,
+				0.06 + math.sin(s * 1.2) * 0.08,
+				math.sin(curveAngle) * curDist
+			)
+			local thick = math.max(0.18, 0.44 * (1 - distFraction * 0.55))
+			local color = (s % 2 == 0) and VINE_BARK_MID or VINE_BARK_DARK
+			regPart(createVineSegment(prison, prevP, curP, thick, color))
+			regPart(createVineJointNode(prison, curP, thick * 1.08, color))
+
+			-- Ground leaves sprouting along root branches
+			if s >= 2 and math.random() > 0.3 then
+				local leafDir = Vector3.new(math.cos(curveAngle + math.pi * 0.5), 0.3, math.sin(curveAngle + math.pi * 0.5))
+				regPart(createLeafSprout(prison, curP, leafDir, 0.85))
+				if math.random() > 0.5 then
+					regPart(createLeafSprout(prison, curP, -leafDir, 0.75))
+				end
+			end
+
+			prevP = curP
 		end
 	end
 
-	local startTime = os.clock()
-	local connection: RBXScriptConnection?
-	connection = RunService.Heartbeat:Connect(function()
-		if not targetRoot.Parent or not ring.Parent then
-			if connection then connection:Disconnect() end
-			ring:Destroy()
-			return
+	-- =========================================================================
+	-- 2. LOWER HELIX (Tightly binding the legs & knees)
+	-- =========================================================================
+	local legSteps = 16
+	local legTurns = 2.2
+	local legBottom = 0.2
+	local legTop = charHeight * 0.38
+	local prevLegP = centerBase + Vector3.new(math.cos(0) * (charRadius * 0.85), legBottom, math.sin(0) * (charRadius * 0.85))
+
+	for i = 1, legSteps do
+		local alpha = i / legSteps
+		local angle = alpha * math.pi * 2 * legTurns + 0.3
+		local radius = charRadius * (0.82 + math.sin(i * 1.5) * 0.08)
+		local curY = legBottom + (legTop - legBottom) * alpha
+		local curP = centerBase + Vector3.new(math.cos(angle) * radius, curY, math.sin(angle) * radius)
+		local thick = 0.42
+		local col = (i % 2 == 0) and VINE_BARK_MID or VINE_BARK_LIGHT
+
+		regPart(createVineSegment(prison, prevLegP, curP, thick, col))
+		regPart(createVineJointNode(prison, curP, thick * 1.1, col))
+
+		-- Leaf pairs facing outward
+		if i % 3 == 0 then
+			local outNorm = Vector3.new(math.cos(angle), 0.15, math.sin(angle))
+			regPart(createLeafSprout(prison, curP, outNorm, 0.95))
 		end
-		local progress = math.clamp((os.clock() - startTime) / duration, 0, 1)
-		local positions: { Vector3 } = {}
-		for i, vine in ipairs(segments) do
-			local angle = (i / #segments) * math.pi * 5 + os.clock() * 2.4
-			local height = coilBottom + ((i - 1) / (#segments - 1)) * coilHeight
-			local radius = coilRadius + math.sin(i * 1.7) * (coilRadius * 0.13)
-			local position = targetRoot.Position + Vector3.new(math.cos(angle) * radius, height, math.sin(angle) * radius)
-			positions[i] = position
-			vine.Position = position
-			vine.Transparency = progress > 0.8 and (progress - 0.8) * 5 or 0
+
+		prevLegP = curP
+	end
+
+	-- =========================================================================
+	-- 3. TORSO & ARMS HELIX (Tightly binding waist, chest & upper limbs)
+	-- =========================================================================
+	local torsoSteps = 18
+	local torsoTurns = 2.1
+	local torsoBottom = charHeight * 0.34
+	local torsoTop = charHeight * 0.76
+	local startAngleTorso = math.pi * 0.7
+	local prevTorsoP = centerBase + Vector3.new(
+		math.cos(startAngleTorso) * (charRadius * 1.05),
+		torsoBottom,
+		math.sin(startAngleTorso) * (charRadius * 1.05)
+	)
+
+	for i = 1, torsoSteps do
+		local alpha = i / torsoSteps
+		local angle = startAngleTorso + alpha * math.pi * 2 * torsoTurns
+		-- Bulge slightly around chest and shoulders
+		local radiusMultiplier = 1.02 + math.sin(alpha * math.pi) * 0.14
+		local radius = charRadius * radiusMultiplier
+		local curY = torsoBottom + (torsoTop - torsoBottom) * alpha
+		local curP = centerBase + Vector3.new(math.cos(angle) * radius, curY, math.sin(angle) * radius)
+		local thick = 0.46
+		local col = (i % 2 == 0) and VINE_BARK_LIGHT or VINE_BARK_MID
+
+		regPart(createVineSegment(prison, prevTorsoP, curP, thick, col))
+		regPart(createVineJointNode(prison, curP, thick * 1.1, col))
+
+		-- Sprout glowing leaves prominently from chest/arm bindings
+		if i % 2 == 0 then
+			local outNorm = Vector3.new(math.cos(angle), 0.2, math.sin(angle))
+			regPart(createLeafSprout(prison, curP, outNorm, 1.05))
+			if i % 4 == 0 then
+				local sideNorm = Vector3.new(-math.sin(angle), 0.3, math.cos(angle))
+				regPart(createLeafSprout(prison, curP, sideNorm, 0.85))
+			end
 		end
-		-- Join consecutive nodes into a continuous twisting vine. The two parts
-		-- together preserve the rounded, organic coil while making the restraint
-		-- visibly connected around the target.
-		for i, connector in ipairs(connectors) do
-			local startPos = positions[i]
-			local endPos = positions[i + 1]
-			local length = (endPos - startPos).Magnitude
-			connector.Size = Vector3.new(0.2, 0.2, length)
-			connector.CFrame = CFrame.lookAt((startPos + endPos) * 0.5, endPos)
-			connector.Transparency = progress > 0.8 and (progress - 0.8) * 5 or 0
+
+		prevTorsoP = curP
+	end
+
+	-- =========================================================================
+	-- 4. CROSS-DIAGONAL BODY BINDING (From hip across chest to shoulder)
+	-- =========================================================================
+	local diagSteps = 10
+	local diagStart = centerBase + Vector3.new(-charRadius * 0.95, charHeight * 0.3, charRadius * 0.4)
+	local diagEnd = centerBase + Vector3.new(charRadius * 0.95, charHeight * 0.74, -charRadius * 0.3)
+	local prevDiagP = diagStart
+
+	for i = 1, diagSteps do
+		local alpha = i / diagSteps
+		local midPoint = diagStart:Lerp(diagEnd, alpha)
+		-- Push outwards along front body contour
+		local pushOut = Vector3.new(0, 0, math.sin(alpha * math.pi) * (charRadius * 0.35))
+		local curP = midPoint + pushOut
+		local thick = 0.38
+		local col = VINE_BARK_DARK
+
+		regPart(createVineSegment(prison, prevDiagP, curP, thick, col))
+		regPart(createVineJointNode(prison, curP, thick * 1.08, col))
+
+		if i % 3 == 0 then
+			local outNorm = (curP - targetRoot.Position).Unit
+			regPart(createLeafSprout(prison, curP, outNorm, 0.9))
 		end
-		if progress >= 1 then
-			if connection then connection:Disconnect() end
-			ring:Destroy()
+
+		prevDiagP = curP
+	end
+
+	-- =========================================================================
+	-- 5. HIGH ARCHING TENDRILS (Iconic tendrils curling up behind head/shoulders)
+	-- =========================================================================
+	-- Tendril 1: Right back tendril arching high above head
+	local t1Steps = 9
+	local t1Base = centerBase + Vector3.new(charRadius * 0.8, charHeight * 0.65, -charRadius * 0.6)
+	local prevT1 = t1Base
+	for i = 1, t1Steps do
+		local alpha = i / t1Steps
+		local curY = charHeight * 0.65 + math.sin(alpha * math.pi * 0.75) * (charHeight * 0.52)
+		local curX = charRadius * 0.8 + alpha * 0.9
+		local curZ = -charRadius * 0.6 - math.sin(alpha * math.pi) * 0.85
+		local curP = centerBase + Vector3.new(curX, curY, curZ)
+		local thick = math.max(0.16, 0.38 * (1 - alpha * 0.5))
+		local col = VINE_BARK_LIGHT
+
+		regPart(createVineSegment(prison, prevT1, curP, thick, col))
+		regPart(createVineJointNode(prison, curP, thick * 1.1, col))
+
+		-- Sprouting prominent leaf pairs along the arch
+		local leafNorm = Vector3.new(0.5, 0.4, -0.6)
+		regPart(createLeafSprout(prison, curP, leafNorm, 1.1))
+
+		-- Tip leaf crown
+		if i == t1Steps then
+			regPart(createLeafSprout(prison, curP, Vector3.new(0.7, 0.7, -0.2), 1.25))
+			regPart(createLeafSprout(prison, curP, Vector3.new(0.3, 0.8, -0.7), 1.2))
+			regPart(createLeafSprout(prison, curP, Vector3.new(-0.2, 0.9, -0.4), 1.15))
 		end
+
+		prevT1 = curP
+	end
+
+	-- Tendril 2: Left back tendril arching outward and forward
+	local t2Steps = 8
+	local t2Base = centerBase + Vector3.new(-charRadius * 0.85, charHeight * 0.62, -charRadius * 0.5)
+	local prevT2 = t2Base
+	for i = 1, t2Steps do
+		local alpha = i / t2Steps
+		local curY = charHeight * 0.62 + math.sin(alpha * math.pi * 0.75) * (charHeight * 0.42)
+		local curX = -charRadius * 0.85 - alpha * 0.75
+		local curZ = -charRadius * 0.5 + math.sin(alpha * math.pi) * 0.65
+		local curP = centerBase + Vector3.new(curX, curY, curZ)
+		local thick = math.max(0.16, 0.36 * (1 - alpha * 0.45))
+		local col = VINE_BARK_LIGHT
+
+		regPart(createVineSegment(prison, prevT2, curP, thick, col))
+		regPart(createVineJointNode(prison, curP, thick * 1.1, col))
+
+		local leafNorm = Vector3.new(-0.6, 0.4, 0.3)
+		regPart(createLeafSprout(prison, curP, leafNorm, 1.05))
+
+		-- Tip leaf cluster
+		if i == t2Steps then
+			regPart(createLeafSprout(prison, curP, Vector3.new(-0.6, 0.7, 0.5), 1.2))
+			regPart(createLeafSprout(prison, curP, Vector3.new(-0.8, 0.6, -0.2), 1.15))
+		end
+
+		prevT2 = curP
+	end
+
+	-- =========================================================================
+	-- 6. MYSTICAL LEAVES & SPORE PARTICLES + EMERALD LIGHTING
+	-- =========================================================================
+	local lightPart = Instance.new("Part")
+	lightPart.Name = "EntangleCenterAnchor"
+	lightPart.Size = Vector3.new(0.5, 0.5, 0.5)
+	lightPart.Transparency = 1
+	lightPart.CanCollide = false
+	lightPart.CanTouch = false
+	lightPart.CanQuery = false
+	lightPart.Anchored = true
+	lightPart.CFrame = CFrame.new(centerBase + Vector3.new(0, charHeight * 0.45, 0))
+	lightPart.Parent = prison
+
+	local pLight = Instance.new("PointLight")
+	pLight.Color = Color3.fromRGB(125, 240, 65)
+	pLight.Brightness = 3.6
+	pLight.Range = charRadius * 4.8
+	pLight.Parent = lightPart
+
+	-- Floating leaves gently swirling upward
+	local leafAtt = Instance.new("Attachment")
+	leafAtt.Parent = lightPart
+
+	local leavesPE = Instance.new("ParticleEmitter")
+	leavesPE.Name = "FloatingEntangleLeaves"
+	leavesPE.Texture = "rbxassetid://258128463"
+	leavesPE.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(165, 250, 85)),
+		ColorSequenceKeypoint.new(0.6, Color3.fromRGB(135, 230, 65)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(90, 180, 45)),
+	})
+	leavesPE.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.15),
+		NumberSequenceKeypoint.new(0.75, 0.25),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	leavesPE.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.45),
+		NumberSequenceKeypoint.new(0.5, 0.7),
+		NumberSequenceKeypoint.new(1, 0.35),
+	})
+	leavesPE.Lifetime = NumberRange.new(1.6, 2.6)
+	leavesPE.Rate = 18
+	leavesPE.Speed = NumberRange.new(1.0, 2.8)
+	leavesPE.SpreadAngle = Vector2.new(60, 60)
+	leavesPE.Rotation = NumberRange.new(0, 360)
+	leavesPE.RotSpeed = NumberRange.new(-50, 50)
+	leavesPE.Parent = leafAtt
+	leavesPE:Emit(15)
+
+	-- Spores / sparkling pollen
+	local sporesPE = Instance.new("ParticleEmitter")
+	sporesPE.Name = "EntangleSporeGlow"
+	sporesPE.Color = ColorSequence.new(Color3.fromRGB(185, 255, 100))
+	sporesPE.LightEmission = 1
+	sporesPE.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.25),
+		NumberSequenceKeypoint.new(1, 0.05),
+	})
+	sporesPE.Lifetime = NumberRange.new(1.2, 2.0)
+	sporesPE.Rate = 22
+	sporesPE.Speed = NumberRange.new(0.6, 2.0)
+	sporesPE.SpreadAngle = Vector2.new(180, 45)
+	sporesPE.Parent = leafAtt
+	sporesPE:Emit(20)
+
+	-- =========================================================================
+	-- 7. GROWTH BURST & DISSIPATION ANIMATION
+	-- =========================================================================
+	-- Store original CFrames & scales for smooth growth & crumble
+	local partOrigData: { part: BasePart, origCF: CFrame, origSize: Vector3 } = {}
+	for _, p in ipairs(allParts) do
+		table.insert(partOrigData, { part = p, origCF = p.CFrame, origSize = p.Size })
+	end
+
+	-- Rapid surging growth in (0.18s): parts scale up from ground level
+	local growDuration = 0.18
+	local growStartTime = os.clock()
+	local growConn: RBXScriptConnection?
+	growConn = RunService.Heartbeat:Connect(function()
+		local elapsed = os.clock() - growStartTime
+		local alpha = math.clamp(elapsed / growDuration, 0, 1)
+		local smoothAlpha = 1 - math.pow(1 - alpha, 3)
+
+		for _, data in ipairs(partOrigData) do
+			if data.part and data.part.Parent then
+				-- Grow upward from ground position
+				local groundTargetCF = CFrame.new(data.origCF.Position.X, groundY, data.origCF.Position.Z)
+				data.part.CFrame = groundTargetCF:Lerp(data.origCF, smoothAlpha)
+				data.part.Size = data.origSize * math.max(0.1, smoothAlpha)
+			end
+		end
+
+		if alpha >= 1 then
+			if growConn then growConn:Disconnect() end
+			-- Restore exact full size
+			for _, data in ipairs(partOrigData) do
+				if data.part and data.part.Parent then
+					data.part.CFrame = data.origCF
+					data.part.Size = data.origSize
+				end
+			end
+		end
+	end)
+
+	-- Fade and crumble decay at the end of root duration
+	local decayTime = 0.38
+	task.delay(math.max(0, duration - decayTime), function()
+		if growConn then growConn:Disconnect() end
+		leavesPE.Enabled = false
+		sporesPE.Enabled = false
+
+		local decayStart = os.clock()
+		local decayConn: RBXScriptConnection?
+		decayConn = RunService.Heartbeat:Connect(function()
+			local elapsed = os.clock() - decayStart
+			local alpha = math.clamp(elapsed / decayTime, 0, 1)
+			local smoothFade = math.pow(alpha, 2)
+
+			for _, data in ipairs(partOrigData) do
+				if data.part and data.part.Parent then
+					data.part.Transparency = smoothFade
+					data.part.Size = data.origSize * (1 - smoothFade * 0.4)
+				end
+			end
+
+			pLight.Brightness = 3.6 * (1 - smoothFade)
+
+			if alpha >= 1 then
+				if decayConn then decayConn:Disconnect() end
+				prison:Destroy()
+			end
+		end)
 	end)
 end
 
@@ -1696,8 +2056,9 @@ local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vecto
 		local arrowStart = baseOrigin + flatUnit(lookDir) * 2
 		local impactPos = findRangerArrowImpact(char, arrowStart, lookDir, 44, 2.8)
 		local travelDistance = (impactPos - arrowStart).Magnitude
-		makeRangerArrow(arrowStart, lookDir, travelDistance, Color3.fromRGB(105, 245, 110), 0.32, 0.38)
-		task.delay(0.38, function()
+		local travelTime = math.clamp(travelDistance / 130, 0.08, 0.36)
+		makeRangerArrow(arrowStart, lookDir, travelDistance, Color3.fromRGB(105, 245, 110), 0.32, travelTime)
+		task.delay(travelTime, function()
 			showPinnedTargets(char, impactPos, 10, 2.6)
 			triggerCameraShake(char == player.Character and 0.35 or 0, 0.2)
 		end)

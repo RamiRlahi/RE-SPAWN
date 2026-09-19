@@ -354,6 +354,8 @@ local function executeRangerEntanglingArrow(player: Player, casterChar: Model, o
 	local range = config.range or 44
 	local arrowOrigin = origin + Vector3.new(0, 1.2, 0)
 	local directHit, hitDistance = damageFirstTargetOnLine(player, casterChar, arrowOrigin, flatDir, range, 2.8 * (config.areaMultiplier or 1), config.damage or 30, "ENTANGLING ARROW")
+	local projectileSpeed = PlayerStats.GetStat(player, "projectileSpeed")
+	fireRangerArrowVisual(arrowOrigin, flatDir, hitDistance or range, projectileSpeed)
 	local impactPos = directHit and directHit.rootPart.Position or (origin + flatDir * range)
 	local radius = 10 * (config.areaMultiplier or 1)
 	local damage = math.floor((config.damage or 30) * 0.75)
