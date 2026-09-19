@@ -20,10 +20,10 @@ MobManager.Init()
 -- Generate initial procedural roguelite dungeon
 task.spawn(function()
 	DungeonGenerator.Generate({
-		totalRooms = 9,
-		minRoomTiles = 5,
-		maxRoomTiles = 8,
-		branchProbability = 0.45,
+		totalRooms = 18,
+		minRoomTiles = 9,
+		maxRoomTiles = 13,
+		branchProbability = 0.8,
 	})
 end)
 
@@ -52,8 +52,12 @@ ClassManager.OnClassSelected(function(player: Player, classId: string)
 		if spawnCF ~= CFrame.identity then
 			task.wait(0.2)
 			char:PivotTo(spawnCF + Vector3.new(0, 2, 0))
+			player:SetAttribute("SpawnedInMap", true)
+			player:SetAttribute("InLobby", false)
 			print(`[Server] Teleported {player.Name} to Dungeon Spawn room`)
 		else
+			player:SetAttribute("SpawnedInMap", true)
+			player:SetAttribute("InLobby", false)
 			warn(`[Server WARNING] Spawn CFrame not ready for {player.Name}`)
 		end
 

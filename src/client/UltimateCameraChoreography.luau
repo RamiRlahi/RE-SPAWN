@@ -165,7 +165,10 @@ function UltimateCameraChoreography.PlaySequence(
 
 		-- Fire slash start callback — first animation is done, player begins slash
 		if onSlashStart then
-			pcall(onSlashStart)
+			local ok, err = pcall(onSlashStart)
+			if not ok then
+				warn("[UltimateCameraChoreography] onSlashStart failed:", err)
+			end
 		end
 
 		-- Restore camera immediately back to normal gameplay camera

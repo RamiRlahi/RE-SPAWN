@@ -42,8 +42,8 @@ export type RoomType = "Start" | "Combat" | "Treasure" | "Shop" | "Elite" | "Eve
 export type DungeonConfig = {
 	seed: number?,
 	totalRooms: number?,
-	minRoomTiles: number?,    -- in 12-stud floor tiles (e.g. 5 = 60 studs)
-	maxRoomTiles: number?,    -- in 12-stud floor tiles (e.g. 8 = 96 studs)
+	minRoomTiles: number?,    -- in 12-stud floor tiles (e.g. 9 = 108 studs)
+	maxRoomTiles: number?,    -- in 12-stud floor tiles (e.g. 13 = 156 studs)
 	branchProbability: number?,
 }
 
@@ -234,10 +234,12 @@ end
 -- ── 1. Graph & Layout Generation (Deterministic Critical Path + Branches) ────
 
 local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomData }, { [string]: CellData }, { DoorwayData }, { StairData })
-	local totalRooms = config.totalRooms or rng:NextInteger(8, 11)
-	local minTiles = config.minRoomTiles or 5
-	local maxTiles = config.maxRoomTiles or 8
-	local branchProb = config.branchProbability or 0.45
+	-- Large, readable arenas make the dungeon feel like a place to explore rather
+	-- than a chain of small fighting boxes. The start is an intentionally larger hub.
+	local totalRooms = config.totalRooms or rng:NextInteger(16, 20)
+	local minTiles = config.minRoomTiles or 9
+	local maxTiles = config.maxRoomTiles or 13
+	local branchProb = config.branchProbability or 0.8
 
 	local rooms: { RoomData } = {}
 	local floorGrid: { [string]: CellData } = {}
@@ -267,8 +269,8 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 	end
 
 	-- 1. Create Start Room (Tier 0)
-	local startW = rng:NextInteger(minTiles, minTiles + 1)
-	local startD = rng:NextInteger(minTiles, minTiles + 1)
+	local startW = rng:NextInteger(minTiles + 2, maxTiles + 2)
+	local startD = rng:NextInteger(minTiles + 2, maxTiles + 2)
 	local startRoom: RoomData = {
 		id = 1,
 		roomType = "Start",
@@ -442,7 +444,7 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 	end
 
 	-- 2. Build Critical Path across Multi-Floor Tiers
-	local criticalLength = math.max(4, totalRooms - 3)
+	local criticalLength = math.max(6, math.floor(totalRooms * 0.55))
 	local activeRoom = startRoom
 
 	for i = 2, criticalLength do
@@ -558,16 +560,70 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 		end
 	end
 
-	-- 3. Side Branches across Multi-Floor Tiers
-	local branchTypes: { RoomType } = { "Treasure", "Shop", "Elite", "Event" }
+	-- 3. Spawn hub spokes. Every run begins with at least three viable directions:
+	-- the critical route plus two guaranteed side routes. This removes the old
+	-- single-door spawn experience while still allowing a clear route to the boss.
 	local nextId = #rooms + 1
+	local spawnSpokesPlaced = 0
+	local spawnDirections = { 0, 1, 2, 3 }
+	for i = #spawnDirections, 2, -1 do
+		local j = rng:NextInteger(1, i)
+		spawnDirections[i], spawnDirections[j] = spawnDirections[j], spawnDirections[i]
+	end
+
+	for _, dir in ipairs(spawnDirections) do
+		if spawnSpokesPlaced >= 2 or nextId > totalRooms then break end
+
+		local spokeW = rng:NextInteger(minTiles, maxTiles)
+		local spokeD = rng:NextInteger(minTiles, maxTiles)
+		local corrLen = rng:NextInteger(4, 6)
+		local candidateGX = startRoom.gx
+		local candidateGZ = startRoom.gz
+
+		if dir == 0 then candidateGZ = startRoom.gz - corrLen - spokeD
+		elseif dir == 1 then candidateGZ = startRoom.gz + startRoom.d + corrLen
+		elseif dir == 2 then candidateGX = startRoom.gx + startRoom.w + corrLen
+		else candidateGX = startRoom.gx - corrLen - spokeW end
+
+		if not doesRoomOverlap(candidateGX, candidateGZ, spokeW, spokeD, 2) then
+			carveCorridor(startRoom, 0, FLOOR_Y_OFFSET, WALL_Y_OFFSET, candidateGX, candidateGZ, spokeW, spokeD, dir, corrLen)
+			local spokeRoom: RoomData = {
+				id = nextId,
+				roomType = "Combat",
+				tier = 0,
+				floorY = FLOOR_Y_OFFSET,
+				wallY = WALL_Y_OFFSET,
+				gx = candidateGX,
+				gz = candidateGZ,
+				w = spokeW,
+				d = spokeD,
+				centerWorld = Vector3.new((candidateGX + spokeW / 2) * FLOOR_SIZE, FLOOR_Y_OFFSET, (candidateGZ + spokeD / 2) * FLOOR_SIZE),
+				connections = { startRoom.id },
+			}
+			table.insert(startRoom.connections, nextId)
+			table.insert(rooms, spokeRoom)
+			for x = candidateGX, candidateGX + spokeW - 1 do
+				for z = candidateGZ, candidateGZ + spokeD - 1 do
+					markFloor(x, z, FLOOR_Y_OFFSET, WALL_Y_OFFSET, 0)
+				end
+			end
+			nextId += 1
+			spawnSpokesPlaced += 1
+		end
+	end
+
+	-- 4. Side Branches across Multi-Floor Tiers
+	local branchTypes: { RoomType } = { "Treasure", "Shop", "Elite", "Event" }
 
 	for _, mainRoom in ipairs(rooms) do
 		if nextId > totalRooms then break end
 		if mainRoom.roomType == "Combat" and rng:NextNumber() < branchProb then
-			local bType = table.remove(branchTypes, rng:NextInteger(1, #branchTypes)) or "Combat"
-			local bW = rng:NextInteger(minTiles, minTiles + 2)
-			local bD = rng:NextInteger(minTiles, minTiles + 2)
+			local bType: RoomType = "Combat"
+			if #branchTypes > 0 then
+				bType = table.remove(branchTypes, rng:NextInteger(1, #branchTypes)) :: RoomType
+			end
+			local bW = rng:NextInteger(minTiles, maxTiles)
+			local bD = rng:NextInteger(minTiles, maxTiles)
 
 			local branchTier = mainRoom.tier + (rng:NextNumber() < 0.5 and 1 or 0)
 			local bFY = FLOOR_Y_OFFSET + (branchTier * STAIR_HEIGHT)
@@ -1050,6 +1106,12 @@ function DungeonGenerator.Generate(config: DungeonConfig?): (CFrame, CFrame, CFr
 	local rooms, floorGrid, doorwayList, stairList = buildDungeonGraph(rng, cfg)
 	local startRoom = rooms[1]
 	local bossRoom = rooms[#rooms]
+	for _, room in ipairs(rooms) do
+		if room.roomType == "Boss" then
+			bossRoom = room
+			break
+		end
+	end
 
 	cachedSpawnCFrame = CFrame.new(startRoom.centerWorld + Vector3.new(0, 8, 0))
 	cachedBossCFrame  = CFrame.new(bossRoom.centerWorld + Vector3.new(0, 8, 0))

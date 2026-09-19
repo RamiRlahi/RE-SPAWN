@@ -11,6 +11,7 @@ export type SkillConfig = {
 	damage: number,
 	description: string,
 	animationId: string?,
+	slashAnimationId: string?,
 	range: number?,
 	angle: number?,
 	projectileSpeed: number?,

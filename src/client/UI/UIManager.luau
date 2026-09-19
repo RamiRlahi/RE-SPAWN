@@ -239,33 +239,39 @@ function UIManager.FadeOutToGame(onComplete: (() -> ())?)
 		if classSelectGroup then classSelectGroup.Visible = false end
 		if settingsModalGroup then settingsModalGroup.Visible = false end
 
-		-- Show the in-game HUD
-		if GameHUD then
-			pcall(function()
-				GameHUD.SetVisible(true)
-			end)
-		end
-		-- The minimap is constructed at startup to receive map data, but should only
-		-- be revealed once the player has entered the playable dungeon state.
-		if MinimapUI then
-			pcall(function()
-				MinimapUI.SetVisible(true)
-			end)
-		end
+		-- Wait until character has actually teleported/spawned into the map
+		task.spawn(function()
+			local startWait = os.clock()
+			while (player:GetAttribute("InLobby") ~= false or player:GetAttribute("SpawnedInMap") ~= true) and (os.clock() - startWait < 5.0) do
+				task.wait(0.1)
+			end
 
-		if onComplete then
-			onComplete()
-		end
+			if onComplete then
+				onComplete()
+			end
 
-		task.wait(0.2)
-		local fadeOut = TweenService:Create(fadeOverlay, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
-			BackgroundTransparency = 1,
-		})
-		fadeOut.Completed:Once(function()
-			fadeOverlay:Destroy()
-			screenGui.Enabled = false
+			-- Reveal HUD and Minimap only after spawning into the map
+			if GameHUD then
+				pcall(function()
+					GameHUD.SetVisible(true)
+				end)
+			end
+			if MinimapUI then
+				pcall(function()
+					MinimapUI.SetVisible(true)
+				end)
+			end
+
+			task.wait(0.2)
+			local fadeOut = TweenService:Create(fadeOverlay, TweenInfo.new(0.6, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+				BackgroundTransparency = 1,
+			})
+			fadeOut.Completed:Once(function()
+				fadeOverlay:Destroy()
+				screenGui.Enabled = false
+			end)
+			fadeOut:Play()
 		end)
-		fadeOut:Play()
 	end)
 
 	fadeIn:Play()

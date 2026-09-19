@@ -148,11 +148,31 @@ local function dealDamage(player: Player, target: { character: Model, humanoid: 
 	local finalAmount = math.max(0, math.floor(amount))
 	if finalAmount <= 0 or target.humanoid.Health <= 0 then return end
 
+	local isCrit = false
+	local critChance = PlayerStats.GetStat(player, "critChance")
+	if critChance > 0 and math.random() < critChance then
+		isCrit = true
+		finalAmount = math.floor(finalAmount * 1.5)
+	end
+
 	target.humanoid:TakeDamage(finalAmount)
+
+	local lifesteal = PlayerStats.GetStat(player, "lifesteal")
+	if lifesteal > 0 then
+		local char = player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if hum and hum.Health > 0 then
+			local heal = math.floor(finalAmount * lifesteal)
+			if heal > 0 then
+				hum.Health = math.min(hum.MaxHealth, hum.Health + heal)
+			end
+		end
+	end
+
 	Network.GetRemoteEvent(Network.Remotes.DamageDealt):FireClient(player, {
 		position = target.rootPart.Position + Vector3.new(0, 2.5, 0),
 		amount = finalAmount,
-		source = source,
+		source = isCrit and (`{source} CRIT`) or source,
 	})
 end
 
@@ -230,7 +250,7 @@ local function findRangerArrowTemplate(): Instance?
 	return nil
 end
 
-local function fireRangerArrowVisual(origin: Vector3, direction: Vector3, distance: number, speedMultiplier: number)
+local function fireRangerArrowVisual(origin: Vector3, direction: Vector3, distance: number, speedMultiplier: number?)
 	local template = findRangerArrowTemplate()
 	if not template then
 		warn("[SkillManager] Ranger Arrow model not found in ReplicatedStorage.")
@@ -263,12 +283,15 @@ local function fireRangerArrowVisual(origin: Vector3, direction: Vector3, distan
 	arrow.Name = "RangerArrowProjectile"
 	arrow.Parent = Workspace
 	local flatDirection = rotateFlatDirection(direction, 0)
-	local travelTime = math.max(0.05, distance / (180 * math.max(speedMultiplier, 0.1)))
+	local validDistance = (typeof(distance) == "number" and distance > 0) and distance or 70
+	local mult = (typeof(speedMultiplier) == "number" and speedMultiplier > 0) and speedMultiplier or 1
+	local travelTime = math.max(0.05, validDistance / (180 * mult))
+	local baseOrigin = typeof(origin) == "Vector3" and origin or Vector3.zero
 	task.spawn(function()
 		local startTime = os.clock()
 		while arrow.Parent do
 			local progress = math.clamp((os.clock() - startTime) / travelTime, 0, 1)
-			local position = origin + flatDirection * (distance * progress)
+			local position = baseOrigin + flatDirection * (validDistance * progress)
 			local lookCF = CFrame.lookAt(position, position + flatDirection)
 			positionArrow(lookCF * CFrame.Angles(0, math.rad(-90), 0))
 			if progress >= 1 then break end
@@ -306,16 +329,23 @@ local function executeRangerThornBarrage(player: Player, casterChar: Model, orig
 	local damage = config.damage or 22
 	local range = config.range or 64
 	local spread = config.angle or 38
-	local projectileCount = 5 + math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount")))
+	local baseCount = 5
+	local extraProjectiles = math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount")))
+	local totalProjectiles = baseCount + extraProjectiles
+	local baseAngleStep = spread / math.max(baseCount - 1, 1) -- ~9.5 degrees
+	local totalSpread = (totalProjectiles - 1) * baseAngleStep
+	local startAngle = -totalSpread / 2
 	local width = 2.4 * (config.areaMultiplier or 1)
 	local knockback = PlayerStats.GetStat(player, "knockback")
+	local projectileSpeed = PlayerStats.GetStat(player, "projectileSpeed")
+	local arrowOrigin = origin + Vector3.new(0, 1.2, 0)
 
-	for index = 1, projectileCount do
-		local alpha = projectileCount == 1 and 0.5 or (index - 1) / (projectileCount - 1)
-		local angle = -spread / 2 + spread * alpha
+	for index = 1, totalProjectiles do
+		local angle = startAngle + (index - 1) * baseAngleStep
 		local direction = rotateFlatDirection(lookDir, angle)
-		local target = damageFirstTargetOnLine(player, casterChar, origin + Vector3.new(0, 1.2, 0), direction, range, width, damage, "THORN BARRAGE")
+		local target, hitDistance = damageFirstTargetOnLine(player, casterChar, arrowOrigin, direction, range, width, damage, "THORN BARRAGE")
 		applyRangerArrowKnockback(target, direction, knockback)
+		fireRangerArrowVisual(arrowOrigin, direction, hitDistance or range, projectileSpeed)
 	end
 end
 
@@ -587,6 +617,51 @@ local function executeInfernalWrath(player: Player, casterChar: Model, origin: V
 				end
 			end
 			slashClone.Parent = Workspace.Terrain
+		else
+			-- Server procedural slash wave fallback
+			local slashPart = Instance.new("Part")
+			slashPart.Name = "ProceduralSlashWave"
+			slashPart.Size = Vector3.new(12, 1.5, 4)
+			slashPart.Transparency = 0.25
+			slashPart.Material = Enum.Material.Neon
+			slashPart.Color = Color3.fromRGB(255, 115, 25)
+			slashPart.CanCollide = false
+			slashPart.CanTouch = false
+			slashPart.CanQuery = false
+			slashPart.Anchored = true
+			slashPart.CFrame = CFrame.lookAt(slashStartPos, slashStartPos + flatDir)
+
+			local slashMesh = Instance.new("SpecialMesh")
+			slashMesh.MeshType = Enum.MeshType.Sphere
+			slashMesh.Scale = Vector3.new(1, 0.15, 0.6)
+			slashMesh.Parent = slashPart
+
+			local pe = Instance.new("ParticleEmitter")
+			pe.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 230, 90)),
+				ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 90, 20)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 20, 10)),
+			})
+			pe.LightEmission = 1
+			pe.Size = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 3.5),
+				NumberSequenceKeypoint.new(1, 0.5),
+			})
+			pe.Lifetime = NumberRange.new(0.2, 0.45)
+			pe.Rate = 90
+			pe.Speed = NumberRange.new(6, 16)
+			pe.SpreadAngle = Vector2.new(30, 15)
+			pe.Orientation = Enum.ParticleOrientation.VelocityParallel
+			pe.Parent = slashPart
+
+			local pLight = Instance.new("PointLight")
+			pLight.Color = Color3.fromRGB(255, 120, 30)
+			pLight.Range = 16
+			pLight.Brightness = 3
+			pLight.Parent = slashPart
+
+			slashPart.Parent = Workspace.Terrain
+			slashClone = slashPart
 		end
 
 		-- ── Hitbox: Fast slash travel across 0.60s ──
@@ -740,6 +815,7 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 		effectiveConfig.projectileSpeed *= PlayerStats.GetStat(player, "projectileSpeed")
 	end
 	effectiveConfig.areaMultiplier = PlayerStats.GetStat(player, "size")
+	effectiveConfig.projectileCount = math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount")))
 
 	-- Validate Cooldown
 	local now = os.clock()
@@ -808,7 +884,8 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 					skillIndex = skillIndex,
 					origin = origin,
 					direction = direction,
-				targetPosition = targetPosition,
+					targetPosition = targetPosition,
+					projectileCount = effectiveConfig.projectileCount,
 				})
 			end
 		end
@@ -852,13 +929,17 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 	if classId == "ranger" then
 		local damage = math.floor(24 * PlayerStats.GetStat(player, "damage"))
 		local arrowOrigin = origin + Vector3.new(0, 1.2, 0)
-		local projectileCount = 1 + math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount")))
+		local extraProjectiles = math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount")))
+		local projectileCount = 1 + extraProjectiles
 		local hitWidth = 2.0 * PlayerStats.GetStat(player, "size")
 		local knockback = PlayerStats.GetStat(player, "knockback")
 		local projectileSpeed = PlayerStats.GetStat(player, "projectileSpeed")
+		local spreadStep = 8 -- 8 degrees between adjacent arrows
+		local totalSpread = (projectileCount - 1) * spreadStep
+		local startAngle = -totalSpread / 2
 		for index = 1, projectileCount do
-			local alpha = projectileCount == 1 and 0.5 or (index - 1) / (projectileCount - 1)
-			local direction = rotateFlatDirection(flatLook, (alpha - 0.5) * 16)
+			local angle = startAngle + (index - 1) * spreadStep
+			local direction = rotateFlatDirection(flatLook, angle)
 			local target, hitDistance = damageFirstTargetOnLine(player, char, arrowOrigin, direction, 70, hitWidth, damage, "VENOM ARROWS")
 			applyRangerArrowKnockback(target, direction, knockback)
 			fireRangerArrowVisual(arrowOrigin, direction, hitDistance or 70, projectileSpeed)

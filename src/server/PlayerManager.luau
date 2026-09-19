@@ -122,6 +122,7 @@ function PlayerManager.Init()
 	-- Handle player joining
 	Players.PlayerAdded:Connect(function(player: Player)
 		player:SetAttribute("InLobby", true)
+		player:SetAttribute("SpawnedInMap", false)
 
 		player.CharacterAdded:Connect(function(character)
 			setupCharacter(player, character)
@@ -274,6 +275,11 @@ local function equipClassArmor(character: Model, classId: string)
 			continue
 		end
 
+		-- Omit leg armor pieces for Heavy Knight
+		if classId == "heavy_knight" and (piece.Name == "leftleg" or piece.Name == "rightleg" or string.find(string.lower(piece.Name), "leg") ~= nil) then
+			continue
+		end
+
 		print(`[ArmorEquip] Processing armor piece: "{piece.Name}" (ClassName: {piece.ClassName})`)
 		local clone = piece:Clone()
 
@@ -381,7 +387,6 @@ end
 
 	-- Listen for class selection completion
 	ClassManager.OnClassSelected(function(player: Player, classId: string)
-		player:SetAttribute("InLobby", false)
 
 		local character = player.Character
 		if character then

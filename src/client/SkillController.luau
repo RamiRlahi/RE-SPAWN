@@ -44,6 +44,7 @@ end
 local activeCooldowns: { [number]: { startTime: number, duration: number } } = {}
 
 -- Loaded animation tracks per skill index
+local currentLoadedCharacter: Model? = nil
 local loadedSkillTracks: { [number]: AnimationTrack } = {}
 local loadedSkillSlashTracks: { [number]: AnimationTrack } = {}
 local rangerShootTracks: { [Humanoid]: AnimationTrack } = {}
@@ -1189,6 +1190,51 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 				slashClone = carrier
 			end
 			slashClone.Parent = Workspace.Terrain
+		else
+			-- Procedural fiery crescent slash wave fallback
+			local slashPart = Instance.new("Part")
+			slashPart.Name = "ProceduralSlashWave"
+			slashPart.Size = Vector3.new(12, 1.5, 4)
+			slashPart.Transparency = 0.25
+			slashPart.Material = Enum.Material.Neon
+			slashPart.Color = Color3.fromRGB(255, 115, 25)
+			slashPart.CanCollide = false
+			slashPart.CanTouch = false
+			slashPart.CanQuery = false
+			slashPart.Anchored = true
+			slashPart.CFrame = CFrame.lookAt(slashStartPos, slashStartPos + flatDir)
+
+			local slashMesh = Instance.new("SpecialMesh")
+			slashMesh.MeshType = Enum.MeshType.Sphere
+			slashMesh.Scale = Vector3.new(1, 0.15, 0.6)
+			slashMesh.Parent = slashPart
+
+			local pe = Instance.new("ParticleEmitter")
+			pe.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 230, 90)),
+				ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 90, 20)),
+				ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 20, 10)),
+			})
+			pe.LightEmission = 1
+			pe.Size = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 3.5),
+				NumberSequenceKeypoint.new(1, 0.5),
+			})
+			pe.Lifetime = NumberRange.new(0.2, 0.45)
+			pe.Rate = 90
+			pe.Speed = NumberRange.new(6, 16)
+			pe.SpreadAngle = Vector2.new(30, 15)
+			pe.Orientation = Enum.ParticleOrientation.VelocityParallel
+			pe.Parent = slashPart
+
+			local pLight = Instance.new("PointLight")
+			pLight.Color = Color3.fromRGB(255, 120, 30)
+			pLight.Range = 16
+			pLight.Brightness = 3
+			pLight.Parent = slashPart
+
+			slashPart.Parent = Workspace.Terrain
+			slashClone = slashPart
 		end
 
 		-- Fast travel: 0.60s duration across 32 studs (very fast slash)
@@ -1287,16 +1333,36 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 		-- Shot 2 begins at t=1.0s: switch animation from windup to slash
 		-- Slash VFX launches AFTER the animation finishes (0.50s later, at t=1.50s)
 		local function onSlashStart()
-			local windupTrack = loadedSkillTracks[4]
+			print("[SkillController] onSlashStart: executing ultimate slash attack phase") 
+			-- 1. Explicitly stop windup track on the character
+			local windupTrack = getSkillTrack(char, 4)
 			if windupTrack and windupTrack.IsPlaying then
-				windupTrack:Stop(0.12)
+				windupTrack:Stop(0.08)
 			end
-			local slashTrack = loadedSkillSlashTracks[4]
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			local animtr = hum and hum:FindFirstChildOfClass("Animator")
+			if animtr then
+				for _, t in ipairs(animtr:GetPlayingAnimationTracks()) do
+					if t.Animation and (t.Animation.AnimationId == "rbxassetid://84579017139529" or t.Name == "SkillAnim_4") then
+						t:Stop(0.08)
+					end
+				end
+			end
+
+			-- 2. Play slash attack animation at highest priority
+			local slashTrack = getSkillSlashTrack(char, 4)
 			if slashTrack then
-				slashTrack:Play(0.08)
+				slashTrack.Priority = Enum.AnimationPriority.Action4
+				slashTrack:Play(0.05)
+			else
+				warn("[SkillController] Skill 4 slash track not found!")
 			end
-			-- Wait for slash animation to finish, then launch the traveling slash wave
-			task.delay(0.50, function()
+
+			-- Keep weapon flame aura and enlarged trail active during swing
+			setWeaponTrailEnlarged(char, true)
+
+			-- 3. Launch traveling slash wave as the sword strikes down (0.45s)
+			task.delay(0.45, function()
 				spawnTravelingSlashVFX()
 			end)
 		end
@@ -1610,16 +1676,20 @@ local function spawnPoisonEmitter(center: Vector3, radius: number, duration: num
 	end)
 end
 
-local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vector3, lookDir: Vector3, targetPosition: Vector3?)
+local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vector3, lookDir: Vector3, targetPosition: Vector3?, projectileCountParam: number?)
 	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not rootPart then return end
 	local baseOrigin = rootPart.Position + Vector3.new(0, 1.35, 0)
 
 	if skillIndex == 1 then
-		local projectileCount = 5 + math.max(0, math.floor(player:GetAttribute("Stat_projectileCount") or 0))
-		for index = 1, projectileCount do
-			local alpha = projectileCount == 1 and 0.5 or (index - 1) / (projectileCount - 1)
-			local angle = -19 + 38 * alpha
+		local casterPlayer = Players:GetPlayerFromCharacter(char) or (player.Character == char and player)
+		local extraCount = typeof(projectileCountParam) == "number" and projectileCountParam or (casterPlayer and math.max(0, math.floor(casterPlayer:GetAttribute("Stat_projectileCount") or 0)) or 0)
+		local totalProjectiles = 5 + extraCount
+		local stepAngle = 9.5
+		local totalSpread = (totalProjectiles - 1) * stepAngle
+		local startAngle = -totalSpread / 2
+		for index = 1, totalProjectiles do
+			local angle = startAngle + (index - 1) * stepAngle
 			makeRangerArrow(baseOrigin + rotatedFlat(lookDir, angle) * 2, rotatedFlat(lookDir, angle), 64, NATURE_GREEN, 0.24, 0.32)
 		end
 	elseif skillIndex == 2 then
@@ -1699,33 +1769,57 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 local function loadSkillAnimations(char: Model)
 	local humanoid = char:WaitForChild("Humanoid", 5) :: Humanoid?
-	local animator = humanoid and (humanoid:WaitForChild("Animator", 5) :: Animator?)
-	if not animator then return end
+	if not humanoid then return end
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
 
 	local classId = player:GetAttribute("SelectedClass")
 	if typeof(classId) ~= "string" then return end
 	local skills = SkillData.GetSkills(classId) or {}
 
+	currentLoadedCharacter = char
+	table.clear(loadedSkillTracks)
+	table.clear(loadedSkillSlashTracks)
+
 	for skillIndex, config in pairs(skills) do
-		if config.animationId then
+		if config.animationId and config.animationId ~= "" then
 			local anim = Instance.new("Animation")
 			anim.Name = `SkillAnim_{skillIndex}`
 			anim.AnimationId = config.animationId
+			anim.Parent = animator
 			local track = animator:LoadAnimation(anim)
-			track.Priority = Enum.AnimationPriority.Action4
+			track.Priority = (skillIndex == 4) and Enum.AnimationPriority.Action3 or Enum.AnimationPriority.Action4
 			track.Looped = false
 			loadedSkillTracks[skillIndex] = track
 		end
-		if (config :: any).slashAnimationId then
+		if (config :: any).slashAnimationId and (config :: any).slashAnimationId ~= "" then
 			local slashAnim = Instance.new("Animation")
 			slashAnim.Name = `SkillAnimSlash_{skillIndex}`
 			slashAnim.AnimationId = (config :: any).slashAnimationId
+			slashAnim.Parent = animator
 			local slashTrack = animator:LoadAnimation(slashAnim)
 			slashTrack.Priority = Enum.AnimationPriority.Action4
 			slashTrack.Looped = false
 			loadedSkillSlashTracks[skillIndex] = slashTrack
 		end
 	end
+end
+
+local function getSkillTrack(char: Model, skillIndex: number): AnimationTrack?
+	if currentLoadedCharacter ~= char or not loadedSkillTracks[skillIndex] then
+		loadSkillAnimations(char)
+	end
+	return loadedSkillTracks[skillIndex]
+end
+
+local function getSkillSlashTrack(char: Model, skillIndex: number): AnimationTrack?
+	if currentLoadedCharacter ~= char or not loadedSkillSlashTracks[skillIndex] then
+		loadSkillAnimations(char)
+	end
+	return loadedSkillSlashTracks[skillIndex]
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -1781,7 +1875,7 @@ function SkillController.UseSkill(skillIndex: number)
 
 	if classId == "ranger" then
 		char:SetAttribute("AllowSkillMovement", true)
-		local track = loadedSkillTracks[skillIndex]
+		local track = getSkillTrack(char, skillIndex)
 		if track then
 			track:Play(0.08)
 		end
@@ -1797,8 +1891,9 @@ function SkillController.UseSkill(skillIndex: number)
 		char:SetAttribute("IsSkill1Active", true)
 		char:SetAttribute("IsSpinAttackActive", true)
 
-		local track = loadedSkillTracks[1]
+		local track = getSkillTrack(char, 1)
 		if track then
+			track.Priority = Enum.AnimationPriority.Action4
 			track.Looped = true
 			track:Play(0.08)
 			task.delay(5.0, function()
@@ -1824,8 +1919,9 @@ function SkillController.UseSkill(skillIndex: number)
 		playMissileBuffVFX(char)
 	elseif classId == "heavy_knight" and skillIndex == 3 then
 		char:SetAttribute("AllowSkillMovement", true)
-		local track = loadedSkillTracks[3]
+		local track = getSkillTrack(char, 3)
 		if track then
+			track.Priority = Enum.AnimationPriority.Action4
 			track:Play(0.08)
 		end
 		task.delay(0.35, function()
@@ -1835,8 +1931,9 @@ function SkillController.UseSkill(skillIndex: number)
 		playPhoenixDashVFX(char, rootPart.Position, aimDir)
 	elseif classId == "heavy_knight" and skillIndex == 4 then
 		char:SetAttribute("AllowSkillMovement", false)
-		local track = loadedSkillTracks[4]
+		local track = getSkillTrack(char, 4)
 		if track then
+			track.Priority = Enum.AnimationPriority.Action3
 			track:Play(0.08)
 			task.delay(3.3, function()
 				char:SetAttribute("IsSkillCasting", false)
@@ -1878,7 +1975,9 @@ local function updateCooldowns()
 		if cd then
 			local elapsed = now - cd.startTime
 			local remaining = math.max(0, cd.duration - elapsed)
-			hud.SetSkillCooldown(slot, remaining, cd.duration)
+			if typeof(hud.SetSkillCooldown) == "function" then
+				hud.SetSkillCooldown(slot, remaining, cd.duration)
+			end
 
 			if remaining <= 0 then
 				activeCooldowns[slot] = nil
@@ -2117,7 +2216,7 @@ function SkillController.Init()
 
 		local classId = castingPlayer:GetAttribute("SelectedClass")
 		if classId == "ranger" then
-			playRangerSkillVFX(char, skillIndex, origin, direction, payload.targetPosition)
+			playRangerSkillVFX(char, skillIndex, origin, direction, payload.targetPosition, payload.projectileCount)
 		elseif classId == "heavy_knight" and skillIndex == 1 then
 			playSpinAttackVFX(char, origin, direction)
 		elseif classId == "heavy_knight" and skillIndex == 2 then
@@ -2129,7 +2228,7 @@ function SkillController.Init()
 		end
 	end)
 
-	-- Load animations on character spawn
+	-- Load animations on character spawn & class selection
 	if player.Character then
 		task.spawn(function()
 			loadSkillAnimations(player.Character)
@@ -2141,6 +2240,23 @@ function SkillController.Init()
 		task.spawn(function()
 			loadSkillAnimations(character)
 		end)
+	end)
+
+	player:GetAttributeChangedSignal("SelectedClass"):Connect(function()
+		local char = player.Character
+		if char then
+			loadSkillAnimations(char)
+		end
+	end)
+
+	local classConfirmedRemote = Network.GetRemoteEvent(Network.Remotes.ClassConfirmed)
+	classConfirmedRemote.OnClientEvent:Connect(function()
+		local char = player.Character
+		if char then
+			task.spawn(function()
+				loadSkillAnimations(char)
+			end)
+		end
 	end)
 
 	-- Heartbeat cooldown loop
