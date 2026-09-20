@@ -18,6 +18,7 @@ export type SkillConfig = {
 	dashDistance: number?,
 	dashSpeed: number?,
 	duration: number?,
+	width: number?,
 }
 
 export type ClassSkills = {
@@ -27,15 +28,16 @@ export type ClassSkills = {
 local SkillData: { [string]: ClassSkills } = {
 	ranger = {
 		[1] = {
-			name = "Thorn Barrage",
+			name = "Verdant Slash",
 			slot = 1,
 			keybind = "E",
-			cooldown = 5.5,
-			damage = 22,
-			range = 64,
-			angle = 38,
-			projectileSpeed = 130,
-			description = "Fire exactly 5 poison-thorn arrows simultaneously in a forward cone.",
+			cooldown = 5.0,
+			damage = 38,
+			range = 32,
+			dashDistance = 32,
+			width = 6.0,
+			description = "Instantly dash forward, piercing all enemies in your path and leaving a lingering nature energy slash.",
+			animationId = "rbxassetid://139832137467263",
 		},
 		[2] = {
 			name = "Entangling Arrow",
@@ -48,14 +50,13 @@ local SkillData: { [string]: ClassSkills } = {
 			description = "Fire a special arrow that erupts into grasping vines, rooting all enemies in a small area.",
 		},
 		[3] = {
-			name = "Toxic Cloud",
+			name = "Seeker Barrage",
 			slot = 3,
 			keybind = "Q",
 			cooldown = 12.0,
-			damage = 12,
-			range = 34,
-			duration = 6.0,
-			description = "Lob a spore pod that bursts into a lingering poison cloud, damaging enemies inside over time.",
+			damage = 35,
+			duration = 8.0,
+			description = "Buff: For 8 seconds, each attack launches homing nature missiles from your back that curve and seek out nearby enemies.",
 		},
 		[4] = {
 			name = "Rain of Arrows",
@@ -81,13 +82,15 @@ local SkillData: { [string]: ClassSkills } = {
 			animationId = "rbxassetid://94745840711885",
 		},
 		[2] = {
-			name = "Missile Barrage",
+			name = "Fire Slam",
 			slot = 2,
 			keybind = "F",
 			cooldown = 12.0,
-			damage = 45,
-			duration = 8.0,
-			description = "Buff: For 8 seconds, each attack launches a guided missile from your back that curves and homes in on nearby foes.",
+			damage = 55,
+			range = 16,
+			maxLeapDistance = 42,
+			description = "Leap into the air and strike the ground, creating a fiery shockwave.",
+			animationId = "rbxassetid://84579017139529",
 		},
 		[3] = {
 			name = "Phoenix Dash",

@@ -89,9 +89,10 @@ local ClassData: { [string]: ClassInfo } = {
 		},
 		abilities = {
 			{ name = "Heavy Cleave", tag = "M1/Primary", description = "Slash with your colossal greatsword, dealing heavy wide-arc melee damage." },
-			{ name = "Bulwark Stance", tag = "Skill 1", description = "Raise defensive stance to block incoming damage and reflect projectiles." },
-			{ name = "Whirlwind Cleave", tag = "Skill 2", description = "Spin your greatsword in a 360-degree high-damage arc, pulling nearby foes in." },
-			{ name = "Fortress of Valor", tag = "Ultimate", description = "Plant a sacred banner that grants a massive damage barrier to all nearby allies." },
+			{ name = "Spin Attack", tag = "Skill 1 (E)", description = "A continuous spinning whirlwind attack slicing all nearby enemies." },
+			{ name = "Fire Slam", tag = "Skill 2 (F)", description = "Leap into the air and strike the ground, creating a fiery shockwave." },
+			{ name = "Phoenix Dash", tag = "Skill 3 (Q)", description = "Surge forward in a roaring whirlwind of flames, scorching foes." },
+			{ name = "Infernal Wrath", tag = "Ultimate (R)", description = "Empower your sword in flames and slam down a massive impact slash that shatters the earth." },
 		},
 		equipment = {
 			name = "Bastion Greatplate & Vanguard Greatsword",
@@ -233,7 +234,7 @@ local ClassData: { [string]: ClassInfo } = {
 		},
 		abilities = {
 			{ name = "Venom Arrows", tag = "M1/Primary", description = "Fire poison-coated arrows as fast, readable ranged basic attacks." },
-			{ name = "Thorn Barrage", tag = "Skill 1", description = "Fire exactly five arrows at once in a forward fan, each hitting independently." },
+			{ name = "Verdant Slash", tag = "Skill 1", description = "Instantly dash through enemies, leaving a piercing nature energy slash that cuts all foes in your path." },
 			{ name = "Entangling Arrow", tag = "Skill 2", description = "Launch a root-charged arrow that bursts into vines and holds enemies in place." },
 			{ name = "Toxic Cloud", tag = "Skill 3", description = "Throw a spore pod that leaves a lingering poison cloud on the ground." },
 			{ name = "Rain of Arrows", tag = "Ultimate", description = "Mark a large zone from above and flood it with repeated arrow impacts." },

@@ -325,28 +325,75 @@ local function rootTarget(target: { character: Model, humanoid: Humanoid, rootPa
 	end)
 end
 
-local function executeRangerThornBarrage(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
-	local damage = config.damage or 22
-	local range = config.range or 64
-	local spread = config.angle or 38
-	local baseCount = 5
-	local extraProjectiles = math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount")))
-	local totalProjectiles = baseCount + extraProjectiles
-	local baseAngleStep = spread / math.max(baseCount - 1, 1) -- ~9.5 degrees
-	local totalSpread = (totalProjectiles - 1) * baseAngleStep
-	local startAngle = -totalSpread / 2
-	local width = 2.4 * (config.areaMultiplier or 1)
-	local knockback = PlayerStats.GetStat(player, "knockback")
-	local projectileSpeed = PlayerStats.GetStat(player, "projectileSpeed")
-	local arrowOrigin = origin + Vector3.new(0, 1.2, 0)
+local function executeRangerVerdantSlash(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
+	local damage = config.damage or 38
+	local dashDist = config.dashDistance or 32
+	local hitboxWidth = (config.width or 6.0) * (config.areaMultiplier or 1)
+	local flatDir = rotateFlatDirection(lookDir, 0)
+	local casterRoot = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not casterRoot then return end
 
-	for index = 1, totalProjectiles do
-		local angle = startAngle + (index - 1) * baseAngleStep
-		local direction = rotateFlatDirection(lookDir, angle)
-		local target, hitDistance = damageFirstTargetOnLine(player, casterChar, arrowOrigin, direction, range, width, damage, "THORN BARRAGE")
-		applyRangerArrowKnockback(target, direction, knockback)
-		fireRangerArrowVisual(arrowOrigin, direction, hitDistance or range, projectileSpeed)
+	-- 1. Obstacle raycast: stop before walls/geometry, passing freely through enemies & players
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	local ignoreList: { Instance } = { casterChar }
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if desc:IsA("Model") and (desc:FindFirstChildOfClass("Humanoid") or desc:FindFirstAncestorOfClass("Accessory")) then
+			table.insert(ignoreList, desc)
+		end
 	end
+	rayParams.FilterDescendantsInstances = ignoreList
+	rayParams.IgnoreWater = true
+
+	local forwardRay = Workspace:Raycast(origin + Vector3.new(0, 1.2, 0), flatDir * dashDist, rayParams)
+	local actualDist = dashDist
+	if forwardRay and forwardRay.Distance > 0 then
+		actualDist = math.max(3.0, forwardRay.Distance - 1.5)
+	end
+
+	local endPos = origin + flatDir * actualDist
+
+	-- Maintain ground alignment at destination
+	local groundRay = Workspace:Raycast(endPos + Vector3.new(0, 4, 0), Vector3.new(0, -10, 0), rayParams)
+	if groundRay then
+		local humanoid = casterChar:FindFirstChildOfClass("Humanoid")
+		local hipHeight = humanoid and humanoid.HipHeight or 2.0
+		endPos = Vector3.new(endPos.X, groundRay.Position.Y + (casterRoot.Size.Y * 0.5) + hipHeight, endPos.Z)
+	end
+
+	-- Move caster rootPart on server to synchronize authoritative position
+	casterRoot.CFrame = CFrame.lookAt(endPos, endPos + flatDir)
+	casterRoot.AssemblyLinearVelocity = Vector3.zero
+
+	-- 2. Line-segment hitbox: hit all potential targets along the dash path
+	local knockback = PlayerStats.GetStat(player, "knockback")
+	local targets = getPotentialTargets(casterChar)
+	local hitCount = 0
+
+	for _, target in ipairs(targets) do
+		local diff = target.rootPart.Position - origin
+		local flatDiff = Vector3.new(diff.X, 0, diff.Z)
+		local along = flatDiff:Dot(flatDir)
+
+		-- Within line segment range (with slight leeway)
+		if along >= -1.0 and along <= (actualDist + 1.5) then
+			local closestPoint = origin + flatDir * math.clamp(along, 0, actualDist)
+			local lateralDist = (Vector3.new(target.rootPart.Position.X, origin.Y, target.rootPart.Position.Z) - closestPoint).Magnitude
+
+			if lateralDist <= hitboxWidth then
+				hitCount += 1
+				dealDamage(player, target, damage, "VERDANT SLASH")
+
+				-- Forward pierce impulse + slight lift
+				local impulseDir = (flatDir * 0.85 + Vector3.new(0, 0.25, 0)).Unit
+				local impulseMag = target.rootPart.AssemblyMass * (12 + knockback * 8)
+				target.rootPart:ApplyImpulse(impulseDir * impulseMag)
+				print(`[SkillManager] Verdant Slash pierced {target.character.Name} for {damage} damage!`)
+			end
+		end
+	end
+
+	print(`[SkillManager] Verdant Slash dashed {math.floor(actualDist)} studs, hitting {hitCount} targets.`)
 end
 
 local function executeRangerEntanglingArrow(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
@@ -467,51 +514,66 @@ local function executeSpinAttack(player: Player, casterChar: Model, origin: Vect
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- Hitbox: Skill 2 — Missile Barrage (Buff: Attacks launch guided missiles)
+-- Hitbox: Skill 2 — Fire Slam (Leap Slam with Fiery Shockwave)
 -- ─────────────────────────────────────────────────────────────────────────────
-local function executeMissileBuff(player: Player, casterChar: Model, config: any)
-	local duration = config.duration or 8.0
-	casterChar:SetAttribute("IsMissileBuffActive", true)
+local function executeFireSlam(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, targetPosition: any, config: any)
+	local damage = config.damage or 55
+	local radius = (config.range or 16) * (config.areaMultiplier or 1)
+	local maxLeapDist = config.maxLeapDistance or 42
+	local landingPos = getRangerCursorTarget(origin, lookDir, targetPosition, maxLeapDist)
+	local casterRoot = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
 
-	task.delay(duration, function()
-		if casterChar and casterChar.Parent then
-			casterChar:SetAttribute("IsMissileBuffActive", false)
+	-- Ground raycast to find exact ground surface at landing spot
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	local ignoreList: { Instance } = { casterChar }
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if desc:IsA("Model") and (desc:FindFirstChildOfClass("Humanoid") or desc:FindFirstAncestorOfClass("Accessory")) then
+			table.insert(ignoreList, desc)
 		end
-	end)
+	end
+	rayParams.FilterDescendantsInstances = ignoreList
+	rayParams.IgnoreWater = true
 
-	print(`[SkillManager] {player.Name} activated Missile Barrage buff for {duration}s!`)
-end
+	local groundRay = Workspace:Raycast(landingPos + Vector3.new(0, 15, 0), Vector3.new(0, -50, 0), rayParams)
+	if groundRay then
+		local hum = casterChar:FindFirstChildOfClass("Humanoid")
+		local hipHeight = hum and hum.HipHeight or 2.0
+		local rootSizeY = casterRoot and casterRoot.Size.Y or 2.0
+		landingPos = Vector3.new(landingPos.X, groundRay.Position.Y + (rootSizeY * 0.5) + hipHeight, landingPos.Z)
+	end
 
-function SkillManager.HandleMissileAttack(player: Player, casterChar: Model)
-	local root = casterChar:FindFirstChild("HumanoidRootPart") or casterChar.PrimaryPart
-	if not root then return end
-	local origin = root.Position
-
+	-- Wait for the vertical leap apex & plunge (~0.72s) to deal damage on impact
 	task.spawn(function()
-		local extraProjectiles = math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount") or 0))
-		local missileCount = 5 + extraProjectiles
-		for i = 1, missileCount do
-			task.wait(i == 1 and 0.28 or 0.055)
-			if not casterChar or not casterChar.Parent then break end
+		task.wait(0.72)
+		if not casterChar or not casterChar.Parent then return end
+		local hum = casterChar:FindFirstChildOfClass("Humanoid")
+		if not hum or hum.Health <= 0 then return end
 
-			local targets = getPotentialTargets(casterChar)
-			local closestTarget = nil
-			local closestDist = 95
+		-- Authoritatively synchronize caster position at landing spot
+		if casterRoot then
+			local flatDir = Vector3.new(landingPos.X - origin.X, 0, landingPos.Z - origin.Z)
+			local faceDir = flatDir.Magnitude > 0.1 and flatDir.Unit or lookDir
+			casterRoot.CFrame = CFrame.lookAt(landingPos, landingPos + faceDir)
+			casterRoot.AssemblyLinearVelocity = Vector3.zero
+		end
 
-			for _, t in ipairs(targets) do
-				local d = (t.rootPart.Position - origin).Magnitude
-				if d < closestDist then
-					closestDist = d
-					closestTarget = t
-				end
-			end
+		-- Hitbox & radial explosive impulse
+		local knockback = PlayerStats.GetStat(player, "knockback") or 1.0
+		local targets = getPotentialTargets(casterChar)
+		for _, target in ipairs(targets) do
+			local diff = target.rootPart.Position - landingPos
+			local dist = diff.Magnitude
+			if dist <= radius then
+				dealDamage(player, target, damage, "FIRE SLAM")
 
-			if closestTarget and closestTarget.humanoid and closestTarget.humanoid.Health > 0 then
-				local damage = 16 -- 16 damage per missile (total 80 damage across 5 missiles)
-				dealDamage(player, closestTarget, damage, "MISSILE")
-				local kbDir = (closestTarget.rootPart.Position - origin).Unit + Vector3.new(0, 0.2, 0)
-				closestTarget.rootPart:ApplyImpulse(kbDir.Unit * (closestTarget.rootPart.AssemblyMass * 8))
-				print(`[SkillManager] Guided Missile #{i} struck {closestTarget.character.Name} for {damage} damage!`)
+				-- Radial knockback away from impact center + vertical blast lift
+				local flatDiff = Vector3.new(diff.X, 0, diff.Z)
+				local pushDir = flatDiff.Magnitude > 0.1 and flatDiff.Unit or Vector3.new(0, 0, 1)
+				local kbDir = (pushDir * 0.8 + Vector3.new(0, 0.65, 0)).Unit
+				local impulseMag = target.rootPart.AssemblyMass * (24 + knockback * 16)
+				target.rootPart:ApplyImpulse(kbDir * impulseMag)
+				print(`[SkillManager] Fire Slam hit {target.character.Name} for {damage} damage!`)
 			end
 		end
 	end)
@@ -850,12 +912,14 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	local targetPosition = payload.targetPosition
 	if classId == "ranger" and (skillIndex == 3 or skillIndex == 4) then
 		targetPosition = getRangerCursorTarget(origin, direction, targetPosition, effectiveConfig.range or 42)
+	elseif classId == "heavy_knight" and skillIndex == 2 then
+		targetPosition = getRangerCursorTarget(origin, direction, targetPosition, effectiveConfig.maxLeapDistance or 42)
 	end
 
 	-- Execute authoritative skill logic
 	if classId == "ranger" then
 		if skillIndex == 1 then
-			executeRangerThornBarrage(player, char, origin, direction, effectiveConfig)
+			executeRangerVerdantSlash(player, char, origin, direction, effectiveConfig)
 		elseif skillIndex == 2 then
 			executeRangerEntanglingArrow(player, char, origin, direction, effectiveConfig)
 		elseif skillIndex == 3 then
@@ -866,7 +930,7 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	elseif classId == "heavy_knight" and skillIndex == 1 then
 		executeSpinAttack(player, char, origin, direction, effectiveConfig)
 	elseif classId == "heavy_knight" and skillIndex == 2 then
-		executeMissileBuff(player, char, effectiveConfig)
+		executeFireSlam(player, char, origin, direction, targetPosition, effectiveConfig)
 	elseif classId == "heavy_knight" and skillIndex == 3 then
 		executePhoenixDash(player, char, origin, direction, effectiveConfig)
 	elseif classId == "heavy_knight" and skillIndex == 4 then
@@ -888,6 +952,7 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 					direction = direction,
 					targetPosition = targetPosition,
 					projectileCount = effectiveConfig.projectileCount,
+					areaMultiplier = effectiveConfig.areaMultiplier,
 				})
 			end
 		end
@@ -969,11 +1034,6 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 				print(`[SkillManager] Basic Attack hit {target.character.Name} for {damage} damage!`)
 			end
 		end
-	end
-
-	-- If Missile Barrage buff is active, launch missile damage on server
-	if char:GetAttribute("IsMissileBuffActive") == true then
-		SkillManager.HandleMissileAttack(player, char)
 	end
 end
 

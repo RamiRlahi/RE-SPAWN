@@ -183,6 +183,20 @@ local function triggerCameraShake(intensity: number, duration: number)
 	end)
 end
 
+local function triggerFOVPunch(fovDelta: number, duration: number)
+	task.spawn(function()
+		local startFOV = camera.FieldOfView
+		local tweenIn = TweenService:Create(camera, TweenInfo.new(duration * 0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			FieldOfView = math.max(30, startFOV - fovDelta),
+		})
+		tweenIn:Play()
+		tweenIn.Completed:Wait()
+		TweenService:Create(camera, TweenInfo.new(duration * 0.78, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			FieldOfView = startFOV,
+		}):Play()
+	end)
+end
+
 local function setWeaponTrailEnlarged(character: Model, enlarged: boolean)
 	for _, desc in ipairs(character:GetDescendants()) do
 		if desc:IsA("Trail") then
@@ -430,301 +444,550 @@ local function playSpinAttackVFX(char: Model, origin: Vector3, lookDir: Vector3)
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- Skill 2: Missile Barrage Buff & Guided Missile System
+-- Skill 2: Fire Slam VFX (High Vertical Leap + Meteor Plunge + Multilayer Shockwave & Debris)
 -- ─────────────────────────────────────────────────────────────────────────────
-local function playMissileBuffVFX(char: Model)
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Skill 2: Fire Slam VFX (High Vertical Leap + Meteor Plunge + Multilayer Shockwave & Debris)
+-- ─────────────────────────────────────────────────────────────────────────────
+local function playFireSlamVFX(char: Model, origin: Vector3, targetPos: Vector3, sizeMultiplier: number?)
 	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if not rootPart then return end
+	local humanoid = char:FindFirstChildOfClass("Humanoid")
+	if not rootPart or not humanoid then return end
 
-	char:SetAttribute("IsMissileBuffActive", true)
+	local isLocalCaster = (char == player.Character)
+	local charPlayer = Players:GetPlayerFromCharacter(char) or (isLocalCaster and player)
+	local sizeScale = math.max(0.4, (sizeMultiplier or (charPlayer and charPlayer:GetAttribute("Stat_size")) or 1.0))
 
-	-- Brief activation flash on character
-	local buffAtt = Instance.new("Attachment")
-	buffAtt.Name = "MissileBuffActivation"
-	buffAtt.Position = Vector3.new(0, 1.5, 0)
-	buffAtt.Parent = rootPart
+	local flatDiff = Vector3.new(targetPos.X - origin.X, 0, targetPos.Z - origin.Z)
+	local flatDir = flatDiff.Magnitude > 0.1 and flatDiff.Unit or rootPart.CFrame.LookVector
+	local leapDist = math.min(flatDiff.Magnitude, 42)
+	local landingPos = origin + flatDir * leapDist
 
-	local flamePE = makeFlameEmitter(buffAtt, 0, 3.5, 18)
-	flamePE:Emit(25)
-
-	local emberPE = makeEmberEmitter(buffAtt, 0)
-	emberPE:Emit(20)
-
-	task.delay(0.6, function()
-		if buffAtt and buffAtt.Parent then
-			buffAtt:Destroy()
-		end
-	end)
-
-	-- Buff duration: 8.0 seconds
-	task.delay(8.0, function()
-		if char and char.Parent then
-			char:SetAttribute("IsMissileBuffActive", false)
-		end
-	end)
-end
-
-local function launchSingleMissile(casterChar: Model, missileIndex: number)
-	local rootPart = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if not rootPart then return end
-
-	local lookVec = rootPart.CFrame.LookVector
-	local rightVec = rootPart.CFrame.RightVector
-	local upVec = Vector3.new(0, 1, 0)
-
-	-- 1. Spawn position & launch angle staggered per missile in succession
-	local sideSigns = { -1, 1, 0.6, -1.1, -0.4 }
-	local sideSign = sideSigns[((missileIndex - 1) % #sideSigns) + 1] or (math.random() > 0.5 and 1 or -1)
-	local spawnOffset = upVec * 1.5 + rightVec * (sideSign * 1.1) - lookVec * 0.2
-	local spawnPos = rootPart.Position + spawnOffset
-
-	-- 2. Initial launch direction: arced wide outward and upward/forward
-	local outwardRatio = (math.random(70, 115) / 100) * sideSign
-	local upwardRatio = math.random(25, 75) / 100 * (missileIndex % 2 == 1 and 1 or 0.6)
-	local forwardRatio = math.random(30, 50) / 100
-	local currentDir = (lookVec * forwardRatio + rightVec * outwardRatio + upVec * upwardRatio).Unit
-	local currentSpeed = 46.0 -- Initial launch speed
-	local maxSpeed = 110.0    -- Terminal cruising speed
-	local currentPos = spawnPos
-	local currentVel = currentDir * currentSpeed
-
-	-- 3. Find missile VFX asset from ReplicatedStorage
-	local missileTemplate = findVFXAsset("missile") or findVFXAsset("Missile") or findVFXAsset("hk_missile")
-	local missileInstance: Instance? = nil
-
-	if missileTemplate then
-		missileInstance = missileTemplate:Clone()
-		for _, d in ipairs(missileInstance:GetDescendants()) do
-			if d:IsA("BasePart") then
-				d.CanCollide = false
-				d.CanTouch = false
-				d.CanQuery = false
-				d.Anchored = true
-			elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
-				d.Enabled = true
-			end
-		end
-		if missileInstance:IsA("BasePart") then
-			missileInstance.CanCollide = false
-			missileInstance.CanTouch = false
-			missileInstance.CanQuery = false
-			missileInstance.Anchored = true
-		end
-		missileInstance.Parent = Workspace.Terrain
-	end
-
-	-- 4. Create carrier part as physics/visual anchor
-	local carrier = Instance.new("Part")
-	carrier.Name = `MissileCarrier_{missileIndex}`
-	carrier.Size = Vector3.new(0.3, 0.3, 0.9)
-	carrier.Transparency = 0.2
-	carrier.Material = Enum.Material.Neon
-	carrier.Color = Color3.fromRGB(255, 120, 20)
-	carrier.CanCollide = false
-	carrier.CanTouch = false
-	carrier.CanQuery = false
-	carrier.Anchored = true
-	carrier.CFrame = CFrame.lookAt(spawnPos, spawnPos + currentDir)
-	carrier.Parent = Workspace.Terrain
-
-	-- Add sleek fire red / amber energy ribbon trail
-	local att0 = Instance.new("Attachment")
-	att0.Position = Vector3.new(0, 0.25, 0)
-	att0.Parent = carrier
-
-	local att1 = Instance.new("Attachment")
-	att1.Position = Vector3.new(0, -0.25, 0)
-	att1.Parent = carrier
-
-	local trail = Instance.new("Trail")
-	trail.Attachment0 = att0
-	trail.Attachment1 = att1
-	trail.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 230, 140)),
-		ColorSequenceKeypoint.new(0.35, Color3.fromRGB(255, 120, 20)),
-		ColorSequenceKeypoint.new(0.75, Color3.fromRGB(230, 40, 10)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(150, 15, 0)),
-	})
-	trail.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.05),
-		NumberSequenceKeypoint.new(0.6, 0.3),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	trail.Lifetime = 0.38
-	trail.WidthScale = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 1.3),
-		NumberSequenceKeypoint.new(0.5, 0.8),
-		NumberSequenceKeypoint.new(1, 0.05),
-	})
-	trail.FaceCamera = true
-	trail.Parent = carrier
-
-	-- Fire / Amber exhaust emitter & light
-	local rocketAtt = Instance.new("Attachment")
-	rocketAtt.Parent = carrier
-
-	local energyPE = Instance.new("ParticleEmitter")
-	energyPE.Name = "EnergyEmitter"
-	energyPE.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 240, 180)),
-		ColorSequenceKeypoint.new(0.4, Color3.fromRGB(255, 130, 20)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 30, 5)),
-	})
-	energyPE.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.7),
-		NumberSequenceKeypoint.new(1, 0.1),
-	})
-	energyPE.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.1),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	energyPE.Lifetime = NumberRange.new(0.18, 0.32)
-	energyPE.Rate = 90
-	energyPE.Speed = NumberRange.new(4, 10)
-	energyPE.SpreadAngle = Vector2.new(15, 15)
-	energyPE.Parent = rocketAtt
-
-	local rocketLight = Instance.new("PointLight")
-	rocketLight.Color = Color3.fromRGB(255, 120, 25)
-	rocketLight.Brightness = 4.5
-	rocketLight.Range = 9
-	rocketLight.Parent = carrier
-
-	if missileInstance then
-		if missileInstance:IsA("Model") then
-			missileInstance:PivotTo(carrier.CFrame)
-		elseif missileInstance:IsA("BasePart") then
-			missileInstance.CFrame = carrier.CFrame
-		elseif missileInstance:IsA("Attachment") then
-			missileInstance.Parent = carrier
+	-- Ground raycast for landing Y
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	local ignoreList: { Instance } = { char }
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if desc:IsA("Model") and (desc:FindFirstChildOfClass("Humanoid") or desc:FindFirstAncestorOfClass("Accessory")) then
+			table.insert(ignoreList, desc)
 		end
 	end
+	rayParams.FilterDescendantsInstances = ignoreList
+	rayParams.IgnoreWater = true
 
-	-- Search for nearest enemy target in workspace (including Workspace.Mobs)
-	local function findNearestEnemy(pos: Vector3): (Model?, BasePart?)
-		local bestDist = 140
-		local bestTarget: Model? = nil
-		local bestPart: BasePart? = nil
-
-		for _, desc in ipairs(Workspace:GetDescendants()) do
-			if desc:IsA("Model") and desc ~= casterChar and not desc:IsDescendantOf(casterChar) then
-				if desc:FindFirstAncestorOfClass("Accessory") then continue end
-
-				local hum = desc:FindFirstChildOfClass("Humanoid")
-				if hum and hum.Health > 0 then
-					local root = (desc:FindFirstChild("HumanoidRootPart") or desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")) :: BasePart?
-					if root then
-						local dist = (root.Position - pos).Magnitude
-						if dist < bestDist then
-							bestDist = dist
-							bestTarget = desc
-							bestPart = root
-						end
-					end
-				end
-			end
-		end
-		return bestTarget, bestPart
+	local groundRay = Workspace:Raycast(landingPos + Vector3.new(0, 25, 0), Vector3.new(0, -60, 0), rayParams)
+	local landingY = origin.Y
+	if groundRay then
+		local hipHeight = humanoid.HipHeight or 2.0
+		landingY = groundRay.Position.Y + (rootPart.Size.Y * 0.5) + hipHeight
 	end
+	landingPos = Vector3.new(landingPos.X, landingY, landingPos.Z)
+
+	-- ─── Phase 1: High Vertical Ascent & Meteor Plunge Kinematics ────────────────
+	local flameAtt = Instance.new("Attachment")
+	flameAtt.Name = "FireSlamFlameAura"
+	flameAtt.Position = Vector3.new(0, 0, 0)
+	flameAtt.Parent = rootPart
+
+	-- Heavy upward/downward flame shroud
+	local leapFlames = makeFlameEmitter(flameAtt, 160, 7.0 * sizeScale, 28 * sizeScale)
+	leapFlames.SpreadAngle = Vector2.new(180, 180)
+	leapFlames.Lifetime = NumberRange.new(0.3, 0.65)
+
+	local leapEmbers = makeEmberEmitter(flameAtt, 110)
+	leapEmbers.SpreadAngle = Vector2.new(180, 180)
+	leapEmbers.Lifetime = NumberRange.new(0.5, 1.2)
+	leapEmbers.Speed = NumberRange.new(12 * sizeScale, 32 * sizeScale)
+
+	-- Downward rocket booster under feet
+	local rocketBooster = Instance.new("ParticleEmitter")
+	rocketBooster.Name = "RocketBooster"
+	rocketBooster.Texture = "rbxassetid://258129523"
+	rocketBooster.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 220)),
+		ColorSequenceKeypoint.new(0.25, Color3.fromRGB(255, 160, 20)),
+		ColorSequenceKeypoint.new(0.8, Color3.fromRGB(255, 50, 0)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 10, 0)),
+	})
+	rocketBooster.Transparency = FLAME_TRANSPARENCY_SEQUENCE
+	rocketBooster.LightEmission = 1
+	rocketBooster.LightInfluence = 0
+	rocketBooster.Rate = 120
+	rocketBooster.Lifetime = NumberRange.new(0.2, 0.45)
+	rocketBooster.Speed = NumberRange.new(25 * math.sqrt(sizeScale), 45 * math.sqrt(sizeScale))
+	rocketBooster.SpreadAngle = Vector2.new(15, 15)
+	rocketBooster.EmissionDirection = Enum.NormalId.Bottom
+	rocketBooster.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 2.5 * sizeScale),
+		NumberSequenceKeypoint.new(0.5, 4.0 * sizeScale),
+		NumberSequenceKeypoint.new(1, 0.2),
+	})
+	rocketBooster.Parent = flameAtt
+
+	-- Vertical leap metrics
+	local jumpApexHeight = 38.0
+	local totalDuration = 0.72
+	local ascentDuration = 0.34
+	local hoverDuration = 0.08
+	local plungeDuration = totalDuration - ascentDuration - hoverDuration -- 0.30s
 
 	task.spawn(function()
 		local startTime = os.clock()
-		local maxLifetime = 3.5
-		local targetModel, targetRoot = findNearestEnemy(spawnPos)
-
-		while os.clock() - startTime < maxLifetime do
-			local dt = RunService.RenderStepped:Wait()
+		while os.clock() - startTime < totalDuration do
 			local elapsed = os.clock() - startTime
+			local currentPos: Vector3
 
-			-- Continuously acquire or validate target position every frame
-			if not targetModel or not targetModel.Parent or not targetRoot or not targetRoot.Parent or (targetModel:FindFirstChildOfClass("Humanoid") and targetModel:FindFirstChildOfClass("Humanoid").Health <= 0) then
-				targetModel, targetRoot = findNearestEnemy(currentPos)
-			end
-
-			-- Determine desired aim point
-			local targetAimPos: Vector3
-			if targetRoot and targetRoot.Parent then
-				targetAimPos = targetRoot.Position + Vector3.new(0, 0.5, 0)
+			if elapsed < ascentDuration then
+				-- 1. Rocketing Vertical Ascent: Rapidly climb Y, translate smoothly towards landing XZ
+				local aAlpha = elapsed / ascentDuration
+				local yProgress = math.sin(aAlpha * (math.pi * 0.5))
+				local xzProgress = aAlpha * aAlpha
+				local currentXZ = origin + flatDir * (leapDist * xzProgress)
+				local currentY = origin.Y + (jumpApexHeight * yProgress) + (landingY - origin.Y) * (xzProgress * 0.5)
+				currentPos = Vector3.new(currentXZ.X, currentY, currentXZ.Z)
+			elseif elapsed < ascentDuration + hoverDuration then
+				-- 2. Apex Hover: Suspended high in the sky directly above landing position
+				local currentY = origin.Y + jumpApexHeight + (landingY - origin.Y) * 0.5
+				currentPos = Vector3.new(landingPos.X, currentY, landingPos.Z)
 			else
-				local casterRoot = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
-				local forward = (casterRoot and casterRoot.CFrame.LookVector) or lookVec
-				targetAimPos = currentPos + forward * 80 + Vector3.new(0, 1.5, 0)
+				-- 3. Vertical Meteor Plunge: Steep quartic acceleration straight down into ground
+				local pElapsed = elapsed - (ascentDuration + hoverDuration)
+				local pAlpha = math.clamp(pElapsed / plungeDuration, 0, 1)
+				local fallProgress = pAlpha * pAlpha * pAlpha * pAlpha
+				local startPlungeY = origin.Y + jumpApexHeight + (landingY - origin.Y) * 0.5
+				local currentY = startPlungeY + (landingY - startPlungeY) * fallProgress
+				currentPos = Vector3.new(landingPos.X, currentY, landingPos.Z)
 			end
 
-			local toTarget = (targetAimPos - currentPos)
-			local distToTarget = toTarget.Magnitude
+			rootPart.CFrame = CFrame.lookAt(currentPos, currentPos + flatDir)
+			rootPart.AssemblyLinearVelocity = Vector3.zero
 
-			-- Direct impact on target
-			if distToTarget < 2.2 and targetRoot and targetRoot.Parent then
-				break
-			end
-
-			local desiredDir = toTarget.Unit
-
-			-- Continuous smooth spherical curvature toward target (arcing then curving smoothly in)
-			local turnRate = math.clamp(math.rad(140) + elapsed * math.rad(420), math.rad(140), math.rad(720))
-			local maxTurnThisFrame = turnRate * dt
-
-			local dot = math.clamp(currentDir:Dot(desiredDir), -1, 1)
-			local angle = math.acos(dot)
-
-			if angle > 0.001 then
-				local turnStep = math.min(angle, maxTurnThisFrame)
-				local rotAxis = currentDir:Cross(desiredDir)
-				if rotAxis.Magnitude > 0.001 then
-					currentDir = (CFrame.fromAxisAngle(rotAxis.Unit, turnStep) * currentDir).Unit
-				else
-					currentDir = (CFrame.Angles(0, turnStep, 0) * currentDir).Unit
-				end
-			end
-
-			-- Accelerate forward along the newly curved trajectory
-			currentSpeed = math.min(currentSpeed + 65.0 * dt, maxSpeed)
-			currentVel = currentDir * currentSpeed
-			currentPos = currentPos + currentVel * dt
-
-			-- Rotate carrier and missile model to continually face flight direction (tangent to arc)
-			local orientCF = CFrame.lookAt(currentPos, currentPos + currentDir)
-			carrier.CFrame = orientCF
-
-			if missileInstance and missileInstance.Parent then
-				if missileInstance:IsA("Model") then
-					missileInstance:PivotTo(orientCF)
-				elseif missileInstance:IsA("BasePart") then
-					missileInstance.CFrame = orientCF
-				end
-			end
+			RunService.RenderStepped:Wait()
 		end
 
-		-- Cleanup exhaust emitters and carrier (no explosion!)
-		trail.Enabled = false
-		energyPE.Enabled = false
-		TweenService:Create(rocketLight, TweenInfo.new(0.12), { Brightness = 0 }):Play()
-		Debris:AddItem(carrier, 0.35)
+		-- ─── Snap to landing position ──────────────────────────────────────────
+		rootPart.CFrame = CFrame.lookAt(landingPos, landingPos + flatDir)
+		rootPart.AssemblyLinearVelocity = Vector3.zero
 
-		if missileInstance and missileInstance.Parent then
-			for _, d in ipairs(missileInstance:GetDescendants()) do
-				if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
-					d.Enabled = false
+		-- Cleanup airborne emitters
+		leapFlames.Enabled = false
+		leapEmbers.Enabled = false
+		rocketBooster.Enabled = false
+		Debris:AddItem(flameAtt, 0.8)
+
+		-- ─── Phase 2: Cataclysmic Impact & Multilayer Shockwave System ────────
+		local impactPos = landingPos - Vector3.new(0, (rootPart.Size.Y * 0.5) + (humanoid.HipHeight or 2.0), 0)
+
+		-- Screen shake & visceral FOV punch on impact
+		if isLocalCaster then
+			triggerCameraShake(1.3 * math.clamp(sizeScale, 0.8, 1.8), 0.48)
+			triggerFOVPunch(7, 0.38)
+		end
+
+		-- ─── 2a. Expanding 3D Distortion Hemisphere Dome ───────────────────────
+		local shockDome = Instance.new("Part")
+		shockDome.Name = "FireSlamShockDome"
+		shockDome.Shape = Enum.PartType.Ball
+		shockDome.Size = Vector3.new(2, 2, 2)
+		shockDome.CFrame = CFrame.new(impactPos + Vector3.new(0, 1, 0))
+		shockDome.Anchored = true
+		shockDome.CanCollide = false
+		shockDome.CanTouch = false
+		shockDome.CanQuery = false
+		shockDome.Material = Enum.Material.Neon
+		shockDome.Color = Color3.fromRGB(255, 235, 180)
+		shockDome.Transparency = 0.2
+		shockDome.Parent = Workspace.Terrain
+
+		TweenService:Create(shockDome, TweenInfo.new(0.34, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			Size = Vector3.new(46 * sizeScale, 32 * sizeScale, 46 * sizeScale),
+			Transparency = 1,
+			Color = Color3.fromRGB(255, 60, 0),
+		}):Play()
+		Debris:AddItem(shockDome, 0.4)
+
+		-- ─── 2b. Primary Superheated White-Hot Floor Blast Disc ───────────────
+		local blastDisc = Instance.new("Part")
+		blastDisc.Name = "FireSlamBlastDisc"
+		blastDisc.Shape = Enum.PartType.Cylinder
+		blastDisc.Size = Vector3.new(0.25, 2, 2)
+		blastDisc.CFrame = CFrame.new(impactPos + Vector3.new(0, 0.12, 0)) * CFrame.Angles(0, 0, math.rad(90))
+		blastDisc.Anchored = true
+		blastDisc.CanCollide = false
+		blastDisc.CanTouch = false
+		blastDisc.CanQuery = false
+		blastDisc.Material = Enum.Material.Neon
+		blastDisc.Color = Color3.fromRGB(255, 255, 230)
+		blastDisc.Transparency = 0.05
+		blastDisc.Parent = Workspace.Terrain
+
+		TweenService:Create(blastDisc, TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			Size = Vector3.new(0.25, 32 * sizeScale, 32 * sizeScale),
+			Transparency = 1,
+			Color = Color3.fromRGB(255, 140, 10),
+		}):Play()
+		Debris:AddItem(blastDisc, 0.3)
+
+		-- ─── 2c. Outer Razor Flame Shockwave Ring (Matching Reference Diagram) ─
+		local outerRing = Instance.new("Part")
+		outerRing.Name = "FireSlamOuterRing"
+		outerRing.Shape = Enum.PartType.Cylinder
+		outerRing.Size = Vector3.new(0.18, 3, 3)
+		outerRing.CFrame = CFrame.new(impactPos + Vector3.new(0, 0.06, 0)) * CFrame.Angles(0, 0, math.rad(90))
+		outerRing.Anchored = true
+		outerRing.CanCollide = false
+		outerRing.CanTouch = false
+		outerRing.CanQuery = false
+		outerRing.Material = Enum.Material.Neon
+		outerRing.Color = Color3.fromRGB(255, 130, 15)
+		outerRing.Transparency = 0.1
+		outerRing.Parent = Workspace.Terrain
+
+		TweenService:Create(outerRing, TweenInfo.new(0.52, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			Size = Vector3.new(0.18, 42 * sizeScale, 42 * sizeScale),
+			Transparency = 1,
+			Color = Color3.fromRGB(180, 20, 0),
+		}):Play()
+		Debris:AddItem(outerRing, 0.6)
+
+		-- ─── 2d. Low-Lying Floor Smoke & Ash Shockwave (Hugging the ground) ────
+		local groundBurstAtt = Instance.new("Attachment")
+		groundBurstAtt.Name = "FireSlamGroundBurst"
+		groundBurstAtt.WorldPosition = impactPos
+		groundBurstAtt.Parent = Workspace.Terrain
+
+		local floorAshPE = Instance.new("ParticleEmitter")
+		floorAshPE.Name = "FloorAshWave"
+		floorAshPE.Texture = "rbxassetid://258128463"
+		floorAshPE.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 140, 30)),
+			ColorSequenceKeypoint.new(0.25, Color3.fromRGB(120, 60, 40)),
+			ColorSequenceKeypoint.new(0.7, Color3.fromRGB(40, 30, 28)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 12, 12)),
+		})
+		floorAshPE.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.2),
+			NumberSequenceKeypoint.new(0.6, 0.5),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		floorAshPE.LightEmission = 0.6
+		floorAshPE.LightInfluence = 0
+		floorAshPE.Rate = 0
+		floorAshPE.Lifetime = NumberRange.new(0.55, 0.95)
+		floorAshPE.Speed = NumberRange.new(35 * sizeScale, 68 * sizeScale)
+		floorAshPE.SpreadAngle = Vector2.new(180, 0)
+		floorAshPE.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 2.5 * sizeScale),
+			NumberSequenceKeypoint.new(0.4, 7.0 * sizeScale),
+			NumberSequenceKeypoint.new(1, 9.5 * sizeScale),
+		})
+		floorAshPE.Parent = groundBurstAtt
+		floorAshPE:Emit(math.floor(80 * math.clamp(sizeScale, 0.8, 1.6)))
+
+		-- ─── 2e. Central Vertical Fire Pillar / Spire (Shooting straight up) ───
+		local pillarHeight = 44 * math.sqrt(sizeScale)
+		local centralPillar = Instance.new("Part")
+		centralPillar.Name = "FireSlamCentralSpire"
+		centralPillar.Shape = Enum.PartType.Cylinder
+		centralPillar.Size = Vector3.new(pillarHeight, 3.6 * sizeScale, 3.6 * sizeScale)
+		centralPillar.CFrame = CFrame.new(impactPos + Vector3.new(0, pillarHeight * 0.5, 0)) * CFrame.Angles(0, 0, math.rad(90))
+		centralPillar.Anchored = true
+		centralPillar.CanCollide = false
+		centralPillar.CanTouch = false
+		centralPillar.CanQuery = false
+		centralPillar.Material = Enum.Material.Neon
+		centralPillar.Color = Color3.fromRGB(255, 245, 190)
+		centralPillar.Transparency = 0.05
+		centralPillar.Parent = Workspace.Terrain
+
+		TweenService:Create(centralPillar, TweenInfo.new(0.50, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			Size = Vector3.new(pillarHeight + 6, 0.1, 0.1),
+			Transparency = 1,
+			Color = Color3.fromRGB(255, 80, 0),
+		}):Play()
+		Debris:AddItem(centralPillar, 0.58)
+
+		-- High-velocity roaring fire column
+		local columnFlames = Instance.new("ParticleEmitter")
+		columnFlames.Name = "FireSlamColumn"
+		columnFlames.Texture = "rbxassetid://258129523"
+		columnFlames.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 230)),
+			ColorSequenceKeypoint.new(0.25, Color3.fromRGB(255, 180, 30)),
+			ColorSequenceKeypoint.new(0.65, Color3.fromRGB(255, 60, 5)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 15, 0)),
+		})
+		columnFlames.Transparency = FLAME_TRANSPARENCY_SEQUENCE
+		columnFlames.LightEmission = 1
+		columnFlames.LightInfluence = 0
+		columnFlames.Rate = 0
+		columnFlames.Lifetime = NumberRange.new(0.65, 1.15)
+		columnFlames.Speed = NumberRange.new(55 * math.sqrt(sizeScale), 95 * math.sqrt(sizeScale))
+		columnFlames.SpreadAngle = Vector2.new(8, 8)
+		columnFlames.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 6.0 * sizeScale),
+			NumberSequenceKeypoint.new(0.3, 10.0 * sizeScale),
+			NumberSequenceKeypoint.new(1, 1.2 * sizeScale),
+		})
+		columnFlames.Parent = groundBurstAtt
+		columnFlames:Emit(math.floor(60 * math.clamp(sizeScale, 0.8, 1.5)))
+
+		-- Radial bursting flames
+		local radialFlames = makeFlameEmitter(groundBurstAtt, 0, 9.0 * sizeScale, 50 * sizeScale)
+		radialFlames.SpreadAngle = Vector2.new(180, 75)
+		radialFlames.Lifetime = NumberRange.new(0.45, 0.95)
+		radialFlames:Emit(math.floor(80 * math.clamp(sizeScale, 0.8, 1.5)))
+
+		-- Shower of 100+ sharp volcanic sparks
+		local burstEmbers = makeEmberEmitter(groundBurstAtt, 0)
+		burstEmbers.SpreadAngle = Vector2.new(180, 180)
+		burstEmbers.Speed = NumberRange.new(25 * sizeScale, 75 * sizeScale)
+		burstEmbers.Lifetime = NumberRange.new(0.7, 1.7)
+		burstEmbers.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.8 * sizeScale),
+			NumberSequenceKeypoint.new(1, 0.05),
+		})
+		burstEmbers:Emit(math.floor(110 * math.clamp(sizeScale, 0.8, 1.6)))
+
+		Debris:AddItem(groundBurstAtt, 2.5)
+
+		-- ─── 2f. 3D Tectonic Crust Slabs (Shattered Raised Crater Edge) ────────
+		local slabCount = 10
+		local craterRadius = 7.5 * sizeScale
+		for s = 1, slabCount do
+			local sAngle = (s / slabCount) * (math.pi * 2) + (math.random() - 0.5) * 0.25
+			local sDir = Vector3.new(math.cos(sAngle), 0, math.sin(sAngle))
+			local sPos = impactPos + sDir * (craterRadius + (math.random() * 2.5 * sizeScale))
+
+			local slabRay = Workspace:Raycast(sPos + Vector3.new(0, 10, 0), Vector3.new(0, -25, 0), rayParams)
+			local sGroundY = slabRay and slabRay.Position.Y or impactPos.Y
+
+			local slabWidth = (2.4 + math.random() * 1.6) * sizeScale
+			local slabLength = (3.2 + math.random() * 2.0) * sizeScale
+			local slabThickness = (0.8 + math.random() * 0.5) * sizeScale
+
+			-- Outer dark rock slab
+			local slab = Instance.new("Part")
+			slab.Name = "CraterSlab_" .. s
+			slab.Size = Vector3.new(slabWidth, slabThickness, slabLength)
+			slab.Material = Enum.Material.Basalt
+			slab.Color = Color3.fromRGB(30, 24, 20)
+			slab.Anchored = true
+			slab.CanCollide = false
+			slab.CanTouch = false
+			slab.CanQuery = false
+
+			-- Tilted upward and outward
+			local tiltAngle = math.rad(28 + math.random() * 20)
+			local slabCF = CFrame.lookAt(sPos, sPos + sDir) * CFrame.Angles(tiltAngle, 0, (math.random() - 0.5) * 0.4)
+			slab.CFrame = CFrame.new(sPos.X, sGroundY - slabThickness, sPos.Z) * slabCF.Rotation
+			slab.Parent = Workspace.Terrain
+
+			-- Inner molten magma seam
+			local magmaSeam = Instance.new("Part")
+			magmaSeam.Name = "MagmaSeam_" .. s
+			magmaSeam.Size = Vector3.new(slabWidth * 0.8, 0.15, slabLength * 0.8)
+			magmaSeam.Material = Enum.Material.Neon
+			magmaSeam.Color = Color3.fromRGB(255, 95, 10)
+			magmaSeam.Transparency = 0.15
+			magmaSeam.Anchored = true
+			magmaSeam.CanCollide = false
+			magmaSeam.CanTouch = false
+			magmaSeam.CanQuery = false
+			magmaSeam.CFrame = slab.CFrame * CFrame.new(0, -slabThickness * 0.4, 0)
+			magmaSeam.Parent = Workspace.Terrain
+
+			-- Burst slabs upward violently on impact
+			local targetSlabCFrame = CFrame.new(sPos.X, sGroundY + slabThickness * 0.4, sPos.Z) * slabCF.Rotation
+			TweenService:Create(slab, TweenInfo.new(0.12, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+				CFrame = targetSlabCFrame,
+			}):Play()
+			TweenService:Create(magmaSeam, TweenInfo.new(0.12, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+				CFrame = targetSlabCFrame * CFrame.new(0, -slabThickness * 0.4, 0),
+			}):Play()
+
+			-- Slabs settle, cool down and sink back into terrain
+			task.delay(1.6, function()
+				TweenService:Create(magmaSeam, TweenInfo.new(1.0), { Transparency = 1, Color = Color3.fromRGB(40, 10, 5) }):Play()
+				TweenService:Create(slab, TweenInfo.new(1.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+					CFrame = CFrame.new(sPos.X, sGroundY - slabThickness * 2, sPos.Z) * slabCF.Rotation,
+					Transparency = 1,
+				}):Play()
+				Debris:AddItem(slab, 1.6)
+				Debris:AddItem(magmaSeam, 1.6)
+			end)
+		end
+
+		-- ─── 2g. Volcanic Rock Debris Fountain (Physical Arc Simulation) ──────
+		local debrisCount = 16
+		for i = 1, debrisCount do
+			local dAngle = (i / debrisCount) * (math.pi * 2) + (math.random() - 0.5) * 0.4
+			local dDist = (7.0 + math.random() * 9.0) * sizeScale
+			local dEndPos = impactPos + Vector3.new(math.cos(dAngle) * dDist, 0, math.sin(dAngle) * dDist)
+
+			local dRay = Workspace:Raycast(dEndPos + Vector3.new(0, 12, 0), Vector3.new(0, -30, 0), rayParams)
+			local dGroundY = dRay and dRay.Position.Y or impactPos.Y
+			dEndPos = Vector3.new(dEndPos.X, dGroundY + 0.4, dEndPos.Z)
+
+			local dSize = Vector3.new(
+				1.2 + math.random() * 1.5,
+				1.0 + math.random() * 1.4,
+				1.2 + math.random() * 1.5
+			) * math.clamp(sizeScale, 0.75, 2.2)
+
+			local dRock = Instance.new("Part")
+			dRock.Name = "FireSlamDebrisRock_" .. i
+			dRock.Size = dSize
+			dRock.Position = impactPos + Vector3.new(0, 0.5, 0)
+			dRock.CFrame = CFrame.new(impactPos) * CFrame.Angles(math.random() * 6, math.random() * 6, math.random() * 6)
+			dRock.Anchored = true
+			dRock.CanCollide = false
+			dRock.CanTouch = false
+			dRock.CanQuery = false
+			dRock.Material = Enum.Material.Basalt
+			dRock.Color = Color3.fromRGB(30, 22, 18)
+			dRock.Parent = Workspace.Terrain
+
+			-- Fire trail attached to rock
+			local dRockAtt = Instance.new("Attachment")
+			dRockAtt.Parent = dRock
+
+			local dFlame = makeFlameEmitter(dRockAtt, 25, 2.4 * sizeScale, 12 * sizeScale)
+			dFlame.SpreadAngle = Vector2.new(180, 180)
+			dFlame.Lifetime = NumberRange.new(0.25, 0.6)
+
+			local dEmbers = makeEmberEmitter(dRockAtt, 18)
+			dEmbers.Speed = NumberRange.new(4 * sizeScale, 12 * sizeScale)
+			dEmbers.Lifetime = NumberRange.new(0.35, 0.8)
+
+			-- Launch rock along explosive arc
+			task.spawn(function()
+				local apexY = impactPos.Y + (8.0 + math.random() * 10.0) * math.sqrt(sizeScale)
+				local flyDuration = 0.36 + math.random() * 0.20
+				local dStartTime = os.clock()
+				local rotSpeedX = (math.random() - 0.5) * 16
+				local rotSpeedY = (math.random() - 0.5) * 16
+				local rotSpeedZ = (math.random() - 0.5) * 16
+
+				while os.clock() - dStartTime < flyDuration do
+					local rAlpha = math.clamp((os.clock() - dStartTime) / flyDuration, 0, 1)
+					local rY = impactPos.Y + (apexY - impactPos.Y) * (4 * rAlpha * (1 - rAlpha)) + (dGroundY - impactPos.Y) * (rAlpha * rAlpha)
+					local rPos = impactPos:Lerp(dEndPos, rAlpha)
+					rPos = Vector3.new(rPos.X, rY, rPos.Z)
+
+					dRock.CFrame = CFrame.new(rPos) * CFrame.Angles(rotSpeedX * rAlpha, rotSpeedY * rAlpha, rotSpeedZ * rAlpha)
+					RunService.RenderStepped:Wait()
 				end
-			end
-			Debris:AddItem(missileInstance, 0.35)
-		end
-	end)
-end
 
-function SkillController.LaunchMissile(casterChar: Model)
-	task.spawn(function()
-		local charPlayer = Players:GetPlayerFromCharacter(casterChar) or (player.Character == casterChar and player)
-		local extraProjectiles = 0
-		if charPlayer then
-			extraProjectiles = math.max(0, math.floor(charPlayer:GetAttribute("Stat_projectileCount") or 0))
+				-- Settle into ground rubble
+				dRock.CFrame = CFrame.new(dEndPos) * CFrame.Angles(math.random() * 6, math.random() * 6, 0)
+
+				-- Cool down and dissolve
+				task.delay(1.3, function()
+					dFlame.Enabled = false
+					dEmbers.Enabled = false
+					TweenService:Create(dRock, TweenInfo.new(1.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+						Position = dEndPos - Vector3.new(0, dSize.Y + 0.5, 0),
+						Transparency = 1,
+					}):Play()
+					Debris:AddItem(dRock, 1.4)
+				end)
+			end)
 		end
-		local missileCount = 5 + extraProjectiles
-		for i = 1, missileCount do
-			if not casterChar or not casterChar.Parent then break end
-			launchSingleMissile(casterChar, i)
-			task.wait(0.055)
+
+		-- ─── 2h. Crown of Vertical Flame Needle Spires ─────────────────────────
+		local spikeCount = 9
+		for i = 1, spikeCount do
+			local angle = (i / spikeCount) * (math.pi * 2) + (math.random() - 0.5) * 0.35
+			local spikeDist = (4.5 + math.random() * 4.5) * sizeScale
+			local spikePos = impactPos + Vector3.new(math.cos(angle) * spikeDist, 0, math.sin(angle) * spikeDist)
+
+			task.delay(i * 0.015, function()
+				local spike = Instance.new("Part")
+				spike.Name = "FireSpike_" .. i
+				spike.Size = Vector3.new(1.6 * sizeScale, 0.6, 1.6 * sizeScale)
+				spike.CFrame = CFrame.new(spikePos)
+				spike.Anchored = true
+				spike.CanCollide = false
+				spike.CanTouch = false
+				spike.CanQuery = false
+				spike.Material = Enum.Material.Neon
+				spike.Color = Color3.fromRGB(255, 120, 15)
+				spike.Transparency = 0.15
+				spike.Parent = Workspace.Terrain
+
+				local targetHeight = (10 + math.random() * 12) * math.sqrt(sizeScale)
+				TweenService:Create(spike, TweenInfo.new(0.14, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+					Size = Vector3.new(1.6 * sizeScale, targetHeight, 1.6 * sizeScale),
+					CFrame = CFrame.new(spikePos + Vector3.new(0, targetHeight * 0.5, 0)),
+				}):Play()
+
+				local spikeAtt = Instance.new("Attachment")
+				spikeAtt.Parent = spike
+				local spikePE = makeFlameEmitter(spikeAtt, 45, 4.5 * sizeScale, 22 * sizeScale)
+				spikePE.SpreadAngle = Vector2.new(20, 20)
+
+				task.delay(0.35, function()
+					spikePE.Enabled = false
+					TweenService:Create(spike, TweenInfo.new(0.40, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+						Size = Vector3.new(0.2, 0.2, 0.2),
+						Transparency = 1,
+					}):Play()
+					Debris:AddItem(spike, 0.50)
+				end)
+			end)
+		end
+
+		-- ─── 2i. Molten Ground Crater Disc & Radiating Lava Fractures ──────────
+		local crater = Instance.new("Part")
+		crater.Name = "FireSlamCrater"
+		crater.Shape = Enum.PartType.Cylinder
+		crater.Size = Vector3.new(0.08, 17 * sizeScale, 17 * sizeScale)
+		crater.CFrame = CFrame.new(impactPos - Vector3.new(0, 0.04, 0)) * CFrame.Angles(0, 0, math.rad(90))
+		crater.Anchored = true
+		crater.CanCollide = false
+		crater.CanTouch = false
+		crater.CanQuery = false
+		crater.Material = Enum.Material.Neon
+		crater.Color = Color3.fromRGB(255, 75, 10)
+		crater.Transparency = 0.25
+		crater.Parent = Workspace.Terrain
+
+		task.delay(0.8, function()
+			TweenService:Create(crater, TweenInfo.new(1.6, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+				Transparency = 1,
+				Color = Color3.fromRGB(40, 10, 5),
+			}):Play()
+			Debris:AddItem(crater, 1.8)
+		end)
+
+		-- Radiating magma cracks
+		for f = 1, 10 do
+			local fAngle = (f / 10) * (math.pi * 2) + (math.random() - 0.5) * 0.3
+			local fDir = Vector3.new(math.cos(fAngle), 0, math.sin(fAngle))
+			local fLength = (10 + math.random() * 8) * sizeScale
+			local fCenter = impactPos + fDir * (fLength * 0.5)
+
+			local fracture = Instance.new("Part")
+			fracture.Name = "FireFracture_" .. f
+			fracture.Size = Vector3.new(0.7 * sizeScale, 0.05, fLength)
+			fracture.CFrame = CFrame.lookAt(fCenter, fCenter + fDir)
+			fracture.Anchored = true
+			fracture.CanCollide = false
+			fracture.CanTouch = false
+			fracture.CanQuery = false
+			fracture.Material = Enum.Material.Neon
+			fracture.Color = Color3.fromRGB(255, 130, 15)
+			fracture.Transparency = 0.2
+			fracture.Parent = Workspace.Terrain
+
+			task.delay(0.5, function()
+				TweenService:Create(fracture, TweenInfo.new(1.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+					Transparency = 1,
+					Color = Color3.fromRGB(30, 8, 2),
+				}):Play()
+				Debris:AddItem(fracture, 1.5)
+			end)
 		end
 	end)
 end
@@ -2036,21 +2299,408 @@ local function spawnPoisonEmitter(center: Vector3, radius: number, duration: num
 	end)
 end
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Skill 1: Verdant Slash VFX (Instant Piercing Nature Dash & Clean Lingering Slash)
+-- ─────────────────────────────────────────────────────────────────────────────
+local function spawnRangerDashAfterimages(char: Model, startPos: Vector3, endPos: Vector3, flatDir: Vector3)
+	local partsToClone: { BasePart } = {}
+	for _, desc in ipairs(char:GetDescendants()) do
+		if desc:IsA("BasePart") and desc.Transparency < 0.9 and desc.Name ~= "HumanoidRootPart" then
+			table.insert(partsToClone, desc)
+		end
+	end
+	if #partsToClone == 0 then return end
+
+	local ghostModel = Instance.new("Model")
+	ghostModel.Name = "RangerDashGhost"
+	ghostModel.Parent = Workspace.Terrain
+
+	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local currentRootCF = rootPart and rootPart.CFrame or CFrame.new(startPos)
+	local sampleAlphas = { 0.25, 0.60, 0.90 }
+
+	for _, alpha in ipairs(sampleAlphas) do
+		local samplePos = startPos:Lerp(endPos, alpha)
+		local sampleCF = CFrame.lookAt(samplePos, samplePos + flatDir)
+		local offsetFromRoot = currentRootCF:Inverse()
+
+		for _, p in ipairs(partsToClone) do
+			local ghostPart = Instance.new("Part")
+			ghostPart.Name = "GhostPart"
+			ghostPart.Size = p.Size
+			ghostPart.Material = Enum.Material.Neon
+			ghostPart.Color = Color3.fromRGB(135, 255, 80)
+			ghostPart.Transparency = 0.5
+			ghostPart.CanCollide = false
+			ghostPart.CanTouch = false
+			ghostPart.CanQuery = false
+			ghostPart.Anchored = true
+			ghostPart.CFrame = sampleCF * (offsetFromRoot * p.CFrame)
+			ghostPart.Parent = ghostModel
+
+			TweenService:Create(ghostPart, TweenInfo.new(0.24, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Transparency = 1,
+				Size = p.Size * 1.08,
+			}):Play()
+		end
+	end
+
+	Debris:AddItem(ghostModel, 0.3)
+end
+
+local function spawnVerdantPierceHitEffect(targetRoot: BasePart, dashDir: Vector3)
+	local targetPos = targetRoot.Position + Vector3.new(0, 0.5, 0)
+	local holder = Instance.new("Part")
+	holder.Name = "VerdantHitEffect"
+	holder.Size = Vector3.new(0.2, 0.2, 0.2)
+	holder.Transparency = 1
+	holder.CanCollide = false
+	holder.CanTouch = false
+	holder.CanQuery = false
+	holder.Anchored = true
+	holder.CFrame = CFrame.new(targetPos)
+	holder.Parent = Workspace.Terrain
+
+	local att = Instance.new("Attachment")
+	att.Parent = holder
+
+	-- 1. Sharp nature leaves radiating outward (Reference Panel 3)
+	local leavesPE = Instance.new("ParticleEmitter")
+	leavesPE.Name = "PierceLeaves"
+	leavesPE.Texture = "rbxassetid://258128463"
+	leavesPE.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(220, 255, 130)),
+		ColorSequenceKeypoint.new(0.4, Color3.fromRGB(150, 255, 75)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 200, 45)),
+	})
+	leavesPE.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.7, 0.2),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	leavesPE.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.8),
+		NumberSequenceKeypoint.new(0.5, 0.65),
+		NumberSequenceKeypoint.new(1, 0.1),
+	})
+	leavesPE.Lifetime = NumberRange.new(0.35, 0.65)
+	leavesPE.Speed = NumberRange.new(12, 26)
+	leavesPE.SpreadAngle = Vector2.new(180, 60)
+	leavesPE.Rotation = NumberRange.new(0, 360)
+	leavesPE.RotSpeed = NumberRange.new(-180, 180)
+	leavesPE.LightEmission = 0.8
+	leavesPE.Parent = att
+	leavesPE:Emit(18)
+
+	-- 2. Sharp energy spark particles / shards
+	local sparkPE = Instance.new("ParticleEmitter")
+	sparkPE.Name = "PierceSparks"
+	sparkPE.Texture = "rbxassetid://241594419"
+	sparkPE.Color = ColorSequence.new(Color3.fromRGB(210, 255, 120), Color3.fromRGB(110, 245, 60))
+	sparkPE.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.8, 0.3),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	sparkPE.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.55),
+		NumberSequenceKeypoint.new(1, 0.05),
+	})
+	sparkPE.Lifetime = NumberRange.new(0.25, 0.45)
+	sparkPE.Speed = NumberRange.new(15, 32)
+	sparkPE.SpreadAngle = Vector2.new(180, 45)
+	sparkPE.LightEmission = 1
+	sparkPE.Parent = att
+	sparkPE:Emit(24)
+
+	-- 3. Sharp piercing energy slash blades cutting across target body
+	for i = 1, 2 do
+		local slashBlade = Instance.new("Part")
+		slashBlade.Name = "PierceSlashCut"
+		slashBlade.Size = Vector3.new(0.15, 0.3, 4.2)
+		slashBlade.Material = Enum.Material.Neon
+		slashBlade.Color = (i == 1) and Color3.fromRGB(235, 255, 160) or Color3.fromRGB(130, 255, 65)
+		slashBlade.Transparency = 0.1
+		slashBlade.CanCollide = false
+		slashBlade.CanTouch = false
+		slashBlade.CanQuery = false
+		slashBlade.Anchored = true
+		local rollAngle = (i == 1) and 35 or -40
+		slashBlade.CFrame = CFrame.lookAt(targetPos, targetPos + dashDir) * CFrame.Angles(0, 0, math.rad(rollAngle))
+		slashBlade.Parent = holder
+
+		TweenService:Create(slashBlade, TweenInfo.new(0.28, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Transparency = 1,
+			Size = Vector3.new(0.05, 0.1, 5.5),
+		}):Play()
+	end
+
+	-- 4. Emerald PointLight flash
+	local pLight = Instance.new("PointLight")
+	pLight.Color = Color3.fromRGB(145, 255, 80)
+	pLight.Brightness = 4.5
+	pLight.Range = 12
+	pLight.Parent = holder
+
+	TweenService:Create(pLight, TweenInfo.new(0.24), { Brightness = 0 }):Play()
+	Debris:AddItem(holder, 0.7)
+end
+
+local function playRangerVerdantSlashVFX(casterChar: Model, startPos: Vector3, endPos: Vector3, flatDir: Vector3, actualDist: number)
+	local midPos = startPos:Lerp(endPos, 0.5)
+
+	local slashModel = Instance.new("Model")
+	slashModel.Name = "VerdantSlashPathVFX"
+	slashModel.Parent = Workspace.Terrain
+
+	-- Core anchor part for attachments
+	local anchor = Instance.new("Part")
+	anchor.Name = "SlashAnchor"
+	anchor.Size = Vector3.new(0.1, 0.1, 0.1)
+	anchor.Transparency = 1
+	anchor.CanCollide = false
+	anchor.CanTouch = false
+	anchor.CanQuery = false
+	anchor.Anchored = true
+	anchor.CFrame = CFrame.new(midPos)
+	anchor.Parent = slashModel
+
+	local startAtt = Instance.new("Attachment")
+	startAtt.Name = "StartAtt"
+	startAtt.WorldPosition = startPos + Vector3.new(0, 1.2, 0)
+	startAtt.Parent = anchor
+
+	local midAtt = Instance.new("Attachment")
+	midAtt.Name = "MidAtt"
+	midAtt.WorldPosition = midPos + Vector3.new(0, 1.2, 0)
+	midAtt.Parent = anchor
+
+	local endAtt = Instance.new("Attachment")
+	endAtt.Name = "EndAtt"
+	endAtt.WorldPosition = endPos + Vector3.new(0, 1.2, 0)
+	endAtt.Parent = anchor
+
+	-- 1. Outer Nature Aura Beams (double-tapered blade: 0 -> 2.6 -> 0 studs)
+	local auraBeam1 = Instance.new("Beam")
+	auraBeam1.Name = "AuraBeam1"
+	auraBeam1.Attachment0 = startAtt
+	auraBeam1.Attachment1 = midAtt
+	auraBeam1.Width0 = 0.08
+	auraBeam1.Width1 = 2.6
+	auraBeam1.Color = ColorSequence.new(Color3.fromRGB(150, 255, 80), Color3.fromRGB(90, 235, 50))
+	auraBeam1.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.3),
+		NumberSequenceKeypoint.new(1, 0.05),
+	})
+	auraBeam1.LightEmission = 1
+	auraBeam1.FaceCamera = true
+	auraBeam1.Parent = anchor
+
+	local auraBeam2 = Instance.new("Beam")
+	auraBeam2.Name = "AuraBeam2"
+	auraBeam2.Attachment0 = midAtt
+	auraBeam2.Attachment1 = endAtt
+	auraBeam2.Width0 = 2.6
+	auraBeam2.Width1 = 0.08
+	auraBeam2.Color = ColorSequence.new(Color3.fromRGB(90, 235, 50), Color3.fromRGB(150, 255, 80))
+	auraBeam2.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.05),
+		NumberSequenceKeypoint.new(1, 0.3),
+	})
+	auraBeam2.LightEmission = 1
+	auraBeam2.FaceCamera = true
+	auraBeam2.Parent = anchor
+
+	-- 2. Inner Brilliant White-Lime Blade Core (0 -> 0.9 -> 0 studs)
+	local coreBeam1 = Instance.new("Beam")
+	coreBeam1.Name = "CoreBeam1"
+	coreBeam1.Attachment0 = startAtt
+	coreBeam1.Attachment1 = midAtt
+	coreBeam1.Width0 = 0.04
+	coreBeam1.Width1 = 0.9
+	coreBeam1.Color = ColorSequence.new(Color3.fromRGB(245, 255, 200), Color3.fromRGB(200, 255, 140))
+	coreBeam1.Transparency = NumberSequence.new(0)
+	coreBeam1.LightEmission = 1
+	coreBeam1.FaceCamera = true
+	coreBeam1.Parent = anchor
+
+	local coreBeam2 = Instance.new("Beam")
+	coreBeam2.Name = "CoreBeam2"
+	coreBeam2.Attachment0 = midAtt
+	coreBeam2.Attachment1 = endAtt
+	coreBeam2.Width0 = 0.9
+	coreBeam2.Width1 = 0.04
+	coreBeam2.Color = ColorSequence.new(Color3.fromRGB(200, 255, 140), Color3.fromRGB(245, 255, 200))
+	coreBeam2.Transparency = NumberSequence.new(0)
+	coreBeam2.LightEmission = 1
+	coreBeam2.FaceCamera = true
+	coreBeam2.Parent = anchor
+
+	-- 3. Sharp 3D Neon Blade Centerpiece
+	local blade = Instance.new("Part")
+	blade.Name = "VerdantSlashBlade"
+	blade.Size = Vector3.new(0.18, 0.45, actualDist)
+	blade.Material = Enum.Material.Neon
+	blade.Color = Color3.fromRGB(175, 255, 95)
+	blade.Transparency = 0.15
+	blade.CanCollide = false
+	blade.CanTouch = false
+	blade.CanQuery = false
+	blade.Anchored = true
+	blade.CFrame = CFrame.lookAt(midPos + Vector3.new(0, 1.2, 0), endPos + Vector3.new(0, 1.2, 0))
+	blade.Parent = slashModel
+
+	-- Subtle ground trace strip
+	local groundStrip = Instance.new("Part")
+	groundStrip.Name = "VerdantGroundStrip"
+	groundStrip.Size = Vector3.new(0.8, 0.05, actualDist)
+	groundStrip.Material = Enum.Material.Neon
+	groundStrip.Color = Color3.fromRGB(120, 240, 60)
+	groundStrip.Transparency = 0.55
+	groundStrip.CanCollide = false
+	groundStrip.CanTouch = false
+	groundStrip.CanQuery = false
+	groundStrip.Anchored = true
+	groundStrip.CFrame = CFrame.lookAt(midPos + Vector3.new(0, 0.08, 0), endPos + Vector3.new(0, 0.08, 0))
+	groundStrip.Parent = slashModel
+
+	-- 4. Floating leaves gently suspended & drifting along the slash (Panel 2)
+	local slashLeaves = Instance.new("ParticleEmitter")
+	slashLeaves.Name = "SlashPathLeaves"
+	slashLeaves.Texture = "rbxassetid://258128463"
+	slashLeaves.Color = ColorSequence.new(Color3.fromRGB(180, 255, 100), Color3.fromRGB(100, 230, 60))
+	slashLeaves.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.1),
+		NumberSequenceKeypoint.new(0.7, 0.25),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	slashLeaves.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.65),
+		NumberSequenceKeypoint.new(0.5, 0.5),
+		NumberSequenceKeypoint.new(1, 0.15),
+	})
+	slashLeaves.Lifetime = NumberRange.new(0.4, 0.75)
+	slashLeaves.Speed = NumberRange.new(2, 5)
+	slashLeaves.SpreadAngle = Vector2.new(180, 180)
+	slashLeaves.Rotation = NumberRange.new(0, 360)
+	slashLeaves.RotSpeed = NumberRange.new(-60, 60)
+	slashLeaves.LightEmission = 0.7
+	slashLeaves.Parent = midAtt
+	slashLeaves:Emit(22)
+
+	-- 5. Arrowhead / piercing tip flare at end position (Panel 1)
+	local flareSpike1 = Instance.new("Part")
+	flareSpike1.Name = "ArrowheadSpike1"
+	flareSpike1.Size = Vector3.new(0.22, 0.22, 4.2)
+	flareSpike1.Material = Enum.Material.Neon
+	flareSpike1.Color = Color3.fromRGB(235, 255, 160)
+	flareSpike1.CanCollide = false
+	flareSpike1.CanTouch = false
+	flareSpike1.CanQuery = false
+	flareSpike1.Anchored = true
+	flareSpike1.CFrame = CFrame.lookAt(endPos + Vector3.new(0, 1.2, 0), endPos + Vector3.new(0, 1.2, 0) + flatDir)
+	flareSpike1.Parent = slashModel
+
+	local flareSpike2 = Instance.new("Part")
+	flareSpike2.Name = "ArrowheadSpike2"
+	flareSpike2.Size = Vector3.new(3.6, 0.22, 0.22)
+	flareSpike2.Material = Enum.Material.Neon
+	flareSpike2.Color = Color3.fromRGB(150, 255, 80)
+	flareSpike2.CanCollide = false
+	flareSpike2.CanTouch = false
+	flareSpike2.CanQuery = false
+	flareSpike2.Anchored = true
+	flareSpike2.CFrame = flareSpike1.CFrame * CFrame.Angles(0, 0, math.rad(45))
+	flareSpike2.Parent = slashModel
+
+	TweenService:Create(flareSpike1, TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Transparency = 1,
+		Size = Vector3.new(0.05, 0.05, 5.6),
+	}):Play()
+	TweenService:Create(flareSpike2, TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Transparency = 1,
+		Size = Vector3.new(4.8, 0.05, 0.05),
+	}):Play()
+
+	-- 6. Emerald PointLight illuminating the path
+	local pLight = Instance.new("PointLight")
+	pLight.Color = Color3.fromRGB(130, 255, 75)
+	pLight.Brightness = 4.0
+	pLight.Range = 16
+	pLight.Parent = midAtt
+
+	-- 7. Visual Hit Effect on all pierced targets in path (Panel 3)
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if desc:IsA("Model") and desc ~= casterChar and not desc:IsDescendantOf(casterChar) and not desc:FindFirstAncestorOfClass("Accessory") then
+			local hum = desc:FindFirstChildOfClass("Humanoid")
+			local root = (desc:FindFirstChild("HumanoidRootPart") or desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")) :: BasePart?
+			if hum and hum.Health > 0 and root then
+				local diff = root.Position - startPos
+				local along = diff:Dot(flatDir)
+				if along >= -0.5 and along <= (actualDist + 1.0) then
+					local closestPoint = startPos + flatDir * math.clamp(along, 0, actualDist)
+					local lateralDist = (Vector3.new(root.Position.X, startPos.Y, root.Position.Z) - closestPoint).Magnitude
+					if lateralDist <= 6.0 then
+						spawnVerdantPierceHitEffect(root, flatDir)
+					end
+				end
+			end
+		end
+	end
+
+	-- 8. Lingering duration & clean fade out (Panel 2: "A single, clean slash remains in the path of the dash")
+	task.delay(0.42, function()
+		slashLeaves.Enabled = false
+		local fadeInfo = TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		TweenService:Create(blade, fadeInfo, { Transparency = 1 }):Play()
+		TweenService:Create(groundStrip, fadeInfo, { Transparency = 1 }):Play()
+		TweenService:Create(pLight, fadeInfo, { Brightness = 0 }):Play()
+		TweenService:Create(auraBeam1, fadeInfo, { Width1 = 0 }):Play()
+		TweenService:Create(auraBeam2, fadeInfo, { Width0 = 0 }):Play()
+		TweenService:Create(coreBeam1, fadeInfo, { Width1 = 0 }):Play()
+		TweenService:Create(coreBeam2, fadeInfo, { Width0 = 0 }):Play()
+		task.delay(0.24, function()
+			slashModel:Destroy()
+		end)
+	end)
+end
+
 local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vector3, lookDir: Vector3, targetPosition: Vector3?, projectileCountParam: number?)
 	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not rootPart then return end
 	local baseOrigin = rootPart.Position + Vector3.new(0, 1.35, 0)
 
 	if skillIndex == 1 then
-		local casterPlayer = Players:GetPlayerFromCharacter(char) or (player.Character == char and player)
-		local extraCount = typeof(projectileCountParam) == "number" and projectileCountParam or (casterPlayer and math.max(0, math.floor(casterPlayer:GetAttribute("Stat_projectileCount") or 0)) or 0)
-		local totalProjectiles = 5 + extraCount
-		local stepAngle = 9.5
-		local totalSpread = (totalProjectiles - 1) * stepAngle
-		local startAngle = -totalSpread / 2
-		for index = 1, totalProjectiles do
-			local angle = startAngle + (index - 1) * stepAngle
-			makeRangerArrow(baseOrigin + rotatedFlat(lookDir, angle) * 2, rotatedFlat(lookDir, angle), 64, NATURE_GREEN, 0.24, 0.32)
+		local flatDir = flatUnit(lookDir)
+		local dashDist = 32
+		local rayParams = RaycastParams.new()
+		rayParams.FilterType = Enum.RaycastFilterType.Exclude
+		local ignoreList: { Instance } = { char }
+		for _, desc in ipairs(Workspace:GetDescendants()) do
+			if desc:IsA("Model") and (desc:FindFirstChildOfClass("Humanoid") or desc:FindFirstAncestorOfClass("Accessory")) then
+				table.insert(ignoreList, desc)
+			end
+		end
+		rayParams.FilterDescendantsInstances = ignoreList
+		rayParams.IgnoreWater = true
+
+		local forwardRay = Workspace:Raycast(origin + Vector3.new(0, 1.2, 0), flatDir * dashDist, rayParams)
+		local actualDist = dashDist
+		if forwardRay and forwardRay.Distance > 0 then
+			actualDist = math.max(3.0, forwardRay.Distance - 1.5)
+		end
+		local endPos = origin + flatDir * actualDist
+		local groundRay = Workspace:Raycast(endPos + Vector3.new(0, 4, 0), Vector3.new(0, -10, 0), rayParams)
+		if groundRay then
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			local hipHeight = hum and hum.HipHeight or 2.0
+			endPos = Vector3.new(endPos.X, groundRay.Position.Y + (rootPart.Size.Y * 0.5) + hipHeight, endPos.Z)
+		end
+
+		if char ~= player.Character then
+			-- Replicated for other players
+			spawnRangerDashAfterimages(char, origin, endPos, flatDir)
+			playRangerVerdantSlashVFX(char, origin, endPos, flatDir, actualDist)
 		end
 	elseif skillIndex == 2 then
 		local arrowStart = baseOrigin + flatUnit(lookDir) * 2
@@ -2224,8 +2874,12 @@ function SkillController.UseSkill(skillIndex: number)
 	-- Calculate Aim Direction
 	local cursorPosition = getCursorWorldPosition(rootPart)
 	local aimDir = getAimDirection(rootPart)
-	local rangerTargetPosition = classId == "ranger" and (skillIndex == 3 or skillIndex == 4)
-		and clampRangerCursorTarget(rootPart.Position, cursorPosition, config.range or 42, aimDir) or nil
+	local skillTargetPosition = nil
+	if classId == "ranger" and (skillIndex == 3 or skillIndex == 4) then
+		skillTargetPosition = clampRangerCursorTarget(rootPart.Position, cursorPosition, config.range or 42, aimDir)
+	elseif classId == "heavy_knight" and skillIndex == 2 then
+		skillTargetPosition = clampRangerCursorTarget(rootPart.Position, cursorPosition, config.maxLeapDistance or 42, aimDir)
+	end
 
 	-- Pivot character towards aim direction smoothly
 	local targetCF = CFrame.lookAt(rootPart.Position, rootPart.Position + aimDir)
@@ -2235,17 +2889,73 @@ function SkillController.UseSkill(skillIndex: number)
 	char:SetAttribute("IsSkillCasting", true)
 
 	if classId == "ranger" then
-		char:SetAttribute("AllowSkillMovement", true)
-		local track = getSkillTrack(char, skillIndex)
-		if track then
-			track:Play(0.08)
-		end
-		local castLock = skillIndex == 4 and 1.1 or 0.35
-		task.delay(castLock, function()
-			char:SetAttribute("IsSkillCasting", false)
+		if skillIndex == 1 then
+			-- Skill 1: Verdant Slash (Instant Piercing Nature Dash)
 			char:SetAttribute("AllowSkillMovement", false)
-		end)
-		playRangerSkillVFX(char, skillIndex, rootPart.Position, aimDir, rangerTargetPosition)
+			local track = getSkillTrack(char, 1)
+			if track then
+				track.Priority = Enum.AnimationPriority.Action4
+				track:Play(0.04)
+				track:AdjustSpeed(2.4)
+			end
+
+			local origin = rootPart.Position
+			local flatDir = flatUnit(aimDir)
+			local dashDist = config.dashDistance or 32
+
+			local rayParams = RaycastParams.new()
+			rayParams.FilterType = Enum.RaycastFilterType.Exclude
+			local ignoreList: { Instance } = { char }
+			for _, desc in ipairs(Workspace:GetDescendants()) do
+				if desc:IsA("Model") and (desc:FindFirstChildOfClass("Humanoid") or desc:FindFirstAncestorOfClass("Accessory")) then
+					table.insert(ignoreList, desc)
+				end
+			end
+			rayParams.FilterDescendantsInstances = ignoreList
+			rayParams.IgnoreWater = true
+
+			local forwardRay = Workspace:Raycast(origin + Vector3.new(0, 1.2, 0), flatDir * dashDist, rayParams)
+			local actualDist = dashDist
+			if forwardRay and forwardRay.Distance > 0 then
+				actualDist = math.max(3.0, forwardRay.Distance - 1.5)
+			end
+
+			local endPos = origin + flatDir * actualDist
+			local groundRay = Workspace:Raycast(endPos + Vector3.new(0, 4, 0), Vector3.new(0, -10, 0), rayParams)
+			if groundRay then
+				local hipHeight = humanoid.HipHeight or 2.0
+				endPos = Vector3.new(endPos.X, groundRay.Position.Y + (rootPart.Size.Y * 0.5) + hipHeight, endPos.Z)
+			end
+
+			-- Spawn afterimage ghost silhouettes along the path
+			spawnRangerDashAfterimages(char, origin, endPos, flatDir)
+
+			-- Instant dash snap
+			rootPart.CFrame = CFrame.lookAt(endPos, endPos + flatDir)
+			rootPart.AssemblyLinearVelocity = Vector3.zero
+
+			-- Camera shake for punchy tactile response
+			triggerCameraShake(0.38, 0.2)
+
+			task.delay(0.12, function()
+				char:SetAttribute("IsSkillCasting", false)
+				char:SetAttribute("AllowSkillMovement", false)
+			end)
+
+			playRangerVerdantSlashVFX(char, origin, endPos, flatDir, actualDist)
+		else
+			char:SetAttribute("AllowSkillMovement", true)
+			local track = getSkillTrack(char, skillIndex)
+			if track then
+				track:Play(0.08)
+			end
+			local castLock = skillIndex == 4 and 1.1 or 0.35
+			task.delay(castLock, function()
+				char:SetAttribute("IsSkillCasting", false)
+				char:SetAttribute("AllowSkillMovement", false)
+			end)
+			playRangerSkillVFX(char, skillIndex, rootPart.Position, aimDir, skillTargetPosition)
+		end
 	elseif classId == "heavy_knight" and skillIndex == 1 then
 		-- Spin attack allows moving for the 5s duration, but blocks other spells/attacks
 		char:SetAttribute("AllowSkillMovement", true)
@@ -2274,10 +2984,20 @@ function SkillController.UseSkill(skillIndex: number)
 		end
 		playSpinAttackVFX(char, rootPart.Position, aimDir)
 	elseif classId == "heavy_knight" and skillIndex == 2 then
-		-- Skill 2: Missile Barrage Buff (instant cast buff, enables missile launch on every attack)
-		char:SetAttribute("AllowSkillMovement", true)
-		char:SetAttribute("IsSkillCasting", false)
-		playMissileBuffVFX(char)
+		-- Skill 2: Fire Slam (High parabolic leap slam into fiery explosion)
+		char:SetAttribute("AllowSkillMovement", false)
+		local track = getSkillTrack(char, 2)
+		if track then
+			track.Priority = Enum.AnimationPriority.Action4
+			track:Play(0.06)
+		end
+		local slamTarget = skillTargetPosition or (rootPart.Position + aimDir * 28)
+		local sizeMult = player:GetAttribute("Stat_size") or 1.0
+		task.delay(0.80, function()
+			char:SetAttribute("IsSkillCasting", false)
+			char:SetAttribute("AllowSkillMovement", false)
+		end)
+		playFireSlamVFX(char, rootPart.Position, slamTarget, sizeMult)
 	elseif classId == "heavy_knight" and skillIndex == 3 then
 		char:SetAttribute("AllowSkillMovement", true)
 		local track = getSkillTrack(char, 3)
@@ -2316,7 +3036,7 @@ function SkillController.UseSkill(skillIndex: number)
 			skillIndex = skillIndex,
 			origin = rootPart.Position,
 			direction = aimDir,
-			targetPosition = rangerTargetPosition,
+			targetPosition = skillTargetPosition,
 		})
 	end)
 
@@ -2460,11 +3180,6 @@ local function performBasicAttack()
 	-- Fire server Remote for basic attack damage
 	local performAttackRemote = Network.GetRemoteEvent(Network.Remotes.PerformAttack)
 	performAttackRemote:FireServer({ direction = aimDirection })
-
-	-- If Missile Barrage buff is active, launch missile
-	if char:GetAttribute("IsMissileBuffActive") == true then
-		SkillController.LaunchMissile(char)
-	end
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -2581,7 +3296,8 @@ function SkillController.Init()
 		elseif classId == "heavy_knight" and skillIndex == 1 then
 			playSpinAttackVFX(char, origin, direction)
 		elseif classId == "heavy_knight" and skillIndex == 2 then
-			playMissileBuffVFX(char)
+			local landingPos = payload.targetPosition or (origin + direction * 28)
+			playFireSlamVFX(char, origin, landingPos, payload.areaMultiplier)
 		elseif classId == "heavy_knight" and skillIndex == 3 then
 			playPhoenixDashVFX(char, origin, direction)
 		elseif classId == "heavy_knight" and skillIndex == 4 then
