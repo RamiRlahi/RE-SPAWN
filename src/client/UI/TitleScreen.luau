@@ -28,7 +28,7 @@ local function addOrnament(parent: Instance, position: UDim2, anchorPoint: Vecto
 	ornament.AnchorPoint = anchorPoint
 	ornament.Position = position
 	ornament.BackgroundTransparency = 1
-	ornament.Text = "✦"
+	ornament.Text = "❖"
 	ornament.Font = Enum.Font.Antique
 	ornament.TextSize = 26
 	ornament.TextColor3 = BRASS_LIGHT
@@ -37,12 +37,13 @@ local function addOrnament(parent: Instance, position: UDim2, anchorPoint: Vecto
 	ornament.Rotation = rotation
 	ornament.ZIndex = 3
 	ornament.Parent = parent
+	return ornament
 end
 
 local function createButton(parent: Instance, label: string, order: number, onClick: () -> ())
 	local button = Instance.new("TextButton")
 	button.Name = label:gsub("%s+", "") .. "Button"
-	button.Size = UDim2.new(1, 0, 0, 76)
+	button.Size = UDim2.new(1, 0, 0, 52)
 	button.BackgroundColor3 = PLAQUE
 	button.BorderSizePixel = 0
 	button.AutoButtonColor = false
@@ -56,23 +57,23 @@ local function createButton(parent: Instance, label: string, order: number, onCl
 	local depthShadow = Instance.new("Frame")
 	depthShadow.Name = "PlaqueDepthShadow"
 	depthShadow.Size = UDim2.new(1, 2, 1, 2)
-	depthShadow.Position = UDim2.fromOffset(-3, 9)
+	depthShadow.Position = UDim2.fromOffset(-2, 5)
 	depthShadow.BackgroundColor3 = Color3.fromRGB(8, 5, 4)
-	depthShadow.BackgroundTransparency = 0.22
+	depthShadow.BackgroundTransparency = 0.28
 	depthShadow.BorderSizePixel = 0
 	depthShadow.ZIndex = 0
 	depthShadow.Parent = button
 
 	local scale = Instance.new("UIScale")
 	scale.Parent = button
-	local outerStroke = UITheme.AddStroke(button, Color3.fromRGB(96, 58, 26), 3, 0)
+	local outerStroke = UITheme.AddStroke(button, Color3.fromRGB(96, 58, 26), 2, 0)
 	local gradient = UITheme.AddGradient(button, Color3.fromRGB(64, 47, 37), PLAQUE_DARK, 90)
 
 	-- A narrow inner brass rail gives the button the layered, framed-plaque silhouette.
 	local inset = Instance.new("Frame")
 	inset.Name = "InnerBrassRail"
-	inset.Size = UDim2.new(1, -18, 1, -16)
-	inset.Position = UDim2.fromOffset(9, 8)
+	inset.Size = UDim2.new(1, -14, 1, -12)
+	inset.Position = UDim2.fromOffset(7, 6)
 	inset.BackgroundTransparency = 1
 	inset.BorderSizePixel = 0
 	inset.ZIndex = 2
@@ -80,8 +81,8 @@ local function createButton(parent: Instance, label: string, order: number, onCl
 	UITheme.AddStroke(inset, BRASS, 1, 0.12)
 
 	local lowerEdge = Instance.new("Frame")
-	lowerEdge.Size = UDim2.new(1, -24, 0, 2)
-	lowerEdge.Position = UDim2.new(0, 12, 1, -10)
+	lowerEdge.Size = UDim2.new(1, -18, 0, 1)
+	lowerEdge.Position = UDim2.new(0, 9, 1, -7)
 	lowerEdge.BackgroundColor3 = Color3.fromRGB(95, 57, 27)
 	lowerEdge.BorderSizePixel = 0
 	lowerEdge.ZIndex = 3
@@ -108,8 +109,8 @@ local function createButton(parent: Instance, label: string, order: number, onCl
 	-- The small red tab makes each option read as a physical banner rather than a flat UI control.
 	local ribbon = Instance.new("Frame")
 	ribbon.Name = "CrimsonRibbon"
-	ribbon.Size = UDim2.fromOffset(26, 86)
-	ribbon.Position = UDim2.fromOffset(20, -5)
+	ribbon.Size = UDim2.fromOffset(18, 58)
+	ribbon.Position = UDim2.fromOffset(16, -3)
 	ribbon.BackgroundColor3 = Color3.fromRGB(103, 27, 20)
 	ribbon.BorderSizePixel = 0
 	ribbon.Rotation = -4
@@ -122,9 +123,9 @@ local function createButton(parent: Instance, label: string, order: number, onCl
 	ribbonSeal.Size = UDim2.fromScale(1, 0.56)
 	ribbonSeal.Position = UDim2.fromScale(0, 0.12)
 	ribbonSeal.BackgroundTransparency = 1
-	ribbonSeal.Text = "✦"
+	ribbonSeal.Text = "❖"
 	ribbonSeal.Font = Enum.Font.Antique
-	ribbonSeal.TextSize = 21
+	ribbonSeal.TextSize = 15
 	ribbonSeal.TextColor3 = BRASS_LIGHT
 	ribbonSeal.TextStrokeColor3 = Color3.fromRGB(76, 39, 10)
 	ribbonSeal.TextStrokeTransparency = 0.2
@@ -133,12 +134,12 @@ local function createButton(parent: Instance, label: string, order: number, onCl
 
 	local text = Instance.new("TextLabel")
 	text.Name = "ButtonLabel"
-	text.Size = UDim2.new(1, -110, 1, 0)
-	text.Position = UDim2.fromOffset(76, 0)
+	text.Size = UDim2.new(1, -96, 1, 0)
+	text.Position = UDim2.fromOffset(66, 0)
 	text.BackgroundTransparency = 1
 	text.Text = label
 	text.Font = Enum.Font.Antique
-	text.TextSize = 24
+	text.TextSize = 19
 	text.TextColor3 = PARCHMENT
 	text.TextStrokeColor3 = Color3.fromRGB(28, 15, 10)
 	text.TextStrokeTransparency = 0.1
@@ -146,22 +147,34 @@ local function createButton(parent: Instance, label: string, order: number, onCl
 	text.ZIndex = 4
 	text.Parent = button
 
-	addOrnament(button, UDim2.new(1, -15, 0.5, 0), Vector2.new(0.5, 0.5), 0)
+	local ornament = addOrnament(button, UDim2.new(1, -15, 0.5, 0), Vector2.new(0.5, 0.5), 0)
+
+	-- Entrance pop, staggered per plaque, for a livelier feel.
+	scale.Scale = 0.85
+	task.delay(0.06 * (order - 1) + 0.12, function()
+		TweenService:Create(scale, UITheme.Tweens.Spring, { Scale = 1 }):Play()
+	end)
 
 	button.MouseEnter:Connect(function()
 		SoundManager.PlayHover()
 		TweenService:Create(button, UITheme.Tweens.Fast, { BackgroundColor3 = Color3.fromRGB(66, 44, 28) }):Play()
-		TweenService:Create(scale, UITheme.Tweens.Spring, { Scale = 1.025 }):Play()
-		TweenService:Create(outerStroke, UITheme.Tweens.Fast, { Color = BRASS_LIGHT, Thickness = 3 }):Play()
+		TweenService:Create(scale, UITheme.Tweens.Spring, { Scale = 1.05 }):Play()
+		TweenService:Create(outerStroke, UITheme.Tweens.Fast, { Color = BRASS_LIGHT, Thickness = 2.5 }):Play()
 		TweenService:Create(text, UITheme.Tweens.Fast, { TextColor3 = Color3.fromRGB(255, 236, 194) }):Play()
 		TweenService:Create(gradient, UITheme.Tweens.Fast, { Rotation = 0 }):Play()
+		if ornament then
+			TweenService:Create(ornament, UITheme.Tweens.Spring, { Rotation = 90, TextColor3 = BRASS_LIGHT }):Play()
+		end
 	end)
 	button.MouseLeave:Connect(function()
 		TweenService:Create(button, UITheme.Tweens.Fast, { BackgroundColor3 = PLAQUE }):Play()
 		TweenService:Create(scale, UITheme.Tweens.Fast, { Scale = 1 }):Play()
-		TweenService:Create(outerStroke, UITheme.Tweens.Fast, { Color = Color3.fromRGB(96, 58, 26), Thickness = 3 }):Play()
+		TweenService:Create(outerStroke, UITheme.Tweens.Fast, { Color = Color3.fromRGB(96, 58, 26), Thickness = 2 }):Play()
 		TweenService:Create(text, UITheme.Tweens.Fast, { TextColor3 = PARCHMENT }):Play()
 		TweenService:Create(gradient, UITheme.Tweens.Fast, { Rotation = 90 }):Play()
+		if ornament then
+			TweenService:Create(ornament, UITheme.Tweens.Spring, { Rotation = 0 }):Play()
+		end
 	end)
 	button.Activated:Connect(function()
 		SoundManager.PlayClick()
@@ -198,14 +211,14 @@ function TitleScreen.Create(parent: GuiObject, callbacks: TitleScreenCallbacks):
 	menu.Name = "GuildHallMenu"
 	menu.AnchorPoint = Vector2.new(0, 0.5)
 	menu.Position = UDim2.new(0.065, 0, 0.52, 0)
-	menu.Size = UDim2.new(0.39, 0, 0, 505)
+	menu.Size = UDim2.new(0.39, 0, 0, 400)
 	menu.BackgroundTransparency = 1
 	menu.Parent = container
 
 	local logo = Instance.new("ImageLabel")
 	logo.Name = "RespawnLogo"
-	logo.Size = UDim2.new(1, 48, 0, 156)
-	logo.Position = UDim2.new(0, -24, 0, 0)
+	logo.Size = UDim2.new(1, 40, 0, 128)
+	logo.Position = UDim2.new(0, -20, 0, 0)
 	logo.BackgroundTransparency = 1
 	logo.Image = LOGO_IMAGE
 	logo.ScaleType = Enum.ScaleType.Fit
@@ -228,7 +241,7 @@ function TitleScreen.Create(parent: GuiObject, callbacks: TitleScreenCallbacks):
 
 	local tagline = Instance.new("TextLabel")
 	tagline.Size = UDim2.new(1, 0, 0, 24)
-	tagline.Position = UDim2.new(0, 0, 0, 152)
+	tagline.Position = UDim2.new(0, 0, 0, 124)
 	tagline.BackgroundTransparency = 1
 	tagline.Text = "RISE.  FALL.  RETURN STRONGER."
 	tagline.Font = Enum.Font.Antique
@@ -240,22 +253,22 @@ function TitleScreen.Create(parent: GuiObject, callbacks: TitleScreenCallbacks):
 	local rule = Instance.new("Frame")
 	rule.Size = UDim2.new(0.82, 0, 0, 2)
 	rule.AnchorPoint = Vector2.new(0.5, 0)
-	rule.Position = UDim2.new(0.5, 0, 0, 186)
+	rule.Position = UDim2.new(0.5, 0, 0, 152)
 	rule.BackgroundColor3 = BRASS
 	rule.BorderSizePixel = 0
 	rule.Parent = menu
-	addOrnament(menu, UDim2.new(0.5, 0, 0, 187), Vector2.new(0.5, 0.5), 0)
+	addOrnament(menu, UDim2.new(0.5, 0, 0, 153), Vector2.new(0.5, 0.5), 0)
 
 	local options = Instance.new("Frame")
 	options.Name = "PlaqueMenuOptions"
-	options.Size = UDim2.new(0.94, 0, 0, 202)
+	options.Size = UDim2.new(0.94, 0, 0, 150)
 	options.AnchorPoint = Vector2.new(0.5, 0)
-	options.Position = UDim2.new(0.5, 0, 0, 222)
+	options.Position = UDim2.new(0.5, 0, 0, 182)
 	options.BackgroundTransparency = 1
 	options.Parent = menu
 	local layout = Instance.new("UIListLayout")
 	-- Rotated plaques need more vertical breathing room than flat buttons.
-	layout.Padding = UDim.new(0, 40)
+	layout.Padding = UDim.new(0, 16)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = options
 

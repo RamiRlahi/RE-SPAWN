@@ -181,10 +181,15 @@ function UIManager.ShowTitle()
 end
 
 function UIManager.ShowSettings()
-	-- Settings is a separate screen state; fade the title controls so they do not
-	-- remain visible through the modal's translucent backdrop.
+	-- Settings is a separate screen state; fully hide the title controls so the
+	-- modal's translucent backdrop can't reveal them (a fade alone isn't enough -
+	-- UIStrokes / rotated plaques still ghost through at GroupTransparency 1).
 	if titleScreenGroup and titleScreenGroup.Visible then
-		fadeCanvas(titleScreenGroup, 1, 0.15)
+		fadeCanvas(titleScreenGroup, 1, 0.15, function()
+			if settingsModalGroup and settingsModalGroup.Visible then
+				titleScreenGroup.Visible = false
+			end
+		end)
 	end
 
 	if settingsModalGroup then

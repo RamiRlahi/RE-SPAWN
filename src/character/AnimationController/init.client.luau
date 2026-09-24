@@ -499,6 +499,7 @@ end
 local function performAttack()
 	if player:GetAttribute("InLobby") == true then return end
 	if humanoid.Health <= 0 then return end
+	if Workspace:GetAttribute("TomesPaused") == true then return end
 
 	-- Block attacks while using the 1st ability (Spin Attack) or casting skills
 	if character:GetAttribute("IsSkill1Active") == true
@@ -562,6 +563,21 @@ local function performAttack()
 			comboStep = currentCombo,
 		})
 	end)
+
+	-- If Missile Barrage Buff is active, launch a guided missile
+	if character:GetAttribute("IsMissileBuffActive") == true then
+		local success, mod = pcall(function()
+			local clientFolder = player.PlayerScripts:FindFirstChild("Client") or player.PlayerScripts
+			local sc = clientFolder:FindFirstChild("SkillController") or player.PlayerScripts:FindFirstChild("SkillController", true)
+			if sc and sc:IsA("ModuleScript") then
+				return require(sc)
+			end
+			return nil
+		end)
+		if success and mod and mod.LaunchMissile then
+			mod.LaunchMissile(character)
+		end
+	end
 
 
 	-- Apply a physical forward nudge using LinearVelocity constraint

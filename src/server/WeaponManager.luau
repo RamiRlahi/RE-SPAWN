@@ -191,6 +191,8 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 				end
 			end
 		end
+
+
 	end
 
 	print(`[WeaponManager] Successfully equipped Tool '{config.toolName}' via Humanoid:EquipTool for {player.Name}`)

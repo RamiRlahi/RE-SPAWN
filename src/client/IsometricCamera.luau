@@ -48,6 +48,7 @@ local isActive = false
 local isPaused = false
 local renderConnection: RBXScriptConnection? = nil
 local currentFocusPos: Vector3? = nil
+local focusYLock: number? = nil
 
 -- Head aiming state
 local origNeckC0: CFrame? = nil
@@ -446,6 +447,10 @@ function IsometricCamera.Start(transitionDuration: number?)
 		if not currentRoot then return end
 
 		local rawTargetPos = currentRoot.Position + Vector3.new(0, TARGET_HEIGHT, 0)
+		-- Optional Y-lock: track the character on X/Z only (used during the Fire Slam leap)
+		if focusYLock then
+			rawTargetPos = Vector3.new(rawTargetPos.X, focusYLock + TARGET_HEIGHT, rawTargetPos.Z)
+		end
 		local mousePos = UserInputService:GetMouseLocation()
 
 		-- Update Custom Cursor Screen Position
@@ -528,6 +533,12 @@ function IsometricCamera.Resume(transitionDuration: number?)
 	end
 end
 
+-- Lock the camera's focus to a fixed world Y (X/Z still track the character).
+-- Pass nil to release. Used so the camera doesn't ride up during the Fire Slam leap.
+function IsometricCamera.SetFocusYLock(y: number?)
+	focusYLock = y
+end
+
 function IsometricCamera.IsActive(): boolean
 	return isActive
 end
@@ -558,6 +569,7 @@ function IsometricCamera.Stop()
 	resetHeadAim()
 	clearAllOcclusions()
 	currentFocusPos = nil
+	focusYLock = nil
 
 	local cam = getCamera()
 	cam.CameraType = Enum.CameraType.Custom

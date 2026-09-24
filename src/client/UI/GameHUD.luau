@@ -65,12 +65,32 @@ local DAMAGE_TRAIL_SPEED = 2.5  -- how fast the trail catches up (per second fra
 -- ─── SKILL ICON ASSET IDs ─────────────────────────────────────
 -- Upload your 4 skill icons to Roblox (Game Explorer > Images) and paste the asset IDs here.
 -- Format: "rbxassetid://123456789"
-local SKILL_ICONS = {
-	[1] = "rbxassetid://100153299372067",  -- 1st skill: Spin Attack (E)
-	[2] = "rbxassetid://130845824985540",  -- 2nd skill: Flame Slash (F)
-	[3] = "rbxassetid://129819062572666",  -- 3rd skill: Phoenix Dash (Q)
-	[4] = "rbxassetid://90460231425099",   -- 4th skill: Ultimate (R)
+local SKILL_ICONS_BY_CLASS = {
+	cleric = {
+		[1] = "rbxassetid://83970690874192",  -- 1st ability (E)
+		[2] = "rbxassetid://79167595723607",  -- 2nd ability (F)
+		[3] = "rbxassetid://132229793951564", -- 3rd ability (Q)
+		[4] = "rbxassetid://85719690091163",  -- Ultimate (R)
+	},
+	ranger = {
+		[1] = "rbxassetid://71390904975203",   -- 1st ability (E)
+		[2] = "rbxassetid://116665007054306",  -- 2nd ability (F)
+		[3] = "rbxassetid://94605725583145",   -- 3rd ability (Q)
+		[4] = "rbxassetid://123385594261124",  -- Ultimate (R)
+	},
+	heavy_knight = {
+		[1] = "rbxassetid://100153299372067",  -- 1st ability (E)
+		[2] = "rbxassetid://130845824985540",  -- 2nd ability (F)
+		[3] = "rbxassetid://129819062572666",  -- 3rd ability (Q)
+		[4] = "rbxassetid://90460231425099",   -- Ultimate (R)
+	},
 }
+
+local function getSkillIcon(classId: string?, index: number): string?
+	if not classId then return nil end
+	local set = SKILL_ICONS_BY_CLASS[classId]
+	return set and set[index] or nil
+end
 
 -- ─── STATE ────────────────────────────────────────────────────
 local player = Players.LocalPlayer
@@ -85,6 +105,8 @@ local hpFill: Frame = nil
 local hpTrail: Frame = nil
 local hpText: TextLabel = nil
 local livesText: TextLabel = nil
+local runTimerText: TextLabel = nil
+local runTierText: TextLabel = nil
 
 -- Skill state (cooldowns)
 local skillSlots = {}  -- array of { frame, cooldownOverlay, cooldownText, keybindLabel }
@@ -340,15 +362,9 @@ local function createSkillSlot(parent: Frame, index: number, keybind: string): {
 	skillIcon.Parent = innerCircle
 	UITheme.AddCorner(skillIcon, (SKILL_SIZE - 8) / 2)
 
-	-- Set the icon image if asset ID is configured
-	local assetId = SKILL_ICONS[index]
-	if assetId and assetId ~= "" then
-		skillIcon.Image = assetId
-	else
-		-- Fallback: show a tinted placeholder
-		skillIcon.ImageColor3 = C.TextGold
-		skillIcon.ImageTransparency = 0.6
-	end
+	-- Icon image is assigned per-class after Init (see GameHUD.SetClassIcons)
+	skillIcon.ImageColor3 = C.TextGold
+	skillIcon.ImageTransparency = 0.6
 
 	-- Cooldown dark overlay (radial sweep not possible in Roblox, so we use a filling bar)
 	local cooldownOverlay = makeFrame({
@@ -559,6 +575,62 @@ local function createItemBar(parent: Frame)
 	end
 end
 
+-- ─── RUN TIMER ────────────────────────────────────────────────
+local function createRunTimer(parent: Frame)
+	local container = makeFrame({
+		Name = "RunTimer",
+		Parent = parent,
+		Size = UDim2.new(0, 190, 0, 54),
+		Position = UDim2.new(0.5, 0, 0, 14),
+		AnchorPoint = Vector2.new(0.5, 0),
+		BgColor = C.StoneDark,
+		BgTransparency = 0.35,
+		ZIndex = 10,
+	})
+	UITheme.AddCorner(container, 10)
+	UITheme.AddStroke(container, C.GoldDim, 1, 0.4)
+	UITheme.AddGradient(container, C.StoneDark, C.StoneMid, 90)
+
+	local title = makeLabel({
+		Name = "Title",
+		Parent = container,
+		Size = UDim2.new(1, -12, 0, 14),
+		Position = UDim2.new(0, 6, 0, 4),
+		Text = "TIME SURVIVED",
+		Font = UITheme.Fonts.Body,
+		TextSize = 11,
+		TextColor3 = C.TextMuted,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 11,
+	})
+
+	runTimerText = makeLabel({
+		Name = "Time",
+		Parent = container,
+		Size = UDim2.new(1, -12, 0, 22),
+		Position = UDim2.new(0, 6, 0, 17),
+		Text = "00:00",
+		Font = UITheme.Fonts.Body,
+		TextSize = 20,
+		TextColor3 = C.TextGold,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 11,
+	})
+
+	runTierText = makeLabel({
+		Name = "Tier",
+		Parent = container,
+		Size = UDim2.new(1, -12, 0, 12),
+		Position = UDim2.new(0, 6, 1, -14),
+		Text = "Threat I",
+		Font = UITheme.Fonts.Body,
+		TextSize = 10,
+		TextColor3 = C.HealthRedBright,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ZIndex = 11,
+	})
+end
+
 -- ─── HP UPDATE LOGIC ──────────────────────────────────────────
 local function updateHPDisplay(animate: boolean?)
 	if not hpFill or not hpTrail or not hpText then return end
@@ -592,7 +664,28 @@ local function updateHPDisplay(animate: boolean?)
 	end
 end
 
+local ROMAN = { "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X" }
+local function tierLabel(tier: number): string
+	if tier <= 0 then return "Threat I" end
+	if tier <= #ROMAN then return "Threat " .. ROMAN[tier] end
+	return "Threat " .. tostring(tier + 1)
+end
+
+local function updateRunTimer()
+	local elapsed = Workspace:GetAttribute("RunElapsed") or 0
+	local tier = Workspace:GetAttribute("RunTier") or 0
+	if runTimerText then
+		local mins = math.floor(elapsed / 60)
+		local secs = elapsed % 60
+		runTimerText.Text = string.format("%02d:%02d", mins, secs)
+	end
+	if runTierText then
+		runTierText.Text = tierLabel(tier)
+	end
+end
+
 local function onHeartbeat(dt: number)
+	updateRunTimer()
 	if not hpTrail then return end
 
 	-- Slowly move the damage trail towards the current HP
@@ -636,6 +729,25 @@ end
 
 -- ─── PUBLIC API ───────────────────────────────────────────────
 
+-- Apply the per-class skill icons (skillIndex 1-4) to the bar.
+function GameHUD.SetClassIcons(classId: string?)
+	for i = 1, 4 do
+		local slot = skillSlots[i]
+		if slot and slot.icon then
+			local assetId = getSkillIcon(classId, i)
+			if assetId and assetId ~= "" then
+				slot.icon.Image = assetId
+				slot.icon.ImageColor3 = Color3.new(1, 1, 1)
+				slot.icon.ImageTransparency = 0
+			else
+				slot.icon.Image = ""
+				slot.icon.ImageColor3 = C.TextGold
+				slot.icon.ImageTransparency = 0.6
+			end
+		end
+	end
+end
+
 function GameHUD.Init()
 	local playerGui = player:WaitForChild("PlayerGui") :: PlayerGui
 
@@ -661,6 +773,13 @@ function GameHUD.Init()
 	createHealthBar(hudFrame)
 	createSkillBar(hudFrame)
 	createItemBar(hudFrame)
+	createRunTimer(hudFrame)
+
+	-- Apply class-specific skill icons and keep them in sync when class changes
+	GameHUD.SetClassIcons(player:GetAttribute("SelectedClass"))
+	player:GetAttributeChangedSignal("SelectedClass"):Connect(function()
+		GameHUD.SetClassIcons(player:GetAttribute("SelectedClass"))
+	end)
 
 	-- Bind to current character or wait for one
 	if player.Character then

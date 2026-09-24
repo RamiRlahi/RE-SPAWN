@@ -11,6 +11,7 @@ local TweenService = game:GetService("TweenService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local PlayerStats = require(script.Parent:WaitForChild("PlayerStats"))
+local DifficultyManager = require(script.Parent:WaitForChild("DifficultyManager"))
 
 local MobManager = {}
 
@@ -192,6 +193,364 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Mob Setup, Weld Construction & Physics Alignment
 -- ─────────────────────────────────────────────────────────────────────────────
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Animated Mob Support (rigged Zombies / Skeletons with walk & attack anims)
+-- ─────────────────────────────────────────────────────────────────────────────
+local RunService = game:GetService("RunService")
+
+-- Global mob freeze used by ultimates: while frozen, every mob AI loop halts.
+local mobFreezeUntil = 0
+
+local function mobsAreFrozen(): boolean
+	return os.clock() < mobFreezeUntil
+end
+
+function MobManager.FreezeMobs(duration: number)
+	local untilTime = os.clock() + (duration or 0)
+	if untilTime > mobFreezeUntil then
+		mobFreezeUntil = untilTime
+	end
+end
+
+function MobManager.IsMobsFrozen(): boolean
+	return mobsAreFrozen()
+end
+
+-- Fire an arrow projectile from a ranged mob toward a target character.
+local function fireArrow(originMob: Model, fromPos: Vector3, targetChar: Model, damage: number)
+	local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+	if not targetRoot then return end
+
+	local arrow = Instance.new("Part")
+	arrow.Name = "SkeletonArrow"
+	arrow.Size = Vector3.new(0.18, 0.18, 2.5)
+	arrow.Color = Color3.fromRGB(95, 65, 35)
+	arrow.Material = Enum.Material.Wood
+	arrow.Anchored = true
+	arrow.CanCollide = false
+	arrow.CanQuery = false
+	arrow.CanTouch = false
+	arrow.CFrame = CFrame.lookAt(fromPos, targetRoot.Position)
+	arrow.Parent = Workspace
+
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { originMob, arrow }
+
+	local speed = 95
+	local maxLife = 3
+	local elapsed = 0
+	local last = os.clock()
+
+	local conn
+	conn = RunService.Heartbeat:Connect(function()
+		if not arrow.Parent then
+			if conn then conn:Disconnect() end
+			return
+		end
+		local now = os.clock()
+		local dt = math.min(now - last, 0.1)
+		last = now
+		elapsed += dt
+		local move = speed * dt
+		local result = Workspace:Raycast(arrow.Position, arrow.CFrame.LookVector * move, params)
+		if result and result.Instance then
+			local hitChar = result.Instance:FindFirstAncestorOfClass("Model")
+			local hum = hitChar and hitChar:FindFirstChildOfClass("Humanoid")
+			local plr = hitChar and Players:GetPlayerFromCharacter(hitChar)
+			if hum and plr and plr:GetAttribute("InLobby") ~= true then
+				hum:TakeDamage(damage)
+			end
+			arrow:Destroy()
+			if conn then conn:Disconnect() end
+			return
+		end
+		arrow.CFrame = arrow.CFrame + arrow.CFrame.LookVector * move
+		if elapsed >= maxLife then
+			arrow:Destroy()
+			if conn then conn:Disconnect() end
+		end
+	end)
+end
+
+-- Configure a rigged, animation-driven mob (melee chaser or ranged archer).
+local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetCFrame: CFrame, isBoss: boolean, onDied: (() -> ())?)
+	local mobType = mobModel:GetAttribute("MobType") or "Melee"
+	local damage = mobModel:GetAttribute("Damage") or (isBoss and 25 or 10)
+	local walkSpeed = mobModel:GetAttribute("WalkSpeed") or (isBoss and 10 or 12)
+	local aggroRange = mobModel:GetAttribute("AggroRange") or 70
+	local attackRange = mobModel:GetAttribute("AttackRange") or 5
+	local preferredRange = mobModel:GetAttribute("PreferredRange") or 35
+	local cooldown = mobModel:GetAttribute("AttackCooldown") or 1
+	local xpReward = mobModel:GetAttribute("XP") or (isBoss and 100 or 25)
+
+	-- Scale with the run difficulty tier.
+	local diffScale = DifficultyManager.GetMobScale()
+	damage = damage * diffScale.damage
+	walkSpeed = walkSpeed * diffScale.speed
+	xpReward = math.floor(xpReward * (1 + diffScale.tier * 0.15))
+
+	humanoid.WalkSpeed = walkSpeed
+	humanoid.RequiresNeck = false
+	humanoid.PlatformStand = false
+
+	local rootPart = mobModel:FindFirstChild("HumanoidRootPart")
+	if not rootPart then
+		rootPart = mobModel.PrimaryPart
+	end
+	if not rootPart then
+		local boundCF = mobModel:GetBoundingBox()
+		rootPart = Instance.new("Part")
+		rootPart.Name = "HumanoidRootPart"
+		rootPart.Size = Vector3.new(2, 2, 1)
+		rootPart.Transparency = 1
+		rootPart.CFrame = boundCF
+		rootPart.Parent = mobModel
+	end
+	mobModel.PrimaryPart = rootPart
+	rootPart.CanQuery = true
+
+	for _, part in ipairs(mobModel:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Anchored = false
+		end
+	end
+
+	local _, extents = mobModel:GetBoundingBox()
+	local finalPos = targetCFrame.Position + Vector3.new(0, (extents.Y * 0.5) + 1, 0)
+	mobModel:PivotTo(CFrame.new(finalPos) * targetCFrame.Rotation)
+	humanoid.HipHeight = 0
+
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
+
+	local animFolder = mobModel:FindFirstChild("Animations")
+	local walkAnim = animFolder and animFolder:FindFirstChild("Walk")
+	local attackAnim = animFolder and animFolder:FindFirstChild("Attack")
+
+	local walkTrack = nil
+	local attackTrack = nil
+	if walkAnim and walkAnim:IsA("Animation") then
+		walkTrack = animator:LoadAnimation(walkAnim)
+		walkTrack.Priority = Enum.AnimationPriority.Movement
+		walkTrack.Looped = true
+	end
+	if attackAnim and attackAnim:IsA("Animation") then
+		attackTrack = animator:LoadAnimation(attackAnim)
+		attackTrack.Priority = Enum.AnimationPriority.Action
+		attackTrack.Looped = false
+	end
+
+	-- Ranged mobs get a bow welded to their right hand, unless the template already ships one
+	if mobType == "Ranged" and mobModel:FindFirstChild("Bow") == nil then
+		local hand = mobModel:FindFirstChild("RightHand") or mobModel:FindFirstChild("Right Arm") or mobModel:FindFirstChild("RightLowerArm")
+		if hand and hand:IsA("BasePart") then
+			local bow = Instance.new("Part")
+			bow.Name = "Bow"
+			bow.Size = Vector3.new(0.25, 3, 0.25)
+			bow.Color = Color3.fromRGB(80, 55, 30)
+			bow.Material = Enum.Material.Wood
+			bow.CanCollide = false
+			bow.Massless = true
+			bow.CFrame = hand.CFrame
+			bow.Parent = mobModel
+			local wc = Instance.new("WeldConstraint")
+			wc.Part0 = hand
+			wc.Part1 = bow
+			wc.Parent = bow
+		end
+	end
+
+	createMobHealthBar(mobModel, humanoid, rootPart, extents, isBoss)
+
+	local lastAttack = 0
+	local lastRepath = 0
+	local lastTick = os.clock()
+	local walkPlaying = false
+	local function setWalk(on)
+		if not walkTrack then return end
+		if on and not walkPlaying then
+			walkTrack:Play()
+			walkPlaying = true
+		elseif not on and walkPlaying then
+			walkTrack:Stop()
+			walkPlaying = false
+		end
+	end
+
+	local function getTarget()
+		local mobPos = rootPart.Position
+		local closest = nil
+		local closestDist = aggroRange
+		for _, plr in ipairs(Players:GetPlayers()) do
+			if plr:GetAttribute("InLobby") ~= true then
+				local char = plr.Character
+				if char and char.Parent then
+					local hum = char:FindFirstChildOfClass("Humanoid")
+					local pr = char:FindFirstChild("HumanoidRootPart")
+					if hum and pr and hum.Health > 0 then
+						local d = (pr.Position - mobPos).Magnitude
+						if d < closestDist then
+							closestDist = d
+							closest = char
+						end
+					end
+				end
+			end
+		end
+		return closest, closestDist
+	end
+
+	local function damagePlayer(targetChar: Model)
+		local hum = targetChar:FindFirstChildOfClass("Humanoid")
+		local pr = targetChar:FindFirstChild("HumanoidRootPart")
+		if not hum or not pr or hum.Health <= 0 then return end
+		local plr = Players:GetPlayerFromCharacter(targetChar)
+		if not plr or plr:GetAttribute("InLobby") == true then return end
+		hum:TakeDamage(damage)
+		local diff = pr.Position - rootPart.Position
+		local pushDir = diff.Magnitude > 0.1 and diff.Unit or Vector3.new(1, 0, 0)
+		pr:ApplyImpulse((pushDir + Vector3.new(0, 0.25, 0)).Unit * (pr.AssemblyMass * 12))
+	end
+
+	task.spawn(function()
+		while mobModel.Parent and humanoid.Health > 0 do
+			task.wait(0.2)
+			if not rootPart.Parent then break end
+			if mobsAreFrozen() then
+				humanoid:Move(Vector3.zero)
+				humanoid.WalkSpeed = 0
+				setWalk(false)
+				repeat task.wait(0.1) until not mobsAreFrozen() or not mobModel.Parent or humanoid.Health <= 0
+				if mobModel.Parent and humanoid.Health > 0 then
+					humanoid.WalkSpeed = walkSpeed
+				end
+				continue
+			end
+			if Workspace:GetAttribute("TomesPaused") == true then
+				humanoid:Move(Vector3.zero)
+				humanoid.WalkSpeed = 0
+				setWalk(false)
+				rootPart.Anchored = true
+				repeat task.wait(0.1) until Workspace:GetAttribute("TomesPaused") ~= true or not mobModel.Parent or humanoid.Health <= 0
+				if mobModel.Parent and humanoid.Health > 0 and rootPart.Parent then
+					humanoid.WalkSpeed = walkSpeed
+					rootPart.Anchored = false
+				end
+				continue
+			end
+
+			local target, dist = getTarget()
+			if target then
+				local tRoot = target:FindFirstChild("HumanoidRootPart")
+				if tRoot then
+					if mobType == "Ranged" then
+						local tnow = os.clock()
+						local dt = math.max(tnow - lastTick, 0.001)
+						lastTick = tnow
+
+						-- Commit to a destination and only repath every ~0.6s so the mob walks a
+						-- smooth path instead of live-tracking the player's position every tick.
+						local moving = false
+						if dist > preferredRange + 4 then
+							if tnow - lastRepath >= 0.6 then
+								humanoid:MoveTo(tRoot.Position)
+								lastRepath = tnow
+							end
+							moving = true
+							setWalk(true)
+						elseif dist < preferredRange - 8 then
+							if tnow - lastRepath >= 0.6 then
+								local away = rootPart.Position + (rootPart.Position - tRoot.Position).Unit * 14
+								humanoid:MoveTo(away)
+								lastRepath = tnow
+							end
+							moving = true
+							setWalk(true)
+						else
+							humanoid:Move(Vector3.zero)
+							setWalk(false)
+						end
+
+						-- Smoothly turn to face the target while holding position, instead of
+						-- snapping the CFrame every tick. While walking, the Humanoid rotates us.
+						if not moving then
+							local flat = Vector3.new(tRoot.Position.X, rootPart.Position.Y, tRoot.Position.Z)
+							if (flat - rootPart.Position).Magnitude > 0.1 then
+								local desiredRot = CFrame.lookAt(rootPart.Position, flat) - rootPart.Position
+								local currentRot = rootPart.CFrame - rootPart.Position
+								local alpha = 1 - math.exp(-4 * dt)
+								rootPart.CFrame = CFrame.new(rootPart.Position) * currentRot:Lerp(desiredRot, alpha)
+							end
+						end
+
+						local now = os.clock()
+						if dist <= preferredRange + 15 and now - lastAttack >= cooldown then
+							lastAttack = now
+							humanoid:Move(Vector3.zero)
+							setWalk(false)
+							if attackTrack then attackTrack:Play() end
+							task.delay(0.4, function()
+								if mobModel.Parent and humanoid.Health > 0 and rootPart.Parent then
+									fireArrow(mobModel, rootPart.Position + rootPart.CFrame.LookVector * 2 + Vector3.new(0, 1, 0), target, damage)
+								end
+							end)
+						end
+					else
+						humanoid:MoveTo(tRoot.Position)
+						setWalk(true)
+						if dist <= attackRange then
+							humanoid:Move(Vector3.zero)
+							setWalk(false)
+							local now = os.clock()
+							if now - lastAttack >= cooldown then
+								lastAttack = now
+								if attackTrack then attackTrack:Play() end
+								damagePlayer(target)
+							end
+						end
+					end
+				end
+			else
+				setWalk(false)
+			end
+		end
+	end)
+
+	local deadTriggered = false
+	humanoid.Died:Connect(function()
+		if deadTriggered then return end
+		deadTriggered = true
+		setWalk(false)
+		if onDied then onDied() end
+
+		local pos = (rootPart and rootPart.Position) or mobModel:GetPivot().Position
+		triggerBlueStarDeathVFX(pos)
+		for _, player in ipairs(Players:GetPlayers()) do
+			local playerRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+			if player:GetAttribute("InLobby") ~= true and playerRoot and (playerRoot.Position - pos).Magnitude <= 120 then
+				PlayerStats.AwardXP(player, xpReward)
+			end
+		end
+
+		task.spawn(function()
+			for _, desc in ipairs(mobModel:GetDescendants()) do
+				if desc:IsA("BasePart") then
+					desc.CanCollide = false
+					TweenService:Create(desc, TweenInfo.new(0.8), { Transparency = 1 }):Play()
+				end
+			end
+			task.wait(0.9)
+			if mobModel and mobModel.Parent then
+				mobModel:Destroy()
+			end
+		end)
+	end)
+end
+
 local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boolean, initialHealth: number?, onDied: (() -> ())?)
 	-- 1. Humanoid Setup
 	local humanoid = mobModel:FindFirstChildOfClass("Humanoid")
@@ -201,11 +560,23 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 	end
 
 	humanoid.RequiresNeck = false
-	humanoid.WalkSpeed = isBoss and 10 or 14
+	local diffScale = DifficultyManager.GetMobScale()
+	humanoid.WalkSpeed = (isBoss and 10 or 14) * diffScale.speed
 	humanoid.PlatformStand = false
-	local maxHp = isBoss and 400 or 100
+	local baseMax = isBoss and 400 or 100
+	local maxHp = math.floor(baseMax * diffScale.health)
 	humanoid.MaxHealth = maxHp
-	humanoid.Health = math.clamp(initialHealth or maxHp, 1, maxHp)
+	local startHealth = initialHealth or baseMax
+	if startHealth >= baseMax then
+		humanoid.Health = maxHp
+	else
+		humanoid.Health = math.clamp(math.floor(startHealth * diffScale.health), 1, maxHp)
+	end
+
+	if mobModel:GetAttribute("MobType") ~= nil then
+		configureAnimatedMob(mobModel, humanoid, targetCFrame, isBoss, onDied)
+		return
+	end
 
 	-- 2. Find or Create HumanoidRootPart anchored at bounding box center
 	local boundCF, extents = mobModel:GetBoundingBox()
@@ -296,7 +667,7 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 		if now - lastAttackTime < 0.85 then return end
 		lastAttackTime = now
 
-		local damage = isBoss and 25 or 10
+		local damage = (isBoss and 25 or 10) * DifficultyManager.GetMobScale().damage
 		hum:TakeDamage(damage)
 
 		-- Apply knockback push to player
@@ -311,6 +682,17 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 		while mobModel.Parent and humanoid.Health > 0 do
 			task.wait(0.35)
 			if not rootPart.Parent then break end
+			if mobsAreFrozen() then
+				humanoid:Move(Vector3.zero)
+				humanoid.WalkSpeed = 0
+				rootPart.Anchored = true
+				repeat task.wait(0.1) until not mobsAreFrozen() or not mobModel.Parent or humanoid.Health <= 0
+				if mobModel.Parent and humanoid.Health > 0 and rootPart.Parent then
+					humanoid.WalkSpeed = isBoss and 10 or 14
+					rootPart.Anchored = false
+				end
+				continue
+			end
 			if Workspace:GetAttribute("TomesPaused") == true then
 				humanoid:Move(Vector3.zero)
 				rootPart.Anchored = true

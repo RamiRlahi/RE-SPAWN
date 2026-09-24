@@ -19,16 +19,16 @@ AtmosphereManager.Config = {
 	-- Lower RGB (e.g. 25, 25, 30) = Very dark / pitch black dungeon.
 	-- Medium RGB (e.g. 45, 45, 55) = Moody, dim grim dungeon (Recommended).
 	-- High RGB (e.g. 120+, 120+, 130+) = Bright visibility.
-	DungeonAmbient = Color3.fromRGB(100, 100, 100),
+	DungeonAmbient = Color3.fromRGB(180, 180, 190),
 	
 	-- OutdoorAmbient: Light coming from ceiling/sky.
-	DungeonOutdoorAmbient = Color3.fromRGB(150, 150, 150),
+	DungeonOutdoorAmbient = Color3.fromRGB(160, 160, 170),
 
 	-- Brightness: Global sun/moon brightness level (0.0 = dark, 1.0 = moderate, 2.0 = bright).
-	DungeonBrightness = 0.5,
+	DungeonBrightness = 2.0,
 
 	-- ClockTime: 0 or 24 = Midnight (dark), 14 = Daylight.
-	DungeonClockTime = 0,
+	DungeonClockTime = 14,
 
 	-- ── 2. Player Torch Light Controls ───────────────────────────────────────
 	-- TorchRange: Radius in studs that the torch illuminates around the player (e.g. 24 - 45).

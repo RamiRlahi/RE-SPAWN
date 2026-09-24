@@ -117,6 +117,51 @@ local SkillData: { [string]: ClassSkills } = {
 	},
 }
 
+SkillData.cleric = {
+	[1] = {
+		name = "Heal",
+		slot = 1,
+		keybind = "E",
+		cooldown = 8.0,
+		damage = 0,
+		healAmount = 35,
+		description = "Channel holy energy to restore health to yourself or an ally.",
+	},
+	[2] = {
+		name = "Divine Beam",
+		slot = 2,
+		keybind = "F",
+		cooldown = 15.0,
+		damage = 130,
+		range = 60,
+		width = 4.5,
+		duration = 5.0,
+		description = "Release a concentrated beam of holy light, dealing heavy damage to enemies in a straight line.",
+	},
+	[3] = {
+		name = "Radiant Ground",
+		slot = 3,
+		keybind = "Q",
+		cooldown = 20.0,
+		damage = 10,
+		range = 16,
+		duration = 5.0,
+		healAmount = 12,
+		description = "Bless the area with holy light, healing allies over time and removing negative effects.",
+	},
+	[4] = {
+		name = "Divine Ascent",
+		slot = 4,
+		keybind = "R",
+		cooldown = 60.0,
+		damage = 90,
+		range = 30,
+		duration = 2.0,
+		healAmount = 100,
+		description = "Ultimate: Unleash your full divine power, gaining angelic wings and soaring into the sky. Heal all allies, remove all negative effects, and deliver divine judgment upon your enemies.",
+	},
+}
+
 local SkillModule = {}
 
 function SkillModule.GetSkills(classId: string): ClassSkills?

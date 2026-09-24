@@ -18,6 +18,12 @@ local SkillData = require(Shared:WaitForChild("SkillData"))
 local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
 
 local UltimateCameraChoreography = require(script.Parent:WaitForChild("UltimateCameraChoreography"))
+local IsometricCamera = require(script.Parent:WaitForChild("IsometricCamera"))
+local DivineBeamChannel = require(script.Parent:WaitForChild("DivineBeamChannel"))
+local ClericVFX = require(script.Parent:WaitForChild("ClericVFX"))
+local AllyHover = require(script.Parent:WaitForChild("AllyHover"))
+AllyHover.Init()
+local DivineAscentCutscene = require(script.Parent:WaitForChild("DivineAscentCutscene"))
 
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
@@ -42,6 +48,9 @@ end
 
 -- Active cooldowns: activeCooldowns[slotIndex] = { startTime: number, duration: number }
 local activeCooldowns: { [number]: { startTime: number, duration: number } } = {}
+
+-- Token to cancel an in-flight Divine Ascent cinematic camera
+local divineCamToken = 0
 
 -- Loaded animation tracks per skill index
 local currentLoadedCharacter: Model? = nil
@@ -524,6 +533,11 @@ local function playFireSlamVFX(char: Model, origin: Vector3, targetPos: Vector3,
 	})
 	rocketBooster.Parent = flameAtt
 
+	-- Lock the camera to the ground Y during the leap so it follows X/Z only
+	if isLocalCaster then
+		pcall(function() IsometricCamera.SetFocusYLock(origin.Y) end)
+	end
+
 	-- Vertical leap metrics
 	local jumpApexHeight = 38.0
 	local totalDuration = 0.72
@@ -568,6 +582,11 @@ local function playFireSlamVFX(char: Model, origin: Vector3, targetPos: Vector3,
 		-- ─── Snap to landing position ──────────────────────────────────────────
 		rootPart.CFrame = CFrame.lookAt(landingPos, landingPos + flatDir)
 		rootPart.AssemblyLinearVelocity = Vector3.zero
+
+		-- Release the camera Y-lock now that the character is back on the ground
+		if isLocalCaster then
+			pcall(function() IsometricCamera.SetFocusYLock(nil) end)
+		end
 
 		-- Cleanup airborne emitters
 		leapFlames.Enabled = false
@@ -1402,6 +1421,83 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 	local bladeAtt, flamePE, emberPE, light = attachSwordFlameAura(char)
 	setWeaponTrailEnlarged(char, true)
 
+	-- 2b. Charging energy vortex around the sword during the windup: orbiting ember sprites
+	--     that spiral inward, building intensity until the slash fires.
+	do
+		local chargeAtt = Instance.new("Attachment")
+		chargeAtt.Name = "InfernalChargeVortex"
+		chargeAtt.Position = Vector3.new(0, 0, 0)
+		chargeAtt.Parent = rootPart
+		local chargeEmbers = makeEmberEmitter(chargeAtt, 120)
+		chargeEmbers.Name = "InfernalChargeEmbers"
+		chargeEmbers.Speed = NumberRange.new(0, 0)
+		chargeEmbers.SpreadAngle = Vector2.new(0, 0)
+		chargeEmbers.Lifetime = NumberRange.new(0.5, 0.9)
+		chargeEmbers.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.7),
+			NumberSequenceKeypoint.new(1, 0.05),
+		})
+		local chargeFlames = makeFlameEmitter(chargeAtt, 90, 3.2, 4)
+		chargeFlames.Name = "InfernalChargeFlames"
+		chargeFlames.SpreadAngle = Vector2.new(180, 180)
+		chargeFlames.Speed = NumberRange.new(2, 8)
+
+		-- Orbit a ring of glowing sprites that rise and tighten as the windup completes
+		task.spawn(function()
+			local orbitParts: { BasePart } = {}
+			local ORBIT_COUNT = 8
+			local orbitFolder = Instance.new("Folder")
+			orbitFolder.Name = "InfernalChargeOrbit"
+			orbitFolder.Parent = char
+			for i = 1, ORBIT_COUNT do
+				local orb = Instance.new("Part")
+				orb.Name = "ChargeOrb"
+				orb.Shape = Enum.PartType.Ball
+				orb.Size = Vector3.new(0.7, 0.7, 0.7)
+				orb.Material = Enum.Material.Neon
+				orb.Color = Color3.fromRGB(255, 180, 60)
+				orb.CanCollide = false
+				orb.CanTouch = false
+				orb.CanQuery = false
+				orb.Anchored = true
+				orb.Parent = orbitFolder
+				local oLight = Instance.new("PointLight")
+				oLight.Color = Color3.fromRGB(255, 150, 40)
+				oLight.Brightness = 3
+				oLight.Range = 10
+				oLight.Parent = orb
+				table.insert(orbitParts, orb)
+			end
+
+			local chargeStart = os.clock()
+			local chargeDur = 1.5
+			while os.clock() - chargeStart < chargeDur do
+				if not char or not char.Parent or not rootPart.Parent then break end
+				local a = math.clamp((os.clock() - chargeStart) / chargeDur, 0, 1)
+				local radius = 5.0 - 3.5 * a
+				local baseY = rootPart.Position.Y + 1.0 + a * 1.5
+				for i, orb in ipairs(orbitParts) do
+					local ang = (i / ORBIT_COUNT) * math.pi * 2 + a * math.pi * 4
+					orb.CFrame = CFrame.new(rootPart.Position + Vector3.new(math.cos(ang) * radius, (baseY - rootPart.Position.Y), math.sin(ang) * radius))
+					orb.Size = Vector3.new(0.7 + a * 0.6, 0.7 + a * 0.6, 0.7 + a * 0.6)
+				end
+				RunService.RenderStepped:Wait()
+			end
+
+			-- Collapse: orbs snap to the sword then vanish
+			for _, orb in ipairs(orbitParts) do
+				TweenService:Create(orb, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+					Size = Vector3.new(0.1, 0.1, 0.1),
+					Transparency = 1,
+				}):Play()
+			end
+			Debris:AddItem(orbitFolder, 0.3)
+			chargeEmbers.Enabled = false
+			chargeFlames.Enabled = false
+			Debris:AddItem(chargeAtt, 0.6)
+		end)
+	end
+
 	-- 3. Moving traveling slash wave (Shot 3: uses 'hk_ult_slash' asset, travels fast in 1.1s from t=1.70s to t=2.80s)
 	local function spawnTravelingSlashVFX()
 		if not char or not char.Parent then return end
@@ -1530,9 +1626,150 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 		end)
 	end
 
+	-- 3b. Infernal Wrath ULTIMATE impact: multi-layer shockwave, sky pillar, ground crack, aftershock.
+	local function playInfernalImpactMegaVFX()
+		local groundY = impactPos.Y
+		local megaFolder = Instance.new("Folder")
+		megaFolder.Name = "InfernalWrathImpact"
+		megaFolder.Parent = Workspace.Terrain
+
+		-- (a) Blinding flash ball + shock dome
+		local flash = Instance.new("Part")
+		flash.Name = "InfernalFlash"
+		flash.Shape = Enum.PartType.Ball
+		flash.Size = Vector3.new(4, 4, 4)
+		flash.CFrame = CFrame.new(impactPos + Vector3.new(0, 1.5, 0))
+		flash.Anchored = true
+		flash.CanCollide = false
+		flash.CanTouch = false
+		flash.CanQuery = false
+		flash.Material = Enum.Material.Neon
+		flash.Color = Color3.fromRGB(255, 245, 210)
+		flash.Transparency = 0.05
+		flash.Parent = megaFolder
+		TweenService:Create(flash, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			Size = Vector3.new(58, 40, 58),
+			Transparency = 1,
+			Color = Color3.fromRGB(255, 80, 0),
+		}):Play()
+		Debris:AddItem(flash, 0.55)
+
+		local flashLight = Instance.new("PointLight")
+		flashLight.Color = Color3.fromRGB(255, 150, 40)
+		flashLight.Brightness = 40
+		flashLight.Range = 90
+		flashLight.Parent = flash
+		TweenService:Create(flashLight, TweenInfo.new(0.5), { Brightness = 0 }):Play()
+
+		-- (b) Expanding ground shockwave rings (3 pulses)
+		for ringIdx = 1, 3 do
+			task.delay((ringIdx - 1) * 0.12, function()
+				local ring = Instance.new("Part")
+				ring.Name = "InfernalShockRing"
+				ring.Shape = Enum.PartType.Cylinder
+				ring.Size = Vector3.new(0.4, 6, 6)
+				ring.CFrame = CFrame.new(impactPos + Vector3.new(0, 0.15, 0)) * CFrame.Angles(0, 0, math.rad(90))
+				ring.Anchored = true
+				ring.CanCollide = false
+				ring.CanTouch = false
+				ring.CanQuery = false
+				ring.Material = Enum.Material.Neon
+				ring.Color = Color3.fromRGB(255, 120 + ringIdx * 30, 20)
+				ring.Transparency = 0.1
+				ring.Parent = megaFolder
+				TweenService:Create(ring, TweenInfo.new(0.65 + ringIdx * 0.1, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+					Size = Vector3.new(0.4, 24 + ringIdx * 22, 24 + ringIdx * 22),
+					Transparency = 1,
+				}):Play()
+				Debris:AddItem(ring, 1.2)
+			end)
+		end
+
+		-- (c) Sky-splitting flame pillar
+		local pillar = Instance.new("Part")
+		pillar.Name = "InfernalPillar"
+		pillar.Shape = Enum.PartType.Cylinder
+		pillar.Size = Vector3.new(120, 22, 22)
+		pillar.CFrame = CFrame.new(impactPos + Vector3.new(0, 60, 0)) * CFrame.Angles(0, 0, math.rad(90))
+		pillar.Anchored = true
+		pillar.CanCollide = false
+		pillar.CanTouch = false
+		pillar.CanQuery = false
+		pillar.Material = Enum.Material.Neon
+		pillar.Color = Color3.fromRGB(255, 170, 40)
+		pillar.Transparency = 0.35
+		pillar.Parent = megaFolder
+		local pillarAtt = Instance.new("Attachment")
+		pillarAtt.Parent = pillar
+		local pillarFlames = makeFlameEmitter(pillarAtt, 300, 14, 30)
+		pillarFlames.SpreadAngle = Vector2.new(8, 8)
+		pillarFlames.Speed = NumberRange.new(20, 60)
+		pillarFlames.Lifetime = NumberRange.new(0.4, 0.9)
+		local pillarEmbers = makeEmberEmitter(pillarAtt, 160)
+		pillarEmbers.Speed = NumberRange.new(30, 90)
+		TweenService:Create(pillar, TweenInfo.new(0.9, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			Transparency = 1,
+			Size = Vector3.new(180, 34, 34),
+		}):Play()
+		Debris:AddItem(pillar, 1.1)
+
+		-- (d) Ground crack decal
+		local crack = Instance.new("Part")
+		crack.Name = "InfernalGroundCrack"
+		crack.Shape = Enum.PartType.Cylinder
+		crack.Size = Vector3.new(0.2, 46, 46)
+		crack.CFrame = CFrame.new(Vector3.new(impactPos.X, groundY + 0.05, impactPos.Z)) * CFrame.Angles(0, 0, math.rad(90))
+		crack.Anchored = true
+		crack.CanCollide = false
+		crack.CanTouch = false
+		crack.CanQuery = false
+		crack.Material = Enum.Material.Neon
+		crack.Color = Color3.fromRGB(255, 60, 0)
+		crack.Transparency = 0.25
+		crack.Parent = megaFolder
+		TweenService:Create(crack, TweenInfo.new(2.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Transparency = 1,
+		}):Play()
+		Debris:AddItem(crack, 2.4)
+
+		-- (e) Camera juice for local caster
+		if isLocalCaster then
+			triggerCameraShake(2.4, 0.7)
+			triggerFOVPunch(14, 0.5)
+		end
+
+		-- (f) Delayed secondary aftershock
+		task.delay(0.35, function()
+			if not char or not char.Parent then return end
+			local aftershock = Instance.new("Part")
+			aftershock.Name = "InfernalAftershock"
+			aftershock.Shape = Enum.PartType.Cylinder
+			aftershock.Size = Vector3.new(0.35, 8, 8)
+			aftershock.CFrame = CFrame.new(impactPos + Vector3.new(0, 0.2, 0)) * CFrame.Angles(0, 0, math.rad(90))
+			aftershock.Anchored = true
+			aftershock.CanCollide = false
+			aftershock.CanTouch = false
+			aftershock.CanQuery = false
+			aftershock.Material = Enum.Material.Neon
+			aftershock.Color = Color3.fromRGB(255, 200, 90)
+			aftershock.Transparency = 0.15
+			aftershock.Parent = Workspace.Terrain
+			TweenService:Create(aftershock, TweenInfo.new(0.8, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+				Size = Vector3.new(0.35, 70, 70),
+				Transparency = 1,
+			}):Play()
+			Debris:AddItem(aftershock, 1.0)
+		end)
+
+		Debris:AddItem(megaFolder, 3.0)
+	end
+
 	-- 4. Impact explosion using 'Light Explosion VFX' asset
 	local function triggerImpactVFX()
 		if not char or not char.Parent then return end
+
+		-- Mega cinematic impact layers
+		playInfernalImpactMegaVFX()
 
 		-- Spawn Crater Debris
 		spawnCraterDebris(impactPos, 8.0, 16)
@@ -1731,7 +1968,7 @@ local function makeRangerArrow(startPos: Vector3, direction: Vector3, distance: 
 	trail.FaceCamera = true
 	trail.Parent = arrow
 
-	local travelTime = lifetime or 0.32
+	local travelTime = (lifetime or 0.32) * 0.55
 	local endPos = startPos + dir * distance
 	TweenService:Create(arrow, TweenInfo.new(travelTime, Enum.EasingStyle.Linear), {
 		CFrame = CFrame.lookAt(endPos, endPos + dir),
@@ -2235,6 +2472,297 @@ local function spawnVinePinRing(targetRoot: BasePart, duration: number)
 	end)
 end
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Rain of Arrows: Vine Arena Cage (Visual entrapment cage around the AoE zone)
+-- Uses the same vine stem/node/leaf primitives from Entangling Arrow for a
+-- cohesive woodland briar aesthetic. Builds arched vine pillars around the
+-- perimeter with horizontal vine rings and scattered leaf clusters.
+-- ─────────────────────────────────────────────────────────────────────────────
+local function spawnVineArenaCage(center: Vector3, radius: number, duration: number)
+	-- Ground level detection
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	rayParams.FilterDescendantsInstances = {}
+	rayParams.IgnoreWater = true
+	local groundRay = Workspace:Raycast(center + Vector3.new(0, 5, 0), Vector3.new(0, -15, 0), rayParams)
+	local groundY = groundRay and groundRay.Position.Y or center.Y
+	local centerBase = Vector3.new(center.X, groundY, center.Z)
+
+	local cage = Instance.new("Model")
+	cage.Name = "VineArenaCageVFX"
+	cage.Parent = Workspace.Terrain
+
+	local allParts: { BasePart } = {}
+	local function regPart(p: BasePart?)
+		if p then table.insert(allParts, p) end
+		return p
+	end
+
+	local cageHeight = 14
+	local numPillars = 10
+	local pillarSteps = 12
+
+	-- =====================================================================
+	-- 1. ARCHED VINE PILLARS around the perimeter
+	-- =====================================================================
+	for pillar = 1, numPillars do
+		local baseAngle = (pillar / numPillars) * math.pi * 2
+		local pillarBaseX = math.cos(baseAngle) * radius
+		local pillarBaseZ = math.sin(baseAngle) * radius
+		local pillarBase = centerBase + Vector3.new(pillarBaseX, 0.1, pillarBaseZ)
+
+		-- Slight inward lean at the top to form an arena dome shape
+		local topLean = 0.88
+		local prevP = pillarBase
+
+		for step = 1, pillarSteps do
+			local alpha = step / pillarSteps
+			-- Arch inward slightly towards top
+			local curRadius = radius * (1 - (1 - topLean) * math.pow(alpha, 1.5))
+			local curY = alpha * cageHeight
+			-- Gentle spiral twist along each pillar
+			local twistAngle = baseAngle + math.sin(alpha * math.pi * 2) * 0.15
+			local curX = math.cos(twistAngle) * curRadius
+			local curZ = math.sin(twistAngle) * curRadius
+			local curP = centerBase + Vector3.new(curX, curY, curZ)
+
+			local thick = math.max(0.28, 0.65 * (1 - alpha * 0.35))
+			local col = (step % 3 == 0) and VINE_BARK_LIGHT or ((step % 2 == 0) and VINE_BARK_MID or VINE_BARK_DARK)
+
+			regPart(createVineSegment(cage, prevP, curP, thick, col))
+			regPart(createVineJointNode(cage, curP, thick * 1.1, col))
+
+			-- Leaf sprouts on alternating segments facing outward
+			if step % 3 == 0 then
+				local outNorm = Vector3.new(math.cos(twistAngle), 0.2, math.sin(twistAngle))
+				regPart(createLeafSprout(cage, curP, outNorm, 1.15))
+				if math.random() > 0.4 then
+					regPart(createLeafSprout(cage, curP, -outNorm + Vector3.new(0, 0.5, 0), 0.9))
+				end
+			end
+
+			-- Prominent leaf crown at the top of each pillar
+			if step == pillarSteps then
+				local topNorm = Vector3.new(math.cos(baseAngle), 0.8, math.sin(baseAngle))
+				regPart(createLeafSprout(cage, curP, topNorm, 1.35))
+				regPart(createLeafSprout(cage, curP, Vector3.new(-topNorm.X, 0.9, -topNorm.Z), 1.25))
+				regPart(createLeafSprout(cage, curP, Vector3.new(0, 1, 0), 1.1))
+			end
+
+			prevP = curP
+		end
+	end
+
+	-- =====================================================================
+	-- 2. HORIZONTAL VINE RINGS connecting pillars at multiple heights
+	-- =====================================================================
+	local ringHeights = { 0.2, 0.4, 0.65, 0.88 }
+	for _, heightFrac in ipairs(ringHeights) do
+		local ringY = heightFrac * cageHeight
+		local ringRadius = radius * (1 - (1 - 0.88) * math.pow(heightFrac, 1.5))
+		local ringSegments = numPillars * 3
+		local prevRingP = centerBase + Vector3.new(math.cos(0) * ringRadius, ringY, math.sin(0) * ringRadius)
+
+		for seg = 1, ringSegments do
+			local angle = (seg / ringSegments) * math.pi * 2
+			local wobble = math.sin(seg * 2.3 + heightFrac * 7) * 0.4
+			local curP = centerBase + Vector3.new(
+				math.cos(angle) * (ringRadius + wobble),
+				ringY + math.sin(seg * 1.7) * 0.3,
+				math.sin(angle) * (ringRadius + wobble)
+			)
+			local thick = math.max(0.2, 0.38 * (1 - heightFrac * 0.3))
+			local col = (seg % 2 == 0) and VINE_BARK_MID or VINE_BARK_DARK
+
+			regPart(createVineSegment(cage, prevRingP, curP, thick, col))
+
+			-- Joint nodes at pillar intersections
+			if seg % 3 == 0 then
+				regPart(createVineJointNode(cage, curP, thick * 1.15, VINE_BARK_LIGHT))
+			end
+
+			-- Leaf clusters along the rings
+			if seg % 5 == 0 then
+				local outNorm = Vector3.new(math.cos(angle), 0.15, math.sin(angle))
+				regPart(createLeafSprout(cage, curP, outNorm, 0.95))
+			end
+
+			prevRingP = curP
+		end
+	end
+
+	-- =====================================================================
+	-- 3. GROUND ROOT MAT around the cage perimeter
+	-- =====================================================================
+	local numGroundRoots = 14
+	for r = 1, numGroundRoots do
+		local baseAngle = (r / numGroundRoots) * math.pi * 2 + (math.random() - 0.5) * 0.3
+		local rootLen = math.random(28, 50) / 10
+		local steps = 3
+		local prevP = centerBase + Vector3.new(
+			math.cos(baseAngle) * (radius - 1.2),
+			0.08,
+			math.sin(baseAngle) * (radius - 1.2)
+		)
+
+		for s = 1, steps do
+			local distFrac = s / steps
+			local curDist = (radius - 1.2) + rootLen * distFrac
+			local curveAngle = baseAngle + math.sin(s * 1.6 + r) * 0.22
+			local curP = centerBase + Vector3.new(
+				math.cos(curveAngle) * curDist,
+				0.06 + math.sin(s * 1.1) * 0.06,
+				math.sin(curveAngle) * curDist
+			)
+			local thick = math.max(0.16, 0.38 * (1 - distFrac * 0.5))
+			regPart(createVineSegment(cage, prevP, curP, thick, VINE_BARK_DARK))
+			regPart(createVineJointNode(cage, curP, thick * 1.08, VINE_BARK_DARK))
+
+			if s >= 2 and math.random() > 0.35 then
+				local leafDir = Vector3.new(math.cos(curveAngle + math.pi * 0.5), 0.3, math.sin(curveAngle + math.pi * 0.5))
+				regPart(createLeafSprout(cage, curP, leafDir, 0.8))
+			end
+
+			prevP = curP
+		end
+	end
+
+	-- =====================================================================
+	-- 4. EMERALD LIGHTING & FLOATING LEAF PARTICLES
+	-- =====================================================================
+	local lightPart = Instance.new("Part")
+	lightPart.Name = "CageCenter"
+	lightPart.Size = Vector3.new(1, 1, 1)
+	lightPart.Transparency = 1
+	lightPart.CanCollide = false
+	lightPart.CanTouch = false
+	lightPart.CanQuery = false
+	lightPart.Anchored = true
+	lightPart.CFrame = CFrame.new(centerBase + Vector3.new(0, cageHeight * 0.35, 0))
+	lightPart.Parent = cage
+
+	local cageLight = Instance.new("PointLight")
+	cageLight.Color = Color3.fromRGB(110, 235, 60)
+	cageLight.Brightness = 3.2
+	cageLight.Range = radius * 2.5
+	cageLight.Parent = lightPart
+
+	local cageLightAtt = Instance.new("Attachment")
+	cageLightAtt.Parent = lightPart
+
+	-- Ambient floating leaves inside the cage
+	local cageLeavesPE = Instance.new("ParticleEmitter")
+	cageLeavesPE.Name = "CageAmbientLeaves"
+	cageLeavesPE.Texture = "rbxassetid://258128463"
+	cageLeavesPE.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(170, 255, 90)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(130, 230, 65)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(85, 175, 40)),
+	})
+	cageLeavesPE.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.1),
+		NumberSequenceKeypoint.new(0.7, 0.2),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	cageLeavesPE.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.55),
+		NumberSequenceKeypoint.new(0.5, 0.75),
+		NumberSequenceKeypoint.new(1, 0.3),
+	})
+	cageLeavesPE.Lifetime = NumberRange.new(1.8, 3.0)
+	cageLeavesPE.Rate = 25
+	cageLeavesPE.Speed = NumberRange.new(1, 3.5)
+	cageLeavesPE.SpreadAngle = Vector2.new(180, 60)
+	cageLeavesPE.Rotation = NumberRange.new(0, 360)
+	cageLeavesPE.RotSpeed = NumberRange.new(-40, 40)
+	cageLeavesPE.LightEmission = 0.5
+	cageLeavesPE.Parent = cageLightAtt
+	cageLeavesPE:Emit(20)
+
+	-- Emerald spore glow particles
+	local cageSporesPE = Instance.new("ParticleEmitter")
+	cageSporesPE.Name = "CageSporeGlow"
+	cageSporesPE.Color = ColorSequence.new(Color3.fromRGB(180, 255, 95))
+	cageSporesPE.LightEmission = 1
+	cageSporesPE.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.22),
+		NumberSequenceKeypoint.new(1, 0.04),
+	})
+	cageSporesPE.Lifetime = NumberRange.new(1.0, 1.8)
+	cageSporesPE.Rate = 30
+	cageSporesPE.Speed = NumberRange.new(0.5, 2.0)
+	cageSporesPE.SpreadAngle = Vector2.new(180, 90)
+	cageSporesPE.Parent = cageLightAtt
+	cageSporesPE:Emit(25)
+
+	-- =====================================================================
+	-- 5. GROWTH SURGE ANIMATION (parts scale upward from ground)
+	-- =====================================================================
+	local partOrigData: { { part: BasePart, origCF: CFrame, origSize: Vector3 } } = {}
+	for _, p in ipairs(allParts) do
+		table.insert(partOrigData, { part = p, origCF = p.CFrame, origSize = p.Size })
+	end
+
+	local growDuration = 0.32
+	local growStartTime = os.clock()
+	local growConn: RBXScriptConnection?
+	growConn = RunService.Heartbeat:Connect(function()
+		local elapsed = os.clock() - growStartTime
+		local alpha = math.clamp(elapsed / growDuration, 0, 1)
+		local smoothAlpha = 1 - math.pow(1 - alpha, 3)
+
+		for _, data in ipairs(partOrigData) do
+			if data.part and data.part.Parent then
+				local groundCF = CFrame.new(data.origCF.Position.X, groundY, data.origCF.Position.Z)
+				data.part.CFrame = groundCF:Lerp(data.origCF, smoothAlpha)
+				data.part.Size = data.origSize * math.max(0.05, smoothAlpha)
+			end
+		end
+
+		if alpha >= 1 then
+			if growConn then growConn:Disconnect() end
+			for _, data in ipairs(partOrigData) do
+				if data.part and data.part.Parent then
+					data.part.CFrame = data.origCF
+					data.part.Size = data.origSize
+				end
+			end
+		end
+	end)
+
+	-- =====================================================================
+	-- 6. CRUMBLE DECAY at end of duration
+	-- =====================================================================
+	local decayTime = 0.5
+	task.delay(math.max(0, duration - decayTime), function()
+		if growConn then growConn:Disconnect() end
+		cageLeavesPE.Enabled = false
+		cageSporesPE.Enabled = false
+
+		local decayStart = os.clock()
+		local decayConn: RBXScriptConnection?
+		decayConn = RunService.Heartbeat:Connect(function()
+			local elapsed = os.clock() - decayStart
+			local alpha = math.clamp(elapsed / decayTime, 0, 1)
+			local smoothFade = math.pow(alpha, 2)
+
+			for _, data in ipairs(partOrigData) do
+				if data.part and data.part.Parent then
+					data.part.Transparency = smoothFade
+					data.part.Size = data.origSize * (1 - smoothFade * 0.35)
+				end
+			end
+
+			cageLight.Brightness = 3.2 * (1 - smoothFade)
+
+			if alpha >= 1 then
+				if decayConn then decayConn:Disconnect() end
+				cage:Destroy()
+			end
+		end)
+	end)
+end
+
 local function showPinnedTargets(casterChar: Model, center: Vector3, radius: number, duration: number)
 	for _, desc in ipairs(Workspace:GetDescendants()) do
 		if desc:IsA("Model") and desc ~= casterChar and not desc:IsDescendantOf(casterChar) and not desc:FindFirstAncestorOfClass("Accessory") then
@@ -2588,6 +3116,116 @@ local function playRangerVerdantSlashVFX(casterChar: Model, startPos: Vector3, e
 	slashLeaves.Parent = midAtt
 	slashLeaves:Emit(22)
 
+	-- ─── LEAF FLURRY VFX: Rich leaf bursts scattered along the dash trajectory ───
+	local leafBurstAlphas = { 0.0, 0.25, 0.5, 0.75, 1.0 }
+	for _, alpha in ipairs(leafBurstAlphas) do
+		local burstPos = startPos:Lerp(endPos, alpha) + Vector3.new(0, 1.2, 0)
+		local burstHolder = Instance.new("Part")
+		burstHolder.Name = "DashLeafBurst"
+		burstHolder.Size = Vector3.new(0.1, 0.1, 0.1)
+		burstHolder.Transparency = 1
+		burstHolder.CanCollide = false
+		burstHolder.CanTouch = false
+		burstHolder.CanQuery = false
+		burstHolder.Anchored = true
+		burstHolder.CFrame = CFrame.new(burstPos)
+		burstHolder.Parent = slashModel
+
+		local burstAtt = Instance.new("Attachment")
+		burstAtt.Parent = burstHolder
+
+		-- Large swirling leaf burst
+		local leafPE = Instance.new("ParticleEmitter")
+		leafPE.Name = "DashLeafFlurry"
+		leafPE.Texture = "rbxassetid://258128463"
+		leafPE.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(200, 255, 130)),
+			ColorSequenceKeypoint.new(0.4, Color3.fromRGB(140, 250, 70)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 200, 40)),
+		})
+		leafPE.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.0),
+			NumberSequenceKeypoint.new(0.6, 0.15),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		leafPE.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.9),
+			NumberSequenceKeypoint.new(0.4, 0.7),
+			NumberSequenceKeypoint.new(1, 0.2),
+		})
+		leafPE.Lifetime = NumberRange.new(0.5, 1.1)
+		leafPE.Speed = NumberRange.new(6, 16)
+		leafPE.SpreadAngle = Vector2.new(360, 120)
+		leafPE.Rotation = NumberRange.new(0, 360)
+		leafPE.RotSpeed = NumberRange.new(-120, 120)
+		leafPE.LightEmission = 0.65
+		leafPE.Drag = 3
+		leafPE.Parent = burstAtt
+		leafPE:Emit(12)
+
+		-- Sparkling emerald dust at each burst point
+		local dustPE = Instance.new("ParticleEmitter")
+		dustPE.Name = "DashLeafDust"
+		dustPE.Color = ColorSequence.new(Color3.fromRGB(185, 255, 110))
+		dustPE.LightEmission = 1
+		dustPE.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.3),
+			NumberSequenceKeypoint.new(1, 0.05),
+		})
+		dustPE.Lifetime = NumberRange.new(0.3, 0.65)
+		dustPE.Speed = NumberRange.new(4, 12)
+		dustPE.SpreadAngle = Vector2.new(360, 90)
+		dustPE.Parent = burstAtt
+		dustPE:Emit(8)
+	end
+
+	-- Leaf swirl attached to the caster's root part (follows character briefly)
+	local casterRoot = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if casterRoot then
+		local swirlAtt = Instance.new("Attachment")
+		swirlAtt.Name = "DashLeafSwirl"
+		swirlAtt.Position = Vector3.new(0, 0.5, 0)
+		swirlAtt.Parent = casterRoot
+
+		local swirlPE = Instance.new("ParticleEmitter")
+		swirlPE.Name = "DashSwirlLeaves"
+		swirlPE.Texture = "rbxassetid://258128463"
+		swirlPE.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(220, 255, 160)),
+			ColorSequenceKeypoint.new(0.5, Color3.fromRGB(160, 255, 85)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(90, 210, 50)),
+		})
+		swirlPE.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.0),
+			NumberSequenceKeypoint.new(0.5, 0.1),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		swirlPE.Size = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.75),
+			NumberSequenceKeypoint.new(0.5, 0.55),
+			NumberSequenceKeypoint.new(1, 0.15),
+		})
+		swirlPE.Lifetime = NumberRange.new(0.45, 0.95)
+		swirlPE.Rate = 80
+		swirlPE.Speed = NumberRange.new(4, 10)
+		swirlPE.SpreadAngle = Vector2.new(360, 60)
+		swirlPE.Rotation = NumberRange.new(0, 360)
+		swirlPE.RotSpeed = NumberRange.new(-100, 100)
+		swirlPE.LightEmission = 0.6
+		swirlPE.Drag = 4
+		swirlPE.Parent = swirlAtt
+		swirlPE:Emit(18)
+
+		task.delay(0.35, function()
+			swirlPE.Enabled = false
+			task.delay(1.0, function()
+				if swirlAtt and swirlAtt.Parent then
+					swirlAtt:Destroy()
+				end
+			end)
+		end)
+	end
+
 	-- 5. Arrowhead / piercing tip flare at end position (Panel 1)
 	local flareSpike1 = Instance.new("Part")
 	flareSpike1.Name = "ArrowheadSpike1"
@@ -2665,6 +3303,237 @@ local function playRangerVerdantSlashVFX(casterChar: Model, startPos: Vector3, e
 	end)
 end
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Skill 3: Seeker Barrage / Missile Buff & Guided Missile System
+-- ─────────────────────────────────────────────────────────────────────────────
+local function playMissileBuffVFX(char: Model)
+	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not rootPart then return end
+
+	char:SetAttribute("IsMissileBuffActive", true)
+
+	-- Brief activation flash on character
+	local buffAtt = Instance.new("Attachment")
+	buffAtt.Name = "MissileBuffActivation"
+	buffAtt.Position = Vector3.new(0, 1.5, 0)
+	buffAtt.Parent = rootPart
+
+	local flamePE = makeFlameEmitter(buffAtt, 0, 3.5, 18)
+	flamePE:Emit(25)
+
+	local emberPE = makeEmberEmitter(buffAtt, 0)
+	emberPE:Emit(20)
+
+	task.delay(0.6, function()
+		if buffAtt and buffAtt.Parent then
+			buffAtt:Destroy()
+		end
+	end)
+
+	-- Buff duration: 8.0 seconds
+	task.delay(8.0, function()
+		if char and char.Parent then
+			char:SetAttribute("IsMissileBuffActive", false)
+		end
+	end)
+end
+
+local function launchSingleSeekerMissile(casterChar: Model, sideOffset: number, verticalOffset: number, backwardOffset: number, curveDir: Vector3, speedMult: number?, sizeMult: number?)
+	local rootPart = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not rootPart then return end
+
+	local speed = math.max(0.2, speedMult or 1.0)
+	local sizeScale = math.max(0.4, sizeMult or 1.0)
+
+	local lookVec = rootPart.CFrame.LookVector
+	local rightVec = rootPart.CFrame.RightVector
+	local upVec = Vector3.new(0, 1, 0)
+
+	local spawnOffset = -lookVec * backwardOffset + rightVec * sideOffset + upVec * verticalOffset
+	local spawnPos = rootPart.Position + spawnOffset
+	local initialDir = (curveDir).Unit
+	local currentPos = spawnPos
+	local currentVel = initialDir * (70.0 * speed)
+
+	-- Small, streamlined projectile part scaled with size tome
+	local carrier = Instance.new("Part")
+	carrier.Name = "SeekerMissileVFX"
+	carrier.Size = Vector3.new(0.35 * sizeScale, 0.35 * sizeScale, 0.75 * sizeScale)
+	carrier.Material = Enum.Material.Neon
+	carrier.Color = Color3.fromRGB(150, 255, 70)
+	carrier.CanCollide = false
+	carrier.CanTouch = false
+	carrier.CanQuery = false
+	carrier.Anchored = true
+	carrier.CFrame = CFrame.lookAt(spawnPos, spawnPos + initialDir)
+
+	-- Dynamic green light
+	local mLight = Instance.new("PointLight")
+	mLight.Color = Color3.fromRGB(150, 255, 70)
+	mLight.Brightness = 3
+	mLight.Range = 7 * sizeScale
+	mLight.Parent = carrier
+
+	-- Attachments on local X-axis (left and right of missile forward direction)
+	local att0 = Instance.new("Attachment")
+	att0.Name = "TrailAtt0"
+	att0.Position = Vector3.new(-0.25 * sizeScale, 0, 0)
+	att0.Parent = carrier
+
+	local att1 = Instance.new("Attachment")
+	att1.Name = "TrailAtt1"
+	att1.Position = Vector3.new(0.25 * sizeScale, 0, 0)
+	att1.Parent = carrier
+
+	local trail = Instance.new("Trail")
+	trail.Name = "SeekerTrail"
+	trail.Attachment0 = att0
+	trail.Attachment1 = att1
+	trail.FaceCamera = true
+	trail.Lifetime = 0.28 / speed
+	trail.MinLength = 0.05
+	trail.LightEmission = 1
+	trail.LightInfluence = 0
+	trail.Color = ColorSequence.new(Color3.fromRGB(150, 255, 70))
+	trail.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.65, 0.25),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	trail.WidthScale = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1.3 * sizeScale),
+		NumberSequenceKeypoint.new(0.45, 0.75 * sizeScale),
+		NumberSequenceKeypoint.new(1, 0.02),
+	})
+	trail.Parent = carrier
+
+	carrier.Parent = Workspace.Terrain
+
+	local function cleanupMissile()
+		if not carrier or not carrier.Parent then return end
+		carrier.Transparency = 1
+		mLight.Enabled = false
+		trail.Enabled = false
+		for _, d in ipairs(carrier:GetDescendants()) do
+			if d:IsA("BasePart") or d:IsA("Decal") then
+				d.Transparency = 1
+			elseif d:IsA("Light") then
+				d.Enabled = false
+			elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
+				d.Enabled = false
+			end
+		end
+		task.delay(0.32, function()
+			if carrier and carrier.Parent then
+				carrier:Destroy()
+			end
+		end)
+	end
+
+	-- Search for nearest enemy target in workspace
+	local function findNearestEnemy(pos: Vector3): (Model?, BasePart?)
+		local bestDist = 70
+		local bestTarget: Model? = nil
+		local bestPart: BasePart? = nil
+
+		for _, desc in ipairs(Workspace:GetDescendants()) do
+			if desc:IsA("Model") and desc ~= casterChar and not desc:IsDescendantOf(casterChar) and not desc:FindFirstAncestorOfClass("Accessory") then
+				local hum = desc:FindFirstChildOfClass("Humanoid")
+				local root = (desc:FindFirstChild("HumanoidRootPart") or desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")) :: BasePart?
+				if hum and hum.Health > 0 and root then
+					local dist = (root.Position - pos).Magnitude
+					if dist < bestDist then
+						bestDist = dist
+						bestTarget = desc
+						bestPart = root
+					end
+				end
+			end
+		end
+		return bestTarget, bestPart
+	end
+
+	task.spawn(function()
+		local startTime = os.clock()
+		local maxLifetime = 1.8 / speed
+		local targetModel, targetRoot = findNearestEnemy(spawnPos)
+
+		while os.clock() - startTime < maxLifetime do
+			local dt = RunService.RenderStepped:Wait()
+			local elapsed = os.clock() - startTime
+
+			-- Re-check target if lost
+			if not targetModel or not targetModel.Parent or not targetRoot or not targetRoot.Parent then
+				targetModel, targetRoot = findNearestEnemy(currentPos)
+			end
+
+			if targetRoot and targetRoot.Parent and elapsed > (0.05 / speed) then
+				local targetAimPos = targetRoot.Position + Vector3.new(0, 0.8, 0)
+				local toTarget = (targetAimPos - currentPos)
+				local distToTarget = toTarget.Magnitude
+
+				if distToTarget < (3.2 * sizeScale) then
+					-- Hit target!
+					break
+				end
+
+				local desiredDir = toTarget.Unit
+				local steerSpeed = 24.0 * speed
+				local targetSpeed = 130.0 * speed
+				currentVel = currentVel:Lerp(desiredDir * targetSpeed, math.clamp(dt * steerSpeed, 0, 1))
+			else
+				currentVel = currentVel + Vector3.new(0, 4.0 * dt, 0)
+			end
+
+			currentPos = currentPos + currentVel * dt
+
+			if carrier and carrier.Parent then
+				carrier.CFrame = CFrame.lookAt(currentPos, currentPos + currentVel)
+			else
+				break
+			end
+		end
+
+		cleanupMissile()
+	end)
+end
+
+function SkillController.LaunchMissile(casterChar: Model)
+	local rootPart = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not rootPart then return end
+
+	local charPlayer = Players:GetPlayerFromCharacter(casterChar) or (casterChar == player.Character and player)
+	local extraProjectiles = math.max(0, math.floor((charPlayer and charPlayer:GetAttribute("Stat_projectileCount")) or 0))
+	local totalMissiles = 3 + extraProjectiles
+	local speedMult = math.max(0.2, (charPlayer and charPlayer:GetAttribute("Stat_projectileSpeed")) or 1.0)
+	local sizeMult = math.max(0.4, (charPlayer and charPlayer:GetAttribute("Stat_size")) or 1.0)
+
+	local lookVec = rootPart.CFrame.LookVector
+	local rightVec = rootPart.CFrame.RightVector
+	local upVec = Vector3.new(0, 1, 0)
+
+	-- Dynamic fan-out formation based on total missile count (scaling with Quantity Tome)
+	for i = 1, totalMissiles do
+		local fraction = (totalMissiles == 1) and 0.5 or ((i - 1) / (totalMissiles - 1))
+		local sideOffset = -1.4 + fraction * 2.8
+		local vertOffset = 2.0 + math.sin(fraction * math.pi) * 0.75
+		local backOffset = 1.2 + math.sin(fraction * math.pi) * 0.4
+		local curveSide = -0.65 + fraction * 1.3
+		local curveDir = (-lookVec * 0.75 + rightVec * curveSide + upVec * 0.6)
+
+		local delayTime = (i - 1) * (0.035 / math.max(speedMult, 0.5))
+		if delayTime > 0 then
+			task.delay(delayTime, function()
+				if casterChar and casterChar.Parent then
+					launchSingleSeekerMissile(casterChar, sideOffset, vertOffset, backOffset, curveDir, speedMult, sizeMult)
+				end
+			end)
+		else
+			launchSingleSeekerMissile(casterChar, sideOffset, vertOffset, backOffset, curveDir, speedMult, sizeMult)
+		end
+	end
+end
+
 local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vector3, lookDir: Vector3, targetPosition: Vector3?, projectileCountParam: number?)
 	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not rootPart then return end
@@ -2713,49 +3582,40 @@ local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vecto
 			triggerCameraShake(char == player.Character and 0.35 or 0, 0.2)
 		end)
 	elseif skillIndex == 3 then
-		local target = targetPosition or (origin + flatUnit(lookDir) * 34)
-		local pod = Instance.new("Part")
-		pod.Name = "SporePodVFX"
-		pod.Shape = Enum.PartType.Ball
-		pod.Size = Vector3.new(1.15, 1.15, 1.15)
-		pod.Material = Enum.Material.Neon
-		pod.Color = POISON_PURPLE
-		pod.CanCollide = false
-		pod.CanTouch = false
-		pod.CanQuery = false
-		pod.Anchored = true
-		pod.CFrame = CFrame.new(baseOrigin)
-		pod.Parent = Workspace.Terrain
-		local mid = baseOrigin:Lerp(target + Vector3.new(0, 0.4, 0), 0.5) + Vector3.new(0, 11, 0)
-		task.spawn(function()
-			local start = os.clock()
-			while os.clock() - start < 0.62 do
-				local alpha = math.clamp((os.clock() - start) / 0.62, 0, 1)
-				local a = baseOrigin:Lerp(mid, alpha)
-				local b = mid:Lerp(target, alpha)
-				local pos = a:Lerp(b, alpha)
-				pod.CFrame = CFrame.new(pos)
-				RunService.RenderStepped:Wait()
-			end
-			pod:Destroy()
-			spawnPoisonEmitter(target, 13, 6.0)
-		end)
+		playMissileBuffVFX(char)
 	elseif skillIndex == 4 then
 		makeRangerArrow(baseOrigin, Vector3.new(0, 0, -1), 0.1, Color3.fromRGB(185, 255, 145), 0.4, 0.08)
 		local center = targetPosition or (origin + flatUnit(lookDir) * 42)
-		local marker = Instance.new("Part")
-		marker.Name = "RainOfArrowsMarker"
-		marker.Shape = Enum.PartType.Cylinder
-		marker.Size = Vector3.new(0.12, 36, 36)
-		marker.Material = Enum.Material.Neon
-		marker.Color = Color3.fromRGB(70, 180, 80)
-		marker.Transparency = 0.62
-		marker.CanCollide = false
-		marker.CanTouch = false
-		marker.CanQuery = false
-		marker.Anchored = true
-		marker.CFrame = CFrame.new(center + Vector3.new(0, 0.06, 0)) * CFrame.Angles(0, 0, math.rad(90))
+		local marker = Instance.new("Model")
+		marker.Name = "RainOfArrowsRing"
 		marker.Parent = Workspace.Terrain
+
+		-- Perimeter-only indicator ring (hollow center, nothing filling the area)
+		local RING_SEGMENTS = 48
+		local ringRadius = 18
+		local segLen = (2 * math.pi * ringRadius) / RING_SEGMENTS
+		local ringColor = Color3.fromRGB(95, 215, 115)
+		for s = 1, RING_SEGMENTS do
+			local ang = (s / RING_SEGMENTS) * math.pi * 2
+			local px = center.X + math.cos(ang) * ringRadius
+			local pz = center.Z + math.sin(ang) * ringRadius
+			local seg = Instance.new("Part")
+			seg.Name = "RingSeg"
+			seg.Size = Vector3.new(0.6, 0.18, segLen * 1.12)
+			seg.Material = Enum.Material.Neon
+			seg.Color = ringColor
+			seg.Transparency = 0.3
+			seg.CanCollide = false
+			seg.CanTouch = false
+			seg.CanQuery = false
+			seg.Anchored = true
+			seg.CFrame = CFrame.lookAt(Vector3.new(px, center.Y + 0.08, pz), Vector3.new(px, center.Y + 0.08, pz) + Vector3.new(-math.sin(ang), 0, math.cos(ang)))
+			seg.Parent = marker
+		end
+
+		-- Spawn the vine arena cage around the drop zone
+		spawnVineArenaCage(center, 18, 5.2)
+
 		task.delay(1.05, function()
 			for i = 1, 70 do
 				task.delay(i * 0.035, function()
@@ -2768,7 +3628,11 @@ local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vecto
 		end)
 		task.delay(5.2, function()
 			if marker and marker.Parent then
-				TweenService:Create(marker, TweenInfo.new(0.35), { Transparency = 1 }):Play()
+				for _, mp in ipairs(marker:GetChildren()) do
+					if mp:IsA("BasePart") then
+						TweenService:Create(mp, TweenInfo.new(0.35), { Transparency = 1 }):Play()
+					end
+				end
 				Debris:AddItem(marker, 0.4)
 			end
 		end)
@@ -2776,6 +3640,897 @@ local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vecto
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Cleric Ultimate: Divine Ascent VFX (angelic wings, sky pillar, holy judgment)
+-- ─────────────────────────────────────────────────────────────────────────────
+local playDivineAscentCamera: (Model, Vector3, number) -> ()
+
+local HOLY_IVORY = Color3.fromRGB(255, 250, 238)
+local HOLY_WHITE = Color3.fromRGB(255, 243, 212)
+local HOLY_GOLD = Color3.fromRGB(255, 206, 112)
+local HOLY_GOLD_DEEP = Color3.fromRGB(233, 170, 64)
+local HOLY_RAY_TEXTURE = 'rbxassetid://1053548563'
+local HEAL_GREEN = Color3.fromRGB(110, 245, 140)
+
+-- LAYOUT CONTRACT
+--   A Roblox character faces along -Z (LookVector), so 'behind the back' is
+--   local +Z. Every wing / halo / body VFX part goes through behindCF(), which
+--   clamps local Z to >= 0.75 studs. Wings are built from a BASE point and grow
+--   away from it: the rotated long axis always gains Z, so no feather can ever
+--   swing in front of the torso or head.
+--
+-- READABILITY CONTRACT
+--   No light is parented to HumanoidRootPart (that lit him from the inside and
+--   blew out the silhouette). Warm gold PointLights sit BEHIND him instead,
+--   giving a golden rim light on a dark, readable body.
+local function behindCF(rootPart: BasePart, x: number, y: number, z: number, rx: number?, ry: number?, rz: number?): CFrame
+    local cf = rootPart.CFrame * CFrame.new(x, y, math.max(0.75, z))
+    if rx or ry or rz then
+        cf = cf * CFrame.Angles(rx or 0, ry or 0, rz or 0)
+    end
+    return cf
+end
+
+local function weldTo(part: BasePart, rootPart: BasePart)
+    part.CanCollide = false
+    part.CanTouch = false
+    part.CanQuery = false
+    part.Massless = true
+    part.CastShadow = false
+    local w = Instance.new('WeldConstraint')
+    w.Part0 = rootPart
+    w.Part1 = part
+    w.Parent = part
+    part.Anchored = false
+end
+
+local function newHolyRayEmitter(parent: Instance, rate: number, size: number, speed: number, color: Color3): ParticleEmitter
+    local pe = Instance.new('ParticleEmitter')
+    pe.Name = 'HolyRay'
+    pe.Texture = HOLY_RAY_TEXTURE
+    pe.Color = ColorSequence.new(color)
+    pe.LightEmission = 1
+    pe.LightInfluence = 0
+    pe.Rate = rate
+    pe.Lifetime = NumberRange.new(0.4, 0.9)
+    pe.Speed = NumberRange.new(speed * 0.5, speed * 1.2)
+    pe.SpreadAngle = Vector2.new(18, 18)
+    pe.EmissionDirection = Enum.NormalId.Top
+    pe.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, size * 0.25),
+        NumberSequenceKeypoint.new(0.35, size),
+        NumberSequenceKeypoint.new(1, 0.05),
+    })
+    pe.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.15),
+        NumberSequenceKeypoint.new(0.7, 0.4),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    pe.Parent = parent
+    return pe
+end
+
+local function buildDivineWings(char: Model, rootPart: BasePart): (Folder, { BasePart })
+    local folder = Instance.new('Folder')
+    folder.Name = 'DivineAscentWings'
+    folder.Parent = char
+    -- Weld the wings to the TORSO (not the root) so they follow the torso through
+    -- the ultimate's animation instead of staying fixed behind the root.
+    local torsoRef = char:FindFirstChild('Torso')
+    if not (torsoRef and torsoRef:IsA('BasePart')) then torsoRef = rootPart end
+
+    local generalVFX = game:GetService('ReplicatedStorage'):FindFirstChild('generalVFX')
+    local template = generalVFX and generalVFX:FindFirstChild('Wings')
+
+    if template and template:IsA('BasePart') then
+        local meshWings = template:Clone()
+        meshWings.Name = 'AngelWings'
+        meshWings.CanCollide = false
+        meshWings.CanTouch = false
+        meshWings.CanQuery = false
+        meshWings.Massless = true
+        meshWings.CastShadow = false
+        meshWings.Anchored = false
+        meshWings.Material = Enum.Material.Neon
+        meshWings.Color = Color3.fromRGB(255, 246, 224)
+        meshWings.Transparency = 0.04
+        meshWings.CFrame = behindCF(torsoRef, 0, 4.05, 1.15)
+        meshWings.Parent = folder
+
+        local snd = meshWings:FindFirstChildOfClass('Sound')
+        if snd then snd:Destroy() end
+
+        local mesh = meshWings:FindFirstChildOfClass('SpecialMesh')
+        if mesh then
+            mesh.TextureId = ''
+            mesh.VertexColor = Vector3.new(1, 1, 1)
+            local fullScale = mesh.Scale * 1.35
+            mesh.Scale = Vector3.new(0.06, 0.06, 0.06)
+            TweenService:Create(mesh, TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = fullScale }):Play()
+        end
+
+        weldTo(meshWings, torsoRef)
+
+        -- Golden rim glow behind the feather plane so the silhouette pops.
+        local glow = Instance.new('Part')
+        glow.Name = 'WingBackGlow'
+        glow.Size = Vector3.new(6.8, 4.4, 0.2)
+        glow.Material = Enum.Material.Neon
+        glow.Color = HOLY_GOLD
+        glow.Transparency = 0.87
+        glow.CFrame = behindCF(torsoRef, 0, 4.15, 1.42)
+        glow.Parent = folder
+        weldTo(glow, torsoRef)
+
+        -- Rising holy motes across the span of the wings.
+        for _, mx in ipairs({ -3.0, -1.5, 0, 1.5, 3.0 }) do
+            local att = Instance.new('Attachment')
+            att.Name = 'WingMote'
+            att.CFrame = CFrame.new(mx, math.abs(mx) * 0.35, 0.15)
+            att.Parent = glow
+            local pe = newHolyRayEmitter(att, 8, 1.6, 3, (mx == 0) and HOLY_GOLD or HOLY_IVORY)
+            pe.SpreadAngle = Vector2.new(38, 38)
+            pe.Lifetime = NumberRange.new(0.8, 1.6)
+        end
+    end
+
+    local parts: { BasePart } = {}
+    for _, d in ipairs(folder:GetDescendants()) do
+        if d:IsA('BasePart') then table.insert(parts, d) end
+    end
+    return folder, parts
+end
+
+local function buildDivineHalo(char: Model, rootPart: BasePart): Model
+    local halo = Instance.new('Model')
+    halo.Name = 'DivineHalo'
+    halo.Parent = char
+
+    local RING_N = 16
+    local R = 1.95
+    local Y = 1.6
+    local Z = 1.05
+    local chord = (2 * math.pi * R / RING_N) * 1.06
+    for k = 1, RING_N do
+        local ang = (k / RING_N) * math.pi * 2
+        local seg = Instance.new('Part')
+        seg.Name = 'HaloSeg'
+        seg.Size = Vector3.new(0.14, chord, 0.2)
+        seg.Material = Enum.Material.Neon
+        seg.Color = HOLY_GOLD
+        seg.Transparency = 0.08
+        seg.CFrame = rootPart.CFrame * CFrame.new(math.cos(ang) * R, Y + math.sin(ang) * R, Z) * CFrame.Angles(0, 0, ang)
+        seg.Parent = halo
+        weldTo(seg, rootPart)
+    end
+
+    local glow = Instance.new('Part')
+    glow.Name = 'HaloGlow'
+    glow.Shape = Enum.PartType.Cylinder
+    glow.Size = Vector3.new(0.08, R * 2.4, R * 2.4)
+    glow.Material = Enum.Material.Neon
+    glow.Color = HOLY_WHITE
+    glow.Transparency = 0.84
+    glow.CFrame = rootPart.CFrame * CFrame.new(0, Y, Z + 0.22) * CFrame.Angles(0, math.rad(90), 0)
+    glow.Parent = halo
+    weldTo(glow, rootPart)
+
+    return halo
+end
+
+local function buildRimLights(char: Model, rootPart: BasePart): Folder
+    local folder = Instance.new('Folder')
+    folder.Name = 'DivineRimLights'
+    folder.Parent = char
+
+    local specs = {
+        { x = 0, y = 2.2, z = 2.6, b = 2.4, r = 15, c = HOLY_WHITE },
+        { x = -2.6, y = 1.6, z = 2.2, b = 1.4, r = 12, c = HOLY_GOLD },
+        { x = 2.6, y = 1.6, z = 2.2, b = 1.4, r = 12, c = HOLY_GOLD },
+    }
+    for _, s in ipairs(specs) do
+        local anchor = Instance.new('Part')
+        anchor.Name = 'RimAnchor'
+        anchor.Size = Vector3.new(0.2, 0.2, 0.2)
+        anchor.Transparency = 1
+        anchor.CFrame = behindCF(rootPart, s.x, s.y, s.z)
+        anchor.Parent = folder
+        weldTo(anchor, rootPart)
+        local pl = Instance.new('PointLight')
+        pl.Color = s.c
+        pl.Brightness = s.b
+        pl.Range = s.r
+        pl.Shadows = false
+        pl.Parent = anchor
+    end
+    return folder
+end
+
+local function buildGroundSeal(origin: Vector3, groundY: number, radius: number, holder: Instance): Model
+    local seal = Instance.new('Model')
+    seal.Name = 'DivineGroundSeal'
+    seal.Parent = holder
+
+    local baseY = groundY + 0.06
+
+    local function ring(ringRadius, segCount, thickness, height, color, transparency)
+        local chord = (2 * math.pi * ringRadius / segCount) * 1.35
+        for k = 1, segCount do
+            local ang = (k / segCount) * math.pi * 2
+            local px = origin.X + math.cos(ang) * ringRadius
+            local pz = origin.Z + math.sin(ang) * ringRadius
+            local seg = Instance.new('Part')
+            seg.Name = 'SealSeg'
+            seg.Size = Vector3.new(thickness, height, chord)
+            seg.Material = Enum.Material.Neon
+            seg.Color = color
+            seg.Transparency = transparency
+            seg.CanCollide = false
+            seg.CanTouch = false
+            seg.CanQuery = false
+            seg.CastShadow = false
+            seg.Anchored = true
+            seg.CFrame = CFrame.lookAt(Vector3.new(px, baseY, pz), Vector3.new(px, baseY, pz) + Vector3.new(-math.sin(ang), 0, math.cos(ang)))
+            seg.Parent = seal
+        end
+    end
+
+    ring(radius, 48, 0.75, 0.22, HOLY_GOLD, 0.2)
+    ring(radius * 0.66, 36, 0.45, 0.18, HOLY_WHITE, 0.35)
+    ring(radius * 0.34, 24, 0.4, 0.16, HOLY_GOLD, 0.3)
+
+    for k = 1, 8 do
+        local ang = (k / 8) * math.pi * 2
+        local midR = radius * 0.5
+        local spoke = Instance.new('Part')
+        spoke.Name = 'SealSpoke'
+        spoke.Size = Vector3.new(0.35, 0.14, radius * 0.33)
+        spoke.Material = Enum.Material.Neon
+        spoke.Color = HOLY_IVORY
+        spoke.Transparency = 0.4
+        spoke.CanCollide = false
+        spoke.CanTouch = false
+        spoke.CanQuery = false
+        spoke.CastShadow = false
+        spoke.Anchored = true
+        local sp = Vector3.new(origin.X + math.cos(ang) * midR, baseY, origin.Z + math.sin(ang) * midR)
+        spoke.CFrame = CFrame.lookAt(sp, sp + Vector3.new(math.cos(ang), 0, math.sin(ang)))
+        spoke.Parent = seal
+    end
+
+    return seal
+end
+
+local function spawnHolyCross(parent: Instance, baseCF: CFrame, scale: number, riseTime: number, color: Color3)
+    local model = Instance.new('Model')
+    model.Name = 'HolyCross'
+
+    local pieces = {}
+    local function makePiece(size: Vector3, offset: CFrame)
+        local p = Instance.new('Part')
+        p.Size = size
+        p.Material = Enum.Material.Neon
+        p.Color = color
+        p.Transparency = 0.1
+        p.CanCollide = false
+        p.CanTouch = false
+        p.CanQuery = false
+        p.CastShadow = false
+        p.Anchored = true
+        p.CFrame = baseCF * offset
+        p.Parent = model
+        table.insert(pieces, { part = p, base = baseCF * offset })
+    end
+
+    makePiece(Vector3.new(0.16 * scale, 1.1 * scale, 0.12 * scale), CFrame.new(0, 0, 0))
+    makePiece(Vector3.new(0.7 * scale, 0.16 * scale, 0.12 * scale), CFrame.new(0, 0.22 * scale, 0))
+
+    model.Parent = parent
+
+    task.spawn(function()
+        local t0 = os.clock()
+        while os.clock() - t0 < riseTime do
+            if not model.Parent then return end
+            local a = (os.clock() - t0) / riseTime
+            local fade = a < 0.22 and (a / 0.22) or (1 - (a - 0.22) / 0.78)
+            local tr = math.clamp(1 - fade, 0, 1)
+            local rise = a * 5.0
+            local wobble = math.sin(a * math.pi * 4) * 0.3
+            for _, rec in ipairs(pieces) do
+                rec.part.Transparency = tr
+                rec.part.CFrame = rec.base + Vector3.new(wobble, rise, 0)
+            end
+            RunService.RenderStepped:Wait()
+        end
+        model:Destroy()
+    end)
+end
+
+local function playDivineAscentVFX(char: Model, origin: Vector3, lookDir: Vector3, config: any)
+    local rootPart = char:FindFirstChild('HumanoidRootPart') :: BasePart?
+    local humanoid = char:FindFirstChildOfClass('Humanoid')
+    if not rootPart or not humanoid then return end
+
+    local isLocalCaster = (char == player.Character)
+    local radius = (config and config.range or 30)
+    local duration = (config and config.duration or 8.0)
+
+    local flatLook = Vector3.new(lookDir.X, 0, lookDir.Z)
+    if flatLook.Magnitude < 0.001 then flatLook = rootPart.CFrame.LookVector end
+    flatLook = Vector3.new(flatLook.X, 0, flatLook.Z).Unit
+    local backDir = -flatLook
+
+    -- Find the actual ground under him so the seal sits beneath his FEET.
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.FilterDescendantsInstances = { char }
+    rayParams.IgnoreWater = true
+    local groundY = origin.Y - 3
+    local hit = Workspace:Raycast(origin + Vector3.new(0, 6, 0), Vector3.new(0, -60, 0), rayParams)
+    if hit then groundY = hit.Position.Y end
+
+    local worldHolder = Instance.new('Folder')
+    worldHolder.Name = 'DivineAscentWorldVFX'
+    worldHolder.Parent = Workspace.Terrain
+
+    local wingsFolder = buildDivineWings(char, rootPart)
+    local halo = buildDivineHalo(char, rootPart)
+    buildRimLights(char, rootPart)
+
+    -- Raised to the party's float level so the holy seal travels with the ult
+    -- tableau (caster lifted to +53, allies float at +50).
+    local seal = buildGroundSeal(origin, origin.Y + 50, radius, worldHolder)
+
+    -- Holy radiance, reusing generalVFX.Holy as the light-ray source, placed above the head.
+    local radianceFolder = Instance.new('Folder')
+    radianceFolder.Name = 'DivineRadiance'
+    radianceFolder.Parent = worldHolder
+
+    local ReplicatedStorage = game:GetService('ReplicatedStorage')
+    local generalVFX = ReplicatedStorage:FindFirstChild('generalVFX')
+    local holyTemplate = generalVFX and generalVFX:FindFirstChild('Holy')
+
+    if holyTemplate then
+        local clone = holyTemplate:Clone()
+        clone.Name = 'DivineRadiance'
+        clone.CanCollide = false
+        clone.CanTouch = false
+        clone.CanQuery = false
+        clone.CastShadow = false
+        clone.Transparency = 1
+        clone.Size = Vector3.new(12, 12, 12)
+        clone.CFrame = rootPart.CFrame * CFrame.new(0, 2.9, 0.4)
+        clone.Parent = radianceFolder
+        local w = Instance.new('WeldConstraint')
+        w.Part0 = rootPart
+        w.Part1 = clone
+        w.Parent = clone
+        clone.Anchored = false
+        for _, d in ipairs(clone:GetDescendants()) do
+            if d:IsA('ParticleEmitter') then
+                d.Rate = math.clamp(d.Rate * 0.25, 6, 30)
+                d.Color = ColorSequence.new(HOLY_GOLD)
+                d.LightEmission = 1
+                d.LightInfluence = 0
+                d.Size = NumberSequence.new(13)
+            end
+        end
+    end
+
+    -- Small floating crosses, always behind him.
+    local crossHolder = Instance.new('Folder')
+    crossHolder.Name = 'DivineCrosses'
+    crossHolder.Parent = worldHolder
+
+    for k = 1, 12 do
+        task.delay(k * 0.3, function()
+            if not crossHolder.Parent or not rootPart.Parent then return end
+            local side = (k % 2 == 0) and 1 or -1
+            local spread = 1.6 + math.random() * 3.2
+            local cf = behindCF(rootPart, side * spread, 0.8 + math.random() * 2.6, 1.1 + math.random() * 1.5)
+            spawnHolyCross(crossHolder, cf, 0.9 + math.random() * 0.5, 2.2 + math.random() * 1.2,
+                (k % 3 == 0) and HOLY_WHITE or HOLY_GOLD)
+        end)
+    end
+
+    -- Holy motes drifting up around the wings.
+    local moteAtt = Instance.new('Attachment')
+    moteAtt.Name = 'DivineMotes'
+    moteAtt.CFrame = CFrame.new(0, 1.6, 1.3)
+    moteAtt.Parent = rootPart
+    local motePE = newHolyRayEmitter(moteAtt, 26, 2.2, 4, HOLY_WHITE)
+    motePE.SpreadAngle = Vector2.new(70, 70)
+    motePE.Lifetime = NumberRange.new(1.0, 2.0)
+
+    if isLocalCaster then
+        triggerFOVPunch(6, 0.5)
+    end
+
+    -- Cast burst placed BEHIND the shoulders, never in the player's face.
+    local burstAtt = Instance.new('Attachment')
+    burstAtt.CFrame = CFrame.new(0, 1.7, 2.0)
+    burstAtt.Parent = rootPart
+    local burstPE = newHolyRayEmitter(burstAtt, 0, 4, 16, HOLY_GOLD)
+    burstPE.SpreadAngle = Vector2.new(180, 180)
+    burstPE:Emit(48)
+    Debris:AddItem(burstAtt, 1.5)
+
+    task.delay(duration, function()
+        if wingsFolder then
+            for _, d in ipairs(wingsFolder:GetDescendants()) do
+                if d:IsA('BasePart') then
+                    TweenService:Create(d, TweenInfo.new(0.7), { Transparency = 1 }):Play()
+                end
+            end
+            Debris:AddItem(wingsFolder, 0.9)
+        end
+        if halo then
+            for _, d in ipairs(halo:GetDescendants()) do
+                if d:IsA('BasePart') then
+                    TweenService:Create(d, TweenInfo.new(0.7), { Transparency = 1 }):Play()
+                end
+            end
+            Debris:AddItem(halo, 0.9)
+        end
+        local rim = char:FindFirstChild('DivineRimLights')
+        if rim then
+            for _, d in ipairs(rim:GetDescendants()) do
+                if d:IsA('PointLight') then
+                    TweenService:Create(d, TweenInfo.new(0.6), { Brightness = 0 }):Play()
+                end
+            end
+            Debris:AddItem(rim, 0.9)
+        end
+        if radianceFolder then
+            for _, d in ipairs(radianceFolder:GetDescendants()) do
+                if d:IsA('ParticleEmitter') then d.Enabled = false end
+            end
+            Debris:AddItem(radianceFolder, 1.0)
+        end
+        if motePE then motePE.Enabled = false end
+        if moteAtt and moteAtt.Parent then Debris:AddItem(moteAtt, 1.2) end
+        for _, container in ipairs({ seal }) do
+            if container then
+                for _, d in ipairs(container:GetDescendants()) do
+                    if d:IsA('BasePart') then
+                        TweenService:Create(d, TweenInfo.new(0.8), { Transparency = 1 }):Play()
+                    elseif d:IsA('ParticleEmitter') then
+                        d.Enabled = false
+                    end
+                end
+            end
+        end
+        Debris:AddItem(worldHolder, 1.8)
+    end)
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Cleric Basic Combat VFX: Light Attack, Divine Touch (Heal), Divine Beam (Laser)
+-- ─────────────────────────────────────────────────────────────────────────────
+local function findGeneralVFX(name: string): Instance?
+	local rs = game:GetService("ReplicatedStorage")
+	local g = rs:FindFirstChild("generalVFX") or rs:FindFirstChild("GeneralVFX")
+	if not g then return nil end
+	for _, c in ipairs(g:GetChildren()) do
+		if string.lower(c.Name) == string.lower(name) then return c end
+	end
+	return nil
+end
+
+-- 1) NORMAL ATTACK: reuse generalVFX["Light attack"], swept along the swing arc.
+local function playClericBasicAttackVFX(char: Model, lookDir: Vector3)
+	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not rootPart then return end
+	local flatDir = flatUnit(lookDir)
+	if flatDir.Magnitude < 0.001 then flatDir = flatUnit(rootPart.CFrame.LookVector) end
+
+	local template = findGeneralVFX("Light attack")
+	if not template or not template:IsA("BasePart") then return end
+
+	local slash = template:Clone()
+	slash.Name = "ClericLightAttack"
+	slash.Anchored = true
+	slash.CanCollide = false
+	slash.CanTouch = false
+	slash.CanQuery = false
+	slash.CastShadow = false
+	slash.Transparency = 1
+	slash.Color = Color3.fromRGB(255, 248, 226)
+	slash.Material = Enum.Material.Neon
+
+	local origin = rootPart.Position + Vector3.new(0, 0.4, 0) + flatDir * 2.3
+	slash.CFrame = CFrame.lookAt(origin, origin + flatDir)
+
+	-- Reuse its star emitters but keep them thin and short-lived.
+	for _, d in ipairs(slash:GetDescendants()) do
+		if d:IsA("ParticleEmitter") then
+			d.Enabled = true
+			d.Rate = math.clamp(d.Rate * 0.3, 6, 24)
+			d.Color = ColorSequence.new(Color3.fromRGB(255, 246, 220))
+			d.LightEmission = 1
+			d.LightInfluence = 0
+			d.Lifetime = NumberRange.new(0.12, 0.3)
+			d.Size = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.5),
+				NumberSequenceKeypoint.new(1, 0.1),
+			})
+		end
+	end
+
+	-- Thin glowing arc that sweeps with the swing.
+	local ARC_SEG = 9
+	for k = 1, ARC_SEG do
+		local t = (k - 1) / (ARC_SEG - 1)
+		local seg = Instance.new("Part")
+		seg.Name = "SlashArc"
+		seg.Size = Vector3.new(0.12, 1.5, 0.5)
+		seg.Material = Enum.Material.Neon
+		seg.Color = (k % 2 == 0) and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(255, 214, 130)
+		seg.Transparency = 0.2
+		seg.Anchored = false
+		seg.CanCollide = false
+		seg.CanTouch = false
+		seg.CanQuery = false
+		seg.CastShadow = false
+		seg.Massless = true
+		seg.CFrame = slash.CFrame * CFrame.new(0, -0.5 + t * 1.0, (t - 0.5) * 2.4)
+		seg.Parent = slash
+		local wc = Instance.new("WeldConstraint")
+		wc.Part0 = slash
+		wc.Part1 = seg
+		wc.Parent = seg
+	end
+
+	slash.Parent = Workspace.Terrain
+
+	local travelStart = slash.CFrame
+	local travelEnd = CFrame.lookAt(origin + flatDir * 60, origin + flatDir * 61)
+
+	task.spawn(function()
+		local t0 = os.clock()
+		local LIFE = 0.22
+		while slash.Parent do
+			local a = math.clamp((os.clock() - t0) / LIFE, 0, 1)
+			slash.CFrame = travelStart:Lerp(travelEnd, a)
+			for _, d in ipairs(slash:GetDescendants()) do
+				if d:IsA("ParticleEmitter") then
+					d.Enabled = a < 0.85
+				end
+			end
+			if a >= 1 then break end
+			RunService.RenderStepped:Wait()
+		end
+		slash:Destroy()
+	end)
+
+	-- A few small holy particles at the impact point.
+	local sparkAtt = Instance.new("Attachment")
+	sparkAtt.CFrame = CFrame.new(origin + flatDir * 1.6)
+	sparkAtt.Parent = Workspace.Terrain
+	local sparkPE = newHolyRayEmitter(sparkAtt, 0, 1.1, 5, HOLY_GOLD)
+	sparkPE.SpreadAngle = Vector2.new(180, 180)
+	sparkPE:Emit(7)
+	Debris:AddItem(sparkAtt, 0.5)
+end
+
+-- 2) HEAL: Divine Touch (magic circle, crosses, particles, brief beam) at a world position.
+local function playClericHealVFX(targetPos: Vector3)
+	local holder = Instance.new("Folder")
+	holder.Name = "ClericDivineTouch"
+	holder.Parent = Workspace.Terrain
+
+	local center = targetPos
+
+	-- Ground magic circle
+	local RING_N = 24
+	local R = 3.0
+	local chord = (2 * math.pi * R / RING_N) * 1.15
+	for k = 1, RING_N do
+		local ang = (k / RING_N) * math.pi * 2
+		local px = center.X + math.cos(ang) * R
+		local pz = center.Z + math.sin(ang) * R
+		local seg = Instance.new("Part")
+		seg.Name = "HealRing"
+		seg.Size = Vector3.new(0.18, 0.16, chord)
+		seg.Material = Enum.Material.Neon
+		seg.Color = (k % 4 == 0) and Color3.fromRGB(255, 255, 255) or HEAL_GREEN
+		seg.Transparency = 0.25
+		seg.Anchored = true
+		seg.CanCollide = false
+		seg.CanTouch = false
+		seg.CanQuery = false
+		seg.CastShadow = false
+		seg.CFrame = CFrame.lookAt(Vector3.new(px, center.Y - 2.6, pz), Vector3.new(px, center.Y - 2.6, pz) + Vector3.new(-math.sin(ang), 0, math.cos(ang)))
+		seg.Parent = holder
+	end
+
+	-- Brief vertical beam of light
+	local beam = Instance.new("Part")
+	beam.Name = "HealBeam"
+	beam.Shape = Enum.PartType.Cylinder
+	beam.Size = Vector3.new(13, 1.5, 1.5)
+	beam.Material = Enum.Material.Neon
+	beam.Color = Color3.fromRGB(150, 255, 170)
+	beam.Transparency = 0.62
+	beam.Anchored = true
+	beam.CanCollide = false
+	beam.CanTouch = false
+	beam.CanQuery = false
+	beam.CastShadow = false
+	beam.CFrame = CFrame.new(center) * CFrame.Angles(0, 0, math.rad(90))
+	beam.Parent = holder
+
+	-- Rising particles
+	local att = Instance.new("Attachment")
+	att.Position = Vector3.new(0, -2.2, 0)
+	att.Parent = beam
+	local pe = newHolyRayEmitter(att, 45, 1.9, 5, HEAL_GREEN)
+	pe.SpreadAngle = Vector2.new(22, 22)
+	pe.Lifetime = NumberRange.new(0.8, 1.6)
+
+	-- Floating golden crosses
+	for k = 1, 6 do
+		task.delay(k * 0.12, function()
+			if not holder.Parent then return end
+			local ang = math.random() * math.pi * 2
+			local rr = 1.1 + math.random() * 1.6
+			local cf = CFrame.new(center + Vector3.new(math.cos(ang) * rr, -1.4 + math.random() * 2.4, math.sin(ang) * rr))
+			spawnHolyCross(holder, cf, 0.65, 1.3, (k % 3 == 0) and Color3.fromRGB(255, 255, 255) or HEAL_GREEN)
+		end)
+	end
+
+	task.delay(1.5, function()
+		for _, d in ipairs(holder:GetDescendants()) do
+			if d:IsA("BasePart") then
+				TweenService:Create(d, TweenInfo.new(0.45), { Transparency = 1 }):Play()
+			elseif d:IsA("ParticleEmitter") then
+				d.Enabled = false
+			end
+		end
+		Debris:AddItem(holder, 0.6)
+	end)
+end
+
+-- 3) DIVINE BEAM: Holy Laser (white core, gold glow, rotating rings, travelling particles)
+local function playClericDivineBeamVFX(char: Model, origin: Vector3, direction: Vector3, range: number)
+	local flatDir = flatUnit(direction)
+	local rootPart = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if flatDir.Magnitude < 0.001 and rootPart then
+		flatDir = flatUnit(rootPart.CFrame.LookVector)
+	end
+
+	local holder = Instance.new("Folder")
+	holder.Name = "ClericDivineBeam"
+	holder.Parent = Workspace.Terrain
+
+	local length = math.max(8, range or 48)
+	local muzzlePos = origin + Vector3.new(0, 1.2, 0)
+	local rHand = char and (char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm"))
+	local lHand = char and (char:FindFirstChild("LeftHand") or char:FindFirstChild("Left Arm"))
+	if rHand and rHand:IsA("BasePart") then
+		muzzlePos = rHand.Position
+		if lHand and lHand:IsA("BasePart") then
+			muzzlePos = (rHand.Position + lHand.Position) * 0.5
+		end
+	end
+	local startPos = muzzlePos + flatDir * 1.6
+	local midPos = startPos + flatDir * (length * 0.5)
+	local beamBasis = CFrame.lookAt(midPos, midPos + flatDir) * CFrame.Angles(0, math.rad(90), 0)
+
+	-- Warm gold outer glow
+	local outer = Instance.new("Part")
+	outer.Name = "BeamGlow"
+	outer.Shape = Enum.PartType.Cylinder
+	outer.Size = Vector3.new(length, 1.5, 1.5)
+	outer.Material = Enum.Material.Neon
+	outer.Color = HOLY_GOLD
+	outer.Transparency = 0.55
+	outer.Anchored = true
+	outer.CanCollide = false
+	outer.CanTouch = false
+	outer.CanQuery = false
+	outer.CastShadow = false
+	outer.CFrame = beamBasis
+	outer.Parent = holder
+
+	-- Brilliant white core
+	local core = Instance.new("Part")
+	core.Name = "BeamCore"
+	core.Shape = Enum.PartType.Cylinder
+	core.Size = Vector3.new(length, 0.7, 0.7)
+	core.Material = Enum.Material.Neon
+	core.Color = Color3.fromRGB(255, 255, 255)
+	core.Transparency = 0.12
+	core.Anchored = true
+	core.CanCollide = false
+	core.CanTouch = false
+	core.CanQuery = false
+	core.CastShadow = false
+	core.CFrame = beamBasis
+	core.Parent = holder
+
+	-- Muzzle flash + origin rings + particles
+	local hub = Instance.new("Part")
+	hub.Name = "BeamHub"
+	hub.Size = Vector3.new(0.2, 0.2, 0.2)
+	hub.Transparency = 1
+	hub.Anchored = true
+	hub.CanCollide = false
+	hub.CanTouch = false
+	hub.CanQuery = false
+	hub.CastShadow = false
+	hub.CFrame = CFrame.lookAt(startPos, startPos + flatDir) * CFrame.Angles(0, math.rad(90), 0)
+	hub.Parent = holder
+
+	local RING_R = 1.5
+	for ringIdx, lx in ipairs({ 0.3, 1.2 }) do
+		for k = 1, 12 do
+			local ang = (k / 12) * math.pi * 2
+			local seg = Instance.new("Part")
+			seg.Name = "BeamRing"
+			seg.Size = Vector3.new(0.12, 0.5, 0.12)
+			seg.Material = Enum.Material.Neon
+			seg.Color = (ringIdx == 1) and HOLY_IVORY or HOLY_GOLD
+			seg.Transparency = 0.2
+			seg.Anchored = false
+			seg.CanCollide = false
+			seg.CanTouch = false
+			seg.CanQuery = false
+			seg.CastShadow = false
+			seg.Massless = true
+			seg.CFrame = hub.CFrame * CFrame.new(lx, math.cos(ang) * RING_R, math.sin(ang) * RING_R)
+			seg.Parent = holder
+			local w = Instance.new("WeldConstraint")
+			w.Part0 = hub
+			w.Part1 = seg
+			w.Parent = seg
+		end
+	end
+
+	local muzzleAtt = Instance.new("Attachment")
+	muzzleAtt.Parent = hub
+	local muzzlePE = newHolyRayEmitter(muzzleAtt, 0, 1.8, 8, HOLY_WHITE)
+	muzzlePE.SpreadAngle = Vector2.new(180, 180)
+	muzzlePE:Emit(12)
+
+	local flowAtt = Instance.new("Attachment")
+	flowAtt.Parent = hub
+	local flowPE = newHolyRayEmitter(flowAtt, 70, 1.3, 60, HOLY_WHITE)
+	flowPE.SpreadAngle = Vector2.new(5, 5)
+	flowPE.Speed = NumberRange.new(55, 85)
+	flowPE.Lifetime = NumberRange.new(0.35, 0.6)
+	flowPE.EmissionDirection = Enum.NormalId.Front
+
+	-- Animate rings + fade out
+	local LIFE = 0.42
+	task.spawn(function()
+		local t0 = os.clock()
+		while holder.Parent do
+			local a = math.clamp((os.clock() - t0) / LIFE, 0, 1)
+			hub.CFrame = hub.CFrame * CFrame.Angles(math.rad(11), 0, 0)
+			if a >= 1 then break end
+			RunService.RenderStepped:Wait()
+		end
+		for _, d in ipairs(holder:GetDescendants()) do
+			if d:IsA("BasePart") and d ~= hub then
+				TweenService:Create(d, TweenInfo.new(0.25), { Transparency = 1 }):Play()
+			elseif d:IsA("ParticleEmitter") then
+				d.Enabled = false
+			end
+		end
+		task.delay(0.3, function()
+			if hub then hub.Transparency = 1 end
+		end)
+		Debris:AddItem(holder, 0.8)
+	end)
+end
+
+-- Divine Ascent cinematic camera: low upward hero shot during the wing unfurl,
+-- rising with the caster, then a wide divine-judgment pull-back. Mirrors the
+-- reference art (low angle -> soaring ascension -> overhead radiance).
+playDivineAscentCamera = function(char: Model, lookDir: Vector3, duration: number)
+	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not rootPart then return end
+
+	local successIso, IsometricCamera = pcall(function()
+		return require(script.Parent:WaitForChild("IsometricCamera"))
+	end)
+	local wasIsoActive = false
+	if successIso and IsometricCamera and IsometricCamera.IsActive and IsometricCamera.IsActive() then
+		wasIsoActive = true
+		IsometricCamera.Pause()
+	end
+
+	local cam = Workspace.CurrentCamera
+	cam.CameraType = Enum.CameraType.Scriptable
+
+	local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z)
+	if flatDir.Magnitude < 0.001 then flatDir = rootPart.CFrame.LookVector end
+	flatDir = Vector3.new(flatDir.X, 0, flatDir.Z).Unit
+
+	local myToken = (divineCamToken or 0) + 1
+	divineCamToken = myToken
+
+	local function stillActive()
+		return divineCamToken == myToken and char.Parent ~= nil
+	end
+
+	local function restore()
+		if divineCamToken ~= myToken then return end
+		if wasIsoActive and successIso and IsometricCamera then
+			IsometricCamera.Resume(0.5)
+		else
+			cam.CameraType = Enum.CameraType.Custom
+			cam.FieldOfView = 70
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hum then cam.CameraSubject = hum end
+		end
+	end
+
+	-- Ground probe so the lens can never sink through the floor plane.
+	local groundParams = RaycastParams.new()
+	groundParams.FilterType = Enum.RaycastFilterType.Exclude
+	groundParams.FilterDescendantsInstances = { char }
+	groundParams.IgnoreWater = true
+
+	local function groundHeightAt(worldPos: Vector3): number?
+		local hit = Workspace:Raycast(Vector3.new(worldPos.X, worldPos.Y + 60, worldPos.Z), Vector3.new(0, -400, 0), groundParams)
+		if hit then return hit.Position.Y end
+		return nil
+	end
+
+	task.spawn(function()
+		cam.FieldOfView = 54
+		local t0 = os.clock()
+		local firstFrame = true
+		local CS, CH = 1.0, 0.0 -- cutaway DISABLED (was 3.2): far cam flew into unstreamed darkness
+		local cut = false
+		local sc = Workspace:GetAttribute("ReviveStageCenter")
+		local sv = Workspace:GetAttribute("ReviveStageView")
+		while stillActive() do
+			local e = os.clock() - t0
+			if e >= duration then break end
+			local rp = rootPart.Position
+			local fc, cp, fv, sn
+			if sc and sv and e >= CS and e < CS + CH then
+				local k = (e - CS) / CH
+				local sd = Vector3.new(-flatDir.Z, 0, flatDir.X)
+				fc = sc + sv * 4 + Vector3.new(0, 3, 0)
+				cp = sc + sd * (52 + k * 2) + Vector3.new(0, 12 + k, 0)
+				fv = 56
+				sn = not cut
+				cut = true
+			else
+				if cut then firstFrame = true cut = false end
+				local p = math.clamp(e / math.max(duration, 0.001), 0, 1)
+				fv = 54 - p * 3
+				fc = rp + Vector3.new(0, 1.8, 0)
+				cp = rp + flatDir * (14.0 - p * 1.5) + Vector3.new(0, -3.5 + math.max(0, 1 - e / 0.45) * 2.5, 0)
+			end
+			local gy = groundHeightAt(cp)
+			if gy then cp = Vector3.new(cp.X, math.max(cp.Y, gy + 1.5), cp.Z) end
+			local tc = CFrame.lookAt(cp, fc)
+			if firstFrame or sn then cam.CFrame = tc firstFrame = false
+			else cam.CFrame = cam.CFrame:Lerp(tc, 0.35) end
+			cam.FieldOfView = fv
+			RunService.RenderStepped:Wait()
+		end
+		restore()
+	end)
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 -- Animation Loading
 -- ─────────────────────────────────────────────────────────────────────────────
 local function loadSkillAnimations(char: Model)
@@ -2838,6 +4593,7 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 function SkillController.UseSkill(skillIndex: number)
 	if player:GetAttribute("InLobby") == true then return end
+	if Workspace:GetAttribute("TomesPaused") == true then return end
 
 	local char = player.Character
 	if not char then return end
@@ -2875,10 +4631,19 @@ function SkillController.UseSkill(skillIndex: number)
 	local cursorPosition = getCursorWorldPosition(rootPart)
 	local aimDir = getAimDirection(rootPart)
 	local skillTargetPosition = nil
+	local skillAllyTarget = nil
 	if classId == "ranger" and (skillIndex == 3 or skillIndex == 4) then
 		skillTargetPosition = clampRangerCursorTarget(rootPart.Position, cursorPosition, config.range or 42, aimDir)
 	elseif classId == "heavy_knight" and skillIndex == 2 then
 		skillTargetPosition = clampRangerCursorTarget(rootPart.Position, cursorPosition, config.maxLeapDistance or 42, aimDir)
+	elseif classId == "cleric" and skillIndex == 1 then
+		-- Heal the ally under the cursor (if any) instead of the player.
+		local hoveredAlly = AllyHover.getHoveredAlly()
+		local hoveredRoot = hoveredAlly and (hoveredAlly:FindFirstChild("HumanoidRootPart") or hoveredAlly.PrimaryPart)
+		if hoveredRoot then
+			skillTargetPosition = hoveredRoot.Position
+			skillAllyTarget = hoveredAlly.Name
+		end
 	end
 
 	-- Pivot character towards aim direction smoothly
@@ -2943,6 +4708,11 @@ function SkillController.UseSkill(skillIndex: number)
 			end)
 
 			playRangerVerdantSlashVFX(char, origin, endPos, flatDir, actualDist)
+		elseif skillIndex == 3 then
+			-- Skill 3: Seeker Barrage (Missile Buff: instant cast buff, enables homing missile launches on every attack)
+			char:SetAttribute("AllowSkillMovement", true)
+			char:SetAttribute("IsSkillCasting", false)
+			playMissileBuffVFX(char)
 		else
 			char:SetAttribute("AllowSkillMovement", true)
 			local track = getSkillTrack(char, skillIndex)
@@ -3016,6 +4786,19 @@ function SkillController.UseSkill(skillIndex: number)
 		if track then
 			track.Priority = Enum.AnimationPriority.Action3
 			track:Play(0.08)
+		end
+
+		-- After the windup, play the big downward slash animation as the wave travels.
+		task.delay(1.5, function()
+			if not char or not char.Parent then return end
+			local slashTrack = getSkillSlashTrack(char, 4)
+			if slashTrack then
+				slashTrack.Priority = Enum.AnimationPriority.Action4
+				slashTrack:Play(0.06)
+			end
+		end)
+
+		if track then
 			task.delay(3.3, function()
 				char:SetAttribute("IsSkillCasting", false)
 				char:SetAttribute("AllowSkillMovement", false)
@@ -3027,6 +4810,214 @@ function SkillController.UseSkill(skillIndex: number)
 			end)
 		end
 		playInfernalWrathVFX(char, rootPart.Position, aimDir)
+	elseif classId == "cleric" and skillIndex == 1 then
+		-- Skill 1: Divine Touch (heal self or nearest low ally)
+		char:SetAttribute("AllowSkillMovement", true)
+		local track = getSkillTrack(char, 1)
+		if track then
+			track.Priority = Enum.AnimationPriority.Action4
+			track:Play(0.08)
+		end
+		task.delay(0.45, function()
+			if char and char.Parent then
+				char:SetAttribute("IsSkillCasting", false)
+				char:SetAttribute("AllowSkillMovement", false)
+			end
+		end)
+
+		-- Heal VFX target: the hovered ally (the one showing the heal icon) if any, otherwise on us.
+		local vfxPos: Vector3 = rootPart.Position
+		local healTarget: Model? = AllyHover.getHoveredAlly()
+		if healTarget then
+			local hr = healTarget:FindFirstChild("HumanoidRootPart") or healTarget.PrimaryPart
+			if hr then vfxPos = hr.Position end
+		elseif skillTargetPosition then
+			vfxPos = skillTargetPosition
+		end
+		playClericHealVFX(vfxPos)
+	elseif classId == "cleric" and skillIndex == 2 then
+		-- Skill 2: Divine Beam (holy laser channel)
+		char:SetAttribute("AllowSkillMovement", false)
+		local track = getSkillTrack(char, 2)
+		if track then
+			track.Priority = Enum.AnimationPriority.Action4
+			track:Play(0.06)
+		end
+		DivineBeamChannel.play(char, config.range or 48, config.duration or 5.0)
+	elseif classId == "cleric" and skillIndex == 1 then
+		-- Skill 1: Divine Touch (heal self or nearest low ally)
+		char:SetAttribute("AllowSkillMovement", true)
+		local track = getSkillTrack(char, 1)
+		if track then
+			track.Priority = Enum.AnimationPriority.Action4
+			track:Play(0.08)
+		end
+		task.delay(0.45, function()
+			if char and char.Parent then
+				char:SetAttribute("IsSkillCasting", false)
+				char:SetAttribute("AllowSkillMovement", false)
+			end
+		end)
+
+		-- Pick the heal target: self, or the most-hurt nearby ally.
+		local healTarget = char
+		local bestFrac = 1.0
+		local myHum = char:FindFirstChildOfClass("Humanoid")
+		if myHum and myHum.MaxHealth > 0 then
+			bestFrac = myHum.Health / myHum.MaxHealth
+		end
+		for _, other in ipairs(Players:GetPlayers()) do
+			local oc = other.Character
+			if oc and oc ~= char and oc.Parent then
+				local oroot = oc:FindFirstChild("HumanoidRootPart")
+				local ohum = oc:FindFirstChildOfClass("Humanoid")
+				if oroot and ohum and ohum.Health > 0 and (oroot.Position - rootPart.Position).Magnitude <= 30 then
+					local frac = ohum.Health / math.max(ohum.MaxHealth, 1)
+					if frac < bestFrac then
+						bestFrac = frac
+						healTarget = oc
+					end
+				end
+			end
+		end
+		local tRoot = healTarget:FindFirstChild("HumanoidRootPart") or healTarget.PrimaryPart
+		if tRoot then
+			playClericHealVFX(tRoot.Position)
+		end
+	elseif classId == "cleric" and skillIndex == 2 then
+		-- Skill 2: Divine Beam (holy laser channel)
+		char:SetAttribute("AllowSkillMovement", false)
+		local track = getSkillTrack(char, 2)
+		if track then
+			track.Priority = Enum.AnimationPriority.Action4
+			track:Play(0.06)
+		end
+		DivineBeamChannel.play(char, config.range or 48, config.duration or 5.0)
+	elseif classId == "cleric" and skillIndex == 1 then
+		-- Skill 1: Divine Touch (heal self or nearest low ally)
+		char:SetAttribute("AllowSkillMovement", true)
+		local track = getSkillTrack(char, 1)
+		if track then
+			track.Priority = Enum.AnimationPriority.Action4
+			track:Play(0.08)
+		end
+		task.delay(0.45, function()
+			if char and char.Parent then
+				char:SetAttribute("IsSkillCasting", false)
+				char:SetAttribute("AllowSkillMovement", false)
+			end
+		end)
+
+		-- Pick the heal target: self, or the most-hurt nearby ally.
+		local healTarget = char
+		local bestFrac = 1.0
+		local myHum = char:FindFirstChildOfClass("Humanoid")
+		if myHum and myHum.MaxHealth > 0 then
+			bestFrac = myHum.Health / myHum.MaxHealth
+		end
+		for _, other in ipairs(Players:GetPlayers()) do
+			local oc = other.Character
+			if oc and oc ~= char and oc.Parent then
+				local oroot = oc:FindFirstChild("HumanoidRootPart")
+				local ohum = oc:FindFirstChildOfClass("Humanoid")
+				if oroot and ohum and ohum.Health > 0 and (oroot.Position - rootPart.Position).Magnitude <= 30 then
+					local frac = ohum.Health / math.max(ohum.MaxHealth, 1)
+					if frac < bestFrac then
+						bestFrac = frac
+						healTarget = oc
+					end
+				end
+			end
+		end
+		local tRoot = healTarget:FindFirstChild("HumanoidRootPart") or healTarget.PrimaryPart
+		if tRoot then
+			playClericHealVFX(tRoot.Position)
+		end
+	elseif classId == "cleric" and skillIndex == 2 then
+		-- Skill 2: Divine Beam (holy laser channel)
+		char:SetAttribute("AllowSkillMovement", false)
+		local track = getSkillTrack(char, 2)
+		if track then
+			track.Priority = Enum.AnimationPriority.Action4
+			track:Play(0.06)
+		end
+		DivineBeamChannel.play(char, config.range or 48, config.duration or 5.0)
+	elseif classId == "cleric" and skillIndex == 1 then
+		-- Skill 1: Divine Touch (heal self or nearest low ally)
+		char:SetAttribute("AllowSkillMovement", true)
+		local track = getSkillTrack(char, 1)
+		if track then
+			track.Priority = Enum.AnimationPriority.Action4
+			track:Play(0.08)
+		end
+		task.delay(0.45, function()
+			if char and char.Parent then
+				char:SetAttribute("IsSkillCasting", false)
+				char:SetAttribute("AllowSkillMovement", false)
+			end
+		end)
+
+		-- Pick the heal target: self, or the most-hurt nearby ally.
+		local healTarget = char
+		local bestFrac = 1.0
+		local myHum = char:FindFirstChildOfClass("Humanoid")
+		if myHum and myHum.MaxHealth > 0 then
+			bestFrac = myHum.Health / myHum.MaxHealth
+		end
+		for _, other in ipairs(Players:GetPlayers()) do
+			local oc = other.Character
+			if oc and oc ~= char and oc.Parent then
+				local oroot = oc:FindFirstChild("HumanoidRootPart")
+				local ohum = oc:FindFirstChildOfClass("Humanoid")
+				if oroot and ohum and ohum.Health > 0 and (oroot.Position - rootPart.Position).Magnitude <= 30 then
+					local frac = ohum.Health / math.max(ohum.MaxHealth, 1)
+					if frac < bestFrac then
+						bestFrac = frac
+						healTarget = oc
+					end
+				end
+			end
+		end
+		local tRoot = healTarget:FindFirstChild("HumanoidRootPart") or healTarget.PrimaryPart
+		if tRoot then
+			playClericHealVFX(tRoot.Position)
+		end
+	elseif classId == "cleric" and skillIndex == 2 then
+		-- Skill 2: Divine Beam (holy laser channel)
+		char:SetAttribute("AllowSkillMovement", false)
+		local track = getSkillTrack(char, 2)
+		if track then
+			track.Priority = Enum.AnimationPriority.Action4
+			track:Play(0.06)
+		end
+		DivineBeamChannel.play(char, config.range or 48, config.duration or 5.0)
+	elseif classId == "cleric" and skillIndex == 3 then
+		-- Skill 3: Radiant Ground (instant holy burst)
+		char:SetAttribute("AllowSkillMovement", true)
+		char:SetAttribute("IsSkillCasting", false)
+		local track = getSkillTrack(char, 3)
+		if track then
+			track.Priority = Enum.AnimationPriority.Action4
+			track:Play(0.08)
+		end
+		ClericVFX.playRadiantGround(rootPart.Position, (config.range or 16) * (config.areaMultiplier or 1))
+	elseif classId == "cleric" and skillIndex == 4 then
+		-- Ultimate: Divine Ascent (angelic ascension, heal + holy judgment)
+		char:SetAttribute("AllowSkillMovement", false)
+		local track = getSkillTrack(char, 4)
+		if track then
+			track.Priority = Enum.AnimationPriority.Action4
+			track:Play(0.08)
+		end
+		local duration = config.duration or 8.0
+		task.delay(duration, function()
+			char:SetAttribute("IsSkillCasting", false)
+			char:SetAttribute("AllowSkillMovement", false)
+		end)
+		playDivineAscentVFX(char, rootPart.Position, aimDir, config)
+		if char == player.Character then
+			DivineAscentCutscene.Play(duration)
+		end
 	end
 
 	-- Fire Server Remote
@@ -3037,6 +5028,7 @@ function SkillController.UseSkill(skillIndex: number)
 			origin = rootPart.Position,
 			direction = aimDir,
 			targetPosition = skillTargetPosition,
+			allyTarget = skillAllyTarget,
 		})
 	end)
 
@@ -3158,6 +5150,7 @@ local lastBasicAttack = 0
 
 local function performBasicAttack()
 	if player:GetAttribute("InLobby") == true then return end
+	if Workspace:GetAttribute("TomesPaused") == true then return end
 	local char = player.Character
 	if not char then return end
 
@@ -3172,9 +5165,16 @@ local function performBasicAttack()
 		local aimDir = getAimDirection(rootPart)
 		aimDirection = aimDir
 		rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + aimDir)
-		if player:GetAttribute("SelectedClass") == "ranger" then
+		local selClass = player:GetAttribute("SelectedClass")
+		if selClass == "ranger" then
 			playRangerShootAnimation(char)
+		elseif selClass == "cleric" then
+			playClericBasicAttackVFX(char, aimDir)
 		end
+	end
+
+	if char:GetAttribute("IsMissileBuffActive") == true then
+		SkillController.LaunchMissile(char)
 	end
 
 	-- Fire server Remote for basic attack damage
@@ -3302,6 +5302,12 @@ function SkillController.Init()
 			playPhoenixDashVFX(char, origin, direction)
 		elseif classId == "heavy_knight" and skillIndex == 4 then
 			playInfernalWrathVFX(char, origin, direction)
+ elseif classId == "cleric" and skillIndex == 1 then
+  playClericHealVFX(payload.targetPosition or origin)
+ elseif classId == "cleric" and skillIndex == 2 then
+  DivineBeamChannel.play(char, payload.range or 48, 5.0)
+ elseif classId == "cleric" and skillIndex == 3 then
+  ClericVFX.playRadiantGround(origin, 16 * (payload.areaMultiplier or 1))
 		end
 	end)
 

@@ -14,6 +14,15 @@ export type SettingsModalCallbacks = {
 
 local SettingsModal = {}
 
+-- Medieval guild-hall palette, matching TitleScreen (wood / brass / parchment).
+local BRASS = Color3.fromRGB(194, 132, 52)
+local BRASS_LIGHT = Color3.fromRGB(255, 213, 128)
+local PLAQUE = Color3.fromRGB(37, 28, 24)
+local PLAQUE_DARK = Color3.fromRGB(17, 13, 13)
+local WOOD_MID = Color3.fromRGB(64, 47, 37)
+local PARCHMENT = Color3.fromRGB(239, 213, 170)
+local ANTIQUE = Enum.Font.Antique
+
 function SettingsModal.Create(
 	parent: GuiObject,
 	currentSettings: any,
@@ -46,8 +55,8 @@ function SettingsModal.Create(
 	local backdrop = Instance.new("TextButton")
 	backdrop.Name = "Backdrop"
 	backdrop.Size = UDim2.new(1, 0, 1, 0)
-	backdrop.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-	backdrop.BackgroundTransparency = 0.5
+	backdrop.BackgroundColor3 = PLAQUE_DARK
+	backdrop.BackgroundTransparency = 0.45
 	backdrop.Text = ""
 	backdrop.AutoButtonColor = false
 	backdrop.Parent = container
@@ -62,17 +71,18 @@ function SettingsModal.Create(
 	modal.Size = UDim2.new(0, 680, 0, 520)
 	modal.AnchorPoint = Vector2.new(0.5, 0.5)
 	modal.Position = UDim2.new(0.5, 0, 0.5, 0)
-	modal.BackgroundColor3 = UITheme.Colors.Background
+	modal.BackgroundColor3 = PLAQUE
 	modal.Parent = container
 
 	UITheme.AddCorner(modal, 12)
-	UITheme.AddStroke(modal, UITheme.Colors.Border, 1.5, 0.1)
+	UITheme.AddStroke(modal, BRASS, 2.5, 0.05)
+	UITheme.AddGradient(modal, WOOD_MID, PLAQUE_DARK, 90)
 
 	-- Header
 	local header = Instance.new("Frame")
 	header.Name = "Header"
 	header.Size = UDim2.new(1, 0, 0, 60)
-	header.BackgroundColor3 = UITheme.Colors.Surface
+	header.BackgroundColor3 = PLAQUE_DARK
 	header.BorderSizePixel = 0
 	header.Parent = modal
 	UITheme.AddCorner(header, 12)
@@ -81,7 +91,7 @@ function SettingsModal.Create(
 	local headerMask = Instance.new("Frame")
 	headerMask.Size = UDim2.new(1, 0, 0, 12)
 	headerMask.Position = UDim2.new(0, 0, 1, -12)
-	headerMask.BackgroundColor3 = UITheme.Colors.Surface
+	headerMask.BackgroundColor3 = PLAQUE_DARK
 	headerMask.BorderSizePixel = 0
 	headerMask.Parent = header
 
@@ -91,9 +101,9 @@ function SettingsModal.Create(
 	headerTitle.Position = UDim2.new(0, 24, 0, 0)
 	headerTitle.BackgroundTransparency = 1
 	headerTitle.Text = "SETTINGS & CONTROLS"
-	headerTitle.TextColor3 = UITheme.Colors.GoldLight
-	headerTitle.Font = UITheme.Fonts.Header
-	headerTitle.TextSize = 20
+	headerTitle.TextColor3 = BRASS_LIGHT
+	headerTitle.Font = ANTIQUE
+	headerTitle.TextSize = 24
 	headerTitle.TextXAlignment = Enum.TextXAlignment.Left
 	headerTitle.Parent = header
 
@@ -103,16 +113,16 @@ function SettingsModal.Create(
 	closeBtn.Size = UDim2.new(0, 36, 0, 36)
 	closeBtn.AnchorPoint = Vector2.new(1, 0.5)
 	closeBtn.Position = UDim2.new(1, -16, 0.5, 0)
-	closeBtn.BackgroundColor3 = UITheme.Colors.SurfaceAlt
+	closeBtn.BackgroundColor3 = PLAQUE
 	closeBtn.AutoButtonColor = false
 	closeBtn.Text = "✕"
-	closeBtn.TextColor3 = UITheme.Colors.TextSecondary
-	closeBtn.Font = UITheme.Fonts.Button
-	closeBtn.TextSize = 16
+	closeBtn.TextColor3 = BRASS_LIGHT
+	closeBtn.Font = ANTIQUE
+	closeBtn.TextSize = 18
 	closeBtn.Parent = header
 
 	UITheme.AddCorner(closeBtn, 6)
-	local closeStroke = UITheme.AddStroke(closeBtn, UITheme.Colors.Border, 1, 0.5)
+	local closeStroke = UITheme.AddStroke(closeBtn, BRASS, 1.5, 0.3)
 	UITheme.MakeButtonInteractive(closeBtn, closeStroke, UITheme.Colors.Danger, SoundManager.PlayHover, function()
 		SoundManager.PlayClose()
 		callbacks.onClose()
@@ -160,7 +170,7 @@ function SettingsModal.Create(
 		page.Size = UDim2.new(1, 0, 1, 0)
 		page.BackgroundTransparency = 1
 		page.ScrollBarThickness = 4
-		page.ScrollBarImageColor3 = UITheme.Colors.Gold
+		page.ScrollBarImageColor3 = BRASS
 		page.CanvasSize = UDim2.new(0, 0, 0, 0)
 		page.AutomaticCanvasSize = Enum.AutomaticSize.Y
 		page.Visible = (tabName == activeTab)
@@ -178,20 +188,20 @@ function SettingsModal.Create(
 		local tabBtn = Instance.new("TextButton")
 		tabBtn.Name = tabName .. "Tab"
 		tabBtn.Size = UDim2.new(0, 130, 1, 0)
-		tabBtn.BackgroundColor3 = (tabName == activeTab) and UITheme.Colors.SurfaceSelected or UITheme.Colors.Surface
+		tabBtn.BackgroundColor3 = (tabName == activeTab) and BRASS or PLAQUE
 		tabBtn.AutoButtonColor = false
 		tabBtn.Text = tabName:upper()
-		tabBtn.TextColor3 = (tabName == activeTab) and UITheme.Colors.GoldLight or UITheme.Colors.TextSecondary
-		tabBtn.Font = UITheme.Fonts.Button
-		tabBtn.TextSize = 14
+		tabBtn.TextColor3 = (tabName == activeTab) and Color3.fromRGB(20, 15, 10) or PARCHMENT
+		tabBtn.Font = ANTIQUE
+		tabBtn.TextSize = 16
 		tabBtn.Parent = tabBar
 
 		UITheme.AddCorner(tabBtn, 6)
 		local tStroke = UITheme.AddStroke(
 			tabBtn,
-			(tabName == activeTab) and UITheme.Colors.Gold or UITheme.Colors.Border,
-			1,
-			(tabName == activeTab) and 0 or 0.5
+			(tabName == activeTab) and BRASS_LIGHT or BRASS,
+			1.5,
+			(tabName == activeTab) and 0 or 0.4
 		)
 
 		tabBtn.MouseButton1Click:Connect(function()
@@ -199,12 +209,12 @@ function SettingsModal.Create(
 			activeTab = tabName
 			for name, btn in pairs(tabButtons) do
 				local isSel = (name == activeTab)
-				btn.BackgroundColor3 = isSel and UITheme.Colors.SurfaceSelected or UITheme.Colors.Surface
-				btn.TextColor3 = isSel and UITheme.Colors.GoldLight or UITheme.Colors.TextSecondary
+				btn.BackgroundColor3 = isSel and BRASS or PLAQUE
+				btn.TextColor3 = isSel and Color3.fromRGB(20, 15, 10) or PARCHMENT
 				local stroke = btn:FindFirstChildOfClass("UIStroke")
 				if stroke then
-					stroke.Color = isSel and UITheme.Colors.Gold or UITheme.Colors.Border
-					stroke.Transparency = isSel and 0 or 0.5
+					stroke.Color = isSel and BRASS_LIGHT or BRASS
+					stroke.Transparency = isSel and 0 or 0.4
 				end
 			end
 			for name, fr in pairs(tabFrames) do
@@ -229,7 +239,7 @@ function SettingsModal.Create(
 		if listeningBtn and listeningAction then
 			local currentKey = workingSettings.keybinds[listeningAction] or "None"
 			listeningBtn.Text = currentKey
-			listeningBtn.TextColor3 = UITheme.Colors.GoldLight
+			listeningBtn.TextColor3 = BRASS_LIGHT
 		end
 		listeningAction = nil
 		listeningBtn = nil
@@ -243,12 +253,12 @@ function SettingsModal.Create(
 		local row = Instance.new("Frame")
 		row.Name = "Row_" .. entry.action
 		row.Size = UDim2.new(1, -8, 0, 42)
-		row.BackgroundColor3 = UITheme.Colors.Surface
+		row.BackgroundColor3 = PLAQUE
 		row.LayoutOrder = i
 		row.Parent = keybindsPage
 
 		UITheme.AddCorner(row, 6)
-		UITheme.AddStroke(row, UITheme.Colors.Border, 1, 0.5)
+		UITheme.AddStroke(row, BRASS, 1, 0.35)
 
 		local label = Instance.new("TextLabel")
 		label.Name = "ActionLabel"
@@ -256,9 +266,9 @@ function SettingsModal.Create(
 		label.Position = UDim2.new(0, 16, 0, 0)
 		label.BackgroundTransparency = 1
 		label.Text = entry.displayName
-		label.TextColor3 = UITheme.Colors.TextPrimary
-		label.Font = UITheme.Fonts.Body
-		label.TextSize = 14
+		label.TextColor3 = PARCHMENT
+		label.Font = ANTIQUE
+		label.TextSize = 15
 		label.TextXAlignment = Enum.TextXAlignment.Left
 		label.Parent = row
 
@@ -267,16 +277,16 @@ function SettingsModal.Create(
 		keyBtn.Size = UDim2.new(0, 140, 0, 30)
 		keyBtn.AnchorPoint = Vector2.new(1, 0.5)
 		keyBtn.Position = UDim2.new(1, -10, 0.5, 0)
-		keyBtn.BackgroundColor3 = UITheme.Colors.SurfaceAlt
+		keyBtn.BackgroundColor3 = PLAQUE_DARK
 		keyBtn.AutoButtonColor = false
 		keyBtn.Text = workingSettings.keybinds[entry.action] or entry.defaultKey
-		keyBtn.TextColor3 = UITheme.Colors.GoldLight
-		keyBtn.Font = UITheme.Fonts.Button
-		keyBtn.TextSize = 13
+		keyBtn.TextColor3 = BRASS_LIGHT
+		keyBtn.Font = ANTIQUE
+		keyBtn.TextSize = 14
 		keyBtn.Parent = row
 
 		UITheme.AddCorner(keyBtn, 4)
-		local kStroke = UITheme.AddStroke(keyBtn, UITheme.Colors.Border, 1, 0.3)
+		local kStroke = UITheme.AddStroke(keyBtn, BRASS, 1, 0.3)
 		keybindBtnMap[entry.action] = keyBtn
 
 		keyBtn.MouseButton1Click:Connect(function()
@@ -330,12 +340,12 @@ function SettingsModal.Create(
 		local row = Instance.new("Frame")
 		row.Name = "AudioRow_" .. item.key
 		row.Size = UDim2.new(1, -8, 0, 50)
-		row.BackgroundColor3 = UITheme.Colors.Surface
+		row.BackgroundColor3 = PLAQUE
 		row.LayoutOrder = i
 		row.Parent = audioPage
 
 		UITheme.AddCorner(row, 6)
-		UITheme.AddStroke(row, UITheme.Colors.Border, 1, 0.5)
+		UITheme.AddStroke(row, BRASS, 1, 0.35)
 
 		local label = Instance.new("TextLabel")
 		label.Name = "Label"
@@ -343,9 +353,9 @@ function SettingsModal.Create(
 		label.Position = UDim2.new(0, 16, 0, 0)
 		label.BackgroundTransparency = 1
 		label.Text = item.name
-		label.TextColor3 = UITheme.Colors.TextPrimary
-		label.Font = UITheme.Fonts.Body
-		label.TextSize = 14
+		label.TextColor3 = PARCHMENT
+		label.Font = ANTIQUE
+		label.TextSize = 15
 		label.TextXAlignment = Enum.TextXAlignment.Left
 		label.Parent = row
 
@@ -356,14 +366,14 @@ function SettingsModal.Create(
 		sliderBg.Size = UDim2.new(0, 200, 0, 12)
 		sliderBg.AnchorPoint = Vector2.new(1, 0.5)
 		sliderBg.Position = UDim2.new(1, -60, 0.5, 0)
-		sliderBg.BackgroundColor3 = UITheme.Colors.SurfaceAlt
+		sliderBg.BackgroundColor3 = PLAQUE_DARK
 		sliderBg.Parent = row
 		UITheme.AddCorner(sliderBg, 6)
 
 		local sliderFill = Instance.new("Frame")
 		sliderFill.Name = "Fill"
 		sliderFill.Size = UDim2.new(val, 0, 1, 0)
-		sliderFill.BackgroundColor3 = UITheme.Colors.Gold
+		sliderFill.BackgroundColor3 = BRASS
 		sliderFill.BorderSizePixel = 0
 		sliderFill.Parent = sliderBg
 		UITheme.AddCorner(sliderFill, 6)
@@ -375,9 +385,9 @@ function SettingsModal.Create(
 		percentLabel.Position = UDim2.new(1, -8, 0.5, 0)
 		percentLabel.BackgroundTransparency = 1
 		percentLabel.Text = `{math.floor(val * 100)}%`
-		percentLabel.TextColor3 = UITheme.Colors.TextSecondary
-		percentLabel.Font = UITheme.Fonts.Tag
-		percentLabel.TextSize = 12
+		percentLabel.TextColor3 = BRASS_LIGHT
+		percentLabel.Font = ANTIQUE
+		percentLabel.TextSize = 13
 		percentLabel.Parent = row
 
 		local sliderBtn = Instance.new("TextButton")
@@ -432,12 +442,12 @@ function SettingsModal.Create(
 		local row = Instance.new("Frame")
 		row.Name = "ToggleRow_" .. item.key
 		row.Size = UDim2.new(1, -8, 0, 56)
-		row.BackgroundColor3 = UITheme.Colors.Surface
+		row.BackgroundColor3 = PLAQUE
 		row.LayoutOrder = i
 		row.Parent = gameplayPage
 
 		UITheme.AddCorner(row, 6)
-		UITheme.AddStroke(row, UITheme.Colors.Border, 1, 0.5)
+		UITheme.AddStroke(row, BRASS, 1, 0.35)
 
 		local label = Instance.new("TextLabel")
 		label.Name = "Title"
@@ -445,9 +455,9 @@ function SettingsModal.Create(
 		label.Position = UDim2.new(0, 16, 0, 8)
 		label.BackgroundTransparency = 1
 		label.Text = item.name
-		label.TextColor3 = UITheme.Colors.TextPrimary
-		label.Font = UITheme.Fonts.Body
-		label.TextSize = 14
+		label.TextColor3 = PARCHMENT
+		label.Font = ANTIQUE
+		label.TextSize = 15
 		label.TextXAlignment = Enum.TextXAlignment.Left
 		label.Parent = row
 
@@ -457,7 +467,7 @@ function SettingsModal.Create(
 		desc.Position = UDim2.new(0, 16, 0, 30)
 		desc.BackgroundTransparency = 1
 		desc.Text = item.desc
-		desc.TextColor3 = UITheme.Colors.TextMuted
+		desc.TextColor3 = Color3.fromRGB(160, 140, 118)
 		desc.Font = UITheme.Fonts.Sub
 		desc.TextSize = 11
 		desc.TextXAlignment = Enum.TextXAlignment.Left
@@ -469,12 +479,12 @@ function SettingsModal.Create(
 		toggleBtn.Size = UDim2.new(0, 70, 0, 30)
 		toggleBtn.AnchorPoint = Vector2.new(1, 0.5)
 		toggleBtn.Position = UDim2.new(1, -16, 0.5, 0)
-		toggleBtn.BackgroundColor3 = curVal and UITheme.Colors.Success or UITheme.Colors.SurfaceAlt
+		toggleBtn.BackgroundColor3 = curVal and BRASS or PLAQUE_DARK
 		toggleBtn.AutoButtonColor = false
 		toggleBtn.Text = curVal and "ON" or "OFF"
-		toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-		toggleBtn.Font = UITheme.Fonts.Button
-		toggleBtn.TextSize = 12
+		toggleBtn.TextColor3 = curVal and Color3.fromRGB(20, 15, 10) or PARCHMENT
+		toggleBtn.Font = ANTIQUE
+		toggleBtn.TextSize = 13
 		toggleBtn.Parent = row
 
 		UITheme.AddCorner(toggleBtn, 4)
@@ -484,8 +494,9 @@ function SettingsModal.Create(
 			local newVal = not workingSettings[item.key]
 			workingSettings[item.key] = newVal
 			toggleBtn.Text = newVal and "ON" or "OFF"
+			toggleBtn.TextColor3 = newVal and Color3.fromRGB(20, 15, 10) or PARCHMENT
 			TweenService:Create(toggleBtn, UITheme.Tweens.Fast, {
-				BackgroundColor3 = newVal and UITheme.Colors.Success or UITheme.Colors.SurfaceAlt,
+				BackgroundColor3 = newVal and BRASS or PLAQUE_DARK,
 			}):Play()
 		end)
 	end
@@ -497,7 +508,7 @@ function SettingsModal.Create(
 	footer.Name = "Footer"
 	footer.Size = UDim2.new(1, 0, 0, 64)
 	footer.Position = UDim2.new(0, 0, 1, -64)
-	footer.BackgroundColor3 = UITheme.Colors.Surface
+	footer.BackgroundColor3 = PLAQUE_DARK
 	footer.BorderSizePixel = 0
 	footer.Parent = modal
 	UITheme.AddCorner(footer, 12)
@@ -506,7 +517,7 @@ function SettingsModal.Create(
 	local footerMask = Instance.new("Frame")
 	footerMask.Size = UDim2.new(1, 0, 0, 12)
 	footerMask.Position = UDim2.new(0, 0, 0, 0)
-	footerMask.BackgroundColor3 = UITheme.Colors.Surface
+	footerMask.BackgroundColor3 = PLAQUE_DARK
 	footerMask.BorderSizePixel = 0
 	footerMask.Parent = footer
 
@@ -515,16 +526,16 @@ function SettingsModal.Create(
 	resetBtn.Name = "ResetBtn"
 	resetBtn.Size = UDim2.new(0, 150, 0, 38)
 	resetBtn.Position = UDim2.new(0, 24, 0.5, -19)
-	resetBtn.BackgroundColor3 = UITheme.Colors.SurfaceAlt
+	resetBtn.BackgroundColor3 = PLAQUE
 	resetBtn.AutoButtonColor = false
 	resetBtn.Text = "RESET DEFAULTS"
-	resetBtn.TextColor3 = UITheme.Colors.TextSecondary
-	resetBtn.Font = UITheme.Fonts.Button
-	resetBtn.TextSize = 13
+	resetBtn.TextColor3 = PARCHMENT
+	resetBtn.Font = ANTIQUE
+	resetBtn.TextSize = 14
 	resetBtn.Parent = footer
 
 	UITheme.AddCorner(resetBtn, 6)
-	local rStroke = UITheme.AddStroke(resetBtn, UITheme.Colors.Border, 1, 0.5)
+	local rStroke = UITheme.AddStroke(resetBtn, BRASS, 1.5, 0.3)
 	UITheme.MakeButtonInteractive(resetBtn, rStroke, UITheme.Colors.Warning, SoundManager.PlayHover, function()
 		SoundManager.PlayClick()
 		workingSettings = SettingsConfig.CloneDefaultSettings()
@@ -540,16 +551,16 @@ function SettingsModal.Create(
 	applyBtn.Size = UDim2.new(0, 160, 0, 38)
 	applyBtn.AnchorPoint = Vector2.new(1, 0.5)
 	applyBtn.Position = UDim2.new(1, -24, 0.5, -19)
-	applyBtn.BackgroundColor3 = UITheme.Colors.Gold
+	applyBtn.BackgroundColor3 = BRASS
 	applyBtn.AutoButtonColor = false
 	applyBtn.Text = "APPLY & SAVE"
 	applyBtn.TextColor3 = Color3.fromRGB(20, 15, 10)
-	applyBtn.Font = UITheme.Fonts.Button
-	applyBtn.TextSize = 14
+	applyBtn.Font = ANTIQUE
+	applyBtn.TextSize = 16
 	applyBtn.Parent = footer
 
 	UITheme.AddCorner(applyBtn, 6)
-	local aStroke = UITheme.AddStroke(applyBtn, UITheme.Colors.GoldLight, 1.5, 0)
+	local aStroke = UITheme.AddStroke(applyBtn, BRASS_LIGHT, 2, 0)
 	UITheme.MakeButtonInteractive(applyBtn, aStroke, UITheme.Colors.GoldLight, SoundManager.PlayHover, function()
 		stopListening()
 		SoundManager.PlayConfirm()

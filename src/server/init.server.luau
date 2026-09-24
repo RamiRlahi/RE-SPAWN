@@ -6,6 +6,8 @@ local SkillManager      = require(script:WaitForChild("SkillManager"))
 local DungeonGenerator  = require(script:WaitForChild("DungeonGenerator"))
 local MobManager        = require(script:WaitForChild("MobManager"))
 local PlayerStats       = require(script:WaitForChild("PlayerStats"))
+local AllyManager      = require(script:WaitForChild("AllyManager"))
+local DifficultyManager = require(script:WaitForChild("DifficultyManager"))
 
 print("[Server] Initializing SoloProject Game Server...")
 
@@ -16,6 +18,8 @@ WeaponManager.Init()
 AnimationManager.Init()
 SkillManager.Init()
 MobManager.Init()
+AllyManager.Init()
+DifficultyManager.Reset()
 
 -- Generate initial procedural roguelite dungeon
 task.spawn(function()

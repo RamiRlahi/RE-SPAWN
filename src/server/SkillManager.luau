@@ -7,14 +7,41 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local Debris = game:GetService("Debris")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local SkillData = require(Shared:WaitForChild("SkillData"))
 local PlayerStats = require(script.Parent:WaitForChild("PlayerStats"))
+local AllyManager = require(script.Parent:WaitForChild("AllyManager"))
+local MobManager = require(script.Parent:WaitForChild("MobManager"))
+
+local PhysicsService = game:GetService("PhysicsService")
 
 local SkillManager = {}
 local basicAttackTimes: { [Player]: number } = {}
+
+-- Collision groups so a ranger can walk out of his own Rain of Arrows cage.
+local ULT_BARRIER_GROUP = "RangerUltBarrier"
+local ULT_CASTER_GROUP = "RangerUltCaster"
+local ultGroupsReady = false
+local function ensureUltCollisionGroups()
+	if ultGroupsReady then return end
+	ultGroupsReady = true
+	pcall(function() PhysicsService:RegisterCollisionGroup(ULT_BARRIER_GROUP) end)
+	pcall(function() PhysicsService:RegisterCollisionGroup(ULT_CASTER_GROUP) end)
+	-- The caster's character passes through the barrier; everyone else is still blocked.
+	pcall(function() PhysicsService:CollisionGroupSetCollidable(ULT_CASTER_GROUP, ULT_BARRIER_GROUP, false) end)
+end
+
+local function setCharacterCollisionGroup(char: Model, group: string)
+	if not char then return end
+	for _, d in ipairs(char:GetDescendants()) do
+		if d:IsA("BasePart") then
+			pcall(function() d.CollisionGroup = group end)
+		end
+	end
+end
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Helper: Find VFX asset in ReplicatedStorage (server can read ReplicatedStorage)
@@ -293,7 +320,7 @@ local function fireRangerArrowVisual(origin: Vector3, direction: Vector3, distan
 			local progress = math.clamp((os.clock() - startTime) / travelTime, 0, 1)
 			local position = baseOrigin + flatDirection * (validDistance * progress)
 			local lookCF = CFrame.lookAt(position, position + flatDirection)
-			positionArrow(lookCF * CFrame.Angles(0, math.rad(-90), 0))
+			positionArrow(lookCF * CFrame.Angles(0, math.rad(90), 0))
 			if progress >= 1 then break end
 			task.wait()
 		end
@@ -305,6 +332,70 @@ local function applyRangerArrowKnockback(target: any, direction: Vector3, multip
 	if not target then return end
 	local pushDirection = (rotateFlatDirection(direction, 0) + Vector3.new(0, 0.12, 0)).Unit
 	target.rootPart:ApplyImpulse(pushDirection * (target.rootPart.AssemblyMass * 8 * multiplier))
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Barrier helper: a collidable ring of parts that physically stops players from
+-- walking out of a rooted area (vine root / ult cage). Parts are spaced so they
+-- never collide with each other, only with characters.
+-- ─────────────────────────────────────────────────────────────────────────────
+local function buildBarrierRing(center: Vector3, radius: number, height: number, color: Color3, transparency: number, name: string, collisionGroup: string?)
+	local folder = Instance.new("Folder")
+	folder.Name = name
+	folder.Parent = Workspace.Terrain
+
+	local SEG = math.max(24, math.floor(radius * 4))
+	local segLen = (2 * math.pi * radius) / SEG
+	local countPer = math.max(2, math.floor((segLen / 0.4)))
+	local spacing = segLen / countPer
+
+	for s = 1, SEG do
+		local ang = (s / SEG) * math.pi * 2
+		local px = center.X + math.cos(ang) * radius
+		local pz = center.Z + math.sin(ang) * radius
+		local tangent = Vector3.new(-math.sin(ang), 0, math.cos(ang))
+		for k = 1, countPer do
+			local off = -segLen / 2 + spacing * (k - 0.5)
+			local p = Instance.new("Part")
+			p.Name = "Barrier"
+			p.Size = Vector3.new(0.35, height, 0.35)
+			p.Material = Enum.Material.Neon
+			p.Color = color
+			p.Transparency = transparency
+			p.Anchored = true
+			p.CanCollide = true
+			p.CanTouch = false
+			p.CanQuery = false
+			if collisionGroup then
+				pcall(function() p.CollisionGroup = collisionGroup end)
+			end
+			p.CFrame = CFrame.new(Vector3.new(px, center.Y, pz) + tangent * off + Vector3.new(0, height / 2, 0))
+			p.Parent = folder
+		end
+	end
+	return folder
+end
+
+local function spawnVineBarrier(center: Vector3, radius: number, duration: number)
+	-- Invisible; height matches the vine cage visual (14 studs)
+	local folder = buildBarrierRing(center, radius, 14, Color3.fromRGB(60, 140, 55), 1, "VineRootBarrier")
+	Debris:AddItem(folder, duration + 0.5)
+end
+
+local function spawnUltBarrier(center: Vector3, radius: number, duration: number, casterChar: Model?)
+	ensureUltCollisionGroups()
+	-- Invisible; height matches the vine cage visual (14 studs)
+	local folder = buildBarrierRing(center, radius, 14, Color3.fromRGB(70, 200, 90), 1, "RainOfArrowsBarrier", ULT_BARRIER_GROUP)
+	-- Put the caster in a group that does not collide with the barrier so he can leave the AoE.
+	if casterChar then
+		setCharacterCollisionGroup(casterChar, ULT_CASTER_GROUP)
+		task.delay(duration + 0.6, function()
+			if casterChar and casterChar.Parent then
+				setCharacterCollisionGroup(casterChar, "Default")
+			end
+		end)
+	end
+	Debris:AddItem(folder, duration + 0.6)
 end
 
 local function rootTarget(target: { character: Model, humanoid: Humanoid, rootPart: BasePart }, duration: number)
@@ -408,6 +499,9 @@ local function executeRangerEntanglingArrow(player: Player, casterChar: Model, o
 	local damage = math.floor((config.damage or 30) * 0.75)
 	local rootDuration = config.duration or 2.6
 
+	-- Physical vine barrier so rooted targets cannot walk out of the vines
+	spawnVineBarrier(impactPos, radius, rootDuration)
+
 	for _, target in ipairs(getPotentialTargets(casterChar)) do
 		local dist = (target.rootPart.Position - impactPos).Magnitude
 		if dist <= radius then
@@ -421,25 +515,59 @@ local function executeRangerEntanglingArrow(player: Player, casterChar: Model, o
 	print(`[SkillManager] Entangling Arrow impacted at {math.floor(hitDistance or range)} studs.`)
 end
 
-local function executeRangerToxicCloud(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, targetPosition: any, config: any)
-	local impactPos = getRangerCursorTarget(origin, lookDir, targetPosition, config.range or 34)
-	local radius = 13 * (config.areaMultiplier or 1)
-	local duration = config.duration or 6.0
-	local tickInterval = 0.6
-	local damage = config.damage or 12
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Hitbox: Skill 3 — Seeker Barrage (Buff: Attacks launch guided missiles)
+-- ─────────────────────────────────────────────────────────────────────────────
+local function executeMissileBuff(player: Player, casterChar: Model, config: any)
+	local duration = config.duration or 8.0
+	casterChar:SetAttribute("IsMissileBuffActive", true)
 
-	task.spawn(function()
-		local startTime = os.clock()
-		while os.clock() - startTime < duration do
-			if not casterChar or not casterChar.Parent then break end
-			for _, target in ipairs(getPotentialTargets(casterChar)) do
-				if (target.rootPart.Position - impactPos).Magnitude <= radius then
-					dealDamage(player, target, damage, "TOXIC CLOUD")
-				end
-			end
-			task.wait(tickInterval)
+	task.delay(duration, function()
+		if casterChar and casterChar.Parent then
+			casterChar:SetAttribute("IsMissileBuffActive", false)
 		end
 	end)
+
+	print(`[SkillManager] {player.Name} activated Seeker Barrage missile buff for {duration}s!`)
+end
+
+function SkillManager.HandleMissileAttack(player: Player, casterChar: Model)
+	local root = casterChar:FindFirstChild("HumanoidRootPart") or casterChar.PrimaryPart
+	if not root then return end
+	local origin = root.Position
+
+	local extraProjectiles = math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount")))
+	local totalMissiles = 3 + extraProjectiles
+	local speedMult = math.max(0.2, PlayerStats.GetStat(player, "projectileSpeed"))
+	local delayStep = 0.035 / math.max(speedMult, 0.5)
+
+	-- Fast missile strikes per attack matching projectile tome stats
+	for i = 1, totalMissiles do
+		task.spawn(function()
+			task.wait((0.10 + (i - 1) * delayStep) / math.max(speedMult, 0.5))
+			if not casterChar or not casterChar.Parent then return end
+
+			local targets = getPotentialTargets(casterChar)
+			local closestTarget = nil
+			local closestDist = 65
+
+			for _, t in ipairs(targets) do
+				local d = (t.rootPart.Position - origin).Magnitude
+				if d < closestDist then
+					closestDist = d
+					closestTarget = t
+				end
+			end
+
+			if closestTarget and closestTarget.humanoid and closestTarget.humanoid.Health > 0 then
+				local damage = math.floor(20 * PlayerStats.GetStat(player, "damage"))
+				dealDamage(player, closestTarget, damage, "SEEKER BARRAGE")
+				local kbDir = (closestTarget.rootPart.Position - origin).Unit + Vector3.new(0, 0.25, 0)
+				closestTarget.rootPart:ApplyImpulse(kbDir.Unit * (closestTarget.rootPart.AssemblyMass * 12))
+				print(`[SkillManager] Seeker Missile #{i}/{totalMissiles} struck {closestTarget.character.Name} for {damage} damage!`)
+			end
+		end)
+	end
 end
 
 local function executeRangerRainOfArrows(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, targetPosition: any, config: any)
@@ -450,20 +578,39 @@ local function executeRangerRainOfArrows(player: Player, casterChar: Model, orig
 
 	task.spawn(function()
 		task.wait(1.05)
+		-- Physical ult cage so targets cannot leave the Rain of Arrows zone
+		spawnUltBarrier(center, radius, duration + 0.2, casterChar)
 		local startTime = os.clock()
 		while os.clock() - startTime < duration do
 			if not casterChar or not casterChar.Parent then break end
 			for _, target in ipairs(getPotentialTargets(casterChar)) do
-				if (target.rootPart.Position - center).Magnitude <= radius then
+				local targetPos = target.rootPart.Position
+				local offset = targetPos - center
+				local flatOffset = Vector3.new(offset.X, 0, offset.Z)
+				local dist = flatOffset.Magnitude
+
+				if dist <= radius then
+					-- Deal damage to all targets inside the zone
 					dealDamage(player, target, damage, "RAIN OF ARROWS")
 					local push = Vector3.new(0, 1, 0)
 					target.rootPart:ApplyImpulse(push * (target.rootPart.AssemblyMass * 8))
+
+					-- Root every target inside the cage so they can't walk out
+					rootTarget(target, 0.6)
+
+					-- If target is near the perimeter, pull them back inward
+					if dist > radius - 3.5 and dist > 0.5 then
+						local pullDir = -flatOffset.Unit
+						local pullStrength = target.rootPart.AssemblyMass * 22
+						target.rootPart:ApplyImpulse(pullDir * pullStrength + Vector3.new(0, target.rootPart.AssemblyMass * 3, 0))
+					end
 				end
 			end
 			task.wait(0.45)
 		end
 	end)
 end
+
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Hitbox: Skill 1 — Spin Attack (5s Continuous AoE Whirlwind)
@@ -841,6 +988,255 @@ local function executeInfernalWrath(player: Player, casterChar: Model, origin: V
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Cleric Basic Combat: Divine Touch + Divine Beam
+-- ─────────────────────────────────────────────────────────────────────────────
+local function healCharacter(targetChar: Model, amount: number)
+	local hum = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
+	if hum and hum.Health > 0 then
+		hum.Health = math.min(hum.MaxHealth, hum.Health + amount)
+	end
+end
+
+local function getClericHealTarget(casterChar: Model, range: number): Model?
+	local bestTarget: Model? = casterChar
+	local bestFrac = 1.0
+	local casterHum = casterChar:FindFirstChildOfClass("Humanoid")
+	if casterHum and casterHum.MaxHealth > 0 then
+		bestFrac = casterHum.Health / casterHum.MaxHealth
+	end
+
+	local casterRoot = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not casterRoot then return bestTarget end
+
+	for _, otherPlayer in ipairs(Players:GetPlayers()) do
+		local otherChar = otherPlayer.Character
+		if otherChar and otherChar ~= casterChar and otherChar.Parent then
+			local otherRoot = otherChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+			local otherHum = otherChar:FindFirstChildOfClass("Humanoid")
+			if otherRoot and otherHum and otherHum.Health > 0 then
+				local dist = (otherRoot.Position - casterRoot.Position).Magnitude
+				if dist <= range then
+					local frac = otherHum.Health / math.max(otherHum.MaxHealth, 1)
+					if frac < bestFrac then
+						bestFrac = frac
+						bestTarget = otherChar
+					end
+				end
+			end
+		end
+	end
+
+	return bestTarget
+end
+
+local function executeClericDivineTouch(player: Player, casterChar: Model, config: any)
+	local range = config.range or 30
+	local healAmount = config.healAmount or 35
+	local targetChar = getClericHealTarget(casterChar, range)
+	if targetChar then
+		healCharacter(targetChar, healAmount)
+	end
+	-- Allies: heal the hovered ally if the client named one, else the nearest ally in range.
+	local root = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if root then
+		local ally = nil
+		if config.allyTarget then
+			ally = AllyManager.GetAllyByName(config.allyTarget)
+		end
+		if not ally then
+			ally = AllyManager.GetNearestAlly(root.Position, range)
+		end
+		if ally then
+			AllyManager.HealAlly(ally, healAmount)
+		end
+	end
+end
+
+local function executeClericDivineBeam(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
+	local damage = config.damage or 40
+	local range = config.range or 48
+	local duration = config.duration or 5.0
+	local halfWidth = math.max(0.5, (config.width or 3.0) * (config.areaMultiplier or 1) * 0.5)
+	local TICK = 0.5
+	local perHit = damage * TICK / math.max(duration, 0.001)
+
+	-- Channeled holy laser: tick damage for the full channel, tracking the caster's facing
+	-- (the client rotates the character to face the cursor, so LookVector IS the aim).
+	task.spawn(function()
+		local t0 = os.clock()
+		while os.clock() - t0 < duration do
+			if not casterChar or not casterChar.Parent then break end
+			local root = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if not root then break end
+			local curOrigin = root.Position
+			local flatDir = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+			if flatDir.Magnitude < 0.001 then flatDir = Vector3.new(0, 0, -1) end
+			flatDir = flatDir.Unit
+			for _, target in ipairs(getPotentialTargets(casterChar)) do
+				local offset = target.rootPart.Position - curOrigin
+				local flatOffset = Vector3.new(offset.X, 0, offset.Z)
+				local along = flatOffset:Dot(flatDir)
+				if along >= 0 and along <= range then
+					local lateral = (flatOffset - flatDir * along).Magnitude
+					local vertical = math.abs(offset.Y)
+					if lateral <= halfWidth and vertical <= 6 then
+						dealDamage(player, target, perHit, "DIVINE BEAM")
+					end
+				end
+			end
+			task.wait(TICK)
+		end
+	end)
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Cleric Ultimate: Divine Ascent (Heal allies, purge debuffs, holy judgment)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+local function executeClericDivineAscent(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
+	local casterRoot = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local humanoid = casterChar:FindFirstChildOfClass("Humanoid")
+	if not casterRoot or not humanoid then return end
+
+	local healAmount = (config.healAmount or 100) * (config.areaMultiplier or 1)
+	local damage = config.damage or 90
+	local radius = (config.range or 30) * (config.areaMultiplier or 1)
+	local duration = config.duration or 8.0
+	local returnCFrame = casterRoot.CFrame
+
+	-- Lift the caster into the sky (rooted but floating) during the ascension
+	casterChar:SetAttribute("IsSkillCasting", true)
+	casterRoot.Anchored = true
+
+	-- Heal + cleanse every ally (and self) in the aura
+	local function applyHealAura()
+		for _, other in ipairs(Players:GetPlayers()) do
+			local oc = other.Character
+			if oc and oc.Parent then
+				local oroot = oc:FindFirstChild("HumanoidRootPart")
+				if oroot and (oroot.Position - origin).Magnitude <= radius then
+					healCharacter(oc, healAmount)
+					oc:SetAttribute("DebuffCleanse", os.clock())
+				end
+			end
+		end
+	end
+	applyHealAura()
+
+	-- Creation-of-Adam tableau: lift the caster HIGH into the sky first, then
+	-- spawn the revived party just below him so they read as reaching up to him.
+	-- (The old mural cinematic FireClient is gone - it filmed an unstreamed
+	--  far-away mural, which just faded the screen to black.)
+	local liftFlatDir = Vector3.new(lookDir.X, 0, lookDir.Z)
+	if liftFlatDir.Magnitude < 0.001 then liftFlatDir = casterRoot.CFrame.LookVector end
+	liftFlatDir = Vector3.new(liftFlatDir.X, 0, liftFlatDir.Z).Unit
+	local casterPos = origin + Vector3.new(0, 53, 0)
+	-- Take network ownership from the client so the server's anchor/CFrame actually
+	-- holds (a client-owned character ignores the server's Anchored and falls).
+	pcall(function() casterRoot:SetNetworkOwner(nil) end)
+	casterRoot.CFrame = CFrame.lookAt(casterPos, casterPos + liftFlatDir)
+
+	AllyManager.SpawnAlliesBehindPlayer(player, returnCFrame)
+
+	-- Revive (and heal) downed allies inside the aura.
+	AllyManager.HealAlliesInRadius(origin, radius, healAmount)
+
+	-- Divine judgment: damage + knock enemies inside the zone
+	task.spawn(function()
+		task.wait(1.6)
+		if not casterChar or not casterChar.Parent then return end
+		local targets = getPotentialTargets(casterChar)
+		for _, target in ipairs(targets) do
+			local dist = (target.rootPart.Position - origin).Magnitude
+			if dist <= radius then
+				dealDamage(player, target, damage, "DIVINE ASCENT")
+				local kb = (target.rootPart.Position - origin)
+				local flatKb = Vector3.new(kb.X, 0, kb.Z)
+				local kbDir = (flatKb.Magnitude > 0.1 and flatKb.Unit or Vector3.new(0, 0, 1)) + Vector3.new(0, 0.5, 0)
+				target.rootPart:ApplyImpulse(kbDir.Unit * (target.rootPart.AssemblyMass * 30))
+			end
+		end
+	end)
+
+	-- End of ascension: reset the player and party to the ground together, then release them.
+	task.delay(duration, function()
+		if casterChar and casterChar.Parent then
+			local root2 = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+			local hum2 = casterChar:FindFirstChildOfClass("Humanoid")
+			if root2 then
+				local rayParams = RaycastParams.new()
+				rayParams.FilterType = Enum.RaycastFilterType.Exclude
+				rayParams.FilterDescendantsInstances = {casterChar, Workspace:FindFirstChild("Allies")}
+				rayParams.IgnoreWater = true
+				local hit = Workspace:Raycast(root2.Position + Vector3.new(0, 8, 0), Vector3.new(0, -120, 0), rayParams)
+				if hit then
+					local hipHeight = hum2 and hum2.HipHeight or 2
+					local y = hit.Position.Y + (root2.Size.Y * 0.5) + hipHeight
+					root2.CFrame = CFrame.new(root2.Position.X, y, root2.Position.Z) * (root2.CFrame - root2.Position)
+				end
+				root2.AssemblyLinearVelocity = Vector3.zero
+				root2.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+
+		AllyManager.ReleaseAllies()
+
+		if casterChar and casterChar.Parent then
+			local root2 = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if root2 then
+				root2.CFrame = returnCFrame
+				root2.AssemblyLinearVelocity = Vector3.zero
+				root2.AssemblyAngularVelocity = Vector3.zero
+				root2.Anchored = false
+				pcall(function() root2:SetNetworkOwner(player) end)
+			end
+			casterChar:SetAttribute("IsSkillCasting", false)
+		end
+	end)
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Cleric Skill 3: Radiant Ground (consecrated zone that heals allies over time,
+-- cleanses them, and scorches enemies standing inside it)
+-- ─────────────────────────────────────────────────────────────────────────────
+local function executeClericRadiantGround(player: Player, casterChar: Model, origin: Vector3, config: any)
+	local radius = (config.range or 16) * (config.areaMultiplier or 1)
+	local healAmount = math.floor((config.healAmount or 12) * (config.areaMultiplier or 1))
+	local damage = math.floor(config.damage or 10)
+	local flatOrigin = Vector3.new(origin.X, origin.Y, origin.Z)
+
+	-- Instant holy burst centred on the caster: heal + cleanse allies in radius.
+	for _, other in ipairs(Players:GetPlayers()) do
+		local oc = other.Character
+		if oc and oc.Parent then
+			local oroot = oc:FindFirstChild("HumanoidRootPart") :: BasePart?
+			local ohum = oc:FindFirstChildOfClass("Humanoid")
+			if oroot and ohum and ohum.Health > 0 then
+				local flatOffset = Vector3.new(oroot.Position.X - flatOrigin.X, 0, oroot.Position.Z - flatOrigin.Z)
+				if flatOffset.Magnitude <= radius then
+					healCharacter(oc, healAmount)
+					oc:SetAttribute("DebuffCleanse", os.clock())
+				end
+			end
+		end
+	end
+
+	-- Heal / revive allies inside the burst too.
+	AllyManager.HealAlliesInRadius(flatOrigin, radius, healAmount)
+
+	-- Scorch enemies in the burst (never friendly-fire other players).
+	for _, target in ipairs(getPotentialTargets(casterChar)) do
+		if not Players:GetPlayerFromCharacter(target.character) then
+			local offset = target.rootPart.Position - flatOrigin
+			local flatOffset = Vector3.new(offset.X, 0, offset.Z)
+			if flatOffset.Magnitude <= radius then
+				dealDamage(player, target, damage, "RADIANT GROUND")
+			end
+		end
+	end
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Main Skill Request Handler
 -- ─────────────────────────────────────────────────────────────────────────────
 function SkillManager.HandleSkillUse(player: Player, payload: any)
@@ -858,6 +1254,9 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 
 	-- Block skills in lobby
 	if player:GetAttribute("InLobby") == true then return end
+
+	-- Block skills while a tome/level-up selection is pausing the game.
+	if Workspace:GetAttribute("TomesPaused") == true then return end
 
 	-- Block skill use while Skill 1 (Spin Attack) is active
 	if char:GetAttribute("IsSkill1Active") == true or char:GetAttribute("IsSpinAttackActive") == true then
@@ -880,6 +1279,7 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	end
 	effectiveConfig.areaMultiplier = PlayerStats.GetStat(player, "size")
 	effectiveConfig.projectileCount = math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount")))
+	effectiveConfig.allyTarget = payload.allyTarget
 
 	-- Validate Cooldown
 	local now = os.clock()
@@ -910,7 +1310,7 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 		direction = Vector3.new(payload.direction.X, 0, payload.direction.Z).Unit
 	end
 	local targetPosition = payload.targetPosition
-	if classId == "ranger" and (skillIndex == 3 or skillIndex == 4) then
+	if classId == "ranger" and skillIndex == 4 then
 		targetPosition = getRangerCursorTarget(origin, direction, targetPosition, effectiveConfig.range or 42)
 	elseif classId == "heavy_knight" and skillIndex == 2 then
 		targetPosition = getRangerCursorTarget(origin, direction, targetPosition, effectiveConfig.maxLeapDistance or 42)
@@ -923,7 +1323,7 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 		elseif skillIndex == 2 then
 			executeRangerEntanglingArrow(player, char, origin, direction, effectiveConfig)
 		elseif skillIndex == 3 then
-			executeRangerToxicCloud(player, char, origin, direction, targetPosition, effectiveConfig)
+			executeMissileBuff(player, char, effectiveConfig)
 		elseif skillIndex == 4 then
 			executeRangerRainOfArrows(player, char, origin, direction, targetPosition, effectiveConfig)
 		end
@@ -935,6 +1335,23 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 		executePhoenixDash(player, char, origin, direction, effectiveConfig)
 	elseif classId == "heavy_knight" and skillIndex == 4 then
 		executeInfernalWrath(player, char, origin, direction, effectiveConfig)
+	elseif classId == "cleric" and skillIndex == 1 then
+		executeClericDivineTouch(player, char, effectiveConfig)
+	elseif classId == "cleric" and skillIndex == 2 then
+		executeClericDivineBeam(player, char, origin, direction, effectiveConfig)
+	elseif classId == "cleric" and skillIndex == 3 then
+		executeClericRadiantGround(player, char, origin, effectiveConfig)
+	elseif classId == "cleric" and skillIndex == 4 then
+		executeClericDivineAscent(player, char, origin, direction, effectiveConfig)
+	end
+
+	-- Ultimates freeze every mob in place for the ult duration.
+	if skillIndex == 4 then
+		local freezeTime = effectiveConfig.duration
+		if typeof(freezeTime) ~= "number" or freezeTime <= 0 then
+			freezeTime = 6.0
+		end
+		MobManager.FreezeMobs(freezeTime)
 	end
 
 	-- Replicate VFX to other players (for Skill 4, fire to ALL including caster
@@ -976,6 +1393,7 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not humanoid or not rootPart or humanoid.Health <= 0 then return end
 	if player:GetAttribute("InLobby") == true then return end
+	if Workspace:GetAttribute("TomesPaused") == true then return end
 	local now = os.clock()
 	local attackInterval = 0.38 / math.max(PlayerStats.GetStat(player, "basicAttackSpeed"), 0.1)
 	if now - (basicAttackTimes[player] or 0) < attackInterval then return end
@@ -994,6 +1412,10 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 	if typeof(classId) ~= "string" then return end
 
 	if classId == "ranger" then
+		if char:GetAttribute("IsMissileBuffActive") == true then
+			SkillManager.HandleMissileAttack(player, char)
+		end
+
 		local damage = math.floor(24 * PlayerStats.GetStat(player, "damage"))
 		local arrowOrigin = origin + Vector3.new(0, 1.2, 0)
 		local extraProjectiles = math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount")))
@@ -1013,7 +1435,25 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 		end
 		return
 	end
+
+	if classId == "cleric" then
+		-- Radiant Bolt: ranged holy projectile fired straight forward.
+		local damage = math.floor(24 * PlayerStats.GetStat(player, "damage"))
+		local boltOrigin = origin + Vector3.new(0, 1.4, 0)
+		local hitWidth = 2.5 * PlayerStats.GetStat(player, "size")
+		local target = damageFirstTargetOnLine(player, char, boltOrigin, flatLook, 60, hitWidth, damage, "RADIANT BOLT")
+		if target then
+			local kbDir = (flatLook + Vector3.new(0, 0.25, 0)).Unit
+			target.rootPart:ApplyImpulse(kbDir * (target.rootPart.AssemblyMass * 8))
+		end
+		return
+	end
+
 	if classId ~= "heavy_knight" then return end
+
+	if char:GetAttribute("IsMissileBuffActive") == true then
+		SkillManager.HandleMissileAttack(player, char)
+	end
 
 	local targets = getPotentialTargets(char)
 	local hitCount = 0
