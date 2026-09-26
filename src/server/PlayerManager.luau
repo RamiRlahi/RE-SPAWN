@@ -177,7 +177,7 @@ local CLERIC_ROBE = {
 	scale = 1,          -- overall size multiplier
 	rotation = nil :: CFrame?, -- force a rotation (e.g. ROT90) instead of auto-facing
 	raise = 0.1,        -- studs the robe's top sits above the shoulder line
-	forward = 0,        -- studs to push it forward (-) or back (+)
+	forward = -0.35,    -- studs to push it forward (-) or back (+)
 }
 
 local ARMOR_PIECE_SCALES: { [string]: number } = {
