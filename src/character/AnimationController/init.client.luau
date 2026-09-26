@@ -643,7 +643,8 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 	if gpe then return end
 
 	if inputMatchesAction(input, "Sprint") then
-		if not isSprinting then
+		-- No sprinting (or its dash burst) during an ultimate.
+		if not isSprinting and character:GetAttribute("IsUltActive") ~= true then
 			isSprinting = true
 			playDashShockwaveVFX()
 			pcall(function()
@@ -703,6 +704,17 @@ function UpdateMovement()
 	if player:GetAttribute("InLobby") ~= false then
 		stopSpeedSprintVFX()
 		playIdle()
+		return
+	end
+
+	-- Ultimates are a hard lock: no walking or running, locomotion cut to idle
+	-- so the ult's cast pose reads cleanly.
+	if character:GetAttribute("IsUltActive") == true then
+		humanoid.WalkSpeed = 0
+		stopSpeedSprintVFX()
+		if WalkTrack and WalkTrack.IsPlaying then WalkTrack:Stop(0.2) end
+		if RunTrack and RunTrack.IsPlaying then RunTrack:Stop(0.2) end
+		if IdleTrack and not IdleTrack.IsPlaying then IdleTrack:Play(0.2) end
 		return
 	end
 

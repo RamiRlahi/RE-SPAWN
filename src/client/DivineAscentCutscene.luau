@@ -16,9 +16,28 @@ local Debris = game:GetService("Debris")
 
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
+local ClericFlair = require(script.Parent:WaitForChild("ClericFlair"))
 
 local DivineAscentCutscene = {}
 local token = 0
+
+-- No shadows inside the celestial realm (the caster and allies would otherwise
+-- stamp dark silhouettes onto the cloud ocean). Saved once so overlapping or
+-- interrupted cutscenes always restore the dungeon's original setting.
+local Lighting = game:GetService("Lighting")
+local savedGlobalShadows: boolean? = nil
+local function suppressShadows()
+	if savedGlobalShadows == nil then
+		savedGlobalShadows = Lighting.GlobalShadows
+	end
+	Lighting.GlobalShadows = false
+end
+local function restoreShadows()
+	if savedGlobalShadows ~= nil then
+		Lighting.GlobalShadows = savedGlobalShadows
+		savedGlobalShadows = nil
+	end
+end
 
 -- ── Color palette ────────────────────────────────────────────────────────────
 local HOLY_IVORY  = Color3.fromRGB(255, 252, 242)
@@ -596,7 +615,7 @@ end
 -- MAIN PLAY
 -- ══════════════════════════════════════════════════════════════════════════════
 function DivineAscentCutscene.Play(duration: number, aimDir: Vector3?)
-	duration = 2.0
+	duration = math.max(duration or 5.5, 2.5)
 	token += 1
 	local my = token
 
@@ -612,6 +631,7 @@ function DivineAscentCutscene.Play(duration: number, aimDir: Vector3?)
 	-- No black fade screen — direct camera cut
 
 	camera.CameraType = Enum.CameraType.Scriptable
+	suppressShadows()
 
 	local function still(): boolean
 		return token == my and char.Parent ~= nil
@@ -650,7 +670,10 @@ function DivineAscentCutscene.Play(duration: number, aimDir: Vector3?)
 		while not ac and waited < 0.8 do
 			task.wait(0.05)
 			waited += 0.05
-			if not still() then return end
+			if not still() then
+			if token == my then restoreShadows() end -- caster died mid-cinematic
+			return
+		end
 			ac = allyCenter(skyMinY)
 		end
 
@@ -688,12 +711,57 @@ function DivineAscentCutscene.Play(duration: number, aimDir: Vector3?)
 			positionAtmosphereAboveCamera(ultAtmo)
 		end
 
+		-- ── Camera choreography (fractions of the hold) ──
+		--   0.00-0.38  Reveal: low orbit sweeping around the tableau, rising
+		--   0.38-0.60  Push-in: close on the caster, FOV tightens, world holds its breath
+		--   0.60       JUDGMENT: sunburst, god rays, shockwaves, camera shake
+		--   0.60-1.00  Pull-back: wide, high shot revealing the whole celestial realm
 		local t0 = os.clock()
 		local holdDur = math.max(0.6, duration - 0.7)
+		local CLIMAX = 0.6
+		local climaxFired = false
+		char:SetAttribute("HideHalo", true)
+		local orbitRadius = (nearPos - mid).Magnitude
+		local startAngle = math.atan2(nearPos.Z - mid.Z, nearPos.X - mid.X)
+		local closePos = casterPos + (Vector3.new(nearPos.X, casterPos.Y, nearPos.Z) - casterPos).Unit * 9 + Vector3.new(0, -1.2, 0)
+		local widePos = farPos + (farPos - mid).Unit * 22 + Vector3.new(0, 14, 0)
+		local function smooth(x: number): number
+			x = math.clamp(x, 0, 1)
+			return x * x * (3 - 2 * x)
+		end
 		while still() and (os.clock() - t0) < holdDur do
 			local a = math.clamp((os.clock() - t0) / holdDur, 0, 1)
-			local p = nearPos:Lerp(farPos, a)
-			camera.CFrame = CFrame.lookAt(p, focus)
+			local camPos: Vector3, lookAt: Vector3, fov: number
+			if a < 0.38 then
+				local k = smooth(a / 0.38)
+				local ang = startAngle - math.rad(55) * (1 - k)
+				camPos = Vector3.new(mid.X + math.cos(ang) * orbitRadius, nearPos.Y - 3 * (1 - k), mid.Z + math.sin(ang) * orbitRadius)
+				lookAt = focus
+				fov = CAM_FOV + 8 * (1 - k)
+			elseif a < CLIMAX then
+				local k = smooth((a - 0.38) / (CLIMAX - 0.38))
+				camPos = nearPos:Lerp(closePos, k)
+				lookAt = focus:Lerp(casterPos + Vector3.new(0, 1.5, 0), k)
+				fov = CAM_FOV - 14 * k
+			else
+				local k = smooth((a - CLIMAX) / (1 - CLIMAX))
+				camPos = closePos:Lerp(widePos, k)
+				lookAt = (casterPos + Vector3.new(0, 1.5, 0)):Lerp(focus, k)
+				fov = (CAM_FOV - 14) + 26 * k
+			end
+			if a >= CLIMAX and not climaxFired then
+				climaxFired = true
+				ClericFlair.judgment(casterPos + Vector3.new(0, 3, 0), camPos)
+			end
+			-- Impact shake decays over ~0.6s after the climax.
+			local sinceClimax = (a - CLIMAX) * holdDur
+			if climaxFired and sinceClimax < 0.6 then
+				local amp = (1 - sinceClimax / 0.6) * 1.2
+				camPos += Vector3.new((math.random() - 0.5) * amp, (math.random() - 0.5) * amp, (math.random() - 0.5) * amp)
+				fov -= (1 - sinceClimax / 0.6) * 6
+			end
+			camera.CFrame = CFrame.lookAt(camPos, lookAt)
+			camera.FieldOfView = fov
 
 			local liveCenter = allyCenter(skyMinY) or center
 			local toLive = Vector3.new(liveCenter.X - casterPos.X, 0, liveCenter.Z - casterPos.Z)
@@ -708,7 +776,10 @@ function DivineAscentCutscene.Play(duration: number, aimDir: Vector3?)
 			updateBridge(liveCenter)
 			if ultAtmo then positionAtmosphereAboveCamera(ultAtmo) end
 		end
-		if not still() then return end
+		if not still() then
+			if token == my then restoreShadows() end -- caster died mid-cinematic
+			return
+		end
 
 		-- Cleanup all VFX
 		cleanupFolder(cloudOcean)
@@ -739,6 +810,7 @@ function DivineAscentCutscene.Play(duration: number, aimDir: Vector3?)
 		end
 		restoreJoints(char)
 		setCasterAnimate(char, false)
+		char:SetAttribute("HideHalo", false)
 		if root then
 			root.CFrame = returnCF
 			root.AssemblyLinearVelocity = Vector3.zero
@@ -747,12 +819,14 @@ function DivineAscentCutscene.Play(duration: number, aimDir: Vector3?)
 		end
 
 		-- Direct camera hand-back (no black fade)
+		restoreShadows()
 		restore()
 	end)
 end
 
 function DivineAscentCutscene.Stop()
 	token += 1
+	restoreShadows()
 end
 
 return DivineAscentCutscene

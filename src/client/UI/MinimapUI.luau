@@ -29,6 +29,7 @@ local roomTypeColors = {
 	Rest     = Color3.fromRGB(52, 231, 228),   -- Healing Cyan
 	Treasure = Color3.fromRGB(241, 196, 15),   -- Gold
 	Shop     = Color3.fromRGB(230, 126, 34),   -- Amber
+	Gamble   = Color3.fromRGB(200, 40, 90),    -- Casino Crimson
 	Elite    = Color3.fromRGB(155, 89, 182),   -- Purple
 	Event    = Color3.fromRGB(52, 152, 219),   -- Light Blue
 	Boss     = Color3.fromRGB(231, 76, 60),    -- Crimson

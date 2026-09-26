@@ -1146,7 +1146,7 @@ local function executeClericDivineAscent(player: Player, casterChar: Model, orig
 
 	-- Divine judgment: damage + knock enemies inside the zone
 	task.spawn(function()
-		task.wait(1.6)
+		task.wait(config.judgmentTime or 1.6)
 		if not casterChar or not casterChar.Parent then return end
 		local targets = getPotentialTargets(casterChar)
 		for _, target in ipairs(targets) do
@@ -1535,13 +1535,14 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 		executeClericDivineAscent(player, char, origin, direction, effectiveConfig)
 	elseif classId == "ice_mage" then
 		if skillIndex == 1 then
-			executeIceSpikes(player, char, origin, direction, effectiveConfig)
+			-- Hits line up with the cast pose's impact frame (castDelay).
+			task.delay(effectiveConfig.castDelay or 0, executeIceSpikes, player, char, origin, direction, effectiveConfig)
 		elseif skillIndex == 2 then
 			executeIceBeam(player, char, origin, direction, effectiveConfig)
 		elseif skillIndex == 3 then
-			executeIceClone(player, char, origin, direction, effectiveConfig)
+			task.delay(effectiveConfig.castDelay or 0, executeIceClone, player, char, origin, direction, effectiveConfig)
 		elseif skillIndex == 4 then
-			executeIceBlizzard(player, char, origin, effectiveConfig)
+			task.delay(effectiveConfig.castDelay or 0, executeIceBlizzard, player, char, origin, effectiveConfig)
 		end
 	end
 
@@ -1551,6 +1552,8 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 		if typeof(freezeTime) ~= "number" or freezeTime <= 0 then
 			freezeTime = 6.0
 		end
+		-- Ults with a wind-up (e.g. Blizzard's close-up) keep mobs frozen through it.
+		freezeTime += (effectiveConfig.castDelay or 0)
 		MobManager.FreezeMobs(freezeTime)
 	end
 

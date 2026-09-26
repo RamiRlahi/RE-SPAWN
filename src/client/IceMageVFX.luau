@@ -1430,6 +1430,216 @@ function IceMageVFX.playBlizzard(center: Vector3, radius: number, duration: numb
 end
 
 -- ═════════════════════════════════════════════════════════════════════════════
+-- Blizzard wind-up: "the frozen one" reveal
+-- A near-black silhouette with glowing white eyes looming out of a blizzard,
+-- giant ice formations behind, heavy fog, snow streaking across the frame and
+-- a cold desaturated grade. The eyes flare as the head rises at `eyeFlareAt`;
+-- everything breaks apart at `duration` as the storm is released.
+-- Silhouette + eyes play for everyone; the environment/grade only for the caster.
+-- ═════════════════════════════════════════════════════════════════════════════
+local SILHOUETTE = Color3.fromRGB(8, 11, 20)
+local RIM = Color3.fromRGB(170, 215, 255)
+
+function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt: number, isLocal: boolean)
+	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local head = char:FindFirstChild("Head") :: BasePart?
+	if not root or not head then return end
+	local folder = vfxFolder("BlizzardReveal")
+	refreshGroundFilter()
+	local ground = groundAt(root.Position)
+	local look = flatUnit(root.CFrame.LookVector)
+	local right = look:Cross(Vector3.yAxis).Unit
+
+	-- ── Silhouette: the body becomes a dark shape with a faint frost rim ──
+	local hl = Instance.new("Highlight")
+	hl.Adornee = char
+	hl.FillColor = SILHOUETTE
+	hl.FillTransparency = 1
+	hl.OutlineColor = RIM
+	hl.OutlineTransparency = 1
+	hl.DepthMode = Enum.HighlightDepthMode.Occluded
+	hl.Parent = folder
+	TweenService:Create(hl, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { FillTransparency = 0.04, OutlineTransparency = 0.55 }):Play()
+
+	-- ── Eyes: two white-hot points on the face, dim at first ──
+	local eyes = {}
+	for side = -1, 1, 2 do
+		local offs = CFrame.new(side * head.Size.X * 0.17, head.Size.Y * 0.08, -head.Size.Z * 0.5 - 0.02)
+		local eye = newPart(folder, {
+			Name = "Eye",
+			Shape = Enum.PartType.Ball,
+			Size = Vector3.new(0.16, 0.16, 0.16),
+			Color = ICE_WHITE,
+			Material = Enum.Material.Neon,
+			Transparency = 0.6,
+			Anchored = false,
+			Massless = true,
+			CFrame = head.CFrame * offs,
+		})
+		local w = Instance.new("WeldConstraint")
+		w.Part0, w.Part1 = head, eye
+		w.Parent = eye
+		-- Horizontal glint streak across each eye.
+		local glint = newPart(folder, {
+			Name = "EyeGlint",
+			Size = Vector3.new(0.9, 0.03, 0.03),
+			Color = ICE_WHITE,
+			Material = Enum.Material.Neon,
+			Transparency = 1,
+			Anchored = false,
+			Massless = true,
+			CFrame = eye.CFrame,
+		})
+		local gw = Instance.new("WeldConstraint")
+		gw.Part0, gw.Part1 = eye, glint
+		gw.Parent = glint
+		local l = Instance.new("PointLight")
+		l.Color, l.Brightness, l.Range, l.Shadows = ICE_WHITE, 0.5, 4, false
+		l.Parent = eye
+		local glow = newEmitter(eye, {
+			Texture = TEX_SPARKLE,
+			Color = colors(ICE_WHITE, ICE_PALE),
+			Size = seq(0, 0.5, 1, 0.3),
+			Transparency = seq(0, 0.3, 1, 1),
+			Lifetime = NumberRange.new(0.08, 0.12),
+			Speed = NumberRange.new(0),
+			Rate = 40,
+			LockedToPart = true,
+		})
+		table.insert(eyes, { eye = eye, glint = glint, light = l, glow = glow })
+	end
+
+	task.delay(eyeFlareAt, function()
+		if not folder.Parent then return end
+		for _, e in ipairs(eyes) do
+			e.eye.Transparency = 0
+			e.eye.Size = Vector3.new(0.2, 0.2, 0.2)
+			e.light.Brightness, e.light.Range = 4, 10
+			e.glow.Size = seq(0, 1.2, 1, 0.6)
+			-- Glint flashes wide, then settles.
+			e.glint.Transparency = 0
+			e.glint.Size = Vector3.new(2.4, 0.05, 0.05)
+			TweenService:Create(e.glint, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = Vector3.new(0.8, 0.03, 0.03), Transparency = 0.3 }):Play()
+		end
+		if isLocal then shake(0.25, 0.2) end
+	end)
+
+	-- ── Caster-only: the frozen wasteland around them ──
+	local grade: ColorCorrectionEffect? = nil
+	local dof: DepthOfFieldEffect? = nil
+	if isLocal then
+		-- Giant ice formations erupting behind and to the sides.
+		for k = 1, 9 do
+			local a = math.rad(-80 + (k - 1) * 20) + (math.random() - 0.5) * 0.2
+			local dist = 11 + math.random() * 14
+			local dir = (-look * math.cos(a) + right * math.sin(a)).Unit
+			local p = groundAt(ground + dir * dist, ground.Y)
+			local h = 10 + math.random() * 16
+			local cf = CFrame.lookAt(p, p + dir) * CFrame.Angles(math.rad(-10 - math.random() * 20), 0, math.rad((math.random() - 0.5) * 20))
+			task.delay(k * 0.03, function()
+				if not folder.Parent then return end
+				local c = makeCrystal(folder, cf, 3 + math.random() * 3, h, true)
+				eruptCrystal(c, cf, h, 0.25)
+			end)
+		end
+		-- Frost sheet across the ground.
+		local sheet = groundDisc(folder, ground, 4, ICE_PALE, Enum.Material.Ice, 0.35)
+		TweenService:Create(sheet, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = Vector3.new(0.08, 70, 70) }):Play()
+
+		-- Dense rolling fog around and behind the mage.
+		local fogPart = newPart(folder, { Size = Vector3.new(34, 1, 34), Transparency = 1, CFrame = CFrame.new(ground + Vector3.new(0, 1.5, 0) - look * 6) })
+		newEmitter(fogPart, {
+			Texture = TEX_SMOKE,
+			Color = colors(Color3.fromRGB(220, 235, 255), Color3.fromRGB(150, 180, 220)),
+			Size = seq(0, 6, 1, 14),
+			Transparency = seq(0, 1, 0.3, 0.45, 0.8, 0.55, 1, 1),
+			Lifetime = NumberRange.new(1.4, 2.2),
+			Speed = NumberRange.new(2, 5),
+			SpreadAngle = Vector2.new(180, 10),
+			Acceleration = Vector3.new(0, 1, 0) + right * 3,
+			LightEmission = 0.15,
+			Rate = 45,
+			Rotation = NumberRange.new(0, 360),
+			RotSpeed = NumberRange.new(-15, 15),
+		}):Emit(20)
+		-- Snow streaking sideways across the whole frame (also between camera and mage).
+		local snowPart = newPart(folder, { Size = Vector3.new(4, 16, 40), Transparency = 1,
+			-- Volume on the left of the frame; emits along +right across it.
+			CFrame = CFrame.lookAt(root.Position + look * 3 - right * 16 + Vector3.new(0, 4, 0), root.Position + look * 3 - right * 16 + Vector3.new(0, 4, 0) + look) })
+		newEmitter(snowPart, {
+			Texture = TEX_SPARKLE,
+			Color = colors(ICE_WHITE, ICE_PALE),
+			Size = seq(0, 0.25, 1, 0.15),
+			Transparency = seq(0, 0.15, 1, 0.6),
+			Lifetime = NumberRange.new(0.9, 1.4),
+			Speed = NumberRange.new(30, 45),
+			SpreadAngle = Vector2.new(6, 6),
+			EmissionDirection = Enum.NormalId.Right,
+			Acceleration = Vector3.new(0, -6, 0),
+			LightEmission = 0.5,
+			Rate = 260,
+		})
+
+		-- Cold backlight: carves the silhouette out of the fog.
+		local back = newPart(folder, { Size = Vector3.new(0.2, 0.2, 0.2), Transparency = 1, CFrame = CFrame.new(root.Position - look * 7 + Vector3.new(0, 3, 0)) })
+		local bl = Instance.new("PointLight")
+		bl.Color, bl.Brightness, bl.Range, bl.Shadows = RIM, 6, 26, false
+		bl.Parent = back
+
+		-- Grade: cold, desaturated, contrasty — plus a shallow focus on the mage.
+		grade = Instance.new("ColorCorrectionEffect")
+		grade.Name = "BlizzardRevealGrade"
+		grade.Parent = Lighting
+		TweenService:Create(grade, TweenInfo.new(0.3), { TintColor = Color3.fromRGB(190, 212, 255), Saturation = -0.55, Contrast = 0.25, Brightness = -0.03 }):Play()
+		dof = Instance.new("DepthOfFieldEffect")
+		dof.Name = "BlizzardRevealDOF"
+		dof.FocusDistance = 7
+		dof.InFocusRadius = 5
+		dof.NearIntensity = 0.2
+		dof.FarIntensity = 0
+		dof.Parent = Lighting
+		TweenService:Create(dof, TweenInfo.new(0.4), { FarIntensity = 0.55 }):Play()
+	end
+
+	-- ── Release: the silhouette shatters away as the storm breaks ──
+	task.delay(duration, function()
+		if not folder.Parent then return end
+		for _, e in ipairs(eyes) do
+			flashLight(e.eye.Position, ICE_WHITE, 6, 16, 0.4)
+			e.glow.Enabled = false
+		end
+		snowBurst(root.Position, 26, 30, 0.9)
+		TweenService:Create(hl, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { FillTransparency = 1, OutlineTransparency = 1 }):Play()
+		if grade then
+			TweenService:Create(grade, TweenInfo.new(0.5), { TintColor = Color3.new(1, 1, 1), Saturation = 0, Contrast = 0, Brightness = 0 }):Play()
+			Debris:AddItem(grade, 0.6)
+		end
+		if dof then
+			TweenService:Create(dof, TweenInfo.new(0.3), { FarIntensity = 0, NearIntensity = 0 }):Play()
+			Debris:AddItem(dof, 0.4)
+		end
+		-- The formations crumble into the storm.
+		for _, c in ipairs(folder:GetChildren()) do
+			if c.Name == "Crystal" and c:IsA("BasePart") then
+				task.delay(math.random() * 0.3, function()
+					if c.Parent then
+						flingShards(folder, c.Position + Vector3.new(0, 4, 0), 4, 30, 1.4)
+						sinkAndFade(c, 12, 0.45)
+					end
+				end)
+			end
+		end
+		fadeOut(folder, 0.9)
+		Debris:AddItem(folder, 1.6)
+	end)
+	-- Safety: never leave the grade/DOF behind if the caster dies mid-reveal.
+	task.delay(duration + 2, function()
+		if grade and grade.Parent then grade:Destroy() end
+		if dof and dof.Parent then dof:Destroy() end
+	end)
+end
+
+-- ═════════════════════════════════════════════════════════════════════════════
 -- Init
 -- ═════════════════════════════════════════════════════════════════════════════
 function IceMageVFX.Init(cameraShake: (number, number) -> ())

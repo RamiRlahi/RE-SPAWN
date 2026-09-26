@@ -598,6 +598,8 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 			local playerRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 			if player:GetAttribute("InLobby") ~= true and playerRoot and (playerRoot.Position - pos).Magnitude <= 120 then
 				PlayerStats.AwardXP(player, xpReward)
+				-- Gold funds the shop and the gambling den.
+				PlayerStats.AwardGold(player, if isBoss then math.random(60, 90) else math.random(3, 7))
 			end
 		end
 
@@ -827,6 +829,8 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 			local playerRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
 			if player:GetAttribute("InLobby") ~= true and playerRoot and (playerRoot.Position - pos).Magnitude <= 120 then
 				PlayerStats.AwardXP(player, xpReward)
+				-- Gold funds the shop and the gambling den.
+				PlayerStats.AwardGold(player, if isBoss then math.random(60, 90) else math.random(3, 7))
 			end
 		end
 
@@ -913,7 +917,7 @@ function MobManager.SpawnRoomMobs(rooms: { any })
 	local normalTemplates, bossTemplates = getMobTemplates()
 	local plannedCount = 0
 	for _, room in ipairs(rooms) do
-		if room.id == 1 or room.roomType == "Start" or room.roomType == "Rest" or room.roomType == "Treasure" or room.roomType == "Shop" then continue end
+		if room.id == 1 or room.roomType == "Start" or room.roomType == "Rest" or room.roomType == "Treasure" or room.roomType == "Shop" or room.roomType == "Gamble" then continue end
 
 		local group: RoomMobGroup = { room = room, mobs = {} }
 		table.insert(roomMobGroups, group)

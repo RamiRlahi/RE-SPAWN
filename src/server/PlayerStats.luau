@@ -269,6 +269,63 @@ function PlayerStats.AwardXP(player: Player, amount: number)
 	presentChoices(player, state)
 end
 
+-- Gold earned in the run, scaled by the Golden Tome's goldGain stat.
+function PlayerStats.AwardGold(player: Player, amount: number): number
+	local state = states[player]
+	local gain = math.floor(amount * ((state and state.stats.goldGain) or 1) + 0.5)
+	if gain <= 0 then return 0 end
+	player:SetAttribute("Gold", (player:GetAttribute("Gold") or 0) + gain)
+	return gain
+end
+
+-- Spend gold if the player can afford it. Returns whether it was spent.
+function PlayerStats.SpendGold(player: Player, amount: number): boolean
+	local gold = player:GetAttribute("Gold") or 0
+	if gold < amount then return false end
+	player:SetAttribute("Gold", gold - amount)
+	return true
+end
+
+-- Room rewards (treasure, shop, gambling): grant a tome outside the level-up
+-- flow. New tomes while slots remain, otherwise a level on an owned tome.
+-- `preferredId` (e.g. a shop's listed tome) is honoured when it fits.
+function PlayerStats.GrantTome(player: Player, preferredId: string?): TomeData.TomeDefinition?
+	local state = states[player]
+	if not state then return nil end
+	local slotsFull = #state.uniqueTomes >= MAX_UNIQUE_TOMES
+	local tomeId: string? = nil
+	if preferredId and TomeData.GetTome(preferredId) and (state.tomeCounts[preferredId] or not slotsFull) then
+		tomeId = preferredId
+	else
+		local pool: { string } = {}
+		if slotsFull then
+			pool = table.clone(state.uniqueTomes)
+		else
+			for _, id in ipairs(TomeData.Order) do
+				if id ~= "chaos" and id ~= "cursed" then table.insert(pool, id) end
+			end
+		end
+		if #pool == 0 then return nil end
+		tomeId = pool[math.random(1, #pool)]
+	end
+	local id = tomeId :: string
+	if not state.tomeCounts[id] then
+		state.tomeCounts[id] = 0
+		table.insert(state.uniqueTomes, id)
+	end
+	state.tomeCounts[id] += 1
+	player:SetAttribute(`Tome_{id}`, state.tomeCounts[id])
+	applyStats(player, state)
+	return TomeData.GetTome(id)
+end
+
+-- Whether a specific tome could be granted right now (shop listings).
+function PlayerStats.CanReceiveTome(player: Player, tomeId: string): boolean
+	local state = states[player]
+	if not state then return false end
+	return state.tomeCounts[tomeId] ~= nil or #state.uniqueTomes < MAX_UNIQUE_TOMES
+end
+
 function PlayerStats.GetStat(player: Player, stat: string): number
 	local state = states[player]
 	return state and (state.stats[stat] or 0) or 0

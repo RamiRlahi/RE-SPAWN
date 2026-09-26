@@ -87,6 +87,19 @@ else
 	warn("[Client ERROR] Failed to load SkillController:", SkillController)
 end
 
+-- Safely require RoomFX (special-room motion, reward pop-ups, gold counter)
+local successRoomFX, RoomFX = pcall(function()
+	return require(script:WaitForChild("RoomFX"))
+end)
+
+if successRoomFX and RoomFX then
+	pcall(function()
+		RoomFX.Init()
+	end)
+else
+	warn("[Client ERROR] Failed to load RoomFX:", RoomFX)
+end
+
 if successUI and UIManager then
 	local successInit, err = pcall(function()
 		UIManager.Init(function(selectedClassId: string)

@@ -157,7 +157,8 @@ SkillData.cleric = {
 		cooldown = 60.0,
 		damage = 90,
 		range = 30,
-		duration = 2.0,
+		duration = 5.5, -- length of the ascension cinematic
+		judgmentTime = 3.0, -- lands on the cinematic's climax (~0.6 of the hold)
 		healAmount = 100,
 		description = "Ultimate: Unleash your full divine power, gaining angelic wings and soaring into the sky. Heal all allies, remove all negative effects, and deliver divine judgment upon your enemies.",
 	},
@@ -173,6 +174,7 @@ SkillData.ice_mage = {
 		range = 42,
 		width = 4.0,
 		projectileSpeed = 95, -- how fast the spike line races across the floor (studs/s)
+		castDelay = 0.16, -- palm-slam frame of the cast pose; spikes + damage start here
 		description = "Send a racing line of crystalline spikes erupting from the floor, piercing and briefly freezing every enemy in its path.",
 	},
 	[2] = {
@@ -195,6 +197,7 @@ SkillData.ice_mage = {
 		range = 34, -- taunt radius
 		duration = 10.0,
 		cloneHealth = 50,
+		castDelay = 0.2, -- clone forms as the cast pose flings the crystal
 		explosionRadius = 14,
 		description = "Summon a crystalline clone (50 HP) that taunts nearby enemies. When destroyed it detonates in a freezing shockwave.",
 	},
@@ -206,6 +209,7 @@ SkillData.ice_mage = {
 		damage = 200,
 		range = 48,
 		duration = 6.0,
+		castDelay = 1.5, -- "frozen one" reveal close-up; the storm breaks as it cuts back
 		description = "Ultimate: Call down a raging blizzard over the battlefield, freezing every enemy and battering those inside with ice.",
 	},
 }

@@ -22,6 +22,38 @@ local IsometricCamera = require(script.Parent:WaitForChild("IsometricCamera"))
 local DivineBeamChannel = require(script.Parent:WaitForChild("DivineBeamChannel"))
 local ClericVFX = require(script.Parent:WaitForChild("ClericVFX"))
 local IceMageVFX = require(script.Parent:WaitForChild("IceMageVFX"))
+local CastPoses = require(script.Parent:WaitForChild("CastPoses"))
+local ClericFlair = require(script.Parent:WaitForChild("ClericFlair"))
+local SkateController = require(script.Parent:WaitForChild("SkateController"))
+local RangerFlair = require(script.Parent:WaitForChild("RangerFlair"))
+
+-- Procedural cast animation for classes without uploaded skill animations.
+-- Runs for the caster and for other players' characters on replication.
+local function playCastPose(char: Model, classId: string, skillIndex: number, config: any)
+	if classId == "cleric" then
+		if skillIndex == 1 then
+			CastPoses.clericHeal(char)
+		elseif skillIndex == 2 then
+			CastPoses.clericBeam(char, config.duration or 5)
+			ClericFlair.beamAura(char, config.duration or 5)
+		elseif skillIndex == 3 then
+			CastPoses.clericRadiantGround(char)
+		end
+	elseif classId == "ranger" and skillIndex == 4 then
+		CastPoses.rangerSkyShot(char)
+		RangerFlair.playUltWindup(char)
+	elseif classId == "ice_mage" then
+		if skillIndex == 1 then
+			CastPoses.iceSpikes(char)
+		elseif skillIndex == 2 then
+			CastPoses.iceBeam(char, config.duration or 3)
+		elseif skillIndex == 3 then
+			CastPoses.iceClone(char)
+		elseif skillIndex == 4 then
+			CastPoses.iceBlizzard(char)
+		end
+	end
+end
 local AllyHover = require(script.Parent:WaitForChild("AllyHover"))
 AllyHover.Init()
 local DivineAscentCutscene = require(script.Parent:WaitForChild("DivineAscentCutscene"))
@@ -4669,6 +4701,18 @@ function SkillController.UseSkill(skillIndex: number)
 
 	-- Set casting attribute & play skill animation
 	char:SetAttribute("IsSkillCasting", true)
+	if skillIndex == 4 then
+		-- Ultimate lock (no walking/running) until the ult's cast ends.
+		char:SetAttribute("IsUltActive", true)
+		local conn: RBXScriptConnection? = nil
+		conn = char:GetAttributeChangedSignal("IsSkillCasting"):Connect(function()
+			if char:GetAttribute("IsSkillCasting") ~= true then
+				char:SetAttribute("IsUltActive", false)
+				if conn then conn:Disconnect() end
+			end
+		end)
+	end
+	playCastPose(char, classId, skillIndex, config)
 
 	if classId == "ranger" then
 		if skillIndex == 1 then
@@ -4731,17 +4775,22 @@ function SkillController.UseSkill(skillIndex: number)
 			char:SetAttribute("IsSkillCasting", false)
 			playMissileBuffVFX(char)
 		else
-			char:SetAttribute("AllowSkillMovement", true)
+			-- The ult roots the Ranger for the bow-draw close-up; Entangling Arrow doesn't.
+			char:SetAttribute("AllowSkillMovement", skillIndex ~= 4)
 			local track = getSkillTrack(char, skillIndex)
 			if track then
 				track:Play(0.08)
 			end
-			local castLock = skillIndex == 4 and 1.1 or 0.35
+			local castLock = skillIndex == 4 and 1.4 or 0.35
 			task.delay(castLock, function()
 				char:SetAttribute("IsSkillCasting", false)
 				char:SetAttribute("AllowSkillMovement", false)
 			end)
 			playRangerSkillVFX(char, skillIndex, rootPart.Position, aimDir, skillTargetPosition)
+			if skillIndex == 4 then
+				-- Same wind-up close-up as the Heavy Knight; the storm lands as it cuts back.
+				UltimateCameraChoreography.PlayCloseUp(char, aimDir, 1.0)
+			end
 		end
 	elseif classId == "heavy_knight" and skillIndex == 1 then
 		-- Spin attack allows moving for the 5s duration, but blocks other spells/attacks
@@ -4852,6 +4901,7 @@ function SkillController.UseSkill(skillIndex: number)
 			vfxPos = skillTargetPosition
 		end
 		playClericHealVFX(vfxPos)
+		ClericFlair.heal(vfxPos)
 	elseif classId == "cleric" and skillIndex == 2 then
 		-- Skill 2: Divine Beam (holy laser channel)
 		char:SetAttribute("AllowSkillMovement", false)
@@ -5017,7 +5067,9 @@ function SkillController.UseSkill(skillIndex: number)
 			track.Priority = Enum.AnimationPriority.Action4
 			track:Play(0.08)
 		end
-		ClericVFX.playRadiantGround(rootPart.Position, (config.range or 16) * (config.areaMultiplier or 1))
+		local radiantRadius = (config.range or 16) * (player:GetAttribute("Stat_size") or 1)
+		ClericVFX.playRadiantGround(rootPart.Position, radiantRadius)
+		task.delay(0.24, ClericFlair.radiantGround, rootPart.Position, radiantRadius)
 	elseif classId == "cleric" and skillIndex == 4 then
 		-- Ultimate: Divine Ascent (angelic ascension, heal + holy judgment)
 		char:SetAttribute("AllowSkillMovement", false)
@@ -5026,7 +5078,7 @@ function SkillController.UseSkill(skillIndex: number)
 			track.Priority = Enum.AnimationPriority.Action4
 			track:Play(0.08)
 		end
-		local duration = config.duration or 8.0
+		local duration = (config.duration or 5.5) * (player:GetAttribute("Stat_abilityDuration") or 1)
 		task.delay(duration, function()
 			char:SetAttribute("IsSkillCasting", false)
 			char:SetAttribute("AllowSkillMovement", false)
@@ -5048,21 +5100,41 @@ function SkillController.UseSkill(skillIndex: number)
 		if skillIndex == 1 then
 			-- Ice Spikes: brief plant, then the spike line races out.
 			char:SetAttribute("AllowSkillMovement", false)
-			releaseCast(0.3)
-			IceMageVFX.playIceSpikes(char, rootPart.Position, aimDir, config.range or 42, config.projectileSpeed or 95, areaMult)
+			releaseCast(0.36)
+			local castOrigin = rootPart.Position
+			-- Spikes erupt on the palm-slam frame of the cast pose.
+			task.delay(config.castDelay or 0, function()
+				IceMageVFX.playIceSpikes(char, castOrigin, aimDir, config.range or 42, config.projectileSpeed or 95, areaMult)
+			end)
 		elseif skillIndex == 2 then
-			-- Ice Beam: rooted channel; the VFX clears the casting flags when it ends.
-			char:SetAttribute("AllowSkillMovement", false)
+			-- Ice Beam: skate freely while channelling; the beam tracks the cursor
+			-- and the VFX clears the casting flags when it ends.
+			char:SetAttribute("AllowSkillMovement", true)
 			IceMageVFX.playIceBeam(char, config.range or 55, config.duration or 3, true)
 		elseif skillIndex == 3 then
 			-- Ice Clone: the server spawns the clone; its VFX attach when it replicates.
 			char:SetAttribute("AllowSkillMovement", false)
-			releaseCast(0.25)
+			releaseCast(0.4)
 		elseif skillIndex == 4 then
 			-- Blizzard: short invocation, then free to move inside the storm.
 			char:SetAttribute("AllowSkillMovement", false)
-			releaseCast(0.6)
-			IceMageVFX.playBlizzard(rootPart.Position, (config.range or 48) * areaMult, config.duration or 6)
+			local revealDur = config.castDelay or 1.5
+			releaseCast(revealDur + 0.4)
+			-- Wind-up close-up, framed as a low, frontal "frozen one" reveal that
+			-- slowly pushes in on the silhouette and its glowing eyes.
+			UltimateCameraChoreography.PlayCloseUp(char, aimDir, revealDur, nil, nil, {
+				startOffset = { 9, 0, 0.6 },
+				endOffset = { 6.2, 0, 1.0 },
+				focusHeight = 1.8,
+				fovStart = 48,
+				fovEnd = 40,
+			})
+			IceMageVFX.playBlizzardReveal(char, revealDur, CastPoses.ICE_BLIZZARD_EYES, true)
+			local castOrigin = rootPart.Position
+			-- The storm breaks when the arms fling wide.
+			task.delay(config.castDelay or 0, function()
+				IceMageVFX.playBlizzard(castOrigin, (config.range or 48) * areaMult, config.duration or 6)
+			end)
 		end
 	end
 
@@ -5215,9 +5287,14 @@ local function performBasicAttack()
 		if selClass == "ranger" then
 			playRangerShootAnimation(char)
 		elseif selClass == "cleric" then
-			playClericBasicAttackVFX(char, aimDir)
+			CastPoses.clericSmite(char)
+			-- Release the smite on the forward sweep of the swing.
+			task.delay(0.07, playClericBasicAttackVFX, char, aimDir)
+			task.delay(0.07, ClericFlair.smite, char, aimDir)
 		elseif selClass == "ice_mage" then
-			IceMageVFX.playCrystalBolt(char, aimDir)
+			CastPoses.iceBolt(char)
+			-- Crystal leaves the fingertips on the flick.
+			task.delay(0.06, IceMageVFX.playCrystalBolt, char, aimDir)
 		end
 	end
 
@@ -5235,6 +5312,8 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 function SkillController.Init()
 	IceMageVFX.Init(triggerCameraShake)
+	ClericFlair.watchHalos()
+	SkateController.Init()
 	local damageRemote = Network.GetRemoteEvent(Network.Remotes.DamageDealt)
 	damageRemote.OnClientEvent:Connect(showDamageNumber)
 	cloneKeybinds(nil)
@@ -5340,6 +5419,9 @@ function SkillController.Init()
 		local skillIndex = payload.skillIndex
 
 		local classId = castingPlayer:GetAttribute("SelectedClass")
+		if typeof(classId) == "string" and typeof(skillIndex) == "number" then
+			playCastPose(char, classId, skillIndex, SkillData.GetSkill(classId, skillIndex) or {})
+		end
 		if classId == "ranger" then
 			playRangerSkillVFX(char, skillIndex, origin, direction, payload.targetPosition, payload.projectileCount)
 		elseif classId == "heavy_knight" and skillIndex == 1 then
@@ -5353,19 +5435,22 @@ function SkillController.Init()
 			playInfernalWrathVFX(char, origin, direction)
  elseif classId == "cleric" and skillIndex == 1 then
   playClericHealVFX(payload.targetPosition or origin)
+  ClericFlair.heal(payload.targetPosition or origin)
  elseif classId == "cleric" and skillIndex == 2 then
   DivineBeamChannel.play(char, payload.range or 48, 5.0)
  elseif classId == "cleric" and skillIndex == 3 then
   ClericVFX.playRadiantGround(origin, 16 * (payload.areaMultiplier or 1))
+  task.delay(0.24, ClericFlair.radiantGround, origin, 16 * (payload.areaMultiplier or 1))
 		elseif classId == "ice_mage" then
 			local cfg = SkillData.GetSkill("ice_mage", skillIndex) or {} :: any
 			local areaMult = payload.areaMultiplier or 1
 			if skillIndex == 1 then
-				IceMageVFX.playIceSpikes(char, origin, direction, cfg.range or 42, cfg.projectileSpeed or 95, areaMult)
+				task.delay(cfg.castDelay or 0, IceMageVFX.playIceSpikes, char, origin, direction, cfg.range or 42, cfg.projectileSpeed or 95, areaMult)
 			elseif skillIndex == 2 then
 				IceMageVFX.playIceBeam(char, cfg.range or 55, cfg.duration or 3, false)
 			elseif skillIndex == 4 then
-				IceMageVFX.playBlizzard(origin, (cfg.range or 48) * areaMult, cfg.duration or 6)
+				IceMageVFX.playBlizzardReveal(char, cfg.castDelay or 1.5, CastPoses.ICE_BLIZZARD_EYES, false)
+				task.delay(cfg.castDelay or 0, IceMageVFX.playBlizzard, origin, (cfg.range or 48) * areaMult, cfg.duration or 6)
 			end
 		end
 	end)
