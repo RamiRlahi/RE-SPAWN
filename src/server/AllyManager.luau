@@ -283,7 +283,7 @@ function AllyManager.SpawnAlliesBehindPlayer(player: Player, returnCFrame: CFram
 	if flat.Magnitude < 0.001 then flat = Vector3.new(0, 0, -1) end
 	flat = flat.Unit
 	local right = Vector3.new(-flat.Z, 0, flat.X)
-	local allyY = casterPos.Y + 4
+	local allyY = casterPos.Y + 6
 	local returnOffsets = { Vector3.new(-7, 0, 8), Vector3.new(0, 0, 11), Vector3.new(7, 0, 8) }
 	local fanCenter = Vector3.new(casterPos.X, allyY, casterPos.Z) + flat * 10
 	local lateral = { -7, 0, 7 }
@@ -301,7 +301,7 @@ function AllyManager.SpawnAlliesBehindPlayer(player: Player, returnCFrame: CFram
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 		rayParams.FilterDescendantsInstances = { getAllyFolder(), player.Character }
 		rayParams.IgnoreWater = true
-		local hit = Workspace:Raycast(groundPos + Vector3.new(0, 8, 0), Vector3.new(0, -120, 0), rayParams)
+		local hit = Workspace:Raycast(groundPos + Vector3.new(0, 8, 0), Vector3.new(0, -300, 0), rayParams)
 		local returnY = groundPos.Y
 		local hum = ally:FindFirstChildOfClass("Humanoid")
 		local hrp = ally:FindFirstChild("HumanoidRootPart")
@@ -347,7 +347,7 @@ function AllyManager.ReleaseAllies()
 				hrp.CFrame = returnCF
 			else
 				local rayOrigin = hrp.Position + Vector3.new(0, 8, 0)
-				local hit = Workspace:Raycast(rayOrigin, Vector3.new(0, -100, 0), rayParams)
+				local hit = Workspace:Raycast(rayOrigin, Vector3.new(0, -300, 0), rayParams)
 				if hit then
 					local hum = ally:FindFirstChildOfClass("Humanoid")
 					local hipHeight = hum and hum.HipHeight or 2

@@ -1130,13 +1130,14 @@ local function executeClericDivineAscent(player: Player, casterChar: Model, orig
 	local liftFlatDir = Vector3.new(lookDir.X, 0, lookDir.Z)
 	if liftFlatDir.Magnitude < 0.001 then liftFlatDir = casterRoot.CFrame.LookVector end
 	liftFlatDir = Vector3.new(liftFlatDir.X, 0, liftFlatDir.Z).Unit
-	local casterPos = origin + Vector3.new(0, 53, 0)
+	local casterPos = origin + Vector3.new(0, 159, 0)
 	-- Take network ownership from the client so the server's anchor/CFrame actually
 	-- holds (a client-owned character ignores the server's Anchored and falls).
 	pcall(function() casterRoot:SetNetworkOwner(nil) end)
-	casterRoot.CFrame = CFrame.lookAt(casterPos, casterPos + liftFlatDir)
+	local liftedCF = CFrame.lookAt(casterPos, casterPos + liftFlatDir)
+	casterRoot.CFrame = liftedCF
 
-	AllyManager.SpawnAlliesBehindPlayer(player, returnCFrame)
+	AllyManager.SpawnAlliesBehindPlayer(player, liftedCF)
 
 	-- Revive (and heal) downed allies inside the aura.
 	AllyManager.HealAlliesInRadius(origin, radius, healAmount)
@@ -1168,7 +1169,7 @@ local function executeClericDivineAscent(player: Player, casterChar: Model, orig
 				rayParams.FilterType = Enum.RaycastFilterType.Exclude
 				rayParams.FilterDescendantsInstances = {casterChar, Workspace:FindFirstChild("Allies")}
 				rayParams.IgnoreWater = true
-				local hit = Workspace:Raycast(root2.Position + Vector3.new(0, 8, 0), Vector3.new(0, -120, 0), rayParams)
+				local hit = Workspace:Raycast(root2.Position + Vector3.new(0, 8, 0), Vector3.new(0, -300, 0), rayParams)
 				if hit then
 					local hipHeight = hum2 and hum2.HipHeight or 2
 					local y = hit.Position.Y + (root2.Size.Y * 0.5) + hipHeight

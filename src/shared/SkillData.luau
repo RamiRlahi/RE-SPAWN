@@ -122,10 +122,11 @@ SkillData.cleric = {
 		name = "Heal",
 		slot = 1,
 		keybind = "E",
-		cooldown = 8.0,
+		cooldown = 3.0,
 		damage = 0,
 		healAmount = 35,
-		description = "Channel holy energy to restore health to yourself or an ally.",
+		maxCharges = 3,
+		description = "Send a bolt of sacred green fire that tracks and heals the lowest ally. Holds 3 charges.",
 	},
 	[2] = {
 		name = "Divine Beam",

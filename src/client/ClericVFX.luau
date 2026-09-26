@@ -2,6 +2,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local HOLY_IVORY = Color3.fromRGB(255, 250, 238)
 local HOLY_GOLD = Color3.fromRGB(255, 206, 112)

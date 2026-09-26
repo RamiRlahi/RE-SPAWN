@@ -3966,7 +3966,17 @@ local function playDivineAscentVFX(char: Model, origin: Vector3, lookDir: Vector
     rayParams.IgnoreWater = true
     local groundY = origin.Y - 3
     local hit = Workspace:Raycast(origin + Vector3.new(0, 6, 0), Vector3.new(0, -60, 0), rayParams)
-    if hit then groundY = hit.Position.Y end
+    -- Clean up any existing Divine Ascent VFX attachments/folders from a previous cast
+    for _, child in ipairs(char:GetChildren()) do
+        if child.Name == "DivineAscentWings" or child.Name == "DivineHalo" or child.Name == "DivineRimLights" then
+            child:Destroy()
+        end
+    end
+    for _, att in ipairs(rootPart:GetChildren()) do
+        if att.Name == "DivineMotes" then
+            att:Destroy()
+        end
+    end
 
     local worldHolder = Instance.new('Folder')
     worldHolder.Name = 'DivineAscentWorldVFX'
@@ -3977,8 +3987,8 @@ local function playDivineAscentVFX(char: Model, origin: Vector3, lookDir: Vector
     buildRimLights(char, rootPart)
 
     -- Raised to the party's float level so the holy seal travels with the ult
-    -- tableau (caster lifted to +53, allies float at +50).
-    local seal = buildGroundSeal(origin, origin.Y + 50, radius, worldHolder)
+    -- tableau (caster lifted to +159, allies float at +171).
+    local seal = buildGroundSeal(origin, origin.Y + 150, radius, worldHolder)
 
     -- Holy radiance, reusing generalVFX.Holy as the light-ray source, placed above the head.
     local radianceFolder = Instance.new('Folder')
@@ -4016,18 +4026,18 @@ local function playDivineAscentVFX(char: Model, origin: Vector3, lookDir: Vector
         end
     end
 
-    -- Small floating crosses, always behind him.
+    -- Small floating crosses rising all around the celestial tableau
     local crossHolder = Instance.new('Folder')
     crossHolder.Name = 'DivineCrosses'
     crossHolder.Parent = worldHolder
 
-    for k = 1, 12 do
-        task.delay(k * 0.3, function()
+    for k = 1, 24 do
+        task.delay(k * 0.15, function()
             if not crossHolder.Parent or not rootPart.Parent then return end
             local side = (k % 2 == 0) and 1 or -1
-            local spread = 1.6 + math.random() * 3.2
-            local cf = behindCF(rootPart, side * spread, 0.8 + math.random() * 2.6, 1.1 + math.random() * 1.5)
-            spawnHolyCross(crossHolder, cf, 0.9 + math.random() * 0.5, 2.2 + math.random() * 1.2,
+            local spread = 1.6 + math.random() * 5.0
+            local cf = behindCF(rootPart, side * spread, 0.8 + math.random() * 3.6, 1.1 + math.random() * 2.5)
+            spawnHolyCross(crossHolder, cf, 1.1 + math.random() * 0.6, 2.5 + math.random() * 1.5,
                 (k % 3 == 0) and HOLY_WHITE or HOLY_GOLD)
         end)
     end
@@ -4037,21 +4047,21 @@ local function playDivineAscentVFX(char: Model, origin: Vector3, lookDir: Vector
     moteAtt.Name = 'DivineMotes'
     moteAtt.CFrame = CFrame.new(0, 1.6, 1.3)
     moteAtt.Parent = rootPart
-    local motePE = newHolyRayEmitter(moteAtt, 26, 2.2, 4, HOLY_WHITE)
-    motePE.SpreadAngle = Vector2.new(70, 70)
-    motePE.Lifetime = NumberRange.new(1.0, 2.0)
+    local motePE = newHolyRayEmitter(moteAtt, 48, 2.8, 6, HOLY_WHITE)
+    motePE.SpreadAngle = Vector2.new(80, 80)
+    motePE.Lifetime = NumberRange.new(1.2, 2.5)
 
     if isLocalCaster then
         triggerFOVPunch(6, 0.5)
     end
 
-    -- Cast burst placed BEHIND the shoulders, never in the player's face.
+    -- Cast burst placed BEHIND the shoulders
     local burstAtt = Instance.new('Attachment')
     burstAtt.CFrame = CFrame.new(0, 1.7, 2.0)
     burstAtt.Parent = rootPart
-    local burstPE = newHolyRayEmitter(burstAtt, 0, 4, 16, HOLY_GOLD)
+    local burstPE = newHolyRayEmitter(burstAtt, 0, 5, 22, HOLY_GOLD)
     burstPE.SpreadAngle = Vector2.new(180, 180)
-    burstPE:Emit(48)
+    burstPE:Emit(72)
     Debris:AddItem(burstAtt, 1.5)
 
     task.delay(duration, function()
@@ -5016,7 +5026,7 @@ function SkillController.UseSkill(skillIndex: number)
 		end)
 		playDivineAscentVFX(char, rootPart.Position, aimDir, config)
 		if char == player.Character then
-			DivineAscentCutscene.Play(duration)
+			DivineAscentCutscene.Play(duration, aimDir)
 		end
 	end
 
