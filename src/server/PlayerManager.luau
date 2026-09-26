@@ -176,8 +176,8 @@ local ARMOR_SCALE = 1
 local CLERIC_ROBE = {
 	scale = 1,          -- overall size multiplier
 	rotation = nil :: CFrame?, -- force a rotation (e.g. ROT90) instead of auto-facing
-	raise = 0.1,        -- studs the robe's top sits above the shoulder line
-	forward = 0.1,      -- studs to push it forward (-) or back (+)
+	raise = 0.45,       -- studs the robe's top sits above the shoulder line
+	forward = 0.35,     -- studs to push it forward (-) or back (+)
 	flip = true,        -- turn 180° (the mesh's back was facing forward)
 }
 
