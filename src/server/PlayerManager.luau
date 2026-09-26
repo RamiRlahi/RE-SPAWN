@@ -10,6 +10,7 @@ local ClassData = require(Shared:WaitForChild("ClassData"))
 local ClassManager = require(script.Parent:WaitForChild("ClassManager"))
 local AnimationManager = require(script.Parent:WaitForChild("AnimationManager"))
 local PlayerStats = require(script.Parent:WaitForChild("PlayerStats"))
+local IceCape = require(script.Parent:WaitForChild("IceCape"))
 
 
 local PlayerManager = {}
@@ -62,6 +63,9 @@ local function setupCharacter(player: Player, character: Model)
 			humanoid.MaxHealth = maxHp
 			humanoid.Health = maxHp
 			task.spawn(equipClassArmor, character, selectedClass)
+			if selectedClass == "ice_mage" then
+				task.spawn(IceCape.Attach, character)
+			end
 		end
 		rootPart.Anchored = false
 		humanoid.WalkSpeed = 16
@@ -399,6 +403,9 @@ end
 
 			-- Equip permanent server-side armor
 			equipClassArmor(character, classId)
+			if classId == "ice_mage" then
+				IceCape.Attach(character)
+			end
 		end
 		PlayerStats.StartRun(player)
 

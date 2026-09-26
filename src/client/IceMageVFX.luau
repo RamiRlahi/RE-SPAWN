@@ -1463,6 +1463,40 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 	hl.Parent = folder
 	TweenService:Create(hl, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { FillTransparency = 0.04, OutlineTransparency = 0.55 }):Play()
 
+	-- Don't rely on the Highlight alone (the per-part outlines can exhaust
+	-- Roblox's highlight budget): darken the body itself on this client, hide
+	-- the face, and pause this character's outlines. Restored on release.
+	local darkened: { [Instance]: { [string]: any } } = {}
+	for _, d in ipairs(char:GetDescendants()) do
+		if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" and d.Transparency < 1 and not d:IsDescendantOf(folder) then
+			local saved: { [string]: any } = { Color = d.Color, Material = d.Material }
+			if d:IsA("MeshPart") then saved.TextureID = d.TextureID end
+			darkened[d] = saved
+			d.Color = SILHOUETTE
+			d.Material = Enum.Material.SmoothPlastic
+			if d:IsA("MeshPart") then d.TextureID = "" end
+		elseif d:IsA("Decal") or d:IsA("Texture") then
+			darkened[d] = { Transparency = d.Transparency }
+			d.Transparency = 1
+		elseif d:IsA("Highlight") and d.Name == "PartOutline" then
+			darkened[d] = { Enabled = d.Enabled }
+			d.Enabled = false
+		elseif d:IsA("SpecialMesh") and d.TextureId ~= "" then
+			darkened[d] = { TextureId = d.TextureId }
+			d.TextureId = ""
+		end
+	end
+	local restored = false
+	local function restoreBody()
+		if restored then return end
+		restored = true
+		for inst, props in pairs(darkened) do
+			if inst.Parent then
+				for k, v in pairs(props) do (inst :: any)[k] = v end
+			end
+		end
+	end
+
 	-- Shadow wisps streaming off the body give the silhouette a ragged,
 	-- shaggy edge (like the fur mantle in the reference).
 	local wisps = {}
@@ -1643,6 +1677,7 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 			e.glow.Enabled = false
 		end
 		snowBurst(root.Position, 26, 30, 0.9)
+		restoreBody()
 		for _, w in ipairs(wisps) do
 			w.pe.Enabled = false
 			Debris:AddItem(w.att, 1)
@@ -1675,6 +1710,7 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 		for _, w in ipairs(wisps) do
 			if w.att.Parent then w.att:Destroy() end
 		end
+		restoreBody()
 		if grade and grade.Parent then grade:Destroy() end
 		if dof and dof.Parent then dof:Destroy() end
 	end)

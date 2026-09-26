@@ -233,6 +233,9 @@ end
 local function setupPartOutline(part: Instance): Highlight?
 	if not part:IsA("BasePart") then return nil end
 	if part.Name == "HumanoidRootPart" then return nil end
+	-- The Ice Mage cape is ~40 small parts; outlining each would blow Roblox's
+	-- ~31 on-screen Highlight limit and knock out other highlights.
+	if part:FindFirstAncestor("IceCape") then return nil end
 	if part.Transparency >= 1 then return nil end
 
 	local existing = part:FindFirstChild("PartOutline") :: Highlight?

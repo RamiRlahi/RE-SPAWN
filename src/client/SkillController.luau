@@ -26,6 +26,7 @@ local CastPoses = require(script.Parent:WaitForChild("CastPoses"))
 local ClericFlair = require(script.Parent:WaitForChild("ClericFlair"))
 local SkateController = require(script.Parent:WaitForChild("SkateController"))
 local RangerFlair = require(script.Parent:WaitForChild("RangerFlair"))
+local CapeController = require(script.Parent:WaitForChild("CapeController"))
 
 -- Procedural cast animation for classes without uploaded skill animations.
 -- Runs for the caster and for other players' characters on replication.
@@ -5314,6 +5315,7 @@ function SkillController.Init()
 	IceMageVFX.Init(triggerCameraShake)
 	ClericFlair.watchHalos()
 	SkateController.Init()
+	CapeController.Init()
 	local damageRemote = Network.GetRemoteEvent(Network.Remotes.DamageDealt)
 	damageRemote.OnClientEvent:Connect(showDamageNumber)
 	cloneKeybinds(nil)
