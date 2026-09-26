@@ -126,6 +126,8 @@ local function applyStats(player: Player, state: RunState)
 							stats[effect.stat] = (stats[effect.stat] or 0) + value * count
 						elseif effect.stat == "abilityCooldown" then
 							stats[effect.stat] *= math.max(0.1, 1 - value * count)
+						elseif effect.stat == "size" then
+							stats.size = (stats.size or 1) * (1 + value) ^ count
 						else
 							percentageBonuses[effect.stat] = (percentageBonuses[effect.stat] or 0) + value * count
 						end
@@ -150,6 +152,8 @@ local function applyStats(player: Player, state: RunState)
 							stats[effect.stat] = (stats[effect.stat] or 0) + value
 						elseif effect.stat == "abilityCooldown" then
 							stats[effect.stat] *= math.max(0.1, 1 - value)
+						elseif effect.stat == "size" then
+							stats.size = (stats.size or 1) * (1 + value)
 						else
 							percentageBonuses[effect.stat] = (percentageBonuses[effect.stat] or 0) + value
 						end
@@ -241,6 +245,9 @@ function PlayerStats.StartRun(player: Player)
 		stats = {},
 	}
 	states[player] = state
+	player:SetAttribute("Gold", 150)
+	player:SetAttribute("ArtifactCount", 0)
+	player:SetAttribute("LastArtifact", "")
 	applyStats(player, state)
 	syncProgress(player, state)
 end

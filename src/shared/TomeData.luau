@@ -75,8 +75,8 @@ local TomeData: { [string]: TomeDefinition } = {
 		effects = { { stat = "silverGain", operation = "percent", value = 0.12, description = "+12% Silver Gain" } },
 	},
 	size = {
-		id = "size", name = "Size Tome", category = "Base", description = "+10% Size",
-		effects = { { stat = "size", operation = "percent", value = 0.10, description = "+10% Size" } },
+		id = "size", name = "Size Tome", category = "Base", description = "Doubles Size",
+		effects = { { stat = "size", operation = "percent", value = 1.0, description = "Doubles Size" } },
 	},
 	armor = {
 		id = "armor", name = "Armor Tome", category = "Unlockable", description = "+12% Armor",

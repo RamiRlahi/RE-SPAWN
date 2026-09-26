@@ -26,6 +26,7 @@ local tileFrames: { [string]: Frame } = {}
 local roomTypeColors = {
 	Start    = Color3.fromRGB(46, 204, 113),   -- Emerald Green
 	Combat   = Color3.fromRGB(74, 105, 189),   -- Steel Blue
+	Rest     = Color3.fromRGB(52, 231, 228),   -- Healing Cyan
 	Treasure = Color3.fromRGB(241, 196, 15),   -- Gold
 	Shop     = Color3.fromRGB(230, 126, 34),   -- Amber
 	Elite    = Color3.fromRGB(155, 89, 182),   -- Purple

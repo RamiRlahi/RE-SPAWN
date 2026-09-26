@@ -1325,6 +1325,8 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 	local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
 	local travelDist = 32.0
 	local impactPos = origin + flatDir * travelDist
+	local ssP = Players:GetPlayerFromCharacter(char)
+	local sizeScale = math.max(0.4, (ssP and ssP:GetAttribute("Stat_size")) or 1.0)
 
 	-- 1. Find and clone custom hk_ULT asset from ReplicatedStorage.generalVFX
 	local ultTemplate = findVFXAsset("hk_ULT") or findVFXAsset("hk_ult") or findVFXAsset("ULT") or findVFXAsset("ult")
@@ -1637,7 +1639,7 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 		local flash = Instance.new("Part")
 		flash.Name = "InfernalFlash"
 		flash.Shape = Enum.PartType.Ball
-		flash.Size = Vector3.new(4, 4, 4)
+		flash.Size = Vector3.new(4, 4, 4) * sizeScale
 		flash.CFrame = CFrame.new(impactPos + Vector3.new(0, 1.5, 0))
 		flash.Anchored = true
 		flash.CanCollide = false
@@ -1648,7 +1650,7 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 		flash.Transparency = 0.05
 		flash.Parent = megaFolder
 		TweenService:Create(flash, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-			Size = Vector3.new(58, 40, 58),
+			Size = Vector3.new(58, 40, 58) * sizeScale,
 			Transparency = 1,
 			Color = Color3.fromRGB(255, 80, 0),
 		}):Play()
@@ -1667,7 +1669,7 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 				local ring = Instance.new("Part")
 				ring.Name = "InfernalShockRing"
 				ring.Shape = Enum.PartType.Cylinder
-				ring.Size = Vector3.new(0.4, 6, 6)
+				ring.Size = Vector3.new(0.4, 6, 6) * sizeScale
 				ring.CFrame = CFrame.new(impactPos + Vector3.new(0, 0.15, 0)) * CFrame.Angles(0, 0, math.rad(90))
 				ring.Anchored = true
 				ring.CanCollide = false
@@ -1678,7 +1680,7 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 				ring.Transparency = 0.1
 				ring.Parent = megaFolder
 				TweenService:Create(ring, TweenInfo.new(0.65 + ringIdx * 0.1, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-					Size = Vector3.new(0.4, 24 + ringIdx * 22, 24 + ringIdx * 22),
+					Size = Vector3.new(0.4, (24 + ringIdx * 22) * sizeScale, (24 + ringIdx * 22) * sizeScale),
 					Transparency = 1,
 				}):Play()
 				Debris:AddItem(ring, 1.2)
@@ -1689,7 +1691,7 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 		local pillar = Instance.new("Part")
 		pillar.Name = "InfernalPillar"
 		pillar.Shape = Enum.PartType.Cylinder
-		pillar.Size = Vector3.new(120, 22, 22)
+		pillar.Size = Vector3.new(120, 22, 22) * sizeScale
 		pillar.CFrame = CFrame.new(impactPos + Vector3.new(0, 60, 0)) * CFrame.Angles(0, 0, math.rad(90))
 		pillar.Anchored = true
 		pillar.CanCollide = false
@@ -1709,7 +1711,7 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 		pillarEmbers.Speed = NumberRange.new(30, 90)
 		TweenService:Create(pillar, TweenInfo.new(0.9, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 			Transparency = 1,
-			Size = Vector3.new(180, 34, 34),
+			Size = Vector3.new(180, 34, 34) * sizeScale,
 		}):Play()
 		Debris:AddItem(pillar, 1.1)
 
@@ -1717,7 +1719,7 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 		local crack = Instance.new("Part")
 		crack.Name = "InfernalGroundCrack"
 		crack.Shape = Enum.PartType.Cylinder
-		crack.Size = Vector3.new(0.2, 46, 46)
+		crack.Size = Vector3.new(0.2, 46, 46) * sizeScale
 		crack.CFrame = CFrame.new(Vector3.new(impactPos.X, groundY + 0.05, impactPos.Z)) * CFrame.Angles(0, 0, math.rad(90))
 		crack.Anchored = true
 		crack.CanCollide = false
@@ -1744,7 +1746,7 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 			local aftershock = Instance.new("Part")
 			aftershock.Name = "InfernalAftershock"
 			aftershock.Shape = Enum.PartType.Cylinder
-			aftershock.Size = Vector3.new(0.35, 8, 8)
+			aftershock.Size = Vector3.new(0.35, 8, 8) * sizeScale
 			aftershock.CFrame = CFrame.new(impactPos + Vector3.new(0, 0.2, 0)) * CFrame.Angles(0, 0, math.rad(90))
 			aftershock.Anchored = true
 			aftershock.CanCollide = false
@@ -1755,7 +1757,7 @@ local function playInfernalWrathVFX(char: Model, origin: Vector3, lookDir: Vecto
 			aftershock.Transparency = 0.15
 			aftershock.Parent = Workspace.Terrain
 			TweenService:Create(aftershock, TweenInfo.new(0.8, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-				Size = Vector3.new(0.35, 70, 70),
+				Size = Vector3.new(0.35, 70, 70) * sizeScale,
 				Transparency = 1,
 			}):Play()
 			Debris:AddItem(aftershock, 1.0)
@@ -3586,13 +3588,15 @@ local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vecto
 	elseif skillIndex == 4 then
 		makeRangerArrow(baseOrigin, Vector3.new(0, 0, -1), 0.1, Color3.fromRGB(185, 255, 145), 0.4, 0.08)
 		local center = targetPosition or (origin + flatUnit(lookDir) * 42)
+		local casterP = Players:GetPlayerFromCharacter(char)
+		local sizeScale = math.max(0.4, (casterP and casterP:GetAttribute("Stat_size")) or 1.0)
 		local marker = Instance.new("Model")
 		marker.Name = "RainOfArrowsRing"
 		marker.Parent = Workspace.Terrain
 
 		-- Perimeter-only indicator ring (hollow center, nothing filling the area)
 		local RING_SEGMENTS = 48
-		local ringRadius = 18
+		local ringRadius = 18 * sizeScale
 		local segLen = (2 * math.pi * ringRadius) / RING_SEGMENTS
 		local ringColor = Color3.fromRGB(95, 215, 115)
 		for s = 1, RING_SEGMENTS do
@@ -3614,13 +3618,13 @@ local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vecto
 		end
 
 		-- Spawn the vine arena cage around the drop zone
-		spawnVineArenaCage(center, 18, 5.2)
+		spawnVineArenaCage(center, 18 * sizeScale, 5.2)
 
 		task.delay(1.05, function()
 			for i = 1, 70 do
 				task.delay(i * 0.035, function()
 					local angle = math.random() * math.pi * 2
-					local dist = math.sqrt(math.random()) * 18
+					local dist = math.sqrt(math.random()) * 18 * sizeScale
 					local ground = center + Vector3.new(math.cos(angle) * dist, 0, math.sin(angle) * dist)
 					makeRangerArrow(ground + Vector3.new(0, 38, 0), Vector3.new(0, -1, 0), 38, i % 4 == 0 and POISON_PURPLE or NATURE_GREEN, 0.18, 0.18)
 				end)
@@ -3951,7 +3955,9 @@ local function playDivineAscentVFX(char: Model, origin: Vector3, lookDir: Vector
     if not rootPart or not humanoid then return end
 
     local isLocalCaster = (char == player.Character)
-    local radius = (config and config.range or 30)
+    local ssPlayer = Players:GetPlayerFromCharacter(char)
+    local sizeScale = math.max(0.4, (ssPlayer and ssPlayer:GetAttribute('Stat_size')) or 1.0)
+    local radius = (config and config.range or 30) * sizeScale
     local duration = (config and config.duration or 8.0)
 
     local flatLook = Vector3.new(lookDir.X, 0, lookDir.Z)

@@ -841,7 +841,7 @@ function MobManager.SpawnRoomMobs(rooms: { any })
 	local normalTemplates, bossTemplates = getMobTemplates()
 	local plannedCount = 0
 	for _, room in ipairs(rooms) do
-		if room.id == 1 or room.roomType == "Start" then continue end
+		if room.id == 1 or room.roomType == "Start" or room.roomType == "Rest" or room.roomType == "Treasure" or room.roomType == "Shop" then continue end
 
 		local group: RoomMobGroup = { room = room, mobs = {} }
 		table.insert(roomMobGroups, group)

@@ -37,7 +37,7 @@ local STAIR_LENGTH      = 21    -- Horizontal stair length (21 studs)
 
 -- ── Types ────────────────────────────────────────────────────────────────────
 
-export type RoomType = "Start" | "Combat" | "Treasure" | "Shop" | "Elite" | "Event" | "Boss"
+export type RoomType = "Start" | "Combat" | "Rest" | "Treasure" | "Shop" | "Elite" | "Event" | "Boss"
 
 export type DungeonConfig = {
 	seed: number?,
@@ -613,7 +613,7 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 	end
 
 	-- 4. Side Branches across Multi-Floor Tiers
-	local branchTypes: { RoomType } = { "Treasure", "Shop", "Elite", "Event" }
+	local branchTypes: { RoomType } = { "Rest", "Treasure", "Shop", "Elite", "Event" }
 
 	for _, mainRoom in ipairs(rooms) do
 		if nextId > totalRooms then break end
@@ -1001,12 +1001,261 @@ local function constructPitchBlackExit(stairCF: CFrame, parentFolder: Folder)
 	end)
 end
 
--- ── 4. Rich Cosmetics, Rubble & Barriers Placement ──────────────────────────
+-- ── 4. Special Room Gameplay + Rich Cosmetics ───────────────────────────────
+
+local SPECIAL_ARTIFACTS = {
+	"Sunforged Sigil",
+	"Moonstone Reliquary",
+	"Blood Crown",
+	"Ember Idol",
+}
+
+local REST_RADIUS = 28
+local REST_HEAL_PER_TICK = 4
+local REST_TICK = 0.5
+local TREASURE_ARTIFACT_CHANCE = 0.55
+local TREASURE_DAMAGE = 25
+local SHOP_PRICE = 75
+
+local function addRoomLabel(parent: Instance, adornee: BasePart, text: string, textColor: Color3): TextLabel
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "RoomLabel"
+	gui.Adornee = adornee
+	gui.Size = UDim2.fromOffset(220, 56)
+	gui.StudsOffset = Vector3.new(0, 5, 0)
+	gui.AlwaysOnTop = true
+	gui.MaxDistance = 90
+	gui.Parent = parent
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.Antique
+	label.TextSize = 19
+	label.TextColor3 = textColor
+	label.TextStrokeTransparency = 0.35
+	label.Text = text
+	label.Parent = gui
+	return label
+end
+
+local function makeArtifactName(rng: Random): string
+	return SPECIAL_ARTIFACTS[rng:NextInteger(1, #SPECIAL_ARTIFACTS)]
+end
+
+local function grantArtifact(player: Player, artifactName: string)
+	local count = (player:GetAttribute("ArtifactCount") or 0) + 1
+	player:SetAttribute("ArtifactCount", count)
+	local artifactKey = string.gsub(artifactName, "%s+", "_")
+	player:SetAttribute(`Artifact_{artifactKey}`, true)
+	player:SetAttribute("LastArtifact", artifactName)
+end
+
+local function buildRestRoom(room: RoomData, propsFolder: Folder)
+	local model = Instance.new("Model")
+	model.Name = `RestFountain_{room.id}`
+	model.Parent = propsFolder
+
+	local baseCF = CFrame.new(room.centerWorld.X, room.floorY + 0.8, room.centerWorld.Z)
+	local basin = Instance.new("Part")
+	basin.Name = "StoneBasin"
+	basin.Shape = Enum.PartType.Cylinder
+	basin.Size = Vector3.new(8, 1.6, 8)
+	basin.CFrame = baseCF * CFrame.Angles(0, 0, math.rad(90))
+	basin.Anchored = true
+	basin.Material = Enum.Material.Slate
+	basin.Color = Color3.fromRGB(75, 78, 86)
+	basin.Parent = model
+
+	local pedestal = Instance.new("Part")
+	pedestal.Name = "FountainPedestal"
+	pedestal.Shape = Enum.PartType.Cylinder
+	pedestal.Size = Vector3.new(3.2, 4.5, 3.2)
+	pedestal.CFrame = CFrame.new(room.centerWorld.X, room.floorY + 2.8, room.centerWorld.Z) * CFrame.Angles(0, 0, math.rad(90))
+	pedestal.Anchored = true
+	pedestal.Material = Enum.Material.Marble
+	pedestal.Color = Color3.fromRGB(122, 126, 136)
+	pedestal.Parent = model
+
+	local water = Instance.new("Part")
+	water.Name = "HealingWater"
+	water.Shape = Enum.PartType.Cylinder
+	water.Size = Vector3.new(5.8, 0.35, 5.8)
+	water.CFrame = CFrame.new(room.centerWorld.X, room.floorY + 1.7, room.centerWorld.Z) * CFrame.Angles(0, 0, math.rad(90))
+	water.Anchored = true
+	water.CanCollide = false
+	water.Material = Enum.Material.Neon
+	water.Color = Color3.fromRGB(105, 235, 255)
+	water.Parent = model
+
+	local light = Instance.new("PointLight")
+	light.Name = "HealingGlow"
+	light.Color = Color3.fromRGB(110, 225, 255)
+	light.Brightness = 2.2
+	light.Range = 24
+	light.Parent = water
+
+	local label = addRoomLabel(model, water, "RESTING FOUNTAIN\nStand nearby to heal", Color3.fromRGB(180, 240, 255))
+
+	task.spawn(function()
+		while model.Parent do
+			task.wait(REST_TICK)
+			for _, player in ipairs(Players:GetPlayers()) do
+				if player:GetAttribute("InLobby") ~= true then
+					local character = player.Character
+					local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+					local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+					if humanoid and root and humanoid.Health > 0 then
+						if (root.Position - water.Position).Magnitude <= REST_RADIUS then
+							humanoid.Health = math.min(humanoid.MaxHealth, humanoid.Health + REST_HEAL_PER_TICK)
+							player:SetAttribute("AtRestFountain", true)
+							label.Text = "RESTING FOUNTAIN\nHealing..."
+						end
+					end
+				end
+			end
+		end
+	end)
+end
+
+local function buildTreasureRoom(room: RoomData, propsFolder: Folder, rng: Random)
+	local model = Instance.new("Model")
+	model.Name = `TreasureChest_{room.id}`
+	model.Parent = propsFolder
+
+	local chestPos = room.centerWorld + Vector3.new(0, 1.5, 0)
+	local body = Instance.new("Part")
+	body.Name = "ChestBody"
+	body.Size = Vector3.new(7, 3, 4)
+	body.CFrame = CFrame.new(chestPos)
+	body.Anchored = true
+	body.Material = Enum.Material.Wood
+	body.Color = Color3.fromRGB(92, 54, 28)
+	body.Parent = model
+
+	local lid = Instance.new("Part")
+	lid.Name = "ChestLid"
+	lid.Size = Vector3.new(7, 1.2, 4.2)
+	lid.CFrame = CFrame.new(chestPos + Vector3.new(0, 2.1, 0))
+	lid.Anchored = true
+	lid.Material = Enum.Material.Wood
+	lid.Color = Color3.fromRGB(120, 72, 31)
+	lid.Parent = model
+
+	local lock = Instance.new("Part")
+	lock.Name = "Lock"
+	lock.Size = Vector3.new(0.7, 1.1, 0.5)
+	lock.CFrame = CFrame.new(chestPos + Vector3.new(0, 0.2, -2.25))
+	lock.Anchored = true
+	lock.Material = Enum.Material.Metal
+	lock.Color = Color3.fromRGB(222, 178, 64)
+	lock.Parent = model
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "OpenTreasure"
+	prompt.ActionText = "Open"
+	prompt.ObjectText = "Ancient Treasure"
+	prompt.HoldDuration = 0.35
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = body
+
+	local label = addRoomLabel(model, lid, "TREASURE\nE — Open", Color3.fromRGB(255, 223, 110))
+
+	prompt.Triggered:Connect(function(player: Player)
+		if model:GetAttribute("Opened") == true then return end
+		model:SetAttribute("Opened", true)
+		prompt.Enabled = false
+		lid.CFrame = lid.CFrame * CFrame.Angles(math.rad(-28), 0, 0)
+
+		if rng:NextNumber() <= TREASURE_ARTIFACT_CHANCE then
+			local artifact = makeArtifactName(rng)
+			grantArtifact(player, artifact)
+			label.Text = `TREASURE FOUND\n{artifact}`
+		else
+			local character = player.Character
+			local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+			if humanoid and humanoid.Health > 0 then
+				humanoid:TakeDamage(TREASURE_DAMAGE + room.tier * 5)
+			end
+			player:SetAttribute("LastTreasureResult", "Trapped")
+			label.Text = "TREASURE TRAP\nYou were wounded."
+		end
+	end)
+end
+
+local function buildShopRoom(room: RoomData, propsFolder: Folder, rng: Random)
+	local model = Instance.new("Model")
+	model.Name = `ArtifactShop_{room.id}`
+	model.Parent = propsFolder
+
+	local counter = Instance.new("Part")
+	counter.Name = "MerchantCounter"
+	counter.Size = Vector3.new(9, 3, 4)
+	counter.CFrame = CFrame.new(room.centerWorld + Vector3.new(0, 1.5, 0))
+	counter.Anchored = true
+	counter.Material = Enum.Material.Wood
+	counter.Color = Color3.fromRGB(72, 45, 28)
+	counter.Parent = model
+
+	local display = Instance.new("Part")
+	display.Name = "ArtifactDisplay"
+	display.Shape = Enum.PartType.Cylinder
+	display.Size = Vector3.new(3, 1.4, 3)
+	display.CFrame = CFrame.new(room.centerWorld + Vector3.new(0, 3.7, 0)) * CFrame.Angles(0, 0, math.rad(90))
+	display.Anchored = true
+	display.Material = Enum.Material.Neon
+	display.Color = Color3.fromRGB(255, 185, 70)
+	display.CanCollide = false
+	display.Parent = model
+
+	local offeredArtifact = makeArtifactName(rng)
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.Name = "BuyArtifact"
+	prompt.ActionText = `Buy ({SHOP_PRICE} Gold)`
+	prompt.ObjectText = offeredArtifact
+	prompt.HoldDuration = 0.35
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = display
+
+	local label = addRoomLabel(model, display, `ARTIFACT MERCHANT\n{offeredArtifact} — {SHOP_PRICE} Gold`, Color3.fromRGB(255, 210, 125))
+
+	prompt.Triggered:Connect(function(player: Player)
+		if model:GetAttribute("Purchased") == true then return end
+		local gold = player:GetAttribute("Gold") or 0
+		if gold < SHOP_PRICE then
+			label.Text = `ARTIFACT MERCHANT\nNeed {SHOP_PRICE} Gold`
+			return
+		end
+
+		player:SetAttribute("Gold", gold - SHOP_PRICE)
+		grantArtifact(player, offeredArtifact)
+		model:SetAttribute("Purchased", true)
+		prompt.Enabled = false
+		label.Text = `SOLD\n{offeredArtifact}`
+		display.Color = Color3.fromRGB(130, 130, 130)
+	end)
+end
+
+local function buildSpecialRoom(room: RoomData, propsFolder: Folder, rng: Random)
+	if room.roomType == "Rest" then
+		buildRestRoom(room, propsFolder)
+	elseif room.roomType == "Treasure" then
+		buildTreasureRoom(room, propsFolder, rng)
+	elseif room.roomType == "Shop" then
+		buildShopRoom(room, propsFolder, rng)
+	end
+end
+
+-- ── 4b. Rich Cosmetics, Rubble & Barriers Placement ─────────────────────────
 
 local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Random)
 	for _, room in ipairs(rooms) do
 		local minX, maxX = room.gx, room.gx + room.w - 1
 		local minZ, maxZ = room.gz, room.gz + room.d - 1
+
+		buildSpecialRoom(room, propsFolder, rng)
 
 		-- 1. Rubble: Generously placed along wall perimeters and in all room corners (raised +3 studs)
 		if #assets.rubble > 0 then
