@@ -169,9 +169,21 @@ local ARMOR_CFRAME_OFFSETS: { [string]: CFrame } = {
 
 local ARMOR_SCALE = 1
 
+-- Cleric Robe (ReplicatedStorage.Assets.Classes["Cleric armor"]["Cleric Robe"]).
+-- It hangs from the shoulders instead of being centred on the torso, and is
+-- auto-turned to face forward (a robe is wider than it is deep). Tweak these
+-- if the mesh sits off:
+local CLERIC_ROBE = {
+	scale = 1,          -- overall size multiplier
+	rotation = nil :: CFrame?, -- force a rotation (e.g. ROT90) instead of auto-facing
+	raise = 0.1,        -- studs the robe's top sits above the shoulder line
+	forward = 0,        -- studs to push it forward (-) or back (+)
+}
+
 local ARMOR_PIECE_SCALES: { [string]: number } = {
 	leftleg  = 1.08, -- Slightly enlarged to fit over boots cleanly
 	rightleg = 1.08,
+	["Cleric Robe"] = CLERIC_ROBE.scale,
 }
 
 
@@ -254,6 +266,7 @@ local function equipClassArmor(character: Model, classId: string)
 	local CLASS_ARMOR_FOLDERS = {
 		heavy_knight = "heavy knight armor",
 		ranger = "Ranger armor",
+		cleric = "Cleric armor",
 	}
 
 	local folderName = CLASS_ARMOR_FOLDERS[classId]
@@ -328,6 +341,24 @@ local function equipClassArmor(character: Model, classId: string)
 		else
 			clone.Parent = character
 			continue
+		end
+
+		-- Cleric Robe: hang from the shoulders, facing forward.
+		if classId == "cleric" and piece.Name == "Cleric Robe" then
+			local boxSize: Vector3
+			if clone:IsA("Model") then
+				local _, size = clone:GetBoundingBox()
+				boxSize = size
+			elseif clone:IsA("BasePart") then
+				boxSize = (clone :: BasePart).Size
+			else
+				boxSize = targetPart.Size
+			end
+			-- Wider along Z than X means the mesh came in sideways: turn it 90°.
+			local facing = CLERIC_ROBE.rotation or (boxSize.Z > boxSize.X and ROT90 or CFrame.identity)
+			local drop = math.max(0, boxSize.Y * 0.5 - targetPart.Size.Y * 0.5) - CLERIC_ROBE.raise
+			rotOffset = CFrame.new(0, -drop, CLERIC_ROBE.forward) * facing
+			print(`[ArmorEquip] Cleric Robe box {boxSize}, dropped {drop} studs`)
 		end
 
 		-- Snap the piece center to the limb center with rotation
