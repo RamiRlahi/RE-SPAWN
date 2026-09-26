@@ -1437,7 +1437,9 @@ end
 -- everything breaks apart at `duration` as the storm is released.
 -- Silhouette + eyes play for everyone; the environment/grade only for the caster.
 -- ═════════════════════════════════════════════════════════════════════════════
-local SILHOUETTE = Color3.fromRGB(8, 11, 20)
+local SILHOUETTE = Color3.fromRGB(5, 7, 13)
+local EYE_BLUE = Color3.fromRGB(70, 175, 255)
+local EYE_CORE = Color3.fromRGB(200, 235, 255)
 local RIM = Color3.fromRGB(170, 215, 255)
 
 function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt: number, isLocal: boolean)
@@ -1461,7 +1463,39 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 	hl.Parent = folder
 	TweenService:Create(hl, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { FillTransparency = 0.04, OutlineTransparency = 0.55 }):Play()
 
-	-- ── Eyes: two white-hot points on the face, dim at first ──
+	-- Shadow wisps streaming off the body give the silhouette a ragged,
+	-- shaggy edge (like the fur mantle in the reference).
+	local wisps = {}
+	for _, spec in ipairs({
+		{ "UpperTorso", "Torso", 3.2, 40 }, { "LowerTorso", "Torso", 3.6, 30 },
+		{ "RightUpperArm", "Right Arm", 1.8, 14 }, { "LeftUpperArm", "Left Arm", 1.8, 14 },
+		{ "RightLowerArm", "", 1.4, 10 }, { "LeftLowerArm", "", 1.4, 10 },
+		{ "Head", "Head", 2.2, 16 }, { "RightUpperLeg", "Right Leg", 2.4, 12 }, { "LeftUpperLeg", "Left Leg", 2.4, 12 },
+	}) do
+		local limb = char:FindFirstChild(spec[1]) or (spec[2] ~= "" and char:FindFirstChild(spec[2])) or nil
+		if limb and limb:IsA("BasePart") then
+			local a = Instance.new("Attachment")
+			a.Name = "ShadowWisps"
+			a.Parent = limb
+			local pe = newEmitter(a, {
+				Texture = TEX_SMOKE,
+				Color = colors(Color3.fromRGB(6, 8, 14), Color3.fromRGB(20, 28, 48)),
+				LightEmission = 0,
+				Size = seq(0, spec[3] * 0.6, 0.5, spec[3], 1, spec[3] * 1.3),
+				Transparency = seq(0, 1, 0.15, 0.25, 0.7, 0.55, 1, 1),
+				Lifetime = NumberRange.new(0.5, 0.9),
+				Speed = NumberRange.new(0.5, 2.5),
+				SpreadAngle = Vector2.new(180, 180),
+				Acceleration = Vector3.new(0, 2.5, 0) + right * 2,
+				Rotation = NumberRange.new(0, 360),
+				RotSpeed = NumberRange.new(-60, 60),
+				Rate = spec[4],
+			})
+			table.insert(wisps, { att = a, pe = pe })
+		end
+	end
+
+	-- ── Eyes: two icy-blue points on the face, dim at first ──
 	local eyes = {}
 	for side = -1, 1, 2 do
 		local offs = CFrame.new(side * head.Size.X * 0.17, head.Size.Y * 0.08, -head.Size.Z * 0.5 - 0.02)
@@ -1469,7 +1503,7 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 			Name = "Eye",
 			Shape = Enum.PartType.Ball,
 			Size = Vector3.new(0.16, 0.16, 0.16),
-			Color = ICE_WHITE,
+			Color = EYE_BLUE,
 			Material = Enum.Material.Neon,
 			Transparency = 0.6,
 			Anchored = false,
@@ -1483,7 +1517,7 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 		local glint = newPart(folder, {
 			Name = "EyeGlint",
 			Size = Vector3.new(0.9, 0.03, 0.03),
-			Color = ICE_WHITE,
+			Color = EYE_BLUE,
 			Material = Enum.Material.Neon,
 			Transparency = 1,
 			Anchored = false,
@@ -1494,11 +1528,11 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 		gw.Part0, gw.Part1 = eye, glint
 		gw.Parent = glint
 		local l = Instance.new("PointLight")
-		l.Color, l.Brightness, l.Range, l.Shadows = ICE_WHITE, 0.5, 4, false
+		l.Color, l.Brightness, l.Range, l.Shadows = EYE_BLUE, 0.5, 4, false
 		l.Parent = eye
 		local glow = newEmitter(eye, {
 			Texture = TEX_SPARKLE,
-			Color = colors(ICE_WHITE, ICE_PALE),
+			Color = colors(EYE_CORE, EYE_BLUE),
 			Size = seq(0, 0.5, 1, 0.3),
 			Transparency = seq(0, 0.3, 1, 1),
 			Lifetime = NumberRange.new(0.08, 0.12),
@@ -1605,10 +1639,14 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 	task.delay(duration, function()
 		if not folder.Parent then return end
 		for _, e in ipairs(eyes) do
-			flashLight(e.eye.Position, ICE_WHITE, 6, 16, 0.4)
+			flashLight(e.eye.Position, EYE_BLUE, 6, 16, 0.4)
 			e.glow.Enabled = false
 		end
 		snowBurst(root.Position, 26, 30, 0.9)
+		for _, w in ipairs(wisps) do
+			w.pe.Enabled = false
+			Debris:AddItem(w.att, 1)
+		end
 		TweenService:Create(hl, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { FillTransparency = 1, OutlineTransparency = 1 }):Play()
 		if grade then
 			TweenService:Create(grade, TweenInfo.new(0.5), { TintColor = Color3.new(1, 1, 1), Saturation = 0, Contrast = 0, Brightness = 0 }):Play()
@@ -1632,8 +1670,11 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 		fadeOut(folder, 0.9)
 		Debris:AddItem(folder, 1.6)
 	end)
-	-- Safety: never leave the grade/DOF behind if the caster dies mid-reveal.
+	-- Safety: never leave the grade/DOF/wisps behind if the caster dies mid-reveal.
 	task.delay(duration + 2, function()
+		for _, w in ipairs(wisps) do
+			if w.att.Parent then w.att:Destroy() end
+		end
 		if grade and grade.Parent then grade:Destroy() end
 		if dof and dof.Parent then dof:Destroy() end
 	end)

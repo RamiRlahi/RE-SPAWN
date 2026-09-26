@@ -307,37 +307,39 @@ function CastPoses.iceClone(char: Model?)
 	})
 end
 
--- "The frozen one" reveal (Blizzard wind-up, 1.5s): a looming, motionless stance
--- with the head lowered; the head rises as the eyes flare (1.0s), then the arms
--- fling wide as the storm breaks (1.5s).
+-- "The frozen one" reveal (Blizzard wind-up, 1.5s). The camera is low and in
+-- front, so this is played to the lens: a looming stance, then one open hand
+-- slowly reaches out toward the viewer; the reach locks out trembling as the
+-- eyes flare (1.0s), and the palm thrusts forward as the storm breaks (1.5s).
 CastPoses.ICE_BLIZZARD_EYES = 1.0
 CastPoses.ICE_BLIZZARD_RELEASE = 1.5
 function CastPoses.iceBlizzard(char: Model?)
-	local loom = { N = { -16, 0, 0 }, W = { 5, 0, 0 }, RS = { 4, 0, 12 }, LS = { 4, 0, -12 }, RE = { 18, 0, 0 }, LE = { 18, 0, 0 },
+	local loom = { N = { -18, 0, 0 }, W = { 4, 0, 0 }, RS = { 4, 0, 10 }, LS = { 4, 0, -10 }, RE = { 18, 0, 0 }, LE = { 18, 0, 0 },
 		Root = { 0, 0, 0, 0, 0.1, 0 } }
-	local rise = { N = { 10, 0, 0 }, W = { 10, 0, 0 }, RS = { 10, 0, 38 }, LS = { 10, 0, -38 }, RE = { 25, 0, 0 }, LE = { 25, 0, 0 },
-		RW = { 0, 0, 20 }, LW = { 0, 0, -20 }, Root = { 0, 0, 0, 0, 0.15, 0 } }
+	-- Half-reach: hand rising toward the camera, fingers still curled.
+	local reaching = { N = { -12, 0, 0 }, W = { -6, 0, 0 }, RS = { 55, 0, -6 }, RE = { 35, 0, 0 }, RW = { 10, 0, 0 },
+		LS = { -6, 0, -14 }, LE = { 20, 0, 0 }, Root = { 0, 0, 0, 0, 0.05, 0 }, RH = { 6, 0, 0 }, LH = { -8, 0, 0 } }
+	-- Full reach: arm locked straight at the lens, palm open, head level with it.
+	local reached = { N = { -4, 0, 0 }, W = { -12, 0, 0 }, RS = { 86, 0, -8 }, RE = { 4, 0, 0 }, RW = { -38, 0, 0 },
+		LS = { -10, 0, -18 }, LE = { 25, 0, 0 }, Root = { 0, 0, 0, 0, -0.05, 0 }, RH = { 12, 0, 0 }, LH = { -14, 0, 0 }, LK = { -12, 0, 0 } }
 	CastPoses.play(char, {
 		{ dur = 0.3, style = Enum.EasingStyle.Sine, pose = loom },
-		-- Motionless but for slow, heavy breathing.
-		{ dur = 0.7, pose = loom, wobble = function(t)
-			local b = math.sin(t * 3.2) * 1.5
-			return { W = { b, 0, 0 }, RS = { 0, 0, b }, LS = { 0, 0, -b } }
+		-- The slow reach begins, heavy and deliberate.
+		{ dur = 0.7, style = Enum.EasingStyle.Sine, pose = reaching, wobble = function(t)
+			local b = math.sin(t * 3.2) * 1.2
+			return { W = { b, 0, 0 } }
 		end },
-		-- The head lifts, eyes flaring; arms begin to rise, trembling with power.
-		{ dur = 0.3, pose = rise, wobble = function(t)
-			local s = math.sin(t * 48) * 2.5
-			return { RS = { s, 0, 0 }, LS = { -s, 0, 0 } }
+		-- Eyes flare: the arm locks out toward us, trembling with gathered cold.
+		{ dur = 0.18, style = Enum.EasingStyle.Back, pose = reached },
+		{ dur = 0.24, pose = reached, wobble = function(t)
+			local s = math.sin(t * 55) * math.clamp((t - 1.18) / 0.24, 0, 1) * 3
+			return { RS = { s, 0, s * 0.5 }, RW = { s, 0, 0 }, W = { s * 0.2, 0, 0 } }
 		end },
-		{ dur = 0.12, pose = rise, wobble = function(t)
-			local s = math.sin(t * 60) * 4
-			return { RS = { s, 0, 0 }, LS = { -s, 0, 0 }, W = { s * 0.3, 0, 0 } }
-		end },
-		-- Unleash: arms fling wide as the storm breaks.
-		{ dur = 0.08, style = Enum.EasingStyle.Back, pose = { RS = { 40, 0, 110 }, LS = { 40, 0, -110 }, RE = { 5, 0, 0 }, LE = { 5, 0, 0 }, RW = { 0, 0, 25 }, LW = { 0, 0, -25 },
-			W = { 22, 0, 0 }, N = { 30, 0, 0 }, Root = { 0, 0, 0, 0, -0.35, 0 }, RH = { 10, 0, 18 }, LH = { 10, 0, -18 }, RK = { -22, 0, 0 }, LK = { -22, 0, 0 } } },
-		{ dur = 0.45, pose = { RS = { 35, 0, 100 }, LS = { 35, 0, -100 }, W = { 16, 0, 0 }, N = { 20, 0, 0 },
-			Root = { 0, 0, 0, 0, -0.3, 0 }, RH = { 8, 0, 16 }, LH = { 8, 0, -16 }, RK = { -18, 0, 0 }, LK = { -18, 0, 0 } } },
+		-- Release: the palm thrusts forward as the storm erupts from it.
+		{ dur = 0.08, style = Enum.EasingStyle.Back, pose = { N = { 2, 0, 0 }, W = { -18, 0, 0 }, RS = { 92, 0, -6 }, RE = { 0, 0, 0 }, RW = { -55, 0, 0 },
+			LS = { -20, 0, -30 }, LE = { 30, 0, 0 }, Root = { 0, 0, 0, 0, -0.25, 0 }, RH = { 30, 0, 0 }, LH = { -25, 0, 0 }, RK = { -30, 0, 0 }, LK = { -10, 0, 0 } } },
+		{ dur = 0.45, pose = { N = { 0, 0, 0 }, W = { -12, 0, 0 }, RS = { 80, 0, -4 }, RW = { -40, 0, 0 },
+			LS = { -12, 0, -22 }, Root = { 0, 0, 0, 0, -0.2, 0 }, RH = { 24, 0, 0 }, LH = { -18, 0, 0 }, RK = { -24, 0, 0 } } },
 	})
 end
 
