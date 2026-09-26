@@ -82,6 +82,7 @@ type SkaterState = {
 	phase: number,
 	speedSmooth: number,
 	lean: number,
+	glide: number,
 	lastVel: Vector3,
 	lastCarve: number,
 	lastSprayBurst: number,
@@ -224,6 +225,7 @@ local function attachSkater(char: Model)
 		phase = 0,
 		speedSmooth = 0,
 		lean = 0,
+		glide = 0,
 		lastVel = Vector3.zero,
 		lastCarve = 0,
 		lastSprayBurst = 0,
@@ -238,23 +240,46 @@ local function detachSkater(char: Model)
 end
 
 -- Skating stride, in the same character-space convention as CastPoses.
-local function stridePose(s: number, phase: number, lean: number, coasting: boolean): { [string]: { number } }
+-- Speed-skater silhouette: the whole body pitches forward hard; the hips
+-- compensate so the support leg plants under the body while the pushing leg
+-- drives far out and back (works on R6, which has no knees — R15 also bends
+-- the knees deeply). `glide` (0..1) blends into a coasting pose: one leg
+-- extended long behind, arms swept back.
+local function mix(a: number, b: number, t: number): number
+	return a + (b - a) * t
+end
+
+local function stridePose(s: number, phase: number, lean: number, glide: number): { [string]: { number } }
 	local sw = math.sin(phase)
-	local push = coasting and 0 or 1
+	local rPush = math.max(0, sw)   -- right leg pushing
+	local lPush = math.max(0, -sw)  -- left leg pushing
+	local stride = 1 - glide
+	local pitch = (34 + 6 * glide) * s -- forward lean of the whole body
+
+	-- Legs: stride values blended with the glide pose.
+	local rhX = mix(pitch + 8 * s * lPush - 60 * s * rPush, pitch + 10 * s, glide)
+	local rhZ = mix(4 * s + 32 * s * rPush, 3 * s, glide)
+	local lhX = mix(pitch + 8 * s * rPush - 60 * s * lPush, pitch - 62 * s, glide)
+	local lhZ = mix(-4 * s - 32 * s * lPush, -20 * s, glide)
+	-- Arms: big counter-swing while striding; swept back to balance while gliding.
+	local rsX = mix(12 * s - 60 * sw * s, -55 * s, glide)
+	local rsZ = mix(20 * s, 12 * s, glide)
+	local lsX = mix(12 * s + 60 * sw * s, 25 * s, glide)
+	local lsZ = mix(-20 * s, -48 * s, glide)
+
 	return {
-		Root = { 0, 0, -lean * 14, 0, -0.35 * s, 0 },
-		W = { -20 * s, 0, lean * 6 },
-		N = { 14 * s, 0, 0 },
-		-- Alternating push-off: the pushing leg extends outward and back.
-		RH = { 18 * s - 14 * sw * s * push, 0, 14 * s * math.max(0, sw) * push + 4 * s },
-		LH = { 18 * s + 14 * sw * s * push, 0, -14 * s * math.max(0, -sw) * push - 4 * s },
-		RK = { -38 * s + 18 * math.max(0, sw) * s * push, 0, 0 },
-		LK = { -38 * s + 18 * math.max(0, -sw) * s * push, 0, 0 },
-		-- Counter-swinging arms; spread wide for balance while gliding.
-		RS = { 10 * s - 28 * sw * s * push, 0, (coasting and 38 or 14) * s },
-		LS = { 10 * s + 28 * sw * s * push, 0, -(coasting and 38 or 14) * s },
-		RE = { 20 * s, 0, 0 },
-		LE = { 20 * s, 0, 0 },
+		-- Drop to keep the planted foot grounded as the legs angle; bob on each push.
+		Root = { 0, 0, -lean * 28, 0, -0.38 * s - 0.14 * s * math.abs(sw) * stride, 0 },
+		W = { -pitch, lean * 8, lean * 10 },
+		N = { pitch * 0.8, 0, -lean * 6 }, -- head stays up, eyes forward
+		RH = { rhX, 0, rhZ },
+		LH = { lhX, 0, lhZ },
+		RK = { mix(-55 * s + 35 * s * rPush, -45 * s, glide), 0, 0 },
+		LK = { mix(-55 * s + 35 * s * lPush, -10 * s, glide), 0, 0 },
+		RS = { rsX, 0, rsZ },
+		LS = { lsX, 0, lsZ },
+		RE = { 25 * s, 0, 0 },
+		LE = { 25 * s, 0, 0 },
 	}
 end
 
@@ -387,7 +412,7 @@ local function step(dt: number)
 		if speed > 3 and s.lastVel.Magnitude > 3 then
 			turn = s.lastVel.Unit:Cross(vel.Unit).Y / math.max(dt, 1e-3)
 		end
-		s.lean += (math.clamp(turn * 0.35, -1, 1) - s.lean) * (1 - math.exp(-5 * dt))
+		s.lean += (math.clamp(turn * 0.55, -1, 1) - s.lean) * (1 - math.exp(-5 * dt))
 		local decel = (s.lastVel.Magnitude - speed) / math.max(dt, 1e-3)
 		s.lastVel = vel
 
@@ -397,7 +422,8 @@ local function step(dt: number)
 		-- Replace the walk cycle with the stride once we're really skating.
 		fadeLocomotion(s.humanoid, s.speedSmooth > 0.15 and 0.001 or 1)
 		if s.speedSmooth > 0.02 then
-			local pose = stridePose(s.speedSmooth, s.phase, s.lean, coasting)
+			s.glide += ((coasting and 1 or 0) - s.glide) * (1 - math.exp(-5 * dt))
+		local pose = stridePose(s.speedSmooth, s.phase, s.lean, s.glide)
 			local combined: { [Motor6D]: CFrame } = {}
 			for key, m in pairs(s.motors) do
 				local v = pose[key]
