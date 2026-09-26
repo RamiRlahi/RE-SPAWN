@@ -150,6 +150,8 @@ local function getPotentialTargets(casterChar: Model): { { character: Model, hum
 			-- Don't consider accessories or player character sub-models
 			if desc:FindFirstAncestorOfClass("Accessory") then continue end
 			if desc:IsDescendantOf(casterChar) then continue end
+			-- Friendly summons (Ice Clone) are never valid targets.
+			if desc:GetAttribute("IsDecoy") == true then continue end
 
 			local hum = desc:FindFirstChildOfClass("Humanoid")
 			if hum and hum.Health > 0 then
@@ -1238,6 +1240,193 @@ local function executeClericRadiantGround(player: Player, casterChar: Model, ori
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Ice Mage
+-- ─────────────────────────────────────────────────────────────────────────────
+local ICE_CORE = Color3.fromRGB(150, 235, 255)
+local ICE_BODY = Color3.fromRGB(120, 200, 255)
+
+local function fireIceEvent(payload: any)
+	Network.GetRemoteEvent(Network.Remotes.IceMageEvent):FireAllClients(payload)
+end
+
+local function chillTarget(target: any, duration: number)
+	if Players:GetPlayerFromCharacter(target.character) then return end
+	MobManager.ChillMob(target.character, duration)
+	fireIceEvent({ kind = "Chill", model = target.character, duration = duration })
+end
+
+-- Skill 1: a line of spikes races along the floor; each enemy is hit when the
+-- spike front reaches it, so damage lines up with the eruption the clients see.
+local function executeIceSpikes(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
+	local range = config.range or 42
+	local halfWidth = (config.width or 4) * (config.areaMultiplier or 1) * 0.5 + 1
+	local speed = config.projectileSpeed or 95
+	local flatDir = rotateFlatDirection(lookDir, 0)
+	for _, target in ipairs(getPotentialTargets(casterChar)) do
+		local offset = target.rootPart.Position - origin
+		local flatOffset = Vector3.new(offset.X, 0, offset.Z)
+		local along = flatOffset:Dot(flatDir)
+		if along >= 0 and along <= range and (flatOffset - flatDir * along).Magnitude <= halfWidth and math.abs(offset.Y) <= 8 then
+			task.delay(along / speed, function()
+				if target.humanoid.Health <= 0 then return end
+				dealDamage(player, target, config.damage, "ICE SPIKES")
+				chillTarget(target, 0.9)
+			end)
+		end
+	end
+end
+
+-- Skill 2: channelled beam that stops on the first enemy along the caster's facing.
+local function executeIceBeam(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
+	local range = config.range or 55
+	local duration = config.duration or 3
+	local width = (config.width or 3) * (config.areaMultiplier or 1) * 0.5 + 0.5
+	local TICK = 0.25
+	local perHit = config.damage * TICK / math.max(duration, 0.001)
+	task.spawn(function()
+		local t0 = os.clock()
+		while os.clock() - t0 < duration do
+			local root = casterChar.Parent and casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if not root then break end
+			local target = damageFirstTargetOnLine(player, casterChar, root.Position, root.CFrame.LookVector, range, width, perHit, "ICE BEAM")
+			if target then
+				chillTarget(target, TICK + 0.3)
+			end
+			task.wait(TICK)
+		end
+	end)
+end
+
+-- Skill 3: crystalline clone of the caster that taunts, then explodes.
+local function buildIceClone(casterChar: Model, cframe: CFrame, health: number): Model?
+	local wasArchivable = casterChar.Archivable
+	casterChar.Archivable = true
+	local clone = casterChar:Clone()
+	casterChar.Archivable = wasArchivable
+	if not clone then return nil end
+
+	clone.Name = "IceClone"
+	for _, d in ipairs(clone:GetDescendants()) do
+		if d:IsA("Script") or d:IsA("LocalScript") or d:IsA("Tool") or d:IsA("ForceField")
+			or d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Light")
+			or d:IsA("BillboardGui") or d:IsA("Sound") or d:IsA("Clothing") or d:IsA("ShirtGraphic") then
+			d:Destroy()
+		elseif d:IsA("Decal") then
+			d.Transparency = 0.6
+			d.Color3 = ICE_CORE
+		end
+	end
+	for _, d in ipairs(clone:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.CanCollide = false
+			d.CanTouch = false
+			d.CastShadow = false
+			d.Massless = true
+			if d.Name ~= "HumanoidRootPart" and d.Transparency < 1 then
+				d.Material = Enum.Material.Glass
+				d.Color = ICE_BODY
+				d.Transparency = 0.35
+				d.Reflectance = 0.25
+				if d:IsA("MeshPart") then d.TextureID = "" end
+				local sm = d:FindFirstChildOfClass("SpecialMesh")
+				if sm then sm.TextureId = "" end
+			end
+		end
+	end
+
+	local hum = clone:FindFirstChildOfClass("Humanoid")
+	local root = clone:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not hum or not root then
+		clone:Destroy()
+		return nil
+	end
+	hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	hum.BreakJointsOnDeath = false
+	hum.RequiresNeck = false
+	hum.WalkSpeed = 0
+	hum.JumpPower = 0
+	hum.MaxHealth = health
+	hum.Health = health
+	root.CanCollide = true
+	root.Anchored = true
+	clone:SetAttribute("IsDecoy", true)
+	clone:PivotTo(cframe)
+	return clone
+end
+
+local function executeIceClone(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
+	local casterRoot = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not casterRoot then return end
+	local flatDir = rotateFlatDirection(lookDir, 0)
+	local spawnPos = casterRoot.Position + flatDir * 6
+	-- Don't put the clone inside a wall.
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	rp.FilterDescendantsInstances = { casterChar }
+	local wallHit = Workspace:Raycast(casterRoot.Position, flatDir * 7, rp)
+	if wallHit then spawnPos = casterRoot.Position + flatDir * math.max(0, wallHit.Distance - 2) end
+
+	local tauntRadius = (config.range or 34) * (config.areaMultiplier or 1)
+	local clone = buildIceClone(casterChar, CFrame.lookAt(spawnPos, spawnPos + flatDir), config.cloneHealth or 50)
+	if not clone then return end
+	local folder = Workspace:FindFirstChild("IceClones")
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = "IceClones"
+		folder.Parent = Workspace
+	end
+	clone:SetAttribute("TauntRadius", tauntRadius)
+	clone.Parent = folder
+	MobManager.RegisterDecoy(clone, tauntRadius)
+
+	local hum = clone:FindFirstChildOfClass("Humanoid") :: Humanoid
+	local shattered = false
+	local function shatter()
+		if shattered then return end
+		shattered = true
+		MobManager.UnregisterDecoy(clone)
+		local pos = clone:GetPivot().Position
+		local radius = (config.explosionRadius or 14) * (config.areaMultiplier or 1)
+		fireIceEvent({ kind = "CloneShatter", position = pos, radius = radius })
+		for _, target in ipairs(getPotentialTargets(casterChar)) do
+			if not Players:GetPlayerFromCharacter(target.character) and (target.rootPart.Position - pos).Magnitude <= radius then
+				dealDamage(player, target, config.damage, "SHATTER")
+				chillTarget(target, 2.0)
+			end
+		end
+		clone:Destroy()
+	end
+	hum.Died:Connect(shatter)
+	task.delay(config.duration or 10, shatter)
+	casterChar.AncestryChanged:Connect(function(_, parent)
+		if not parent then shatter() end
+	end)
+end
+
+-- Ultimate: Blizzard. Mobs are already globally frozen for the ult duration;
+-- the storm batters everything inside the zone on a steady tick.
+local function executeIceBlizzard(player: Player, casterChar: Model, origin: Vector3, config: any)
+	local radius = (config.range or 48) * (config.areaMultiplier or 1)
+	local duration = config.duration or 6
+	local TICK = 0.5
+	local perHit = config.damage * TICK / math.max(duration, 0.001)
+	task.spawn(function()
+		local t0 = os.clock()
+		while os.clock() - t0 < duration do
+			for _, target in ipairs(getPotentialTargets(casterChar)) do
+				if not Players:GetPlayerFromCharacter(target.character) then
+					local offset = target.rootPart.Position - origin
+					if Vector3.new(offset.X, 0, offset.Z).Magnitude <= radius then
+						dealDamage(player, target, perHit, "BLIZZARD")
+					end
+				end
+			end
+			task.wait(TICK)
+		end
+	end)
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Main Skill Request Handler
 -- ─────────────────────────────────────────────────────────────────────────────
 function SkillManager.HandleSkillUse(player: Player, payload: any)
@@ -1344,6 +1533,16 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 		executeClericRadiantGround(player, char, origin, effectiveConfig)
 	elseif classId == "cleric" and skillIndex == 4 then
 		executeClericDivineAscent(player, char, origin, direction, effectiveConfig)
+	elseif classId == "ice_mage" then
+		if skillIndex == 1 then
+			executeIceSpikes(player, char, origin, direction, effectiveConfig)
+		elseif skillIndex == 2 then
+			executeIceBeam(player, char, origin, direction, effectiveConfig)
+		elseif skillIndex == 3 then
+			executeIceClone(player, char, origin, direction, effectiveConfig)
+		elseif skillIndex == 4 then
+			executeIceBlizzard(player, char, origin, effectiveConfig)
+		end
 	end
 
 	-- Ultimates freeze every mob in place for the ult duration.
@@ -1447,6 +1646,14 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 			local kbDir = (flatLook + Vector3.new(0, 0.25, 0)).Unit
 			target.rootPart:ApplyImpulse(kbDir * (target.rootPart.AssemblyMass * 8))
 		end
+		return
+	end
+
+	if classId == "ice_mage" then
+		-- Ice Crystal: a single fast shard that hits the first enemy in line.
+		local damage = math.floor(22 * PlayerStats.GetStat(player, "damage"))
+		local hitWidth = 2.2 * PlayerStats.GetStat(player, "size")
+		damageFirstTargetOnLine(player, char, origin + Vector3.new(0, 1.4, 0), flatLook, 60, hitWidth, damage, "ICE CRYSTAL")
 		return
 	end
 

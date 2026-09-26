@@ -163,6 +163,53 @@ SkillData.cleric = {
 	},
 }
 
+SkillData.ice_mage = {
+	[1] = {
+		name = "Ice Spikes",
+		slot = 1,
+		keybind = "E",
+		cooldown = 6.0,
+		damage = 45,
+		range = 42,
+		width = 4.0,
+		projectileSpeed = 95, -- how fast the spike line races across the floor (studs/s)
+		description = "Send a racing line of crystalline spikes erupting from the floor, piercing and briefly freezing every enemy in its path.",
+	},
+	[2] = {
+		name = "Ice Beam",
+		slot = 2,
+		keybind = "F",
+		cooldown = 10.0,
+		damage = 120,
+		range = 55,
+		width = 3.0,
+		duration = 3.0,
+		description = "Channel a concentrated beam of absolute cold. It stops on the first enemy it touches, freezing and shredding it.",
+	},
+	[3] = {
+		name = "Ice Clone",
+		slot = 3,
+		keybind = "Q",
+		cooldown = 18.0,
+		damage = 60,
+		range = 34, -- taunt radius
+		duration = 10.0,
+		cloneHealth = 50,
+		explosionRadius = 14,
+		description = "Summon a crystalline clone (50 HP) that taunts nearby enemies. When destroyed it detonates in a freezing shockwave.",
+	},
+	[4] = {
+		name = "Blizzard",
+		slot = 4,
+		keybind = "R",
+		cooldown = 45.0,
+		damage = 200,
+		range = 48,
+		duration = 6.0,
+		description = "Ultimate: Call down a raging blizzard over the battlefield, freezing every enemy and battering those inside with ice.",
+	},
+}
+
 local SkillModule = {}
 
 function SkillModule.GetSkills(classId: string): ClassSkills?

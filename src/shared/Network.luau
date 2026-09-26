@@ -24,6 +24,7 @@ Network.Remotes = {
 	TomeChoices         = "TomeChoices",     -- server → client: { choices = TomeDefinition[] }
 	ChooseTome          = "ChooseTome",      -- client → server: tome id
 	RerollTomes         = "RerollTomes",     -- client → server: reroll the current tome choices
+	IceMageEvent        = "IceMageEvent",    -- server → all clients: { kind = "CloneShatter"|"Chill", ... }
 }
 
 local function getFolder(): Folder

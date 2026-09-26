@@ -21,6 +21,7 @@ local UltimateCameraChoreography = require(script.Parent:WaitForChild("UltimateC
 local IsometricCamera = require(script.Parent:WaitForChild("IsometricCamera"))
 local DivineBeamChannel = require(script.Parent:WaitForChild("DivineBeamChannel"))
 local ClericVFX = require(script.Parent:WaitForChild("ClericVFX"))
+local IceMageVFX = require(script.Parent:WaitForChild("IceMageVFX"))
 local AllyHover = require(script.Parent:WaitForChild("AllyHover"))
 AllyHover.Init()
 local DivineAscentCutscene = require(script.Parent:WaitForChild("DivineAscentCutscene"))
@@ -5034,6 +5035,35 @@ function SkillController.UseSkill(skillIndex: number)
 		if char == player.Character then
 			DivineAscentCutscene.Play(duration, aimDir)
 		end
+	elseif classId == "ice_mage" then
+		local areaMult = player:GetAttribute("Stat_size") or 1
+		local function releaseCast(after: number)
+			task.delay(after, function()
+				if char and char.Parent then
+					char:SetAttribute("IsSkillCasting", false)
+					char:SetAttribute("AllowSkillMovement", false)
+				end
+			end)
+		end
+		if skillIndex == 1 then
+			-- Ice Spikes: brief plant, then the spike line races out.
+			char:SetAttribute("AllowSkillMovement", false)
+			releaseCast(0.3)
+			IceMageVFX.playIceSpikes(char, rootPart.Position, aimDir, config.range or 42, config.projectileSpeed or 95, areaMult)
+		elseif skillIndex == 2 then
+			-- Ice Beam: rooted channel; the VFX clears the casting flags when it ends.
+			char:SetAttribute("AllowSkillMovement", false)
+			IceMageVFX.playIceBeam(char, config.range or 55, config.duration or 3, true)
+		elseif skillIndex == 3 then
+			-- Ice Clone: the server spawns the clone; its VFX attach when it replicates.
+			char:SetAttribute("AllowSkillMovement", false)
+			releaseCast(0.25)
+		elseif skillIndex == 4 then
+			-- Blizzard: short invocation, then free to move inside the storm.
+			char:SetAttribute("AllowSkillMovement", false)
+			releaseCast(0.6)
+			IceMageVFX.playBlizzard(rootPart.Position, (config.range or 48) * areaMult, config.duration or 6)
+		end
 	end
 
 	-- Fire Server Remote
@@ -5186,6 +5216,8 @@ local function performBasicAttack()
 			playRangerShootAnimation(char)
 		elseif selClass == "cleric" then
 			playClericBasicAttackVFX(char, aimDir)
+		elseif selClass == "ice_mage" then
+			IceMageVFX.playCrystalBolt(char, aimDir)
 		end
 	end
 
@@ -5202,6 +5234,7 @@ end
 -- Initialization & Event Connections
 -- ─────────────────────────────────────────────────────────────────────────────
 function SkillController.Init()
+	IceMageVFX.Init(triggerCameraShake)
 	local damageRemote = Network.GetRemoteEvent(Network.Remotes.DamageDealt)
 	damageRemote.OnClientEvent:Connect(showDamageNumber)
 	cloneKeybinds(nil)
@@ -5324,6 +5357,16 @@ function SkillController.Init()
   DivineBeamChannel.play(char, payload.range or 48, 5.0)
  elseif classId == "cleric" and skillIndex == 3 then
   ClericVFX.playRadiantGround(origin, 16 * (payload.areaMultiplier or 1))
+		elseif classId == "ice_mage" then
+			local cfg = SkillData.GetSkill("ice_mage", skillIndex) or {} :: any
+			local areaMult = payload.areaMultiplier or 1
+			if skillIndex == 1 then
+				IceMageVFX.playIceSpikes(char, origin, direction, cfg.range or 42, cfg.projectileSpeed or 95, areaMult)
+			elseif skillIndex == 2 then
+				IceMageVFX.playIceBeam(char, cfg.range or 55, cfg.duration or 3, false)
+			elseif skillIndex == 4 then
+				IceMageVFX.playBlizzard(origin, (cfg.range or 48) * areaMult, cfg.duration or 6)
+			end
 		end
 	end)
 

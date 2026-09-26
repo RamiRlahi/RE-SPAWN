@@ -294,7 +294,7 @@ local ClassData: { [string]: ClassInfo } = {
 		name = "Ice Mage",
 		title = "The Cryo Sorceress",
 		role = "Control / AoE Frost",
-		description = "Harnesses sub-zero arctic blizzards to lock down battlefield zones, construct impenetrable glacial barriers, and freeze enemies solid.",
+		description = "Weaves crystalline frost into spikes, beams and living ice. Pins enemies in place, baits them with a shattering clone, and buries the battlefield in a blizzard.",
 		accentColor = Color3.fromRGB(70, 220, 255),
 		stats = {
 			strength = 2,
@@ -306,10 +306,11 @@ local ClassData: { [string]: ClassInfo } = {
 			difficulty = 3,
 		},
 		abilities = {
-			{ name = "Glacial Shard", tag = "M1/Primary", description = "Hurl sharp ice daggers that apply stacking Frost (slows targets up to 50%)." },
-			{ name = "Frost Barrier", tag = "Skill 1", description = "Erect a massive ice wall that blocks incoming enemy attacks and movement." },
-			{ name = "Flash Freeze", tag = "Skill 2", description = "Trigger a sudden temperature drop, freezing all frosted enemies in place for 2s." },
-			{ name = "Absolute Blizzard", tag = "Ultimate", description = "Summon an apocalyptic blizzard that blankets the zone in blinding frost and heavy damage." },
+			{ name = "Ice Crystal", tag = "M1/Primary", description = "Fire a sleek ice crystal that shatters on the first enemy it hits." },
+			{ name = "Ice Spikes", tag = "Skill 1 (E)", description = "A racing line of crystalline spikes erupts from the floor, piercing and freezing all in its path." },
+			{ name = "Ice Beam", tag = "Skill 2 (F)", description = "Channel a blinding beam of absolute cold that stops on, and freezes, the first enemy it hits." },
+			{ name = "Ice Clone", tag = "Skill 3 (Q)", description = "Summon a crystalline clone that taunts foes, then explodes into a freezing shockwave." },
+			{ name = "Blizzard", tag = "Ultimate (R)", description = "Call down a raging blizzard that freezes the battlefield and batters enemies with ice." },
 		},
 		equipment = {
 			name = "Glacial Frostcore Orb & Permafrost Robes",

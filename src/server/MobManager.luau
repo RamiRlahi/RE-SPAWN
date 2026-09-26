@@ -216,6 +216,60 @@ function MobManager.IsMobsFrozen(): boolean
 	return mobsAreFrozen()
 end
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Decoys (e.g. Ice Mage clone): any mob within a decoy's taunt radius drops its
+-- current target and attacks the decoy instead.
+-- ─────────────────────────────────────────────────────────────────────────────
+local decoys: { [Model]: number } = {}
+
+function MobManager.RegisterDecoy(model: Model, tauntRadius: number)
+	decoys[model] = tauntRadius
+	model.AncestryChanged:Connect(function(_, parent)
+		if not parent then decoys[model] = nil end
+	end)
+end
+
+function MobManager.UnregisterDecoy(model: Model)
+	decoys[model] = nil
+end
+
+local function findDecoyTarget(mobPos: Vector3): (Model?, number)
+	local best, bestDist = nil, math.huge
+	for model, radius in pairs(decoys) do
+		local hum = model:FindFirstChildOfClass("Humanoid")
+		local root = model:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if model.Parent and hum and root and hum.Health > 0 then
+			local d = (root.Position - mobPos).Magnitude
+			if d <= radius and d < bestDist then
+				best, bestDist = model, d
+			end
+		end
+	end
+	return best, bestDist
+end
+
+local function isDecoy(model: Model?): boolean
+	return model ~= nil and decoys[model] ~= nil
+end
+
+-- Freeze a single mob solid for a moment (Ice Mage spikes/beam/clone shockwave).
+function MobManager.ChillMob(mobModel: Model, duration: number)
+	local rootPart = mobModel:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local hum = mobModel:FindFirstChildOfClass("Humanoid")
+	if not rootPart or not hum or hum.Health <= 0 then return end
+	if Players:GetPlayerFromCharacter(mobModel) or isDecoy(mobModel) then return end
+	local untilTime = os.clock() + duration
+	if (mobModel:GetAttribute("ChilledUntil") or 0) >= untilTime then return end
+	mobModel:SetAttribute("ChilledUntil", untilTime)
+	rootPart.Anchored = true
+	task.delay(duration, function()
+		if not rootPart.Parent then return end
+		if (mobModel:GetAttribute("ChilledUntil") or 0) > os.clock() then return end
+		if Workspace:GetAttribute("TomesPaused") == true then return end
+		rootPart.Anchored = false
+	end)
+end
+
 -- Fire an arrow projectile from a ranged mob toward a target character.
 local function fireArrow(originMob: Model, fromPos: Vector3, targetChar: Model, damage: number)
 	local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
@@ -258,7 +312,7 @@ local function fireArrow(originMob: Model, fromPos: Vector3, targetChar: Model, 
 			local hitChar = result.Instance:FindFirstAncestorOfClass("Model")
 			local hum = hitChar and hitChar:FindFirstChildOfClass("Humanoid")
 			local plr = hitChar and Players:GetPlayerFromCharacter(hitChar)
-			if hum and plr and plr:GetAttribute("InLobby") ~= true then
+			if hum and ((plr and plr:GetAttribute("InLobby") ~= true) or isDecoy(hitChar)) then
 				hum:TakeDamage(damage)
 			end
 			arrow:Destroy()
@@ -383,6 +437,8 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 
 	local function getTarget()
 		local mobPos = rootPart.Position
+		local decoy, decoyDist = findDecoyTarget(mobPos)
+		if decoy then return decoy, decoyDist end
 		local closest = nil
 		local closestDist = aggroRange
 		for _, plr in ipairs(Players:GetPlayers()) do
@@ -408,6 +464,10 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 		local hum = targetChar:FindFirstChildOfClass("Humanoid")
 		local pr = targetChar:FindFirstChild("HumanoidRootPart")
 		if not hum or not pr or hum.Health <= 0 then return end
+		if isDecoy(targetChar) then
+			hum:TakeDamage(damage)
+			return
+		end
 		local plr = Players:GetPlayerFromCharacter(targetChar)
 		if not plr or plr:GetAttribute("InLobby") == true then return end
 		hum:TakeDamage(damage)
@@ -440,6 +500,11 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 					humanoid.WalkSpeed = walkSpeed
 					rootPart.Anchored = false
 				end
+				continue
+			end
+
+			if (mobModel:GetAttribute("ChilledUntil") or 0) > os.clock() then
+				setWalk(false)
 				continue
 			end
 
@@ -661,7 +726,8 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 		if not hum or not pRoot or hum.Health <= 0 then return end
 
 		local plr = Players:GetPlayerFromCharacter(targetChar)
-		if not plr or plr:GetAttribute("InLobby") == true then return end
+		local decoyTarget = isDecoy(targetChar)
+		if not decoyTarget and (not plr or plr:GetAttribute("InLobby") == true) then return end
 
 		local now = os.clock()
 		if now - lastAttackTime < 0.85 then return end
@@ -669,12 +735,13 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 
 		local damage = (isBoss and 25 or 10) * DifficultyManager.GetMobScale().damage
 		hum:TakeDamage(damage)
+		if decoyTarget then return end
 
 		-- Apply knockback push to player
 		local diff = pRoot.Position - rootPart.Position
 		local pushDir = diff.Magnitude > 0.1 and diff.Unit or Vector3.new(1, 0, 0)
 		pRoot:ApplyImpulse((pushDir + Vector3.new(0, 0.25, 0)).Unit * (pRoot.AssemblyMass * 14))
-		print(`[MobManager] Mob '{mobModel.Name}' hit player {plr.Name} for {damage} damage!`)
+		print(`[MobManager] Mob '{mobModel.Name}' hit player {(plr :: Player).Name} for {damage} damage!`)
 	end
 
 	-- Run Chase AI Loop
@@ -701,11 +768,16 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 				continue
 			end
 
+			if (mobModel:GetAttribute("ChilledUntil") or 0) > os.clock() then continue end
+
 			local mobPos = rootPart.Position
 			local closestPlayerChar: Model? = nil
 			local closestDist = 75 -- Aggro range
 
-			for _, plr in ipairs(Players:GetPlayers()) do
+			local decoy = findDecoyTarget(mobPos)
+			if decoy then closestPlayerChar = decoy end
+
+			for _, plr in ipairs(if decoy then {} else Players:GetPlayers()) do
 				if plr:GetAttribute("InLobby") ~= true then
 					local char = plr.Character
 					if char and char.Parent then
