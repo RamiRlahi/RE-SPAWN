@@ -40,7 +40,11 @@ local MAX_HEAD_YAW      = math.rad(90)              -- Maximum 90° turn left an
 
 -- Transparency for obstructing ceilings / walls
 local OBSTACLE_TRANSPARENCY = 1.0
-local OCCLUSION_RADIUS      = 3.0 -- Tight character-sized radius along camera sightlines
+local OCCLUSION_RADIUS      = 1.0 -- Thin sightlines: only what actually blocks the view
+-- A hit only counts if it's at least this far in front of the player along the
+-- sightline (toward the camera). Anything beside or behind the player — walls
+-- you stand next to, props at your feet — is left alone.
+local PLAYER_CLEARANCE      = 2.5
 
 -- ─────────────────────────────────────────────────────────────────────────────
 
@@ -304,8 +308,8 @@ local function updateOcclusion(camPos: Vector3, targetPos: Vector3, character: M
 		targetPos,                                      -- Character center / torso
 		targetPos + Vector3.new(0, 2.2, 0),             -- Head
 		targetPos + Vector3.new(0, -1.0, 0),            -- Lower torso
-		targetPos + camRight * 2.0,                     -- Right shoulder
-		targetPos - camRight * 2.0,                     -- Left shoulder
+		targetPos + camRight * 1.2,                     -- Right shoulder
+		targetPos - camRight * 1.2,                     -- Left shoulder
 		targetPos + Vector3.new(0, 3.5, 0),             -- Low ceiling overhead
 	}
 
@@ -325,7 +329,11 @@ local function updateOcclusion(camPos: Vector3, targetPos: Vector3, character: M
 			if hitPart:IsA("BasePart") and hitPart.Transparency < 1 then
 				-- Only fade objects above floor level (never fade the ground under the player)
 				local isGround = rayResult.Position.Y < (targetPos.Y - 1.5)
-				if not isGround then
+				-- Only fade what is genuinely between the camera and the player:
+				-- where the hit sits along the sightline must end before the player.
+				local along = (rayResult.Position - origin):Dot(dirUnit)
+				local betweenCameraAndPlayer = along < totalDistance - PLAYER_CLEARANCE
+				if not isGround and betweenCameraAndPlayer then
 					markHit(hitPart, currentlyHit)
 				end
 			end
