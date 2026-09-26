@@ -178,6 +178,7 @@ local CLERIC_ROBE = {
 	rotation = nil :: CFrame?, -- force a rotation (e.g. ROT90) instead of auto-facing
 	raise = 0.1,        -- studs the robe's top sits above the shoulder line
 	forward = -0.35,    -- studs to push it forward (-) or back (+)
+	flip = true,        -- turn 180° (the mesh's back was facing forward)
 }
 
 local ARMOR_PIECE_SCALES: { [string]: number } = {
@@ -356,6 +357,9 @@ local function equipClassArmor(character: Model, classId: string)
 			end
 			-- Wider along Z than X means the mesh came in sideways: turn it 90°.
 			local facing = CLERIC_ROBE.rotation or (boxSize.Z > boxSize.X and ROT90 or CFrame.identity)
+			if CLERIC_ROBE.flip then
+				facing = CFrame.Angles(0, math.pi, 0) * facing
+			end
 			local drop = math.max(0, boxSize.Y * 0.5 - targetPart.Size.Y * 0.5) - CLERIC_ROBE.raise
 			rotOffset = CFrame.new(0, -drop, CLERIC_ROBE.forward) * facing
 			print(`[ArmorEquip] Cleric Robe box {boxSize}, dropped {drop} studs`)
