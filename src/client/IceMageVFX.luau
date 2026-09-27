@@ -1628,7 +1628,7 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 		-- R6 head parts are 2 studs wide but the visible head mesh is ~1.2, so
 		-- place the eyes by face size, not the part's bounding box.
 		local faceDepth = if head:FindFirstChildOfClass("SpecialMesh") then 0.6 else head.Size.Z * 0.5
-		local offs = CFrame.new(side * 0.16, 0.12, -faceDepth - 0.02)
+		local offs = CFrame.new(side * 0.2, 0.12, -faceDepth - 0.02)
 		local eye = newPart(folder, {
 			Name = "Eye",
 			Shape = Enum.PartType.Ball,

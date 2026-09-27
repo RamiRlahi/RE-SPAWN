@@ -306,7 +306,7 @@ AURAS.ice_mage = function(c)
 		for side = -1, 1, 2 do
 			local eye = part(c.folder, { Shape = Enum.PartType.Ball, Size = Vector3.new(0.18, 0.18, 0.18), Color = EYE,
 				Anchored = false, Massless = true,
-				CFrame = head.CFrame * CFrame.new(side * 0.16, 0.12,
+				CFrame = head.CFrame * CFrame.new(side * 0.2, 0.12,
 					-(if head:FindFirstChildOfClass("SpecialMesh") then 0.6 else head.Size.Z * 0.5) - 0.02) })
 			local w = Instance.new("WeldConstraint")
 			w.Part0, w.Part1 = head, eye
