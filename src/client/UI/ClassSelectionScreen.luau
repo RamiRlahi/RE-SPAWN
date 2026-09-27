@@ -13,6 +13,7 @@ local UltPreviewFX = require(script.Parent.Parent:WaitForChild("UltPreviewFX"))
 local LobbyCamera = require(script.Parent.Parent:WaitForChild("LobbyCamera"))
 local ClassArmor = require(Shared:WaitForChild("ClassArmor"))
 local IceCape = require(Shared:WaitForChild("IceCape"))
+local WeaponGrip = require(Shared:WaitForChild("WeaponGrip"))
 
 local player = Players.LocalPlayer
 
@@ -328,11 +329,11 @@ local function applyClassCosmetics(classId: string)
 				instance:Destroy()
 			end
 		end
-		for _, limbName in ipairs({ "Right Arm", "RightHand" }) do
+		for _, limbName in ipairs({ "Right Arm", "RightHand", "Left Arm", "LeftHand" }) do
 			local limb = character:FindFirstChild(limbName)
 			if limb then
 				for _, w in ipairs(limb:GetChildren()) do
-					if w.Name == "RightGrip" or w.Name == "PreviewGrip" or w:GetAttribute("PreviewArmor") or w:GetAttribute("PreviewWeapon") then
+					if w.Name == "RightGrip" or w.Name == "LeftGrip" or w.Name == "PreviewGrip" or w:GetAttribute("PreviewArmor") or w:GetAttribute("PreviewWeapon") then
 						w:Destroy()
 					end
 				end
@@ -365,6 +366,9 @@ local function applyClassCosmetics(classId: string)
 
 				tool.Parent = player.Backpack
 				humanoid:EquipTool(tool)
+				if classId == "ranger" then
+					WeaponGrip.ToLeftHand(character, tool) -- bow in the left hand, as in-game
+				end
 
 				print(`[DEBUG-ClientCosmetics] Preview equipped Tool '{tool.Name}' via Humanoid:EquipTool directly on {character.Name}`)
 			end

@@ -14,16 +14,18 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local WeaponGrip = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("WeaponGrip"))
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Configuration
 -- ─────────────────────────────────────────────────────────────────────────────
-local WEAPON_CONFIG: { [string]: { toolName: string } } = {
+local WEAPON_CONFIG: { [string]: { toolName: string, leftHand: boolean? } } = {
 	heavy_knight = {
 		toolName = "Greatsword",
 	},
 	ranger = {
 		toolName = "Bow",
+		leftHand = true,
 	},
 }
 
@@ -193,6 +195,11 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 		end
 
 
+	end
+
+	-- The Ranger holds the bow in the left hand.
+	if config.leftHand and humanoid then
+		WeaponGrip.ToLeftHand(character, tool)
 	end
 
 	print(`[WeaponManager] Successfully equipped Tool '{config.toolName}' via Humanoid:EquipTool for {player.Name}`)
