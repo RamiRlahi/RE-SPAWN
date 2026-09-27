@@ -28,6 +28,7 @@ local SkateController = require(script.Parent:WaitForChild("SkateController"))
 local RangerFlair = require(script.Parent:WaitForChild("RangerFlair"))
 local CapeController = require(script.Parent:WaitForChild("CapeController"))
 local HitFX = require(script.Parent:WaitForChild("HitFX"))
+local XPOrbs = require(script.Parent:WaitForChild("XPOrbs"))
 
 local DivineAscentCutscene = require(script.Parent:WaitForChild("DivineAscentCutscene"))
 
@@ -4852,6 +4853,8 @@ function SkillController.Init()
 			local pos = payload.position
 			local playerRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
 			if not playerRoot or (playerRoot.Position - pos).Magnitude > 110 then return end
+			-- XP sparks fly from the mob to us (the server awards XP to nearby players).
+			XPOrbs.spawn(pos, if payload.isBoss then 24 else 8)
 			local vfxHolder = Instance.new("Part")
 			vfxHolder.Name = "ClientBlueStarVFX"
 			vfxHolder.Size = Vector3.new(0.5, 0.5, 0.5)

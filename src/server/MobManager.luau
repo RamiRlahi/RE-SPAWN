@@ -104,13 +104,13 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Blue Star Death VFX (client-only, so bursts do not replicate as world instances)
 -- ─────────────────────────────────────────────────────────────────────────────
-local function triggerBlueStarDeathVFX(position: Vector3)
+local function triggerBlueStarDeathVFX(position: Vector3, isBoss: boolean?)
 	pcall(function()
 		local deathRemote = Network.GetRemoteEvent(Network.Remotes.MobDeathVFX)
 		for _, player in ipairs(Players:GetPlayers()) do
 			local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
 			if root and (root.Position - position).Magnitude <= 100 then
-				deathRemote:FireClient(player, { position = position })
+				deathRemote:FireClient(player, { position = position, isBoss = isBoss == true })
 			end
 		end
 	end)
@@ -598,7 +598,7 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 		if onDied then onDied() end
 
 		local pos = (rootPart and rootPart.Position) or mobModel:GetPivot().Position
-		triggerBlueStarDeathVFX(pos)
+		triggerBlueStarDeathVFX(pos, isBoss)
 		for _, player in ipairs(Players:GetPlayers()) do
 			local playerRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 			if player:GetAttribute("InLobby") ~= true and playerRoot and (playerRoot.Position - pos).Magnitude <= 120 then
@@ -829,7 +829,7 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 		local pos = (rootPart and rootPart.Position) or mobModel:GetPivot().Position
 		print(`[MobManager] Mob '{mobModel.Name}' died at {pos} — spawning Blue Star VFX!`)
 
-		triggerBlueStarDeathVFX(pos)
+		triggerBlueStarDeathVFX(pos, isBoss)
 		local xpReward = isBoss and 100 or 25
 		for _, player in ipairs(Players:GetPlayers()) do
 			local playerRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
