@@ -802,57 +802,121 @@ function DivineAscentCutscene.Play(duration: number, aimDir: Vector3?)
 		end
 
 		-- ── Camera choreography (fractions of the hold) ──
-		--   0.00-0.38  Reveal: low orbit sweeping around the tableau, rising
-		--   0.38-0.60  Push-in: close on the caster, FOV tightens, world holds its breath
-		--   0.60       JUDGMENT: sunburst, god rays, shockwaves, camera shake
-		--   0.60-1.00  Pull-back: wide, high shot revealing the whole celestial realm
+		--   0.00-0.60  THE REACH: extreme close-up tracking the caster's right hand
+		--              as it slowly reaches toward the allies (Creation of Adam);
+		--              the camera creeps in and the FOV tightens a lot
+		--   0.60       THE TOUCH: judgment sunburst, god rays, shockwaves, shake
+		--   0.60-1.00  Fast zoom-out (~0.4s) to the wide shot of the celestial realm
 		local t0 = os.clock()
 		local holdDur = math.max(0.6, duration - 0.7)
 		local CLIMAX = 0.6
+		local ZOOM_OUT_TIME = 0.4 -- seconds for the snap from the hand to the wide shot
 		local climaxFired = false
 		char:SetAttribute("HideHalo", true)
-		local orbitRadius = (nearPos - mid).Magnitude
-		local startAngle = math.atan2(nearPos.Z - mid.Z, nearPos.X - mid.X)
-		local closePos = casterPos + (Vector3.new(nearPos.X, casterPos.Y, nearPos.Z) - casterPos).Unit * 9 + Vector3.new(0, -1.2, 0)
 		local widePos = farPos + (farPos - mid).Unit * 22 + Vector3.new(0, 14, 0)
 		local function smooth(x: number): number
 			x = math.clamp(x, 0, 1)
 			return x * x * (3 - 2 * x)
 		end
+
+		-- The reaching arm (R6 first, R15 fallback). Only this shoulder is
+		-- overridden; the rest of the angel pose keeps playing.
+		local torsoPart = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+		local shoulder = (torsoPart and torsoPart:FindFirstChild("Right Shoulder"))
+			or (char:FindFirstChild("RightUpperArm") and (char :: any).RightUpperArm:FindFirstChild("RightShoulder"))
+		local handPart = (char:FindFirstChild("Right Arm") or char:FindFirstChild("RightHand")) :: BasePart?
+		local shoulderBasis = (shoulder and shoulder:IsA("Motor6D")) and shoulder.C0.Rotation or CFrame.identity
+		local function handPos(): Vector3
+			if handPart then
+				return (handPart.CFrame * CFrame.new(0, -handPart.Size.Y * 0.5, 0)).Position
+			end
+			return casterPos + Vector3.new(0, 1, 0)
+		end
+
+		-- A point of holy light gathering at the fingertips.
+		local fingertip = Instance.new("Part")
+		fingertip.Name = "AscentFingertip"
+		fingertip.Shape = Enum.PartType.Ball
+		fingertip.Anchored, fingertip.CanCollide, fingertip.CanQuery, fingertip.CanTouch, fingertip.CastShadow = true, false, false, false, false
+		fingertip.Material = Enum.Material.Neon
+		fingertip.Color = HOLY_WHITE
+		fingertip.Size = Vector3.new(0.05, 0.05, 0.05)
+		fingertip.Parent = Workspace.Terrain
+		local tipLight = Instance.new("PointLight")
+		tipLight.Color, tipLight.Range, tipLight.Brightness, tipLight.Shadows = HOLY_WARM, 8, 0, false
+		tipLight.Parent = fingertip
+		-- Shallow focus on the hand while we're close.
+		local dof = Instance.new("DepthOfFieldEffect")
+		dof.Name = "AscentReachDOF"
+		dof.FarIntensity = 0.45
+		dof.NearIntensity = 0
+		dof.InFocusRadius = 3
+		dof.FocusDistance = 4
+		dof.Parent = game:GetService("Lighting")
+		task.delay(duration + 1, function()
+			if dof.Parent then dof:Destroy() end
+			if fingertip.Parent then fingertip:Destroy() end
+		end)
+
+		local closeCamPos: Vector3? = nil
+		local closeLook: Vector3? = nil
+		local closeFov = 20
 		while still() and (os.clock() - t0) < holdDur do
 			local a = math.clamp((os.clock() - t0) / holdDur, 0, 1)
 			local camPos: Vector3, lookAt: Vector3, fov: number
-			if a < 0.38 then
-				local k = smooth(a / 0.38)
-				local ang = startAngle - math.rad(55) * (1 - k)
-				camPos = Vector3.new(mid.X + math.cos(ang) * orbitRadius, nearPos.Y - 3 * (1 - k), mid.Z + math.sin(ang) * orbitRadius)
-				lookAt = focus
-				fov = CAM_FOV + 8 * (1 - k)
-			elseif a < CLIMAX then
-				local k = smooth((a - 0.38) / (CLIMAX - 0.38))
-				camPos = nearPos:Lerp(closePos, k)
-				lookAt = focus:Lerp(casterPos + Vector3.new(0, 1.5, 0), k)
-				fov = CAM_FOV - 14 * k
+
+			-- Reach direction: toward the allies, slightly upward.
+			local liveTarget = allyCenter(skyMinY) or center
+			local reachDir = (liveTarget - casterPos)
+			reachDir = reachDir.Magnitude > 0.1 and reachDir.Unit or flatAim
+			local flatReach = Vector3.new(reachDir.X, 0, reachDir.Z)
+			flatReach = flatReach.Magnitude > 0.01 and flatReach.Unit or flatAim
+			local sideDir = flatReach:Cross(Vector3.yAxis).Unit
+
+			if a < CLIMAX then
+				local k = smooth(a / CLIMAX)
+				local hand = handPos()
+				-- Camera beside and slightly under the hand, just behind it, looking
+				-- along the reach so the allies sit (blurred) in the background.
+				local dist = 5 - 2.8 * k
+				camPos = hand - sideDir * dist * 0.85 - flatReach * dist * 0.45 + Vector3.new(0, -0.5 - 0.3 * k, 0)
+				lookAt = hand + reachDir * (1.2 + 0.8 * k)
+				fov = 34 - 14 * k
+				closeCamPos, closeLook, closeFov = camPos, lookAt, fov
+				dof.FocusDistance = (hand - camPos).Magnitude
+				-- Fingertip light swells as the reach nears the touch.
+				fingertip.CFrame = CFrame.new(hand + reachDir * 0.25)
+				local g = 0.15 + 0.55 * k * k
+				fingertip.Size = Vector3.one * g
+				tipLight.Brightness = 3 * k
 			else
-				local k = smooth((a - CLIMAX) / (1 - CLIMAX))
-				camPos = closePos:Lerp(widePos, k)
-				lookAt = (casterPos + Vector3.new(0, 1.5, 0)):Lerp(focus, k)
-				fov = (CAM_FOV - 14) + 26 * k
+				local since = (a - CLIMAX) * holdDur
+				local k = 1 - (1 - math.clamp(since / ZOOM_OUT_TIME, 0, 1)) ^ 4 -- fast, then settles
+				local drift = smooth((a - CLIMAX) / (1 - CLIMAX))
+				local fromPos = closeCamPos or widePos
+				local fromLook = closeLook or focus
+				camPos = fromPos:Lerp(widePos + Vector3.new(0, 3 * drift, 0), k)
+				lookAt = fromLook:Lerp(focus, k)
+				fov = closeFov + ((CAM_FOV + 12) - closeFov) * k
+				if dof.Parent then dof:Destroy() end
+				if fingertip.Parent then
+					fingertip.Transparency = math.clamp(since / 0.3, 0, 1)
+				end
 			end
+
 			if a >= CLIMAX and not climaxFired then
 				climaxFired = true
 				-- Plant the judgment sigil behind the caster's back (away from the
 				-- camera) so it frames them instead of sitting on top of them.
 				local away = Vector3.new(casterPos.X - camPos.X, 0, casterPos.Z - camPos.Z)
 				away = away.Magnitude > 0.01 and away.Unit or -flatAim
-				ClericFlair.judgment(casterPos + away * 6 + Vector3.new(0, 2.5, 0), camPos)
+				ClericFlair.judgment(casterPos + away * 6 + Vector3.new(0, 2.5, 0), widePos)
 			end
-			-- Impact shake decays over ~0.6s after the climax.
+			-- Impact shake decays over ~0.6s after the touch.
 			local sinceClimax = (a - CLIMAX) * holdDur
 			if climaxFired and sinceClimax < 0.6 then
 				local amp = (1 - sinceClimax / 0.6) * 1.2
 				camPos += Vector3.new((math.random() - 0.5) * amp, (math.random() - 0.5) * amp, (math.random() - 0.5) * amp)
-				fov -= (1 - sinceClimax / 0.6) * 6
 			end
 			camera.CFrame = CFrame.lookAt(camPos, lookAt)
 			camera.FieldOfView = fov
@@ -864,6 +928,16 @@ function DivineAscentCutscene.Play(duration: number, aimDir: Vector3?)
 			end
 
 			poseAngel(char, liveCenter)
+			-- The reach: override the right shoulder (character-space pose converted
+			-- into the motor's C0 frame). Slow ease up to full extension, with a
+			-- faint strain tremble as the fingers near the touch.
+			if shoulder and shoulder:IsA("Motor6D") then
+				local a2 = math.clamp((os.clock() - t0) / holdDur, 0, 1)
+				local r = smooth(math.min(a2 / CLIMAX, 1))
+				local strain = (a2 < CLIMAX) and math.sin(os.clock() * 40) * 1.2 * r * r or 0
+				local pose = CFrame.Angles(math.rad(-5 + 102 * r + strain), 0, math.rad(12 - 20 * r))
+				shoulder.Transform = shoulderBasis:Inverse() * pose * shoulderBasis
+			end
 			local dt = RunService.RenderStepped:Wait()
 			updateRings(dt)
 			updateDebris(dt)
@@ -874,6 +948,9 @@ function DivineAscentCutscene.Play(duration: number, aimDir: Vector3?)
 			if token == my then restoreShadows() end -- caster died mid-cinematic
 			return
 		end
+
+		if fingertip.Parent then fingertip:Destroy() end
+		if dof.Parent then dof:Destroy() end
 
 		-- Cleanup all VFX
 		cleanupFolder(cloudOcean)
