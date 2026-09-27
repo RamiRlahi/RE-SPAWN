@@ -11,6 +11,7 @@ local SoundManager = require(script.Parent:WaitForChild("SoundManager"))
 local CastPoses = require(script.Parent.Parent:WaitForChild("CastPoses"))
 local UltPreviewFX = require(script.Parent.Parent:WaitForChild("UltPreviewFX"))
 local LobbyCamera = require(script.Parent.Parent:WaitForChild("LobbyCamera"))
+local TalentConstellation = require(script.Parent:WaitForChild("TalentConstellation"))
 local ClassArmor = require(Shared:WaitForChild("ClassArmor"))
 local IceCape = require(Shared:WaitForChild("IceCape"))
 local WeaponGrip = require(Shared:WaitForChild("WeaponGrip"))
@@ -506,6 +507,10 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 
 	UITheme.AddCorner(leftPanel, 10)
 	local leftStroke = UITheme.AddStroke(leftPanel, UITheme.Colors.Border, 1.5, 0.4)
+	-- The info pane is replaced by the class's talent constellation. It's kept
+	-- (hidden) because the carousel still writes class details into it.
+	leftPanel.Visible = false
+	local constellation = TalentConstellation.Create(container)
 
 	local leftScroll = Instance.new("ScrollingFrame")
 	leftScroll.Name = "LeftScroll"
@@ -934,6 +939,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 
 		local locked = not ClassData.IsPlayable(classId)
 		local accent = locked and Color3.fromRGB(90, 90, 95) or info.accentColor
+		constellation.Show(classId, accent, locked)
 
 		-- Apply class-specific cosmetic armor preview on the character
 		applyClassCosmetics(classId)

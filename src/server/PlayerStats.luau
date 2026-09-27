@@ -9,6 +9,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local ClassData = require(Shared:WaitForChild("ClassData"))
 local TomeData = require(Shared:WaitForChild("TomeData"))
+local TalentManager = require(script.Parent:WaitForChild("TalentManager"))
 
 local PlayerStats = {}
 
@@ -30,6 +31,7 @@ type RunState = {
 	tomeCounts: { [string]: number },
 	uniqueTomes: { string },
 	chaosBoosts: { string },
+	talentEffects: { any }, -- unlocked class talents (TalentManager), fixed for the run
 	stats: { [string]: number },
 }
 
@@ -163,6 +165,26 @@ local function applyStats(player: Player, state: RunState)
 		end
 	end
 
+	-- Unlocked class talents (same effect rules as a single tome).
+	for _, effect in ipairs(state.talentEffects or {}) do
+		local value = effect.value
+		if effect.operation == "add" then
+			stats[effect.stat] = (stats[effect.stat] or 0) + value
+		elseif effect.operation == "multiplier" then
+			stats[effect.stat] = (stats[effect.stat] or 1) + value
+		elseif effect.operation == "percent" then
+			if effect.stat == "evasion" or effect.stat == "critChance" or effect.stat == "lifesteal" or effect.stat == "luck" then
+				stats[effect.stat] = (stats[effect.stat] or 0) + value
+			elseif effect.stat == "abilityCooldown" then
+				stats[effect.stat] *= math.max(0.1, 1 - value)
+			elseif effect.stat == "size" then
+				stats.size = (stats.size or 1) * (1 + value)
+			else
+				percentageBonuses[effect.stat] = (percentageBonuses[effect.stat] or 0) + value
+			end
+		end
+	end
+
 	for stat, bonus in pairs(percentageBonuses) do
 		stats[stat] = (stats[stat] or 1) * (1 + bonus)
 	end
@@ -242,8 +264,13 @@ function PlayerStats.StartRun(player: Player)
 		tomeCounts = {},
 		uniqueTomes = {},
 		chaosBoosts = {},
+		talentEffects = {},
 		stats = {},
 	}
+	local classId = player:GetAttribute("SelectedClass")
+	if typeof(classId) == "string" then
+		state.talentEffects = TalentManager.GetEffects(player, classId)
+	end
 	states[player] = state
 	player:SetAttribute("Gold", 150)
 	player:SetAttribute("ArtifactCount", 0)

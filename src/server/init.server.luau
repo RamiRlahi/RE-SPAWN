@@ -8,11 +8,13 @@ local MobManager        = require(script:WaitForChild("MobManager"))
 local PlayerStats       = require(script:WaitForChild("PlayerStats"))
 local AllyManager      = require(script:WaitForChild("AllyManager"))
 local DifficultyManager = require(script:WaitForChild("DifficultyManager"))
+local TalentManager     = require(script:WaitForChild("TalentManager"))
 
 print("[Server] Initializing SoloProject Game Server...")
 
 ClassManager.Init()
 PlayerStats.Init()
+TalentManager.Init()
 PlayerManager.Init()
 WeaponManager.Init()
 AnimationManager.Init()
