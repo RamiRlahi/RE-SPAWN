@@ -24,6 +24,11 @@ Network.Remotes = {
 	TomeChoices         = "TomeChoices",     -- server → client: { choices = TomeDefinition[] }
 	ChooseTome          = "ChooseTome",      -- client → server: tome id
 	RerollTomes         = "RerollTomes",     -- client → server: reroll the current tome choices
+	GachaState          = "GachaState",      -- server → client: currencies, collection, equipped, pity, policy
+	Summon              = "Summon",          -- client → server: { banner, count = 1|10, pay = "tickets"|"crystals" }
+	SummonResult        = "SummonResult",    -- server → client: { results = { {id, rarity, isNew, note} }, best } | { error }
+	GachaAction         = "GachaAction",     -- client → server: equipRelic / unequipRelic / equipVariant / refineShards / buyCrystals
+	RequestGacha        = "RequestGacha",    -- client → server: ask for a GachaState sync
 	TalentState         = "TalentState",     -- server → client: { souls, unlocked = { [classId] = { [nodeId] = true } } }
 	UnlockTalent        = "UnlockTalent",    -- client → server: { classId, nodeId }
 	RequestTalents      = "RequestTalents",  -- client → server: ask for a TalentState sync

@@ -8,13 +8,17 @@ local MobManager        = require(script:WaitForChild("MobManager"))
 local PlayerStats       = require(script:WaitForChild("PlayerStats"))
 local AllyManager      = require(script:WaitForChild("AllyManager"))
 local DifficultyManager = require(script:WaitForChild("DifficultyManager"))
+local PlayerData        = require(script:WaitForChild("PlayerData"))
 local TalentManager     = require(script:WaitForChild("TalentManager"))
+local GachaManager      = require(script:WaitForChild("GachaManager"))
 
 print("[Server] Initializing SoloProject Game Server...")
 
 ClassManager.Init()
 PlayerStats.Init()
 TalentManager.Init()
+GachaManager.Init()
+PlayerData.Init() -- after the systems above have registered their OnLoaded hooks
 PlayerManager.Init()
 WeaponManager.Init()
 AnimationManager.Init()

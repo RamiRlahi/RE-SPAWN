@@ -12,6 +12,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local PlayerStats = require(script.Parent:WaitForChild("PlayerStats"))
 local TalentManager = require(script.Parent:WaitForChild("TalentManager"))
+local GachaManager = require(script.Parent:WaitForChild("GachaManager"))
 local DifficultyManager = require(script.Parent:WaitForChild("DifficultyManager"))
 
 local MobManager = {}
@@ -607,6 +608,7 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 				-- Gold funds the shop and the gambling den.
 				PlayerStats.AwardGold(player, if isBoss then math.random(60, 90) else math.random(3, 7))
 				TalentManager.OnMobKilled(player, isBoss)
+				GachaManager.OnMobKilled(player, isBoss)
 			end
 		end
 
@@ -840,6 +842,7 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 				-- Gold funds the shop and the gambling den.
 				PlayerStats.AwardGold(player, if isBoss then math.random(60, 90) else math.random(3, 7))
 				TalentManager.OnMobKilled(player, isBoss)
+				GachaManager.OnMobKilled(player, isBoss)
 			end
 		end
 

@@ -12,6 +12,7 @@ local CastPoses = require(script.Parent.Parent:WaitForChild("CastPoses"))
 local UltPreviewFX = require(script.Parent.Parent:WaitForChild("UltPreviewFX"))
 local LobbyCamera = require(script.Parent.Parent:WaitForChild("LobbyCamera"))
 local TalentConstellation = require(script.Parent:WaitForChild("TalentConstellation"))
+local SummonScreen = require(script.Parent:WaitForChild("SummonScreen"))
 local ClassArmor = require(Shared:WaitForChild("ClassArmor"))
 local IceCape = require(Shared:WaitForChild("IceCape"))
 local WeaponGrip = require(Shared:WaitForChild("WeaponGrip"))
@@ -511,6 +512,24 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	-- (hidden) because the carousel still writes class details into it.
 	leftPanel.Visible = false
 	local constellation = TalentConstellation.Create(container)
+
+	-- Summon (gacha) entry point.
+	local summonBtn = Instance.new("TextButton")
+	summonBtn.Name = "SummonButton"
+	summonBtn.AnchorPoint = Vector2.new(1, 0)
+	summonBtn.Position = UDim2.new(1, -24, 0, 20)
+	summonBtn.Size = UDim2.fromOffset(170, 44)
+	summonBtn.BackgroundColor3 = UITheme.Colors.Gold
+	summonBtn.Font = UITheme.Fonts.Button
+	summonBtn.TextSize = 17
+	summonBtn.TextColor3 = Color3.fromRGB(20, 15, 10)
+	summonBtn.Text = "✦ SUMMON"
+	summonBtn.Parent = container
+	UITheme.AddCorner(summonBtn, 8)
+	summonBtn.MouseButton1Click:Connect(function()
+		SoundManager.PlayConfirm()
+		SummonScreen.Open()
+	end)
 
 	local leftScroll = Instance.new("ScrollingFrame")
 	leftScroll.Name = "LeftScroll"

@@ -10,6 +10,7 @@ local Network = require(Shared:WaitForChild("Network"))
 local ClassData = require(Shared:WaitForChild("ClassData"))
 local TomeData = require(Shared:WaitForChild("TomeData"))
 local TalentManager = require(script.Parent:WaitForChild("TalentManager"))
+local GachaManager = require(script.Parent:WaitForChild("GachaManager"))
 
 local PlayerStats = {}
 
@@ -269,7 +270,11 @@ function PlayerStats.StartRun(player: Player)
 	}
 	local classId = player:GetAttribute("SelectedClass")
 	if typeof(classId) == "string" then
+		-- Class talents + gacha bonuses (awakening, exclusive variant, relics).
 		state.talentEffects = TalentManager.GetEffects(player, classId)
+		for _, e in ipairs(GachaManager.GetEffects(player, classId)) do
+			table.insert(state.talentEffects, e)
+		end
 	end
 	states[player] = state
 	player:SetAttribute("Gold", 150)
