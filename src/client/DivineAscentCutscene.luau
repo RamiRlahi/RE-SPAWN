@@ -25,17 +25,50 @@ local token = 0
 -- stamp dark silhouettes onto the cloud ocean). Saved once so overlapping or
 -- interrupted cutscenes always restore the dungeon's original setting.
 local Lighting = game:GetService("Lighting")
-local savedGlobalShadows: boolean? = nil
-local function suppressShadows()
-	if savedGlobalShadows == nil then
-		savedGlobalShadows = Lighting.GlobalShadows
+-- The caster is rim-lit from behind (golden wings/halo), so the cutscene also
+-- warms the ambient fill and adds a soft key light on the camera side —
+-- otherwise the face and front of the body read as a dark shadow.
+local savedLighting: { [string]: any }? = nil
+local keyLight: Attachment? = nil
+local CUTSCENE_AMBIENT = Color3.fromRGB(150, 132, 108)
+local CUTSCENE_OUTDOOR = Color3.fromRGB(175, 160, 135)
+
+local function suppressShadows(root: BasePart?)
+	if savedLighting == nil then
+		savedLighting = {
+			GlobalShadows = Lighting.GlobalShadows,
+			Ambient = Lighting.Ambient,
+			OutdoorAmbient = Lighting.OutdoorAmbient,
+		}
 	end
 	Lighting.GlobalShadows = false
+	Lighting.Ambient = CUTSCENE_AMBIENT
+	Lighting.OutdoorAmbient = CUTSCENE_OUTDOOR
+	if root and not (keyLight and keyLight.Parent) then
+		-- Soft warm key light in front of the caster, slightly above the face.
+		local a = Instance.new("Attachment")
+		a.Name = "AscentKeyLight"
+		a.Position = Vector3.new(0, 2.5, -5)
+		a.Parent = root
+		local l = Instance.new("PointLight")
+		l.Color = Color3.fromRGB(255, 236, 200)
+		l.Brightness = 2.2
+		l.Range = 14
+		l.Shadows = false
+		l.Parent = a
+		keyLight = a
+	end
 end
 local function restoreShadows()
-	if savedGlobalShadows ~= nil then
-		Lighting.GlobalShadows = savedGlobalShadows
-		savedGlobalShadows = nil
+	if savedLighting ~= nil then
+		for k, v in pairs(savedLighting) do
+			(Lighting :: any)[k] = v
+		end
+		savedLighting = nil
+	end
+	if keyLight then
+		keyLight:Destroy()
+		keyLight = nil
 	end
 end
 
@@ -631,7 +664,7 @@ function DivineAscentCutscene.Play(duration: number, aimDir: Vector3?)
 	-- No black fade screen — direct camera cut
 
 	camera.CameraType = Enum.CameraType.Scriptable
-	suppressShadows()
+	suppressShadows(root)
 
 	local function still(): boolean
 		return token == my and char.Parent ~= nil
@@ -751,7 +784,11 @@ function DivineAscentCutscene.Play(duration: number, aimDir: Vector3?)
 			end
 			if a >= CLIMAX and not climaxFired then
 				climaxFired = true
-				ClericFlair.judgment(casterPos + Vector3.new(0, 3, 0), camPos)
+				-- Plant the judgment sigil behind the caster's back (away from the
+				-- camera) so it frames them instead of sitting on top of them.
+				local away = Vector3.new(casterPos.X - camPos.X, 0, casterPos.Z - camPos.Z)
+				away = away.Magnitude > 0.01 and away.Unit or -flatAim
+				ClericFlair.judgment(casterPos + away * 6 + Vector3.new(0, 2.5, 0), camPos)
 			end
 			-- Impact shake decays over ~0.6s after the climax.
 			local sinceClimax = (a - CLIMAX) * holdDur
