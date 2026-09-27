@@ -327,16 +327,25 @@ local ClassData: { [string]: ClassInfo } = {
 	},
 }
 
--- Array order for Carousel / UI display
+-- Classes with a finished kit. The rest are shown locked in class selection
+-- and rejected by the server.
+local PlayableClasses: { [string]: boolean } = {
+	heavy_knight = true,
+	ranger = true,
+	cleric = true,
+	ice_mage = true,
+}
+
+-- Array order for Carousel / UI display: playable classes first, locked after.
 local ClassOrder: { string } = {
-	"brawler",
 	"heavy_knight",
+	"ranger",
+	"cleric",
+	"ice_mage",
+	"brawler",
 	"sorcerer",
 	"assassin",
-	"cleric",
-	"ranger",
 	"gunslinger",
-	"ice_mage",
 }
 
 return {
@@ -344,5 +353,8 @@ return {
 	Order = ClassOrder,
 	GetClass = function(id: string): ClassInfo?
 		return ClassData[id]
+	end,
+	IsPlayable = function(id: string): boolean
+		return PlayableClasses[id] == true
 	end,
 }

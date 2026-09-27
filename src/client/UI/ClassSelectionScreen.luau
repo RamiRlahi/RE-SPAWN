@@ -8,6 +8,7 @@ local UITheme = require(Shared:WaitForChild("UITheme"))
 local ClassData = require(Shared:WaitForChild("ClassData"))
 local SkillData = require(Shared:WaitForChild("SkillData"))
 local SoundManager = require(script.Parent:WaitForChild("SoundManager"))
+local CastPoses = require(script.Parent.Parent:WaitForChild("CastPoses"))
 
 local player = Players.LocalPlayer
 
@@ -268,7 +269,44 @@ local currentAnimToken = 0
 local currentPreviewTrack: AnimationTrack? = nil
 local currentScreenContainer: CanvasGroup? = nil
 
+-- Locked classes: the preview character becomes a black silhouette.
+local SILHOUETTE = Color3.fromRGB(8, 8, 10)
+local silhouetted: { [Instance]: { [string]: any } } = {}
+local function setSilhouette(character: Model?, on: boolean)
+	if on and character and next(silhouetted) == nil then
+		for _, d in ipairs(character:GetDescendants()) do
+			if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" and d.Transparency < 1 then
+				local saved: { [string]: any } = { Color = d.Color, Material = d.Material }
+				if d:IsA("MeshPart") then
+					saved.TextureID = d.TextureID
+					d.TextureID = ""
+				end
+				silhouetted[d] = saved
+				d.Color = SILHOUETTE
+				d.Material = Enum.Material.SmoothPlastic
+			elseif d:IsA("Decal") or d:IsA("Texture") then
+				silhouetted[d] = { Transparency = d.Transparency }
+				d.Transparency = 1
+			elseif d:IsA("SpecialMesh") and d.TextureId ~= "" then
+				silhouetted[d] = { TextureId = d.TextureId }
+				d.TextureId = ""
+			end
+		end
+	elseif not on then
+		for inst, props in pairs(silhouetted) do
+			if inst.Parent then
+				for k, v in pairs(props) do
+					(inst :: any)[k] = v
+				end
+			end
+		end
+		table.clear(silhouetted)
+	end
+end
+
 local function stopPreviewAnimation()
+	CastPoses.stop(player.Character)
+	setSilhouette(player.Character, false)
 	currentAnimToken += 1
 	if currentPreviewTrack then
 		currentPreviewTrack:Stop(0.2)
@@ -301,6 +339,14 @@ local function playPreviewAnimation(character: Model, classId: string)
 		currentPreviewTrack:Stop(0.2)
 		currentPreviewTrack:Destroy()
 		currentPreviewTrack = nil
+	end
+
+	CastPoses.stop(character)
+	if not ClassData.IsPlayable(classId) then return end
+	-- Every class shows its ultimate pose; only the Heavy Knight's is an uploaded
+	-- animation, the others are held procedural poses.
+	if classId ~= "heavy_knight" and CastPoses.holdUltPreview(character, classId) then
+		return
 	end
 
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
@@ -1062,7 +1108,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	---------------------------------------------------------------------
 	-- Carousel State & Transition Logic
 	---------------------------------------------------------------------
-	local currentIndex = 2 -- Default to Heavy Knight (index 2)
+	local currentIndex = 1 -- First class in the order is playable (Heavy Knight)
 	local isTransitioning = false
 
 	local function updateCarouselUI(index: number, isSlideTransition: boolean?)
@@ -1074,25 +1120,38 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		-- blond-gold hair tint; navigating away restores the original color.
 		tintKnightHair(player.Character, classId)
 
+		local locked = not ClassData.IsPlayable(classId)
+		local accent = locked and Color3.fromRGB(90, 90, 95) or info.accentColor
+
 		-- Apply class-specific cosmetic armor preview on the character
 		applyClassCosmetics(classId)
+		setSilhouette(player.Character, false)
+		if locked then
+			setSilhouette(player.Character, true)
+		end
 
 		headerCounter.Text = `CLASS {index} OF {#ClassData.Order} • {info.name:upper()}`
 
 		-- Update Left Panel
-		classNameLabel.Text = info.name:upper()
-		classNameLabel.TextColor3 = info.accentColor
-		subtitleLabel.Text = info.title
+		classNameLabel.Text = if locked then `{info.name:upper()} · LOCKED` else info.name:upper()
+		classNameLabel.TextColor3 = accent
+		subtitleLabel.Text = if locked then "Coming soon" else info.title
 		roleBadge.Text = `[{info.role:upper()}]`
-		roleBadge.TextColor3 = info.accentColor
-		descLabel.Text = info.description
+		roleBadge.TextColor3 = accent
+		descLabel.Text = if locked then "This class is still being forged. Check back soon." else info.description
+		-- Confirm is disabled on locked classes.
+		confirmBtn.Text = if locked then "LOCKED" else "CONFIRM & ENTER WORLD"
+		confirmBtn.BackgroundColor3 = if locked then Color3.fromRGB(40, 40, 44) else UITheme.Colors.Gold
+		confirmBtn.TextColor3 = if locked then Color3.fromRGB(130, 130, 135) else Color3.fromRGB(20, 15, 10)
+		local grad = confirmBtn:FindFirstChildOfClass("UIGradient")
+		if grad then grad.Enabled = not locked end
 
 		-- Update Border Accents to match active Class Color
-		leftStroke.Color = info.accentColor
-		rightStroke.Color = info.accentColor
-		eqStroke.Color = info.accentColor
-		prevStroke.Color = info.accentColor
-		nextStroke.Color = info.accentColor
+		leftStroke.Color = accent
+		rightStroke.Color = accent
+		eqStroke.Color = accent
+		prevStroke.Color = accent
+		nextStroke.Color = accent
 
 		-- Update Stats Pips
 		for _, key in ipairs(statKeys) do
@@ -1101,7 +1160,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 			if pips then
 				for bIdx, pip in ipairs(pips) do
 					local active = bIdx <= val
-					pip.BackgroundColor3 = active and info.accentColor or UITheme.Colors.SurfaceSelected
+					pip.BackgroundColor3 = active and accent or UITheme.Colors.SurfaceSelected
 				end
 			end
 		end
@@ -1131,7 +1190,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 			abTag.BackgroundColor3 = UITheme.Colors.Surface
 			abTag.Font = UITheme.Fonts.Tag
 			abTag.TextSize = 9
-			abTag.TextColor3 = info.accentColor
+			abTag.TextColor3 = accent
 			abTag.Text = ab.tag:upper()
 			abTag.Parent = abCard
 			UITheme.AddCorner(abTag, 3)
@@ -1145,7 +1204,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 			abName.TextSize = 12
 			abName.TextColor3 = UITheme.Colors.TextPrimary
 			abName.TextXAlignment = Enum.TextXAlignment.Left
-			abName.Text = ab.name
+			abName.Text = if locked then "???" else ab.name
 			abName.Parent = abCard
 
 			local abDesc = Instance.new("TextLabel")
@@ -1157,7 +1216,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 			abDesc.TextSize = 10
 			abDesc.TextColor3 = UITheme.Colors.TextMuted
 			abDesc.TextXAlignment = Enum.TextXAlignment.Left
-			abDesc.Text = ab.description
+			abDesc.Text = if locked then "" else ab.description
 			abDesc.Parent = abCard
 		end
 
@@ -1218,12 +1277,13 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 			if isActive then
 				TweenService:Create(dot, UITheme.Tweens.Fast, {
 					Size = UDim2.new(0, 24, 0, 10),
-					BackgroundColor3 = info.accentColor,
+					BackgroundColor3 = accent,
 				}):Play()
 			else
+				local dotLocked = not ClassData.IsPlayable(ClassData.Order[dIdx])
 				TweenService:Create(dot, UITheme.Tweens.Fast, {
 					Size = UDim2.new(0, 10, 0, 10),
-					BackgroundColor3 = UITheme.Colors.SurfaceSelected,
+					BackgroundColor3 = if dotLocked then Color3.fromRGB(14, 14, 16) else UITheme.Colors.SurfaceSelected,
 				}):Play()
 			end
 		end
@@ -1275,9 +1335,10 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 
 	-- Hook Confirm Button
 	UITheme.MakeButtonInteractive(confirmBtn, confirmStroke, UITheme.Colors.GoldLight, SoundManager.PlayHover, function()
+		local selectedClassId = ClassData.Order[currentIndex]
+		if not ClassData.IsPlayable(selectedClassId) then return end
 		SoundManager.PlayConfirm()
 		stopPreviewAnimation()
-		local selectedClassId = ClassData.Order[currentIndex]
 		callbacks.onConfirmClass(selectedClassId)
 	end)
 
@@ -1291,9 +1352,10 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		elseif input.KeyCode == Enum.KeyCode.D or input.KeyCode == Enum.KeyCode.Right then
 			navigateCarousel(1)
 		elseif input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.Space then
+			local selectedClassId = ClassData.Order[currentIndex]
+			if not ClassData.IsPlayable(selectedClassId) then return end
 			SoundManager.PlayConfirm()
 			stopPreviewAnimation()
-			local selectedClassId = ClassData.Order[currentIndex]
 			callbacks.onConfirmClass(selectedClassId)
 		end
 	end)
@@ -1323,8 +1385,8 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		end
 	end)
 
-	-- Initialize to Heavy Knight (index 2)
-	currentIndex = 2
+	-- Initialize to the first (playable) class
+	currentIndex = 1
 	updateCarouselUI(currentIndex, false)
 
 	return container

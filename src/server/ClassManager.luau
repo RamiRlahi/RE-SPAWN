@@ -25,6 +25,11 @@ function ClassManager.Init()
 		end
 
 		-- Assign class attributes to Player
+		if not ClassData.IsPlayable(classId) then
+			warn(`[ClassManager] {player.Name} tried to pick locked class '{classId}'`)
+			return
+		end
+
 		player:SetAttribute("SelectedClass", classId)
 		player:SetAttribute("ClassName", classInfo.name)
 		player:SetAttribute("ClassRole", classInfo.role)

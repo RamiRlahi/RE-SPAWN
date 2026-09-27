@@ -375,4 +375,31 @@ function CastPoses.iceBlizzard(char: Model?)
 	})
 end
 
+-- ═════════════════════════════════════════════════════════════════════════════
+-- Class-selection preview: hold each class's ultimate pose until stopped.
+-- (Heavy Knight uses its uploaded ult animation instead.)
+-- ═════════════════════════════════════════════════════════════════════════════
+local ULT_PREVIEW_POSES: { [string]: Pose } = {
+	-- Rain of Arrows: bow raised to the sky at full draw.
+	ranger = { LS = { 155, 0, -10 }, LE = { 5, 0, 0 }, RS = { 125, 0, 30 }, RE = { 125, 0, 0 },
+		W = { 22, -15, 0 }, N = { 30, -10, 0 }, RH = { 14, 0, 6 }, LH = { -8, 0, -6 } },
+	-- Divine Ascent: kneeling in prayer, hands clasped at the chin.
+	cleric = { Root = { 0, 0, 0, 0, -1.7, 0 }, W = { -22, 0, 0 }, N = { -36, 0, 0 },
+		RH = { -84, 0, 6 }, LH = { -84, 0, -6 }, RK = { -90, 0, 0 }, LK = { -90, 0, 0 },
+		RS = { 102, 0, -36 }, LS = { 102, 0, 36 }, RE = { 115, 0, 0 }, LE = { 115, 0, 0 } },
+	-- Blizzard: one open hand reaching out toward the viewer.
+	ice_mage = { N = { -4, 0, 0 }, W = { -12, 0, 0 }, RS = { 86, 0, -8 }, RE = { 4, 0, 0 }, RW = { -38, 0, 0 },
+		LS = { -10, 0, -18 }, LE = { 25, 0, 0 }, RH = { 12, 0, 0 }, LH = { -14, 0, 0 } },
+}
+
+function CastPoses.holdUltPreview(char: Model?, classId: string): boolean
+	local pose = ULT_PREVIEW_POSES[classId]
+	if not char or not pose then return false end
+	CastPoses.play(char, {
+		{ dur = 0.35, style = Enum.EasingStyle.Back, pose = pose },
+		{ dur = 1e6, pose = pose }, -- held until CastPoses.stop
+	})
+	return true
+end
+
 return CastPoses
