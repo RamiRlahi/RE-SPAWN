@@ -31,6 +31,8 @@ local SoundService = game:GetService("SoundService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local GachaConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GachaConfig"))
+local RewardPreview = require(script.Parent:WaitForChild("RewardPreview"))
+local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
@@ -94,6 +96,104 @@ local function layRing(parts: { BasePart }, cf: CFrame, radius: number, thick: n
 	end
 end
 
+-- ─── The stage: isolated, in the church, in front of the angel statue ────────
+-- 1. a part named "SummonStage" (its front face points away from the statue),
+-- 2. else anything named like an angel/statue — the stage sits in front of it,
+-- 3. else near the church spawn.
+local function findStage(): CFrame?
+	local stage = Workspace:FindFirstChild("SummonStage", true)
+	if stage and stage:IsA("BasePart") then
+		return CFrame.lookAt(stage.Position, stage.Position + Vector3.new(stage.CFrame.LookVector.X, 0, stage.CFrame.LookVector.Z))
+	end
+	for _, d in ipairs(Workspace:GetDescendants()) do
+		if (d:IsA("Model") or d:IsA("BasePart")) and d.Parent ~= Workspace.Terrain then
+			local n = string.lower(d.Name)
+			if string.find(n, "angel") or string.find(n, "statue") then
+				local cf, size
+				if d:IsA("Model") then cf, size = d:GetBoundingBox() else cf, size = d.CFrame, d.Size end
+				local look = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
+				if look.Magnitude < 0.01 then look = Vector3.new(0, 0, -1) end
+				local base = Vector3.new(cf.Position.X, cf.Position.Y - size.Y * 0.5, cf.Position.Z)
+				local pos = base + look.Unit * (math.max(size.X, size.Z) * 0.5 + 8)
+				return CFrame.lookAt(pos, pos + look.Unit)
+			end
+		end
+	end
+	local spawn = Workspace:FindFirstChild("ChurchSpawn", true)
+	if spawn and spawn:IsA("BasePart") then
+		local look = Vector3.new(spawn.CFrame.LookVector.X, 0, spawn.CFrame.LookVector.Z)
+		local pos = spawn.Position + look.Unit * 10
+		return CFrame.lookAt(pos, pos + look.Unit)
+	end
+	return nil
+end
+
+-- Hide the real character on this client while the stand-in performs.
+local function setCharacterHidden(char: Model, hidden: boolean)
+	for _, d in ipairs(char:GetDescendants()) do
+		if d:IsA("BasePart") or d:IsA("Decal") then
+			(d :: any).LocalTransparencyModifier = if hidden then 1 else 0
+		end
+	end
+end
+
+-- Silhouette a preview model; returns a function that reveals it (staggered).
+local function silhouette(model: Model, accent: Color3): (number) -> ()
+	local parts: { { any } } = {}
+	local hiddenBits: { { any } } = {}
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") and d.Transparency < 1 then
+			table.insert(parts, { d, d.Color, d.Material, if d:IsA("MeshPart") then d.TextureID else nil })
+			d.Color = Color3.new(0, 0, 0)
+			d.Material = Enum.Material.SmoothPlastic
+			if d:IsA("MeshPart") then d.TextureID = "" end
+		elseif d:IsA("SurfaceAppearance") then
+			table.insert(hiddenBits, { d, "Parent", d.Parent })
+			d.Parent = nil
+		elseif d:IsA("Decal") or d:IsA("Texture") then
+			table.insert(hiddenBits, { d, "Transparency", d.Transparency })
+			d.Transparency = 1
+		elseif d:IsA("Shirt") then
+			table.insert(hiddenBits, { d, "ShirtTemplate", d.ShirtTemplate })
+			d.ShirtTemplate = ""
+		elseif d:IsA("Pants") then
+			table.insert(hiddenBits, { d, "PantsTemplate", d.PantsTemplate })
+			d.PantsTemplate = ""
+		elseif d:IsA("BillboardGui") or d:IsA("ParticleEmitter") or d:IsA("Light") then
+			table.insert(hiddenBits, { d, "Enabled", d.Enabled })
+			d.Enabled = false
+		end
+	end
+	return function(stagger: number)
+		for _, bit in ipairs(hiddenBits) do (bit[1] :: any)[bit[2]] = bit[3] end
+		for i, entry in ipairs(parts) do
+			task.delay(stagger * (i - 1) / math.max(#parts, 1), function()
+				local p = entry[1] :: BasePart
+				if not p.Parent then return end
+				p.Material = entry[3]
+				if entry[4] then (p :: MeshPart).TextureID = entry[4] end
+				TweenService:Create(p, TweenInfo.new(0.35), { Color = entry[2] }):Play()
+				if i % 3 == 1 then
+					local att = Instance.new("Attachment")
+					att.Parent = p
+					local pe = Instance.new("ParticleEmitter")
+					pe.Texture = TEX_SPARKLE
+					pe.Color = ColorSequence.new(Color3.new(1, 1, 1), accent)
+					pe.LightEmission, pe.LightInfluence = 1, 0
+					pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0) })
+					pe.Lifetime = NumberRange.new(0.3, 0.6)
+					pe.Speed = NumberRange.new(3, 7)
+					pe.SpreadAngle = Vector2.new(180, 180)
+					pe.Rate = 0
+					pe.Parent = att
+					pe:Emit(6)
+					Debris:AddItem(att, 1)
+				end
+			end)
+		end
+	end
+end
+
 -- ─── Cinematic ──────────────────────────────────────────────────────────────
 function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 	local char = player.Character
@@ -105,21 +205,47 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 	local rarity: string = reward.rarity
 	local rarityColor: Color3 = GachaConfig.Rarities[rarity].color
 	local accent: Color3 = reward.accent or rarityColor
-	local isFigure = reward.type == "character" or reward.type == "exclusive"
 	local fast = rarity == "Common" or rarity == "Rare"
 	local S = if fast then 0.35 elseif rarity == "Epic" then 0.7 else 1 -- scale for the shared intro
 
 	local world = Instance.new("Folder")
 	world.Name = "SummonCinematic"
 	world.Parent = Workspace.Terrain
-	local base = root.Position
-	local fwd = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z).Unit
+	-- Isolated stage in the church; a stand-in of the character summons there.
+	local stageCF = findStage() or CFrame.lookAt(root.Position - Vector3.new(0, 3, 0), root.Position - Vector3.new(0, 3, 0) + root.CFrame.LookVector)
+	local base = stageCF.Position + Vector3.new(0, 3, 0)
+	local fwd = Vector3.new(stageCF.LookVector.X, 0, stageCF.LookVector.Z).Unit
+	setCharacterHidden(char, true)
+	local summoner = Instance.new("Model")
+	do
+		local was = char.Archivable
+		char.Archivable = true
+		local copy = char:Clone()
+		char.Archivable = was
+		if copy then
+			for _, d in ipairs(copy:GetDescendants()) do
+				if d:IsA("BaseScript") or d:IsA("Sound") then d:Destroy() end
+				if d:IsA("BasePart") then
+					d.CanCollide = false
+					d.Anchored = d.Name == "HumanoidRootPart"
+					d.LocalTransparencyModifier = 0
+				elseif d:IsA("Decal") then
+					d.LocalTransparencyModifier = 0
+				end
+			end
+			local h = copy:FindFirstChildOfClass("Humanoid")
+			if h then h.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None end
+			summoner = copy
+			summoner.Parent = world
+			summoner:PivotTo(CFrame.lookAt(base, base + fwd))
+		end
+	end
 	local right = fwd:Cross(Vector3.yAxis).Unit
 	local ground = base - Vector3.new(0, 3, 0)
 	do
 		local rp = RaycastParams.new()
 		rp.FilterType = Enum.RaycastFilterType.Exclude
-		rp.FilterDescendantsInstances = { char, world }
+		rp.FilterDescendantsInstances = { char, world, summoner }
 		local hit = Workspace:Raycast(base, Vector3.new(0, -12, 0), rp)
 		if hit then ground = hit.Position end
 	end
@@ -205,7 +331,10 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 		task.delay(0.12, function() tween(black, 0.35, { BackgroundTransparency = 0.82 }) end)
 	end
 
-	-- ── 1. SILENCE ──
+	-- ── 1. SILENCE ── (hard cut to the stage under black)
+	black.BackgroundTransparency = 0
+	camPos, camLook, camFov = base + fwd * 11 + Vector3.new(0, 2.4, 0), base + Vector3.new(0, 1.2, 0), 55
+	task.wait(0.15)
 	tween(black, 0.6 * S, { BackgroundTransparency = 0.82 })
 	moveCam(base + fwd * 7 + Vector3.new(0, 1.8, 0), base + Vector3.new(0, 1.2, 0), 55, 1.4 * S)
 	heartbeat()
@@ -386,80 +515,17 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 	task.wait(0.4)
 
 	-- ── 5. REVEAL ──
-	-- The figure: a copy of your character (characters) or a floating crystal.
-	local figure: Model
-	local figureParts: { [BasePart]: { any } } = {}
+	-- The figure: how the reward looks on the character it belongs to
+	-- (RewardPreview), silhouetted until the reveal.
 	local revealAt = tomePos + fwd * 2.5 + Vector3.new(0, 0.6, 0)
-	if isFigure then
-		char.Archivable = true
-		figure = char:Clone()
-		char.Archivable = false
-		for _, d in ipairs(figure:GetDescendants()) do
-			if d:IsA("Script") or d:IsA("LocalScript") or d:IsA("Sound") or d:IsA("BillboardGui") or d:IsA("Highlight") then
-				d:Destroy()
-			elseif d:IsA("BasePart") then
-				d.Anchored = true
-				d.CanCollide = false
-				figureParts[d] = { d.Color, d.Material, d.Transparency }
-			elseif d:IsA("Decal") then
-				d.Transparency = 1
-			elseif d:IsA("Shirt") or d:IsA("Pants") then
-				d:Destroy()
-			end
-		end
-		local hum = figure:FindFirstChildOfClass("Humanoid")
-		if hum then hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None end
-	else
-		figure = Instance.new("Model")
-		local core = part(figure, { Size = Vector3.new(1.4, 2.4, 1.4), Material = Enum.Material.Glass, Color = rarityColor })
-		core.CFrame = CFrame.Angles(0, math.rad(45), 0)
-		figureParts[core] = { rarityColor, Enum.Material.Neon, 0.1 }
-		local bb = Instance.new("BillboardGui")
-		bb.Size = UDim2.fromOffset(90, 90)
-		bb.AlwaysOnTop = true
-		bb.LightInfluence = 0
-		bb.Adornee = core
-		bb.Parent = core
-		local g = Instance.new("TextLabel")
-		g.Name = "Glyph"
-		g.Size = UDim2.fromScale(1, 1)
-		g.BackgroundTransparency = 1
-		g.Font = Enum.Font.GothamBold
-		g.TextScaled = true
-		g.Text = reward.glyph or "✦"
-		g.TextColor3 = Color3.new(1, 1, 1)
-		g.TextTransparency = 1
-		g.Parent = bb
-		figure.PrimaryPart = core
-	end
-	-- Silhouette first.
-	for p in pairs(figureParts) do
-		p.Color = Color3.new(0, 0, 0)
-		p.Material = Enum.Material.SmoothPlastic
-		if p:IsA("MeshPart") then p.TextureID = "" end
-	end
+	local figure, cleanupFigure = RewardPreview.Build(reward)
+	local reveal = silhouette(figure, accent)
 	figure.Parent = world
 	local function placeFigure(pos: Vector3, yaw: number)
 		figure:PivotTo(CFrame.new(pos) * CFrame.lookAt(Vector3.zero, fwd).Rotation * CFrame.Angles(0, yaw, 0))
 	end
 	local function revealColors(stagger: number)
-		local list = {}
-		for p, orig in pairs(figureParts) do table.insert(list, { p, orig }) end
-		for i, entry in ipairs(list) do
-			task.delay(stagger * (i - 1) / math.max(#list, 1), function()
-				local p, orig = entry[1], entry[2]
-				if not p.Parent then return end
-				p.Material = orig[2]
-				tween(p, 0.35, { Color = orig[1] })
-				local att = Instance.new("Attachment")
-				att.Parent = p
-				emitter(att, { Color = ColorSequence.new(Color3.new(1, 1, 1), accent), Size = seq(0, 0.4, 1, 0),
-					Lifetime = NumberRange.new(0.3, 0.6), Speed = NumberRange.new(3, 7), SpreadAngle = Vector2.new(180, 180) }):Emit(6)
-				Debris:AddItem(att, 1)
-			end)
-		end
-		local glyph = figure:FindFirstChild("Glyph", true)
-		if glyph then tween(glyph :: TextLabel, 0.4, { TextTransparency = 0 }) end
+		reveal(stagger)
 	end
 	local function nameCard(hidden: boolean?)
 		nameLabel.Text = if hidden then "???" else `✦ {string.upper(reward.name)} ✦`
@@ -650,7 +716,9 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 	camConn:Disconnect()
 	tomeConn:Disconnect()
 	circleConn:Disconnect()
+	cleanupFigure()
 	world:Destroy()
+	setCharacterHidden(char, false)
 	for s, vol in pairs(ducked) do
 		if s.Parent then tween(s, 0.8, { Volume = vol }) end
 	end
@@ -659,6 +727,85 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 	tween(rarityLabel, 0.3, { TextTransparency = 1 })
 	Debris:AddItem(gui, 0.5)
 	if onDone then onDone() end
+end
+
+-- ─── Showcase: a reward on its character, at the stage (from the results) ────
+function SummonCinematic.Showcase(reward: any, onDone: (() -> ())?)
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not char or not root then
+		if onDone then onDone() end
+		return
+	end
+	local stageCF = findStage() or CFrame.lookAt(root.Position - Vector3.new(0, 3, 0), root.Position - Vector3.new(0, 3, 0) + root.CFrame.LookVector)
+	local base = stageCF.Position + Vector3.new(0, 3, 0)
+	local fwd = Vector3.new(stageCF.LookVector.X, 0, stageCF.LookVector.Z).Unit
+	setCharacterHidden(char, true)
+	local world = Instance.new("Folder")
+	world.Name = "SummonShowcase"
+	world.Parent = Workspace.Terrain
+	local figure, cleanupFigure = RewardPreview.Build(reward)
+	figure.Parent = world
+	figure:PivotTo(CFrame.lookAt(base, base + fwd))
+	local rarityColor = GachaConfig.Rarities[reward.rarity].color
+	local accent = reward.accent or rarityColor
+	-- Soft light on the figure.
+	local lamp = part(world, { Size = Vector3.new(0.2, 0.2, 0.2), Transparency = 1, CFrame = CFrame.new(base + fwd * 4 + Vector3.new(0, 4, 0)) })
+	local l = Instance.new("PointLight")
+	l.Color, l.Brightness, l.Range = Color3.fromRGB(255, 240, 220), 2.5, 16
+	l.Parent = lamp
+
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "SummonShowcaseGui"
+	gui.IgnoreGuiInset = true
+	gui.DisplayOrder = 200
+	gui.Parent = player:WaitForChild("PlayerGui")
+	local function label(str: string, size: number, y: number, color: Color3, font: Enum.Font)
+		local t = Instance.new("TextLabel")
+		t.BackgroundTransparency = 1
+		t.AnchorPoint = Vector2.new(0.5, 0.5)
+		t.Position = UDim2.fromScale(0.5, y)
+		t.Size = UDim2.new(1, 0, 0, size + 10)
+		t.Font = font
+		t.TextSize = size
+		t.TextColor3 = color
+		t.TextStrokeTransparency = 0.3
+		t.Text = str
+		t.Parent = gui
+	end
+	label(`✦ {string.upper(reward.name)} ✦`, 44, 0.8, accent, Enum.Font.Antique)
+	label(string.upper(reward.rarity), 22, 0.87, rarityColor, Enum.Font.GothamBold)
+	label(reward.description or "", 16, 0.92, Color3.fromRGB(220, 220, 230), Enum.Font.GothamMedium)
+	label("Click to continue", 14, 0.97, Color3.fromRGB(150, 150, 160), Enum.Font.Gotham)
+
+	camera.CameraType = Enum.CameraType.Scriptable
+	local t0 = os.clock()
+	local done = false
+	local conn = RunService.RenderStepped:Connect(function()
+		local t = os.clock() - t0
+		local orbit = CFrame.Angles(0, math.rad(-35) + t * 0.45, 0) * (fwd * 8.5)
+		camera.CFrame = CFrame.lookAt(base + orbit + Vector3.new(0, 1.6, 0), base + Vector3.new(0, 0.9, 0))
+		camera.FieldOfView = 50
+	end)
+	local function finish()
+		if done then return end
+		done = true
+		conn:Disconnect()
+		cleanupFigure()
+		world:Destroy()
+		gui:Destroy()
+		setCharacterHidden(char, false)
+		if onDone then onDone() end
+	end
+	local input
+	input = UserInputService.InputBegan:Connect(function(io)
+		if os.clock() - t0 < 0.4 then return end
+		if io.UserInputType == Enum.UserInputType.MouseButton1 or io.UserInputType == Enum.UserInputType.Touch
+			or io.KeyCode == Enum.KeyCode.Space or io.KeyCode == Enum.KeyCode.Return then
+			input:Disconnect()
+			finish()
+		end
+	end)
 end
 
 return SummonCinematic

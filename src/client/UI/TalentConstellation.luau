@@ -152,7 +152,7 @@ function TalentConstellation.Create(parent: GuiObject)
 		end
 		table.clear(pulsing)
 		tip.Visible = false
-		soulsLabel.Text = `✦ {state.souls} Souls`
+		soulsLabel.Text = `🕯️ {state.souls} Souls`
 		local classId = currentClass
 		local constellation = classId and TalentData.Get(classId)
 		local size = area.AbsoluteSize
