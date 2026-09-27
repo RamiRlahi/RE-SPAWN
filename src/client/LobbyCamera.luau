@@ -12,6 +12,25 @@ local inTitleMode = false
 local inClassSelectMode = false
 local angle = 0
 
+-- Class-select orbit: the camera swings around the character (drag to orbit).
+-- It's anchored to the character's facing captured when the view opens, so
+-- the character itself never turns to follow the camera.
+local orbitYaw = 0
+local orbitVelocity = 0
+
+function LobbyCamera.AddOrbit(deltaYaw: number)
+	orbitYaw += deltaYaw
+	orbitVelocity = deltaYaw * 60
+end
+
+function LobbyCamera.ReleaseOrbit()
+	-- Keep the current velocity so the camera glides to a stop.
+end
+
+function LobbyCamera.HoldOrbit()
+	orbitVelocity = 0
+end
+
 local function getCamera(): Camera
 	local cam = Workspace.CurrentCamera
 	while not cam do
@@ -100,14 +119,24 @@ function LobbyCamera.SetClassSelectView()
 	)
 	tween:Play()
 
-	-- Subtle cinematic breathing bobbing while in class selection
+	-- Subtle cinematic breathing bobbing while in class selection, orbiting by
+	-- orbitYaw around a base angle fixed now (not the character's live facing).
 	local bobTime = 0
+	local baseRotation = root.CFrame.Rotation
+	local startTime = os.clock()
 	cameraConnection = RunService.RenderStepped:Connect(function(dt)
 		if not inClassSelectMode then return end
 		bobTime += dt
+		if math.abs(orbitVelocity) > 0.01 then
+			orbitYaw += orbitVelocity * dt
+			orbitVelocity *= math.exp(-5 * dt)
+		end
 
+		-- Let the opening tween finish before taking over the camera.
+		if os.clock() - startTime < 0.8 then return end
 		if root and root.Parent then
-			local currentEye = (root.CFrame * CFrame.new(math.sin(bobTime * 0.5) * 0.15, 0.4 + math.sin(bobTime * 0.8) * 0.08, -7.2)).Position
+			local orbitCF = CFrame.new(root.Position) * baseRotation * CFrame.Angles(0, orbitYaw, 0)
+			local currentEye = (orbitCF * CFrame.new(math.sin(bobTime * 0.5) * 0.15, 0.4 + math.sin(bobTime * 0.8) * 0.08, -7.2)).Position
 			local currentLook = root.Position + Vector3.new(0, 0.4, 0)
 			camera.CFrame = CFrame.new(currentEye, currentLook)
 		end

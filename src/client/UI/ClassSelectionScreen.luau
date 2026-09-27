@@ -10,6 +10,7 @@ local SkillData = require(Shared:WaitForChild("SkillData"))
 local SoundManager = require(script.Parent:WaitForChild("SoundManager"))
 local CastPoses = require(script.Parent.Parent:WaitForChild("CastPoses"))
 local UltPreviewFX = require(script.Parent.Parent:WaitForChild("UltPreviewFX"))
+local LobbyCamera = require(script.Parent.Parent:WaitForChild("LobbyCamera"))
 local ClassArmor = require(Shared:WaitForChild("ClassArmor"))
 local IceCape = require(Shared:WaitForChild("IceCape"))
 
@@ -1137,22 +1138,16 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		callbacks.onConfirmClass(selectedClassId)
 	end)
 
-	-- Drag anywhere outside the panels to turn the preview character, with a
-	-- little momentum on release.
+	-- Left-click and drag to orbit the camera around the preview character
+	-- (the character stays put; the lobby camera swings around it).
 	local dragging = false
-	local turnYaw = 0
-	local turnVelocity = 0
 	local lastDragX = 0
-	local baseCF: CFrame? = nil
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed or not container.Visible or container.GroupTransparency > 0.5 then return end
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-			local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
-			if not root then return end
-			if not baseCF then baseCF = root.CFrame end
 			dragging = true
 			lastDragX = input.Position.X
-			turnVelocity = 0
+			LobbyCamera.HoldOrbit()
 		end
 	end)
 	UserInputService.InputChanged:Connect(function(input)
@@ -1160,41 +1155,25 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
 			local dx = input.Position.X - lastDragX
 			lastDragX = input.Position.X
-			turnYaw += dx * 0.012
-			turnVelocity = dx * 0.012 * 60
+			LobbyCamera.AddOrbit(-dx * 0.012)
 		end
 	end)
 	UserInputService.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = false
+			LobbyCamera.ReleaseOrbit()
 		end
-	end)
-	game:GetService("RunService").RenderStepped:Connect(function(dt)
-		if not baseCF or not container.Visible then return end
-		if not dragging and math.abs(turnVelocity) > 0.01 then
-			turnYaw += turnVelocity * dt
-			turnVelocity *= math.exp(-5 * dt)
-		end
-		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
-		if root and root.Anchored then
-			root.CFrame = CFrame.new(baseCF.Position) * baseCF.Rotation * CFrame.Angles(0, turnYaw, 0)
-		end
-	end)
-	-- A fresh character (respawn) gets a fresh turn baseline.
-	player.CharacterAdded:Connect(function()
-		baseCF = nil
-		turnYaw = 0
-		turnVelocity = 0
 	end)
 
-	-- Keyboard Navigation (A / D, Left / Right Arrow, Enter)
+	-- Keyboard Navigation (Left / Right Arrow, Enter). A / D are left alone —
+	-- the camera is turned by dragging, not by the movement keys.
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		if gameProcessed then return end
 		if not container.Visible or container.GroupTransparency > 0.5 then return end
 
-		if input.KeyCode == Enum.KeyCode.A or input.KeyCode == Enum.KeyCode.Left then
+		if input.KeyCode == Enum.KeyCode.Left then
 			navigateCarousel(-1)
-		elseif input.KeyCode == Enum.KeyCode.D or input.KeyCode == Enum.KeyCode.Right then
+		elseif input.KeyCode == Enum.KeyCode.Right then
 			navigateCarousel(1)
 		elseif input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.Space then
 			local selectedClassId = ClassData.Order[currentIndex]
