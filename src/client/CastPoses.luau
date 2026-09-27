@@ -233,9 +233,8 @@ function CastPoses.clericAscent(char: Model?, duration: number)
 end
 
 -- Kneeling on one knee. On R6 each leg is one rigid piece (no knee joint), so:
--- the hips drop, the SUPPORT leg (left) angles forward to plant its foot in
--- front, and the KNEELING leg (right) points straight down — its lower end sinks
--- a little into the floor, reading as the knee down with the shin folded behind.
+-- the hips drop, the right leg points straight down, and the KNEELING leg (left)
+-- angles back so its end rests on the floor behind — the knee down.
 -- R6 legs hang off the torso, so leaning the upper body also tilts the legs;
 -- `lean` (waist pitch, negative = forward) is compensated in the hip angles so
 -- the feet stay planted. R15 rigs also bend the knees.
@@ -245,8 +244,8 @@ function CastPoses.kneelOnOneKnee(lean: number): Pose
 	return {
 		Root = { 0, 0, 0, 0, -KNEEL_DROP, 0 },
 		W = { lean, 0, 0 },
-		LH = { KNEEL_LEG_ANGLE - lean, 0, -4 },  -- support: foot planted in front
-		RH = { -lean, 0, 3 },                    -- kneeling: straight down, knee on the floor
+		LH = { -KNEEL_LEG_ANGLE - lean, 0, -5 }, -- kneeling: angled back, knee on the floor
+		RH = { -lean, 0, 3 },                    -- straight down
 		LK = { -60, 0, 0 },
 		RK = { -70, 0, 0 },
 	}
