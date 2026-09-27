@@ -507,6 +507,11 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 				setWalk(false)
 				continue
 			end
+			-- Staggered by a hit: skip the turn so MoveTo doesn't cancel the knockback.
+			if (mobModel:GetAttribute("StaggerUntil") or 0) > os.clock() then
+				setWalk(false)
+				continue
+			end
 
 			local target, dist = getTarget()
 			if target then
@@ -771,6 +776,7 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 			end
 
 			if (mobModel:GetAttribute("ChilledUntil") or 0) > os.clock() then continue end
+			if (mobModel:GetAttribute("StaggerUntil") or 0) > os.clock() then continue end
 
 			local mobPos = rootPart.Position
 			local closestPlayerChar: Model? = nil
@@ -879,6 +885,12 @@ local function activateMob(record: MobRecord)
 		record.defeated = true
 		record.model = nil
 	end)
+	-- The server owns mob physics; otherwise Roblox hands each mob to the
+	-- nearest player and server-side knockback impulses are ignored.
+	local root = model:FindFirstChild("HumanoidRootPart")
+	if root and root:IsA("BasePart") and not root.Anchored then
+		pcall(function() root:SetNetworkOwner(nil) end)
+	end
 end
 
 local function deactivateMob(record: MobRecord)

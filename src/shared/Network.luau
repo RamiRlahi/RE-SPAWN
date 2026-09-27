@@ -24,6 +24,7 @@ Network.Remotes = {
 	TomeChoices         = "TomeChoices",     -- server → client: { choices = TomeDefinition[] }
 	ChooseTome          = "ChooseTome",      -- client → server: tome id
 	RerollTomes         = "RerollTomes",     -- client → server: reroll the current tome choices
+	HitImpact           = "HitImpact",       -- server → all clients: { position, style, direction, crit, heavy }
 	RoomEvent           = "RoomEvent",       -- server → all clients: special-room feedback (pops, coins, bursts)
 	IceMageEvent        = "IceMageEvent",    -- server → all clients: { kind = "CloneShatter"|"Chill", ... }
 }

@@ -171,6 +171,79 @@ local function getPotentialTargets(casterChar: Model): { { character: Model, hum
 	return targets
 end
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Hit impact: per-attack knockback, stagger and impact VFX style.
+--   kb      extra knockback speed (studs/s) away from the attacker; 0 where the
+--           ability already applies its own impulse or is meant to pin/freeze
+--   lift    upward speed added to the knockback
+--   stagger seconds the mob's AI pauses (so MoveTo doesn't cancel the push)
+--   style   client impact VFX: slash / fire / arrow / nature / holy / ice
+--   heavy   bigger VFX + a small camera shake for the attacker
+-- ─────────────────────────────────────────────────────────────────────────────
+type ImpactProfile = { kb: number, lift: number, stagger: number, style: string, heavy: boolean? }
+local IMPACT_PROFILES: { [string]: ImpactProfile } = {
+	-- Heavy Knight
+	["BASIC ATTACK"]     = { kb = 0,  lift = 0,  stagger = 0.3,  style = "slash" },
+	["WHIRLWIND"]        = { kb = 0,  lift = 0,  stagger = 0.25, style = "slash" },
+	["FIRE SLAM"]        = { kb = 0,  lift = 0,  stagger = 0.6,  style = "fire", heavy = true },
+	["PHOENIX DASH"]     = { kb = 0,  lift = 0,  stagger = 0.45, style = "fire" },
+	["INFERNAL WRATH"]   = { kb = 0,  lift = 0,  stagger = 0.8,  style = "fire", heavy = true },
+	-- Ranger
+	["VENOM ARROWS"]     = { kb = 0,  lift = 0,  stagger = 0.15, style = "arrow" },
+	["SEEKER BARRAGE"]   = { kb = 0,  lift = 0,  stagger = 0.15, style = "arrow" },
+	["RAIN OF ARROWS"]   = { kb = 0,  lift = 0,  stagger = 0.2,  style = "arrow" },
+	["VERDANT SLASH"]    = { kb = 0,  lift = 0,  stagger = 0.4,  style = "nature", heavy = true },
+	["ENTANGLING ARROW"] = { kb = 0,  lift = 0,  stagger = 0.2,  style = "nature" },
+	-- Cleric
+	["RADIANT BOLT"]     = { kb = 0,  lift = 0,  stagger = 0.2,  style = "holy" },
+	["DIVINE BEAM"]      = { kb = 6,  lift = 0,  stagger = 0.3,  style = "holy" },
+	["RADIANT GROUND"]   = { kb = 28, lift = 12, stagger = 0.5,  style = "holy", heavy = true },
+	["DIVINE ASCENT"]    = { kb = 0,  lift = 0,  stagger = 0.8,  style = "holy", heavy = true },
+	-- Ice Mage (spikes / beam / shatter / blizzard freeze their targets instead)
+	["ICE CRYSTAL"]      = { kb = 14, lift = 4,  stagger = 0.2,  style = "ice" },
+	["ICE SPIKES"]       = { kb = 0,  lift = 0,  stagger = 0,    style = "ice", heavy = true },
+	["ICE BEAM"]         = { kb = 0,  lift = 0,  stagger = 0,    style = "ice" },
+	["SHATTER"]          = { kb = 0,  lift = 0,  stagger = 0,    style = "ice", heavy = true },
+	["BLIZZARD"]         = { kb = 0,  lift = 0,  stagger = 0,    style = "ice" },
+}
+
+local function applyImpact(player: Player, target: { character: Model, humanoid: Humanoid, rootPart: BasePart }, source: string, crit: boolean)
+	local profile = IMPACT_PROFILES[source]
+	if not profile then return end
+	local attackerRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local away = attackerRoot and (target.rootPart.Position - attackerRoot.Position) or target.rootPart.CFrame.LookVector * -1
+	local flatAway = Vector3.new(away.X, 0, away.Z)
+	flatAway = flatAway.Magnitude > 0.1 and flatAway.Unit or Vector3.new(0, 0, 1)
+
+	-- Physics only on mobs (never shove other players' characters).
+	if not Players:GetPlayerFromCharacter(target.character) and not target.rootPart.Anchored then
+		if profile.stagger > 0 then
+			local untilTime = os.clock() + profile.stagger * (crit and 1.4 or 1)
+			if (target.character:GetAttribute("StaggerUntil") or 0) < untilTime then
+				target.character:SetAttribute("StaggerUntil", untilTime)
+			end
+		end
+		if profile.kb > 0 or profile.lift > 0 then
+			local mult = (crit and 1.3 or 1) * math.max(PlayerStats.GetStat(player, "knockback"), 0.1)
+			local v = flatAway * profile.kb * mult + Vector3.new(0, profile.lift * mult, 0)
+			target.rootPart.AssemblyLinearVelocity = Vector3.new(
+				target.rootPart.AssemblyLinearVelocity.X * 0.3 + v.X,
+				math.max(target.rootPart.AssemblyLinearVelocity.Y, 0) + v.Y,
+				target.rootPart.AssemblyLinearVelocity.Z * 0.3 + v.Z)
+		end
+	end
+
+	Network.GetRemoteEvent(Network.Remotes.HitImpact):FireAllClients({
+		position = target.rootPart.Position,
+		direction = flatAway,
+		style = profile.style,
+		crit = crit,
+		heavy = profile.heavy == true,
+		model = target.character,
+		attacker = player,
+	})
+end
+
 -- Keep combat authoritative while giving the attacking player immediate, exact
 -- feedback about the damage that was actually applied to a target.
 local function dealDamage(player: Player, target: { character: Model, humanoid: Humanoid, rootPart: BasePart }, amount: number, source: string)
@@ -185,6 +258,7 @@ local function dealDamage(player: Player, target: { character: Model, humanoid: 
 	end
 
 	target.humanoid:TakeDamage(finalAmount)
+	applyImpact(player, target, source, isCrit)
 
 	local lifesteal = PlayerStats.GetStat(player, "lifesteal")
 	if lifesteal > 0 then
