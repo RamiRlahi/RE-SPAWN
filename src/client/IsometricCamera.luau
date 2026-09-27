@@ -37,6 +37,7 @@ local MOUSE_LEAD_FACTOR = 0.20                      -- Strength of mouse drag on
 local MAX_MOUSE_LEAD    = 8.0                       -- Max camera drag distance in studs
 local AIM_SMOOTHNESS    = 20                        -- Head rotation smoothness
 local MAX_HEAD_YAW      = math.rad(90)              -- Maximum 90° turn left and right
+local HEAD_AIM_ENABLED  = false                     -- Head follows the cursor (off: characters face forward)
 
 -- Transparency for obstructing ceilings / walls
 local OBSTACLE_TRANSPARENCY = 1.0
@@ -479,7 +480,7 @@ function IsometricCamera.Start(transitionDuration: number?)
 			end
 
 			-- Update Head Aiming toward cursor (clamped to ±90° maximum)
-			if player.Character then
+			if HEAD_AIM_ENABLED and player.Character then
 				updateHeadAim(player.Character, currentRoot, mouseWorldPos, dt)
 			end
 		end
