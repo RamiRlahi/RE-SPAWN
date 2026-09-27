@@ -32,10 +32,14 @@ AtmosphereManager.Config = {
 
 	-- ── 2. Player Torch Light Controls ───────────────────────────────────────
 	-- TorchRange: Radius in studs that the torch illuminates around the player (e.g. 24 - 45).
-	TorchRange = 36,
+	TorchRange = 32,
 
 	-- TorchBrightness: Light intensity of the torch flame (e.g. 1.8 - 3.5).
-	TorchBrightness = 2.8,
+	TorchBrightness = 1.3, -- kept low so ability VFX read clearly around the player
+
+	-- TorchHeight: studs above the character the light hangs. Higher spreads the
+	-- glow evenly instead of blowing out the character and the floor under them.
+	TorchHeight = 6,
 
 	-- TorchColor: Color of the flame light.
 	TorchColor = Color3.fromRGB(255, 175, 75),
@@ -61,9 +65,9 @@ AtmosphereManager.Config = {
 	},
 
 	Bloom = {
-		Intensity = 0.35,                                 -- Glow around torches and flames
+		Intensity = 0.25,                                 -- Glow around torches and flames
 		Size = 18,
-		Threshold = 0.8,
+		Threshold = 0.95,                                 -- Only genuinely bright things (neon VFX) bloom
 	}
 }
 
@@ -179,19 +183,23 @@ function AtmosphereManager.AttachTorchLight(character: Model)
 	end
 
 	-- Do not re-attach if light is already attached
-	if rootPart:FindFirstChild("PlayerTorchLight") then
+	if rootPart:FindFirstChild("PlayerTorchLight", true) then
 		return
 	end
 
-	-- 1. Create Warm PointLight (Dynamic Torch)
+	-- 1. Create Warm PointLight (Dynamic Torch), hung above the head
 	local cfg = AtmosphereManager.Config
+	local lightMount = Instance.new("Attachment")
+	lightMount.Name = "TorchLightMount"
+	lightMount.Position = Vector3.new(0, cfg.TorchHeight or 6, 0)
+	lightMount.Parent = rootPart
 	local torchLight = Instance.new("PointLight")
 	torchLight.Name = "PlayerTorchLight"
 	torchLight.Color = cfg.TorchColor
 	torchLight.Range = cfg.TorchRange
 	torchLight.Brightness = cfg.TorchBrightness
 	torchLight.Shadows = cfg.TorchShadows
-	torchLight.Parent = rootPart
+	torchLight.Parent = lightMount
 
 	-- 2. Create Subtle Floating Torch Embers Attachment
 	if not rootPart:FindFirstChild("TorchEmbersAttachment") then

@@ -22,12 +22,12 @@ local function ensureTorchAttached(char: Model)
 		AtmosphereManager.AttachCharacterOutline(char)
 	else
 		local rootPart = (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart) :: BasePart?
-		if rootPart and not rootPart:FindFirstChild("PlayerTorchLight") then
+		if rootPart and not rootPart:FindFirstChild("PlayerTorchLight", true) then
 			local torchLight = Instance.new("PointLight")
 			torchLight.Name = "PlayerTorchLight"
 			torchLight.Color = Color3.fromRGB(255, 175, 75)
 			torchLight.Range = 32
-			torchLight.Brightness = 2.4
+			torchLight.Brightness = 1.3
 			torchLight.Shadows = true
 			torchLight.Parent = rootPart
 		end
@@ -72,10 +72,11 @@ function TorchLightController.Start()
 		local flicker2 = math.sin(t * 23.1) * 0.08
 		local noiseVal = (math.noise(t * 6.5, 0, 0) or 0) * 0.28
 
-		local baseBrightness = (AtmosphereManager and AtmosphereManager.Config and AtmosphereManager.Config.TorchBrightness) or 2.8
-		local baseRange = (AtmosphereManager and AtmosphereManager.Config and AtmosphereManager.Config.TorchRange) or 36.0
+		local baseBrightness = (AtmosphereManager and AtmosphereManager.Config and AtmosphereManager.Config.TorchBrightness) or 1.3
+		local baseRange = (AtmosphereManager and AtmosphereManager.Config and AtmosphereManager.Config.TorchRange) or 32.0
 
-		local currentBrightness = baseBrightness + flicker1 + flicker2 + noiseVal
+		-- Flicker was tuned for a 2.8 torch; scale it so a dimmer torch doesn't strobe.
+		local currentBrightness = baseBrightness + (flicker1 + flicker2 + noiseVal) * (baseBrightness / 2.8)
 		local currentRange = baseRange + flicker1 * 3.5 + noiseVal * 2.5
 
 		-- Apply flicker & ensure torch exists for local & nearby player characters
@@ -85,7 +86,7 @@ function TorchLightController.Start()
 				ensureTorchAttached(char)
 				local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 				if rootPart then
-					local torchLight = rootPart:FindFirstChild("PlayerTorchLight") :: PointLight?
+					local torchLight = rootPart:FindFirstChild("PlayerTorchLight", true) :: PointLight?
 					if torchLight then
 						torchLight.Brightness = math.clamp(currentBrightness, baseBrightness * 0.7, baseBrightness * 1.35)
 						torchLight.Range = math.clamp(currentRange, baseRange * 0.8, baseRange * 1.25)
