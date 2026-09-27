@@ -232,23 +232,39 @@ function CastPoses.clericAscent(char: Model?, duration: number)
 	})
 end
 
+-- Kneeling on one knee. On R6 each leg is one rigid piece (no knee joint), so:
+-- the hips drop, the SUPPORT leg (left) angles forward to plant its foot in
+-- front, and the KNEELING leg (right) angles back to rest on the floor behind.
+-- R6 legs hang off the torso, so leaning the upper body also tilts the legs;
+-- `lean` (waist pitch, negative = forward) is compensated in the hip angles so
+-- the feet stay planted. R15 rigs also bend the knees.
+local KNEEL_DROP = 0.6        -- studs the hips sink
+local KNEEL_LEG_ANGLE = 46    -- degrees each leg angles off vertical (acos(1.4 / 2) for R6 legs)
+function CastPoses.kneelOnOneKnee(lean: number): Pose
+	return {
+		Root = { 0, 0, 0, 0, -KNEEL_DROP, 0 },
+		W = { lean, 0, 0 },
+		LH = { KNEEL_LEG_ANGLE - lean, 0, -4 },  -- support: foot planted in front
+		RH = { -KNEEL_LEG_ANGLE - lean, 0, 5 },  -- kneeling: knee down behind
+		LK = { -60, 0, 0 },
+		RK = { -70, 0, 0 },
+	}
+end
+
 -- Divine Ascent: kneel in prayer, then look up and open the arms to the light
 -- as the allies are revived. `reviveAt` matches DivineAscentCutscene.REVIVE_AT.
--- R6 has no knees, so the kneel is "sitting back on the heels": the body drops
--- and both legs fold back along the floor.
 function CastPoses.clericPrayer(char: Model?, duration: number, reviveAt: number)
-	local kneel = { Root = { 0, 0, 0, 0, -1.7, 0 }, W = { 6, 0, 0 },
-		RH = { -84, 0, 6 }, LH = { -84, 0, -6 }, RK = { -90, 0, 0 }, LK = { -90, 0, 0 } }
 	local function merge(a: Pose, b: Pose): Pose
 		local out = table.clone(a)
 		for k, v in pairs(b) do out[k] = v end
 		return out
 	end
 	-- Hunched forward over clasped hands raised to the chin, head bowed deep.
-	local prayer = merge(kneel, { W = { -22, 0, 0 }, N = { -36, 0, 0 },
+	local prayer = merge(CastPoses.kneelOnOneKnee(-22), { N = { -36, 0, 0 },
 		RS = { 102, 0, -36 }, LS = { 102, 0, 36 }, RE = { 115, 0, 0 }, LE = { 115, 0, 0 } })
 	-- Revival: face lifted to the light, arms opening outward and up.
-	local blessed = merge(kneel, { N = { 22, 0, 0 }, W = { 12, 0, 0 }, RS = { 125, 0, 42 }, LS = { 125, 0, -42 }, RE = { 10, 0, 0 }, LE = { 10, 0, 0 } })
+	local blessed = merge(CastPoses.kneelOnOneKnee(12), { N = { 22, 0, 0 },
+		RS = { 125, 0, 42 }, LS = { 125, 0, -42 }, RE = { 10, 0, 0 }, LE = { 10, 0, 0 } })
 	local prayHold = math.max(reviveAt - 0.1 - 0.45, 0.2)
 	CastPoses.play(char, {
 		{ dur = 0.45, style = Enum.EasingStyle.Sine, pose = prayer },
@@ -384,9 +400,13 @@ local ULT_PREVIEW_POSES: { [string]: Pose } = {
 	ranger = { LS = { 155, 0, -10 }, LE = { 5, 0, 0 }, RS = { 125, 0, 30 }, RE = { 125, 0, 0 },
 		W = { 22, -15, 0 }, N = { 30, -10, 0 }, RH = { 14, 0, 6 }, LH = { -8, 0, -6 } },
 	-- Divine Ascent: kneeling in prayer, hands clasped at the chin.
-	cleric = { Root = { 0, 0, 0, 0, -1.7, 0 }, W = { -22, 0, 0 }, N = { -36, 0, 0 },
-		RH = { -84, 0, 6 }, LH = { -84, 0, -6 }, RK = { -90, 0, 0 }, LK = { -90, 0, 0 },
-		RS = { 102, 0, -36 }, LS = { 102, 0, 36 }, RE = { 115, 0, 0 }, LE = { 115, 0, 0 } },
+	cleric = (function(): Pose
+		local p = CastPoses.kneelOnOneKnee(-22)
+		p.N = { -36, 0, 0 }
+		p.RS, p.LS = { 102, 0, -36 }, { 102, 0, 36 }
+		p.RE, p.LE = { 115, 0, 0 }, { 115, 0, 0 }
+		return p
+	end)(),
 	-- Blizzard: one open hand reaching out toward the viewer.
 	ice_mage = { N = { -4, 0, 0 }, W = { -12, 0, 0 }, RS = { 86, 0, -8 }, RE = { 4, 0, 0 }, RW = { -38, 0, 0 },
 		LS = { -10, 0, -18 }, LE = { 25, 0, 0 }, RH = { 12, 0, 0 }, LH = { -14, 0, 0 } },
