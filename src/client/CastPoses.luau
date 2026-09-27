@@ -232,6 +232,37 @@ function CastPoses.clericAscent(char: Model?, duration: number)
 	})
 end
 
+-- Divine Ascent: kneel in prayer, then look up and open the arms to the light
+-- as the allies are revived. `reviveAt` matches DivineAscentCutscene.REVIVE_AT.
+-- R6 has no knees, so the kneel is "sitting back on the heels": the body drops
+-- and both legs fold back along the floor.
+function CastPoses.clericPrayer(char: Model?, duration: number, reviveAt: number)
+	local kneel = { Root = { 0, 0, 0, 0, -1.7, 0 }, W = { 6, 0, 0 },
+		RH = { -84, 0, 6 }, LH = { -84, 0, -6 }, RK = { -90, 0, 0 }, LK = { -90, 0, 0 } }
+	local function merge(a: Pose, b: Pose): Pose
+		local out = table.clone(a)
+		for k, v in pairs(b) do out[k] = v end
+		return out
+	end
+	-- Hands pressed together before the chest, head bowed.
+	local prayer = merge(kneel, { N = { -30, 0, 0 }, RS = { 62, 0, -30 }, LS = { 62, 0, 30 }, RE = { 70, 0, 0 }, LE = { 70, 0, 0 } })
+	-- Revival: face lifted to the light, arms opening outward and up.
+	local blessed = merge(kneel, { N = { 22, 0, 0 }, W = { 12, 0, 0 }, RS = { 125, 0, 42 }, LS = { 125, 0, -42 }, RE = { 10, 0, 0 }, LE = { 10, 0, 0 } })
+	local prayHold = math.max(reviveAt - 0.1 - 0.45, 0.2)
+	CastPoses.play(char, {
+		{ dur = 0.45, style = Enum.EasingStyle.Sine, pose = prayer },
+		{ dur = prayHold, pose = prayer, wobble = function(t)
+			local b = math.sin(t * 2.4) * 1.5
+			return { W = { b, 0, 0 }, N = { -b * 0.6, 0, 0 } }
+		end },
+		{ dur = 0.45, style = Enum.EasingStyle.Back, pose = blessed },
+		{ dur = math.max(duration - (0.45 + prayHold + 0.45), 0.2), pose = blessed, wobble = function(t)
+			local b = math.sin(t * 1.8) * 3
+			return { RS = { b, 0, 0 }, LS = { b, 0, 0 } }
+		end },
+	})
+end
+
 -- ── Ranger ────────────────────────────────────────────────────────────────
 -- Rain of Arrows wind-up (matches RangerFlair: slam 0.36s, loose 0.95s):
 -- hoist the bow overhead, smash down into a crouch as vines erupt, then spring

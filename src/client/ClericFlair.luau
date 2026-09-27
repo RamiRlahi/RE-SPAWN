@@ -580,4 +580,119 @@ function ClericFlair.judgment(center: Vector3, faceToward: Vector3)
 	Debris:AddItem(f, 3.2)
 end
 
+-- ═════════════════════════════════════════════════════════════════════════════
+-- Divine Ascent: prayer → a shaft of light from above → the revival
+-- Timings match DivineAscentCutscene (lightAt / reviveAt, seconds from cast).
+-- ═════════════════════════════════════════════════════════════════════════════
+function ClericFlair.prayerLight(char: Model, duration: number, lightAt: number, reviveAt: number)
+	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root then return end
+	local f = folder("PrayerLight")
+	local g = groundAt(root.Position)
+	local base = CFrame.new(g + Vector3.new(0, 0.1, 0))
+
+	-- Prayer: faint motes rising from the kneeling figure, a sigil slowly forming.
+	local prayAtt = att(root.Position + Vector3.new(0, 0.5, 0), f)
+	local prayMotes = emitter(prayAtt, {
+		Texture = TEX_SPARKLE,
+		Color = ColorSequence.new(HOLY_WHITE, HOLY_GOLD),
+		Size = seq(0, 0.3, 1, 0),
+		Lifetime = NumberRange.new(1.2, 2),
+		Speed = NumberRange.new(1, 2.5),
+		SpreadAngle = Vector2.new(25, 25),
+		EmissionDirection = Enum.NormalId.Top,
+		Rate = 14,
+	})
+	local sigOuter = ring(f, 40, HOLY_GOLD, 0.45)
+	local sigInner = ring(f, 30, HOLY_IVORY, 0.6)
+
+	local shaftParts: { BasePart } = {}
+	local spot: SpotLight? = nil
+	local fill: PointLight? = nil
+	local t0 = os.clock()
+	local c
+	c = RunService.RenderStepped:Connect(function()
+		local t = os.clock() - t0
+		if t > duration or not f.Parent then
+			c:Disconnect()
+			return
+		end
+		local grow = math.clamp(t / 1.2, 0, 1)
+		layRing(sigOuter, base * CFrame.Angles(0, t * 0.4, 0), 4.2 * grow, 0.2)
+		layRing(sigInner, base * CFrame.Angles(0, -t * 0.7, 0), 3 * grow, 0.1)
+		-- The shaft breathes once it has landed.
+		if #shaftParts > 0 then
+			local pulse = 1 + math.sin(t * 3) * 0.04
+			for i, p in ipairs(shaftParts) do
+				local w = p:GetAttribute("W") :: number
+				p.Size = Vector3.new(p.Size.X, w * pulse, w * pulse)
+			end
+		end
+	end)
+
+	-- THE LIGHT: a shaft breaks from above onto the Cleric.
+	task.delay(lightAt, function()
+		if not f.Parent then return end
+		local height = 70
+		for _, spec in ipairs({ { 8, HOLY_GOLD, 0.88 }, { 4.6, HOLY_IVORY, 0.72 }, { 1.8, HOLY_WHITE, 0.35 } }) do
+			local shaft = part(f, {
+				Shape = Enum.PartType.Cylinder,
+				Size = Vector3.new(height, 0.2, 0.2),
+				CFrame = CFrame.new(g + Vector3.new(0, height * 0.5, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+				Color = spec[2],
+				Transparency = spec[3],
+			})
+			shaft:SetAttribute("W", spec[1])
+			TweenService:Create(shaft, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = Vector3.new(height, spec[1], spec[1]) }):Play()
+			table.insert(shaftParts, shaft)
+		end
+		-- Spotlight from above + warm fill so the Cleric glows in the beam.
+		local lamp = part(f, { Size = Vector3.new(0.2, 0.2, 0.2), Transparency = 1, CFrame = CFrame.new(g + Vector3.new(0, 18, 0)) })
+		spot = Instance.new("SpotLight")
+		spot.Face = Enum.NormalId.Bottom
+		spot.Angle = 40
+		spot.Range = 30
+		spot.Brightness = 0
+		spot.Color = HOLY_IVORY
+		spot.Shadows = false
+		spot.Parent = lamp
+		TweenService:Create(spot, TweenInfo.new(0.5), { Brightness = 9 }):Play()
+		fill = light(att(root.Position + Vector3.new(0, 3, 0), f), HOLY_GOLD, 0, 14)
+		TweenService:Create(fill :: PointLight, TweenInfo.new(0.5), { Brightness = 2.5 }):Play()
+		-- Motes drifting down through the beam.
+		local sky = part(f, { Size = Vector3.new(4, 0.2, 4), Transparency = 1, CFrame = CFrame.new(g + Vector3.new(0, 16, 0)) })
+		emitter(sky, {
+			Texture = TEX_SPARKLE,
+			Color = ColorSequence.new(HOLY_WHITE, HOLY_GOLD),
+			Size = seq(0, 0.35, 1, 0.1),
+			Lifetime = NumberRange.new(2, 2.6),
+			Speed = NumberRange.new(5, 8),
+			EmissionDirection = Enum.NormalId.Bottom,
+			Rate = 40,
+		})
+		shockwave(f, base * CFrame.new(0, 0.2, 0), 0.5, 7, 0.5, HOLY_WHITE, 0.4)
+		sparkBurst(root.Position + Vector3.new(0, 1, 0), 24, 14, HOLY_GOLD, 0.7)
+		flash(root.Position + Vector3.new(0, 4, 0), HOLY_WHITE, 7, 30, 0.6)
+		feathers(f, g, 8, 6, 14, 3)
+		prayMotes.Rate = 30
+	end)
+
+	-- THE REVIVAL: a wave of light sweeps out through the fallen allies.
+	task.delay(reviveAt, function()
+		if not f.Parent then return end
+		shockwave(f, base * CFrame.new(0, 0.3, 0), 1, 18, 0.8, HOLY_GOLD, 0.7)
+		task.delay(0.12, function() shockwave(f, base * CFrame.new(0, 0.2, 0), 1, 15, 0.8, HOLY_WHITE, 0.4) end)
+		sparkBurst(root.Position + Vector3.new(0, 2, 0), 50, 30, HOLY_GOLD, 1.2)
+		flash(root.Position + Vector3.new(0, 3, 0), HOLY_GOLD, 9, 40, 1)
+		feathers(f, g, 16, 18, 12, 3)
+		if spot then TweenService:Create(spot, TweenInfo.new(0.3), { Brightness = 14 }):Play() end
+	end)
+
+	task.delay(duration, function()
+		prayMotes.Enabled = false
+		fade(f, 0.8)
+		Debris:AddItem(f, 1)
+	end)
+end
+
 return ClericFlair

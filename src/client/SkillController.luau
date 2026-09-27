@@ -28,6 +28,8 @@ local SkateController = require(script.Parent:WaitForChild("SkateController"))
 local RangerFlair = require(script.Parent:WaitForChild("RangerFlair"))
 local CapeController = require(script.Parent:WaitForChild("CapeController"))
 
+local DivineAscentCutscene = require(script.Parent:WaitForChild("DivineAscentCutscene"))
+
 -- Procedural cast animation for classes without uploaded skill animations.
 -- Runs for the caster and for other players' characters on replication.
 local function playCastPose(char: Model, classId: string, skillIndex: number, config: any)
@@ -39,6 +41,11 @@ local function playCastPose(char: Model, classId: string, skillIndex: number, co
 			ClericFlair.beamAura(char, config.duration or 5)
 		elseif skillIndex == 3 then
 			CastPoses.clericRadiantGround(char)
+		elseif skillIndex == 4 then
+			-- Divine Ascent: kneel in prayer → light from above → allies revived.
+			local duration = config.duration or 5.5
+			CastPoses.clericPrayer(char, duration, DivineAscentCutscene.REVIVE_AT)
+			ClericFlair.prayerLight(char, duration, DivineAscentCutscene.LIGHT_AT, DivineAscentCutscene.REVIVE_AT)
 		end
 	elseif classId == "ranger" and skillIndex == 4 then
 		CastPoses.rangerSkyShot(char)
@@ -57,7 +64,6 @@ local function playCastPose(char: Model, classId: string, skillIndex: number, co
 end
 local AllyHover = require(script.Parent:WaitForChild("AllyHover"))
 AllyHover.Init()
-local DivineAscentCutscene = require(script.Parent:WaitForChild("DivineAscentCutscene"))
 
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
@@ -82,9 +88,6 @@ end
 
 -- Active cooldowns: activeCooldowns[slotIndex] = { startTime: number, duration: number }
 local activeCooldowns: { [number]: { startTime: number, duration: number } } = {}
-
--- Token to cancel an in-flight Divine Ascent cinematic camera
-local divineCamToken = 0
 
 -- Loaded animation tracks per skill index
 local currentLoadedCharacter: Model? = nil
@@ -3678,9 +3681,8 @@ local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vecto
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- Cleric Ultimate: Divine Ascent VFX (angelic wings, sky pillar, holy judgment)
+-- Cleric holy palette (shared by the Cleric's basic attack, heal and beam VFX)
 -- ─────────────────────────────────────────────────────────────────────────────
-local playDivineAscentCamera: (Model, Vector3, number) -> ()
 
 local HOLY_IVORY = Color3.fromRGB(255, 250, 238)
 local HOLY_WHITE = Color3.fromRGB(255, 243, 212)
@@ -3688,38 +3690,6 @@ local HOLY_GOLD = Color3.fromRGB(255, 206, 112)
 local HOLY_GOLD_DEEP = Color3.fromRGB(233, 170, 64)
 local HOLY_RAY_TEXTURE = 'rbxassetid://1053548563'
 local HEAL_GREEN = Color3.fromRGB(110, 245, 140)
-
--- LAYOUT CONTRACT
---   A Roblox character faces along -Z (LookVector), so 'behind the back' is
---   local +Z. Every wing / halo / body VFX part goes through behindCF(), which
---   clamps local Z to >= 0.75 studs. Wings are built from a BASE point and grow
---   away from it: the rotated long axis always gains Z, so no feather can ever
---   swing in front of the torso or head.
---
--- READABILITY CONTRACT
---   No light is parented to HumanoidRootPart (that lit him from the inside and
---   blew out the silhouette). Warm gold PointLights sit BEHIND him instead,
---   giving a golden rim light on a dark, readable body.
-local function behindCF(rootPart: BasePart, x: number, y: number, z: number, rx: number?, ry: number?, rz: number?): CFrame
-    local cf = rootPart.CFrame * CFrame.new(x, y, math.max(0.75, z))
-    if rx or ry or rz then
-        cf = cf * CFrame.Angles(rx or 0, ry or 0, rz or 0)
-    end
-    return cf
-end
-
-local function weldTo(part: BasePart, rootPart: BasePart)
-    part.CanCollide = false
-    part.CanTouch = false
-    part.CanQuery = false
-    part.Massless = true
-    part.CastShadow = false
-    local w = Instance.new('WeldConstraint')
-    w.Part0 = rootPart
-    w.Part1 = part
-    w.Parent = part
-    part.Anchored = false
-end
 
 local function newHolyRayEmitter(parent: Instance, rate: number, size: number, speed: number, color: Color3): ParticleEmitter
     local pe = Instance.new('ParticleEmitter')
@@ -3747,196 +3717,9 @@ local function newHolyRayEmitter(parent: Instance, rate: number, size: number, s
     return pe
 end
 
-local function buildDivineWings(char: Model, rootPart: BasePart): (Folder, { BasePart })
-    local folder = Instance.new('Folder')
-    folder.Name = 'DivineAscentWings'
-    folder.Parent = char
-    -- Weld the wings to the TORSO (not the root) so they follow the torso through
-    -- the ultimate's animation instead of staying fixed behind the root.
-    local torsoRef = char:FindFirstChild('Torso')
-    if not (torsoRef and torsoRef:IsA('BasePart')) then torsoRef = rootPart end
 
-    local generalVFX = game:GetService('ReplicatedStorage'):FindFirstChild('generalVFX')
-    local template = generalVFX and generalVFX:FindFirstChild('Wings')
 
-    if template and template:IsA('BasePart') then
-        local meshWings = template:Clone()
-        meshWings.Name = 'AngelWings'
-        meshWings.CanCollide = false
-        meshWings.CanTouch = false
-        meshWings.CanQuery = false
-        meshWings.Massless = true
-        meshWings.CastShadow = false
-        meshWings.Anchored = false
-        meshWings.Material = Enum.Material.Neon
-        meshWings.Color = Color3.fromRGB(255, 246, 224)
-        meshWings.Transparency = 0.04
-        meshWings.CFrame = behindCF(torsoRef, 0, 4.05, 1.15)
-        meshWings.Parent = folder
 
-        local snd = meshWings:FindFirstChildOfClass('Sound')
-        if snd then snd:Destroy() end
-
-        local mesh = meshWings:FindFirstChildOfClass('SpecialMesh')
-        if mesh then
-            mesh.TextureId = ''
-            mesh.VertexColor = Vector3.new(1, 1, 1)
-            local fullScale = mesh.Scale * 1.35
-            mesh.Scale = Vector3.new(0.06, 0.06, 0.06)
-            TweenService:Create(mesh, TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = fullScale }):Play()
-        end
-
-        weldTo(meshWings, torsoRef)
-
-        -- Golden rim glow behind the feather plane so the silhouette pops.
-        local glow = Instance.new('Part')
-        glow.Name = 'WingBackGlow'
-        glow.Size = Vector3.new(6.8, 4.4, 0.2)
-        glow.Material = Enum.Material.Neon
-        glow.Color = HOLY_GOLD
-        glow.Transparency = 0.87
-        glow.CFrame = behindCF(torsoRef, 0, 4.15, 1.42)
-        glow.Parent = folder
-        weldTo(glow, torsoRef)
-
-        -- Rising holy motes across the span of the wings.
-        for _, mx in ipairs({ -3.0, -1.5, 0, 1.5, 3.0 }) do
-            local att = Instance.new('Attachment')
-            att.Name = 'WingMote'
-            att.CFrame = CFrame.new(mx, math.abs(mx) * 0.35, 0.15)
-            att.Parent = glow
-            local pe = newHolyRayEmitter(att, 8, 1.6, 3, (mx == 0) and HOLY_GOLD or HOLY_IVORY)
-            pe.SpreadAngle = Vector2.new(38, 38)
-            pe.Lifetime = NumberRange.new(0.8, 1.6)
-        end
-    end
-
-    local parts: { BasePart } = {}
-    for _, d in ipairs(folder:GetDescendants()) do
-        if d:IsA('BasePart') then table.insert(parts, d) end
-    end
-    return folder, parts
-end
-
-local function buildDivineHalo(char: Model, rootPart: BasePart): Model
-    local halo = Instance.new('Model')
-    halo.Name = 'DivineHalo'
-    halo.Parent = char
-
-    local RING_N = 16
-    local R = 1.95
-    local Y = 1.6
-    local Z = 1.05
-    local chord = (2 * math.pi * R / RING_N) * 1.06
-    for k = 1, RING_N do
-        local ang = (k / RING_N) * math.pi * 2
-        local seg = Instance.new('Part')
-        seg.Name = 'HaloSeg'
-        seg.Size = Vector3.new(0.14, chord, 0.2)
-        seg.Material = Enum.Material.Neon
-        seg.Color = HOLY_GOLD
-        seg.Transparency = 0.08
-        seg.CFrame = rootPart.CFrame * CFrame.new(math.cos(ang) * R, Y + math.sin(ang) * R, Z) * CFrame.Angles(0, 0, ang)
-        seg.Parent = halo
-        weldTo(seg, rootPart)
-    end
-
-    local glow = Instance.new('Part')
-    glow.Name = 'HaloGlow'
-    glow.Shape = Enum.PartType.Cylinder
-    glow.Size = Vector3.new(0.08, R * 2.4, R * 2.4)
-    glow.Material = Enum.Material.Neon
-    glow.Color = HOLY_WHITE
-    glow.Transparency = 0.84
-    glow.CFrame = rootPart.CFrame * CFrame.new(0, Y, Z + 0.22) * CFrame.Angles(0, math.rad(90), 0)
-    glow.Parent = halo
-    weldTo(glow, rootPart)
-
-    return halo
-end
-
-local function buildRimLights(char: Model, rootPart: BasePart): Folder
-    local folder = Instance.new('Folder')
-    folder.Name = 'DivineRimLights'
-    folder.Parent = char
-
-    local specs = {
-        { x = 0, y = 2.2, z = 2.6, b = 2.4, r = 15, c = HOLY_WHITE },
-        { x = -2.6, y = 1.6, z = 2.2, b = 1.4, r = 12, c = HOLY_GOLD },
-        { x = 2.6, y = 1.6, z = 2.2, b = 1.4, r = 12, c = HOLY_GOLD },
-    }
-    for _, s in ipairs(specs) do
-        local anchor = Instance.new('Part')
-        anchor.Name = 'RimAnchor'
-        anchor.Size = Vector3.new(0.2, 0.2, 0.2)
-        anchor.Transparency = 1
-        anchor.CFrame = behindCF(rootPart, s.x, s.y, s.z)
-        anchor.Parent = folder
-        weldTo(anchor, rootPart)
-        local pl = Instance.new('PointLight')
-        pl.Color = s.c
-        pl.Brightness = s.b
-        pl.Range = s.r
-        pl.Shadows = false
-        pl.Parent = anchor
-    end
-    return folder
-end
-
-local function buildGroundSeal(origin: Vector3, groundY: number, radius: number, holder: Instance): Model
-    local seal = Instance.new('Model')
-    seal.Name = 'DivineGroundSeal'
-    seal.Parent = holder
-
-    local baseY = groundY + 0.06
-
-    local function ring(ringRadius, segCount, thickness, height, color, transparency)
-        local chord = (2 * math.pi * ringRadius / segCount) * 1.35
-        for k = 1, segCount do
-            local ang = (k / segCount) * math.pi * 2
-            local px = origin.X + math.cos(ang) * ringRadius
-            local pz = origin.Z + math.sin(ang) * ringRadius
-            local seg = Instance.new('Part')
-            seg.Name = 'SealSeg'
-            seg.Size = Vector3.new(thickness, height, chord)
-            seg.Material = Enum.Material.Neon
-            seg.Color = color
-            seg.Transparency = transparency
-            seg.CanCollide = false
-            seg.CanTouch = false
-            seg.CanQuery = false
-            seg.CastShadow = false
-            seg.Anchored = true
-            seg.CFrame = CFrame.lookAt(Vector3.new(px, baseY, pz), Vector3.new(px, baseY, pz) + Vector3.new(-math.sin(ang), 0, math.cos(ang)))
-            seg.Parent = seal
-        end
-    end
-
-    ring(radius, 48, 0.75, 0.22, HOLY_GOLD, 0.2)
-    ring(radius * 0.66, 36, 0.45, 0.18, HOLY_WHITE, 0.35)
-    ring(radius * 0.34, 24, 0.4, 0.16, HOLY_GOLD, 0.3)
-
-    for k = 1, 8 do
-        local ang = (k / 8) * math.pi * 2
-        local midR = radius * 0.5
-        local spoke = Instance.new('Part')
-        spoke.Name = 'SealSpoke'
-        spoke.Size = Vector3.new(0.35, 0.14, radius * 0.33)
-        spoke.Material = Enum.Material.Neon
-        spoke.Color = HOLY_IVORY
-        spoke.Transparency = 0.4
-        spoke.CanCollide = false
-        spoke.CanTouch = false
-        spoke.CanQuery = false
-        spoke.CastShadow = false
-        spoke.Anchored = true
-        local sp = Vector3.new(origin.X + math.cos(ang) * midR, baseY, origin.Z + math.sin(ang) * midR)
-        spoke.CFrame = CFrame.lookAt(sp, sp + Vector3.new(math.cos(ang), 0, math.sin(ang)))
-        spoke.Parent = seal
-    end
-
-    return seal
-end
 
 local function spawnHolyCross(parent: Instance, baseCF: CFrame, scale: number, riseTime: number, color: Color3)
     local model = Instance.new('Model')
@@ -3983,175 +3766,6 @@ local function spawnHolyCross(parent: Instance, baseCF: CFrame, scale: number, r
     end)
 end
 
-local function playDivineAscentVFX(char: Model, origin: Vector3, lookDir: Vector3, config: any)
-    local rootPart = char:FindFirstChild('HumanoidRootPart') :: BasePart?
-    local humanoid = char:FindFirstChildOfClass('Humanoid')
-    if not rootPart or not humanoid then return end
-
-    local isLocalCaster = (char == player.Character)
-    local ssPlayer = Players:GetPlayerFromCharacter(char)
-    local sizeScale = math.max(0.4, (ssPlayer and ssPlayer:GetAttribute('Stat_size')) or 1.0)
-    local radius = (config and config.range or 30) * sizeScale
-    local duration = (config and config.duration or 8.0)
-
-    local flatLook = Vector3.new(lookDir.X, 0, lookDir.Z)
-    if flatLook.Magnitude < 0.001 then flatLook = rootPart.CFrame.LookVector end
-    flatLook = Vector3.new(flatLook.X, 0, flatLook.Z).Unit
-    local backDir = -flatLook
-
-    -- Find the actual ground under him so the seal sits beneath his FEET.
-    local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    rayParams.FilterDescendantsInstances = { char }
-    rayParams.IgnoreWater = true
-    local groundY = origin.Y - 3
-    local hit = Workspace:Raycast(origin + Vector3.new(0, 6, 0), Vector3.new(0, -60, 0), rayParams)
-    -- Clean up any existing Divine Ascent VFX attachments/folders from a previous cast
-    for _, child in ipairs(char:GetChildren()) do
-        if child.Name == "DivineAscentWings" or child.Name == "DivineHalo" or child.Name == "DivineRimLights" then
-            child:Destroy()
-        end
-    end
-    for _, att in ipairs(rootPart:GetChildren()) do
-        if att.Name == "DivineMotes" then
-            att:Destroy()
-        end
-    end
-
-    local worldHolder = Instance.new('Folder')
-    worldHolder.Name = 'DivineAscentWorldVFX'
-    worldHolder.Parent = Workspace.Terrain
-
-    local wingsFolder = buildDivineWings(char, rootPart)
-    local halo = buildDivineHalo(char, rootPart)
-    buildRimLights(char, rootPart)
-
-    -- Raised to the party's float level so the holy seal travels with the ult
-    -- tableau (caster lifted to +159, allies float at +171).
-    local seal = buildGroundSeal(origin, origin.Y + 150, radius, worldHolder)
-
-    -- Holy radiance, reusing generalVFX.Holy as the light-ray source, placed above the head.
-    local radianceFolder = Instance.new('Folder')
-    radianceFolder.Name = 'DivineRadiance'
-    radianceFolder.Parent = worldHolder
-
-    local ReplicatedStorage = game:GetService('ReplicatedStorage')
-    local generalVFX = ReplicatedStorage:FindFirstChild('generalVFX')
-    local holyTemplate = generalVFX and generalVFX:FindFirstChild('Holy')
-
-    if holyTemplate then
-        local clone = holyTemplate:Clone()
-        clone.Name = 'DivineRadiance'
-        clone.CanCollide = false
-        clone.CanTouch = false
-        clone.CanQuery = false
-        clone.CastShadow = false
-        clone.Transparency = 1
-        clone.Size = Vector3.new(12, 12, 12)
-        clone.CFrame = rootPart.CFrame * CFrame.new(0, 2.9, 0.4)
-        clone.Parent = radianceFolder
-        local w = Instance.new('WeldConstraint')
-        w.Part0 = rootPart
-        w.Part1 = clone
-        w.Parent = clone
-        clone.Anchored = false
-        for _, d in ipairs(clone:GetDescendants()) do
-            if d:IsA('ParticleEmitter') then
-                d.Rate = math.clamp(d.Rate * 0.25, 6, 30)
-                d.Color = ColorSequence.new(HOLY_GOLD)
-                d.LightEmission = 1
-                d.LightInfluence = 0
-                d.Size = NumberSequence.new(13)
-            end
-        end
-    end
-
-    -- Small floating crosses rising all around the celestial tableau
-    local crossHolder = Instance.new('Folder')
-    crossHolder.Name = 'DivineCrosses'
-    crossHolder.Parent = worldHolder
-
-    for k = 1, 24 do
-        task.delay(k * 0.15, function()
-            if not crossHolder.Parent or not rootPart.Parent then return end
-            local side = (k % 2 == 0) and 1 or -1
-            local spread = 1.6 + math.random() * 5.0
-            local cf = behindCF(rootPart, side * spread, 0.8 + math.random() * 3.6, 1.1 + math.random() * 2.5)
-            spawnHolyCross(crossHolder, cf, 1.1 + math.random() * 0.6, 2.5 + math.random() * 1.5,
-                (k % 3 == 0) and HOLY_WHITE or HOLY_GOLD)
-        end)
-    end
-
-    -- Holy motes drifting up around the wings.
-    local moteAtt = Instance.new('Attachment')
-    moteAtt.Name = 'DivineMotes'
-    moteAtt.CFrame = CFrame.new(0, 1.6, 1.3)
-    moteAtt.Parent = rootPart
-    local motePE = newHolyRayEmitter(moteAtt, 48, 2.8, 6, HOLY_WHITE)
-    motePE.SpreadAngle = Vector2.new(80, 80)
-    motePE.Lifetime = NumberRange.new(1.2, 2.5)
-
-    if isLocalCaster then
-        triggerFOVPunch(6, 0.5)
-    end
-
-    -- Cast burst placed BEHIND the shoulders
-    local burstAtt = Instance.new('Attachment')
-    burstAtt.CFrame = CFrame.new(0, 1.7, 2.0)
-    burstAtt.Parent = rootPart
-    local burstPE = newHolyRayEmitter(burstAtt, 0, 5, 22, HOLY_GOLD)
-    burstPE.SpreadAngle = Vector2.new(180, 180)
-    burstPE:Emit(72)
-    Debris:AddItem(burstAtt, 1.5)
-
-    task.delay(duration, function()
-        if wingsFolder then
-            for _, d in ipairs(wingsFolder:GetDescendants()) do
-                if d:IsA('BasePart') then
-                    TweenService:Create(d, TweenInfo.new(0.7), { Transparency = 1 }):Play()
-                end
-            end
-            Debris:AddItem(wingsFolder, 0.9)
-        end
-        if halo then
-            for _, d in ipairs(halo:GetDescendants()) do
-                if d:IsA('BasePart') then
-                    TweenService:Create(d, TweenInfo.new(0.7), { Transparency = 1 }):Play()
-                end
-            end
-            Debris:AddItem(halo, 0.9)
-        end
-        local rim = char:FindFirstChild('DivineRimLights')
-        if rim then
-            for _, d in ipairs(rim:GetDescendants()) do
-                if d:IsA('PointLight') then
-                    TweenService:Create(d, TweenInfo.new(0.6), { Brightness = 0 }):Play()
-                end
-            end
-            Debris:AddItem(rim, 0.9)
-        end
-        if radianceFolder then
-            for _, d in ipairs(radianceFolder:GetDescendants()) do
-                if d:IsA('ParticleEmitter') then d.Enabled = false end
-            end
-            Debris:AddItem(radianceFolder, 1.0)
-        end
-        if motePE then motePE.Enabled = false end
-        if moteAtt and moteAtt.Parent then Debris:AddItem(moteAtt, 1.2) end
-        for _, container in ipairs({ seal }) do
-            if container then
-                for _, d in ipairs(container:GetDescendants()) do
-                    if d:IsA('BasePart') then
-                        TweenService:Create(d, TweenInfo.new(0.8), { Transparency = 1 }):Play()
-                    elseif d:IsA('ParticleEmitter') then
-                        d.Enabled = false
-                    end
-                end
-            end
-        end
-        Debris:AddItem(worldHolder, 1.8)
-    end)
-end
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Cleric Basic Combat VFX: Light Attack, Divine Touch (Heal), Divine Beam (Laser)
@@ -4473,113 +4087,6 @@ local function playClericDivineBeamVFX(char: Model, origin: Vector3, direction: 
 		Debris:AddItem(holder, 0.8)
 	end)
 end
-
--- Divine Ascent cinematic camera: low upward hero shot during the wing unfurl,
--- rising with the caster, then a wide divine-judgment pull-back. Mirrors the
--- reference art (low angle -> soaring ascension -> overhead radiance).
-playDivineAscentCamera = function(char: Model, lookDir: Vector3, duration: number)
-	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if not rootPart then return end
-
-	local successIso, IsometricCamera = pcall(function()
-		return require(script.Parent:WaitForChild("IsometricCamera"))
-	end)
-	local wasIsoActive = false
-	if successIso and IsometricCamera and IsometricCamera.IsActive and IsometricCamera.IsActive() then
-		wasIsoActive = true
-		IsometricCamera.Pause()
-	end
-
-	local cam = Workspace.CurrentCamera
-	cam.CameraType = Enum.CameraType.Scriptable
-
-	local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z)
-	if flatDir.Magnitude < 0.001 then flatDir = rootPart.CFrame.LookVector end
-	flatDir = Vector3.new(flatDir.X, 0, flatDir.Z).Unit
-
-	local myToken = (divineCamToken or 0) + 1
-	divineCamToken = myToken
-
-	local function stillActive()
-		return divineCamToken == myToken and char.Parent ~= nil
-	end
-
-	local function restore()
-		if divineCamToken ~= myToken then return end
-		if wasIsoActive and successIso and IsometricCamera then
-			IsometricCamera.Resume(0.5)
-		else
-			cam.CameraType = Enum.CameraType.Custom
-			cam.FieldOfView = 70
-			local hum = char:FindFirstChildOfClass("Humanoid")
-			if hum then cam.CameraSubject = hum end
-		end
-	end
-
-	-- Ground probe so the lens can never sink through the floor plane.
-	local groundParams = RaycastParams.new()
-	groundParams.FilterType = Enum.RaycastFilterType.Exclude
-	groundParams.FilterDescendantsInstances = { char }
-	groundParams.IgnoreWater = true
-
-	local function groundHeightAt(worldPos: Vector3): number?
-		local hit = Workspace:Raycast(Vector3.new(worldPos.X, worldPos.Y + 60, worldPos.Z), Vector3.new(0, -400, 0), groundParams)
-		if hit then return hit.Position.Y end
-		return nil
-	end
-
-	task.spawn(function()
-		cam.FieldOfView = 54
-		local t0 = os.clock()
-		local firstFrame = true
-		local CS, CH = 1.0, 0.0 -- cutaway DISABLED (was 3.2): far cam flew into unstreamed darkness
-		local cut = false
-		local sc = Workspace:GetAttribute("ReviveStageCenter")
-		local sv = Workspace:GetAttribute("ReviveStageView")
-		while stillActive() do
-			local e = os.clock() - t0
-			if e >= duration then break end
-			local rp = rootPart.Position
-			local fc, cp, fv, sn
-			if sc and sv and e >= CS and e < CS + CH then
-				local k = (e - CS) / CH
-				local sd = Vector3.new(-flatDir.Z, 0, flatDir.X)
-				fc = sc + sv * 4 + Vector3.new(0, 3, 0)
-				cp = sc + sd * (52 + k * 2) + Vector3.new(0, 12 + k, 0)
-				fv = 56
-				sn = not cut
-				cut = true
-			else
-				if cut then firstFrame = true cut = false end
-				local p = math.clamp(e / math.max(duration, 0.001), 0, 1)
-				fv = 54 - p * 3
-				fc = rp + Vector3.new(0, 1.8, 0)
-				cp = rp + flatDir * (14.0 - p * 1.5) + Vector3.new(0, -3.5 + math.max(0, 1 - e / 0.45) * 2.5, 0)
-			end
-			local gy = groundHeightAt(cp)
-			if gy then cp = Vector3.new(cp.X, math.max(cp.Y, gy + 1.5), cp.Z) end
-			local tc = CFrame.lookAt(cp, fc)
-			if firstFrame or sn then cam.CFrame = tc firstFrame = false
-			else cam.CFrame = cam.CFrame:Lerp(tc, 0.35) end
-			cam.FieldOfView = fv
-			RunService.RenderStepped:Wait()
-		end
-		restore()
-	end)
-end
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 -- Animation Loading
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -5072,7 +4579,7 @@ function SkillController.UseSkill(skillIndex: number)
 		ClericVFX.playRadiantGround(rootPart.Position, radiantRadius)
 		task.delay(0.24, ClericFlair.radiantGround, rootPart.Position, radiantRadius)
 	elseif classId == "cleric" and skillIndex == 4 then
-		-- Ultimate: Divine Ascent (angelic ascension, heal + holy judgment)
+		-- Ultimate: Divine Ascent (kneel in prayer, light from above, allies revived)
 		char:SetAttribute("AllowSkillMovement", false)
 		local track = getSkillTrack(char, 4)
 		if track then
@@ -5084,7 +4591,6 @@ function SkillController.UseSkill(skillIndex: number)
 			char:SetAttribute("IsSkillCasting", false)
 			char:SetAttribute("AllowSkillMovement", false)
 		end)
-		playDivineAscentVFX(char, rootPart.Position, aimDir, config)
 		if char == player.Character then
 			DivineAscentCutscene.Play(duration, aimDir)
 		end

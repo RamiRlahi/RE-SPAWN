@@ -1103,57 +1103,37 @@ local function executeClericDivineAscent(player: Player, casterChar: Model, orig
 	local healAmount = (config.healAmount or 100) * (config.areaMultiplier or 1)
 	local damage = config.damage or 90
 	local radius = (config.range or 30) * (config.areaMultiplier or 1)
-	local duration = config.duration or 8.0
-	local returnCFrame = casterRoot.CFrame
+	local duration = config.duration or 5.5
+	local reviveTime = math.min(config.reviveTime or 3.7, duration)
 
-	-- Lift the caster into the sky (rooted but floating) during the ascension
+	-- Kneel where they stand: root the Cleric (facing the aim) for the cinematic.
+	local flat = Vector3.new(lookDir.X, 0, lookDir.Z)
+	if flat.Magnitude < 0.001 then flat = casterRoot.CFrame.LookVector end
+	flat = Vector3.new(flat.X, 0, flat.Z).Unit
+	local kneelCF = CFrame.lookAt(casterRoot.Position, casterRoot.Position + flat)
 	casterChar:SetAttribute("IsSkillCasting", true)
 	casterRoot.Anchored = true
+	casterRoot.CFrame = kneelCF
 
-	-- Heal + cleanse every ally (and self) in the aura
-	local function applyHealAura()
+	-- The fallen party lies behind the kneeling Cleric until the light revives them.
+	AllyManager.SpawnDownedAlliesBehind(player, kneelCF)
+
+	-- THE REVIVAL: allies rise, players are healed and cleansed, enemies are smitten.
+	task.delay(reviveTime, function()
+		if not casterChar.Parent then return end
+		AllyManager.ReviveStagedAllies()
 		for _, other in ipairs(Players:GetPlayers()) do
 			local oc = other.Character
-			if oc and oc.Parent then
-				local oroot = oc:FindFirstChild("HumanoidRootPart")
-				if oroot and (oroot.Position - origin).Magnitude <= radius then
-					healCharacter(oc, healAmount)
-					oc:SetAttribute("DebuffCleanse", os.clock())
-				end
+			local oroot = oc and oc:FindFirstChild("HumanoidRootPart")
+			if oc and oroot and (oroot.Position - origin).Magnitude <= radius then
+				healCharacter(oc, healAmount)
+				oc:SetAttribute("DebuffCleanse", os.clock())
 			end
 		end
-	end
-	applyHealAura()
-
-	-- Creation-of-Adam tableau: lift the caster HIGH into the sky first, then
-	-- spawn the revived party just below him so they read as reaching up to him.
-	-- (The old mural cinematic FireClient is gone - it filmed an unstreamed
-	--  far-away mural, which just faded the screen to black.)
-	local liftFlatDir = Vector3.new(lookDir.X, 0, lookDir.Z)
-	if liftFlatDir.Magnitude < 0.001 then liftFlatDir = casterRoot.CFrame.LookVector end
-	liftFlatDir = Vector3.new(liftFlatDir.X, 0, liftFlatDir.Z).Unit
-	local casterPos = origin + Vector3.new(0, 159, 0)
-	-- Take network ownership from the client so the server's anchor/CFrame actually
-	-- holds (a client-owned character ignores the server's Anchored and falls).
-	pcall(function() casterRoot:SetNetworkOwner(nil) end)
-	local liftedCF = CFrame.lookAt(casterPos, casterPos + liftFlatDir)
-	casterRoot.CFrame = liftedCF
-
-	AllyManager.SpawnAlliesBehindPlayer(player, liftedCF)
-
-	-- Revive (and heal) downed allies inside the aura.
-	AllyManager.HealAlliesInRadius(origin, radius, healAmount)
-
-	-- Divine judgment: damage + knock enemies inside the zone
-	task.spawn(function()
-		task.wait(config.judgmentTime or 1.6)
-		if not casterChar or not casterChar.Parent then return end
-		local targets = getPotentialTargets(casterChar)
-		for _, target in ipairs(targets) do
-			local dist = (target.rootPart.Position - origin).Magnitude
-			if dist <= radius then
+		for _, target in ipairs(getPotentialTargets(casterChar)) do
+			if not Players:GetPlayerFromCharacter(target.character) and (target.rootPart.Position - origin).Magnitude <= radius then
 				dealDamage(player, target, damage, "DIVINE ASCENT")
-				local kb = (target.rootPart.Position - origin)
+				local kb = target.rootPart.Position - origin
 				local flatKb = Vector3.new(kb.X, 0, kb.Z)
 				local kbDir = (flatKb.Magnitude > 0.1 and flatKb.Unit or Vector3.new(0, 0, 1)) + Vector3.new(0, 0.5, 0)
 				target.rootPart:ApplyImpulse(kbDir.Unit * (target.rootPart.AssemblyMass * 30))
@@ -1161,35 +1141,12 @@ local function executeClericDivineAscent(player: Player, casterChar: Model, orig
 		end
 	end)
 
-	-- End of ascension: reset the player and party to the ground together, then release them.
+	-- End: release the Cleric and the revived party.
 	task.delay(duration, function()
-		if casterChar and casterChar.Parent then
-			local root2 = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
-			local hum2 = casterChar:FindFirstChildOfClass("Humanoid")
-			if root2 then
-				local rayParams = RaycastParams.new()
-				rayParams.FilterType = Enum.RaycastFilterType.Exclude
-				rayParams.FilterDescendantsInstances = {casterChar, Workspace:FindFirstChild("Allies")}
-				rayParams.IgnoreWater = true
-				local hit = Workspace:Raycast(root2.Position + Vector3.new(0, 8, 0), Vector3.new(0, -300, 0), rayParams)
-				if hit then
-					local hipHeight = hum2 and hum2.HipHeight or 2
-					local y = hit.Position.Y + (root2.Size.Y * 0.5) + hipHeight
-					root2.CFrame = CFrame.new(root2.Position.X, y, root2.Position.Z) * (root2.CFrame - root2.Position)
-				end
-				root2.AssemblyLinearVelocity = Vector3.zero
-				root2.AssemblyAngularVelocity = Vector3.zero
-			end
-		end
-
 		AllyManager.ReleaseAllies()
-
-		if casterChar and casterChar.Parent then
+		if casterChar.Parent then
 			local root2 = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
 			if root2 then
-				root2.CFrame = returnCFrame
-				root2.AssemblyLinearVelocity = Vector3.zero
-				root2.AssemblyAngularVelocity = Vector3.zero
 				root2.Anchored = false
 				pcall(function() root2:SetNetworkOwner(player) end)
 			end

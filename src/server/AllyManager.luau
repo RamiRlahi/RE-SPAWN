@@ -252,87 +252,64 @@ local function clearAllies()
 	end
 end
 
--- Spawn the 3 allies BEHIND the given player, already downed, with light rays.
+-- Hold the revived reach pose (animation 100018297459066) and anchor the rig.
 local function poseReaching(ally: Model)
-	-- Hold the revived reach pose (animation 100018297459066) and anchor the rig.
 	playRevivePose(ally)
 	local hrp = ally:FindFirstChild("HumanoidRootPart")
 	if hrp then hrp.Anchored = true end
 end
 
-function AllyManager.SpawnAlliesBehindPlayer(player: Player, returnCFrame: CFrame?)
+-- Divine Ascent staging: lay the party out, downed, in a fan BEHIND the caster
+-- (local +Z of casterCF), facing the same way. Each ally's standing spot is
+-- stored as ReturnCFrame for ReviveStagedAllies / ReleaseAllies.
+function AllyManager.SpawnDownedAlliesBehind(player: Player, casterCF: CFrame)
 	local template = ServerStorage:FindFirstChild("AllyTemplate")
 	if not template then
 		warn("[AllyManager] No ServerStorage.AllyTemplate - cannot spawn allies.")
 		return
 	end
-	local char = player.Character
-	if not char then return end
-	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if not root then return end
-
 	clearAllies()
 
-	-- The caster was lifted to +53 studs; the revived party floats 50 studs up
-	-- (3 below him), fanned out IN FRONT of him so he faces them and they all
-	-- face back toward him.
-	local baseCF = returnCFrame or root.CFrame
-	local casterPos = root.Position
-	local look = baseCF.LookVector
-	local flat = Vector3.new(look.X, 0, look.Z)
-	if flat.Magnitude < 0.001 then flat = Vector3.new(0, 0, -1) end
-	flat = flat.Unit
-	local right = Vector3.new(-flat.Z, 0, flat.X)
-	local allyY = casterPos.Y + 6
-	local returnOffsets = { Vector3.new(-7, 0, 8), Vector3.new(0, 0, 11), Vector3.new(7, 0, 8) }
-	local fanCenter = Vector3.new(casterPos.X, allyY, casterPos.Z) + flat * 10
-	local lateral = { -7, 0, 7 }
-	local cen = Vector3.zero
-	for i, lat in ipairs(lateral) do
-		local pos = fanCenter + right * lat
-		pos = Vector3.new(pos.X, allyY, pos.Z)
-		local tgt = Vector3.new(casterPos.X, allyY, casterPos.Z)
-		local ally = spawnAlly(template, "Ally" .. i, CFrame.lookAt(pos, tgt), true)
-		poseReaching(ally)
-
-		local localOffset = returnOffsets[i]
-		local groundPos = (baseCF * CFrame.new(localOffset)).Position
-		local rayParams = RaycastParams.new()
-		rayParams.FilterType = Enum.RaycastFilterType.Exclude
-		rayParams.FilterDescendantsInstances = { getAllyFolder(), player.Character }
-		rayParams.IgnoreWater = true
-		local hit = Workspace:Raycast(groundPos + Vector3.new(0, 8, 0), Vector3.new(0, -300, 0), rayParams)
-		local returnY = groundPos.Y
+	local offsets = { Vector3.new(-6, 0, 7), Vector3.new(0, 0, 9.5), Vector3.new(6, 0, 7) }
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Exclude
+	rayParams.FilterDescendantsInstances = { getAllyFolder(), player.Character }
+	rayParams.IgnoreWater = true
+	for i, offset in ipairs(offsets) do
+		local spot = (casterCF * CFrame.new(offset)).Position
+		local hit = Workspace:Raycast(spot + Vector3.new(0, 8, 0), Vector3.new(0, -60, 0), rayParams)
+		local standY = spot.Y
+		local ally = spawnAlly(template, "Ally" .. i, CFrame.new(spot) * casterCF.Rotation, true)
 		local hum = ally:FindFirstChildOfClass("Humanoid")
 		local hrp = ally:FindFirstChild("HumanoidRootPart")
 		if hit and hrp and hrp:IsA("BasePart") then
-			local hipHeight = hum and hum.HipHeight or 2
-			returnY = hit.Position.Y + (hrp.Size.Y * 0.5) + hipHeight
+			standY = hit.Position.Y + hrp.Size.Y * 0.5 + (hum and hum.HipHeight or 2)
 		end
-		ally:SetAttribute("ReturnCFrame", CFrame.new(groundPos.X, returnY, groundPos.Z) * baseCF.Rotation)
-		cen = cen + pos
+		ally:SetAttribute("ReturnCFrame", CFrame.new(spot.X, standY, spot.Z) * casterCF.Rotation)
 	end
-
-	-- Revive the party a beat later; they stay floating + anchored in the reach pose
-	-- (the ground aura can't reach them at +50, so revive them directly here).
-	task.delay(0.4, function()
-		for _, ally in ipairs(AllyManager.GetAllies()) do
-			AllyManager.Revive(ally)
-			local hrp = ally:FindFirstChild("HumanoidRootPart")
-			if hrp then hrp.Anchored = true end
-		end
-	end)
-
-	cen = cen / #lateral
-	Workspace:SetAttribute("ReviveStageCenter", cen)
-	local vd = Vector3.new(flat.X, 0, flat.Z)
-	if vd.Magnitude < 0.001 then vd = Vector3.new(0, 0, 1) end
-	Workspace:SetAttribute("ReviveStageView", vd.Unit)
-
-	print("[AllyManager] Spawned " .. #lateral .. " downed allies in front of " .. player.Name)
+	print(`[AllyManager] Laid {#offsets} fallen allies behind {player.Name}`)
 end
 
--- Drop the floating party back to the ground when the ult ends.
+-- The revival beat: stand each fallen ally up on their spot, revive them into
+-- the arms-raised pose, and drop a beam of light on them.
+function AllyManager.ReviveStagedAllies()
+	for _, ally in ipairs(AllyManager.GetAllies()) do
+		local hrp = ally:FindFirstChild("HumanoidRootPart")
+		local stand = ally:GetAttribute("ReturnCFrame")
+		if hrp and hrp:IsA("BasePart") and typeof(stand) == "CFrame" then
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+			hrp.CFrame = stand
+		end
+		AllyManager.Revive(ally)
+		poseReaching(ally)
+		if hrp and hrp:IsA("BasePart") then
+			AllyManager.spawnLightRays(hrp.Position)
+		end
+	end
+end
+
+-- Release the revived party when the ult ends.
 function AllyManager.ReleaseAllies()
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude

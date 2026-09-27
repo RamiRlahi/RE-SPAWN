@@ -158,9 +158,9 @@ SkillData.cleric = {
 		damage = 90,
 		range = 30,
 		duration = 5.5, -- length of the ascension cinematic
-		judgmentTime = 3.0, -- lands on the cinematic's climax (~0.6 of the hold)
+		reviveTime = 3.7, -- the revival beat of the cinematic (DivineAscentCutscene.REVIVE_AT)
 		healAmount = 100,
-		description = "Ultimate: Unleash your full divine power, gaining angelic wings and soaring into the sky. Heal all allies, remove all negative effects, and deliver divine judgment upon your enemies.",
+		description = "Ultimate: Kneel in prayer and call down the light. Fallen allies behind you are revived, the party is healed and cleansed, and nearby enemies are smitten.",
 	},
 }
 
