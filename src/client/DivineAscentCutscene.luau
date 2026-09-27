@@ -25,25 +25,65 @@ local token = 0
 -- stamp dark silhouettes onto the cloud ocean). Saved once so overlapping or
 -- interrupted cutscenes always restore the dungeon's original setting.
 local Lighting = game:GetService("Lighting")
--- The caster is rim-lit from behind (golden wings/halo), so the cutscene also
--- warms the ambient fill and adds a soft key light on the camera side —
--- otherwise the face and front of the body read as a dark shadow.
+-- The ult takes place high in the sky, but the dungeon's moody lighting (dark
+-- fog, low environment light, contrasty grade) would still apply up there —
+-- the sky reads pitch black and the caster as a black silhouette. For the
+-- cutscene we swap in a bright heavenly preset locally, and restore every
+-- dungeon setting exactly afterwards (also if the cinematic is cut short).
 local savedLighting: { [string]: any }? = nil
+local savedAtmosphere: { [string]: any }? = nil
+local savedGrade: boolean? = nil
+local tempSky: Sky? = nil
 local keyLight: Attachment? = nil
-local CUTSCENE_AMBIENT = Color3.fromRGB(150, 132, 108)
-local CUTSCENE_OUTDOOR = Color3.fromRGB(175, 160, 135)
+
+local HEAVEN_LIGHTING = {
+	GlobalShadows = false,
+	Brightness = 3,
+	ClockTime = 13,
+	Ambient = Color3.fromRGB(165, 150, 125),
+	OutdoorAmbient = Color3.fromRGB(190, 175, 150),
+	EnvironmentDiffuseScale = 1,
+	EnvironmentSpecularScale = 1,
+	ExposureCompensation = 0.25,
+}
+local HEAVEN_ATMOSPHERE = {
+	Density = 0.28,
+	Offset = 0.25,
+	Color = Color3.fromRGB(255, 228, 175),
+	Decay = Color3.fromRGB(255, 190, 120),
+	Haze = 1.6,
+	Glare = 0.6,
+}
 
 local function suppressShadows(root: BasePart?)
 	if savedLighting == nil then
-		savedLighting = {
-			GlobalShadows = Lighting.GlobalShadows,
-			Ambient = Lighting.Ambient,
-			OutdoorAmbient = Lighting.OutdoorAmbient,
-		}
+		savedLighting = {}
+		for k, v in pairs(HEAVEN_LIGHTING) do
+			local ok, cur = pcall(function() return (Lighting :: any)[k] end)
+			if ok then (savedLighting :: any)[k] = cur end
+			pcall(function() (Lighting :: any)[k] = v end)
+		end
+		local atmo = Lighting:FindFirstChildOfClass("Atmosphere")
+		if atmo then
+			savedAtmosphere = {}
+			for k, v in pairs(HEAVEN_ATMOSPHERE) do
+				(savedAtmosphere :: any)[k] = (atmo :: any)[k];
+				(atmo :: any)[k] = v
+			end
+		end
+		local grade = Lighting:FindFirstChild("DungeonColorCorrection") :: ColorCorrectionEffect?
+		if grade then
+			savedGrade = grade.Enabled
+			grade.Enabled = false
+		end
+		if not Lighting:FindFirstChildOfClass("Sky") then
+			-- A default sky dome so there's never a black void overhead.
+			tempSky = Instance.new("Sky")
+			tempSky.Name = "AscentSky"
+			tempSky.CelestialBodiesShown = false
+			tempSky.Parent = Lighting
+		end
 	end
-	Lighting.GlobalShadows = false
-	Lighting.Ambient = CUTSCENE_AMBIENT
-	Lighting.OutdoorAmbient = CUTSCENE_OUTDOOR
 	if root and not (keyLight and keyLight.Parent) then
 		-- Soft warm key light in front of the caster, slightly above the face.
 		local a = Instance.new("Attachment")
@@ -59,12 +99,29 @@ local function suppressShadows(root: BasePart?)
 		keyLight = a
 	end
 end
+
 local function restoreShadows()
 	if savedLighting ~= nil then
 		for k, v in pairs(savedLighting) do
-			(Lighting :: any)[k] = v
+			pcall(function() (Lighting :: any)[k] = v end)
 		end
 		savedLighting = nil
+	end
+	if savedAtmosphere ~= nil then
+		local atmo = Lighting:FindFirstChildOfClass("Atmosphere")
+		if atmo then
+			for k, v in pairs(savedAtmosphere) do (atmo :: any)[k] = v end
+		end
+		savedAtmosphere = nil
+	end
+	if savedGrade ~= nil then
+		local grade = Lighting:FindFirstChild("DungeonColorCorrection") :: ColorCorrectionEffect?
+		if grade then grade.Enabled = savedGrade end
+		savedGrade = nil
+	end
+	if tempSky then
+		tempSky:Destroy()
+		tempSky = nil
 	end
 	if keyLight then
 		keyLight:Destroy()
