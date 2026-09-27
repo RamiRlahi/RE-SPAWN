@@ -1497,37 +1497,57 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 		end
 	end
 
-	-- Shadow wisps streaming off the body give the silhouette a ragged,
-	-- shaggy edge (like the fur mantle in the reference).
+	-- Black energy covering the ENTIRE silhouette: dark energy streams off every
+	-- visible part (body, armor, cape) sized to that part, plus a dense shroud
+	-- from the core that swallows the whole figure. Only the blue eyes show.
 	local wisps = {}
-	for _, spec in ipairs({
-		{ "UpperTorso", "Torso", 3.2, 40 }, { "LowerTorso", "Torso", 3.6, 30 },
-		{ "RightUpperArm", "Right Arm", 1.8, 14 }, { "LeftUpperArm", "Left Arm", 1.8, 14 },
-		{ "RightLowerArm", "", 1.4, 10 }, { "LeftLowerArm", "", 1.4, 10 },
-		{ "Head", "Head", 2.2, 16 }, { "RightUpperLeg", "Right Leg", 2.4, 12 }, { "LeftUpperLeg", "Left Leg", 2.4, 12 },
-	}) do
-		local limb = char:FindFirstChild(spec[1]) or (spec[2] ~= "" and char:FindFirstChild(spec[2])) or nil
-		if limb and limb:IsA("BasePart") then
+	local DARK = colors(Color3.fromRGB(4, 5, 10), Color3.fromRGB(16, 22, 40))
+	local emitters = 0
+	for _, d in ipairs(char:GetDescendants()) do
+		if emitters >= 30 then break end
+		if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" and d.Transparency < 1 and d.Size.Magnitude > 0.6 then
+			emitters += 1
+			local size = math.clamp(d.Size.Magnitude * 0.9, 1.2, 4.5)
 			local a = Instance.new("Attachment")
 			a.Name = "ShadowWisps"
-			a.Parent = limb
+			a.Parent = d
 			local pe = newEmitter(a, {
 				Texture = TEX_SMOKE,
-				Color = colors(Color3.fromRGB(6, 8, 14), Color3.fromRGB(20, 28, 48)),
+				Color = DARK,
 				LightEmission = 0,
-				Size = seq(0, spec[3] * 0.6, 0.5, spec[3], 1, spec[3] * 1.3),
-				Transparency = seq(0, 1, 0.15, 0.25, 0.7, 0.55, 1, 1),
+				Size = seq(0, size * 0.7, 0.5, size, 1, size * 1.4),
+				Transparency = seq(0, 1, 0.12, 0.12, 0.7, 0.45, 1, 1),
 				Lifetime = NumberRange.new(0.5, 0.9),
-				Speed = NumberRange.new(0.5, 2.5),
+				Speed = NumberRange.new(0.4, 2),
 				SpreadAngle = Vector2.new(180, 180),
-				Acceleration = Vector3.new(0, 2.5, 0) + right * 2,
+				Acceleration = Vector3.new(0, 2.5, 0) + right * 1.5,
 				Rotation = NumberRange.new(0, 360),
-				RotSpeed = NumberRange.new(-60, 60),
-				Rate = spec[4],
+				RotSpeed = NumberRange.new(-70, 70),
+				Rate = math.clamp(size * 9, 10, 36),
 			})
 			table.insert(wisps, { att = a, pe = pe })
 		end
 	end
+	-- The shroud: big, dense dark energy boiling out of the core.
+	local shroudAtt = Instance.new("Attachment")
+	shroudAtt.Name = "ShadowShroud"
+	shroudAtt.Position = Vector3.new(0, 0.6, 0)
+	shroudAtt.Parent = root
+	local shroud = newEmitter(shroudAtt, {
+		Texture = TEX_SMOKE,
+		Color = DARK,
+		LightEmission = 0,
+		Size = seq(0, 3, 0.5, 5, 1, 7),
+		Transparency = seq(0, 1, 0.15, 0.2, 0.75, 0.5, 1, 1),
+		Lifetime = NumberRange.new(0.7, 1.1),
+		Speed = NumberRange.new(0.5, 2.5),
+		SpreadAngle = Vector2.new(180, 180),
+		Acceleration = Vector3.new(0, 3, 0) + right * 1.5,
+		Rotation = NumberRange.new(0, 360),
+		RotSpeed = NumberRange.new(-40, 40),
+		Rate = 34,
+	})
+	table.insert(wisps, { att = shroudAtt, pe = shroud })
 
 	-- ── Eyes: two icy-blue points on the face, dim at first ──
 	local eyes = {}

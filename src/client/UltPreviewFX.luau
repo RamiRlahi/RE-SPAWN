@@ -220,19 +220,31 @@ end
 AURAS.ice_mage = function(c)
 	local ICE = Color3.fromRGB(120, 220, 255)
 	local EYE = Color3.fromRGB(70, 175, 255)
-	-- Shadow wisps off the body.
-	for _, name in ipairs({ "Torso", "UpperTorso", "Head", "Left Arm", "Right Arm", "Left Leg", "Right Leg" }) do
-		local limb = c.char:FindFirstChild(name)
-		if limb and limb:IsA("BasePart") then
+	-- Black energy over the whole silhouette: every visible part plus a core shroud.
+	local DARK = ColorSequence.new(Color3.fromRGB(4, 5, 10), Color3.fromRGB(16, 22, 40))
+	local count = 0
+	for _, d in ipairs(c.char:GetDescendants()) do
+		if count >= 24 then break end
+		if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" and d.Transparency < 1 and d.Size.Magnitude > 0.6 then
+			count += 1
+			local size = math.clamp(d.Size.Magnitude * 0.8, 1, 3.5)
 			local a = Instance.new("Attachment")
-			a.Parent = limb
+			a.Parent = d
 			c.attach(a)
-			emitter(a, { Texture = TEX_SMOKE, Color = ColorSequence.new(Color3.fromRGB(6, 8, 14), Color3.fromRGB(20, 28, 48)),
-				LightEmission = 0, Size = seq(0, 1, 1, 2.2), Transparency = seq(0, 1, 0.2, 0.45, 1, 1),
-				Lifetime = NumberRange.new(0.5, 0.9), Speed = NumberRange.new(0.5, 2), SpreadAngle = Vector2.new(180, 180),
-				Acceleration = Vector3.new(0, 2, 0), Rate = 10, Rotation = NumberRange.new(0, 360) })
+			emitter(a, { Texture = TEX_SMOKE, Color = DARK, LightEmission = 0,
+				Size = seq(0, size * 0.7, 1, size * 1.3), Transparency = seq(0, 1, 0.15, 0.2, 0.7, 0.5, 1, 1),
+				Lifetime = NumberRange.new(0.5, 0.9), Speed = NumberRange.new(0.4, 1.8), SpreadAngle = Vector2.new(180, 180),
+				Acceleration = Vector3.new(0, 2, 0), Rate = math.clamp(size * 7, 8, 26), Rotation = NumberRange.new(0, 360) })
 		end
 	end
+	local shroud = Instance.new("Attachment")
+	shroud.Position = Vector3.new(0, 0.6, 0)
+	shroud.Parent = c.root
+	c.attach(shroud)
+	emitter(shroud, { Texture = TEX_SMOKE, Color = DARK, LightEmission = 0,
+		Size = seq(0, 2.5, 1, 6), Transparency = seq(0, 1, 0.15, 0.3, 0.75, 0.55, 1, 1),
+		Lifetime = NumberRange.new(0.7, 1.1), Speed = NumberRange.new(0.5, 2), SpreadAngle = Vector2.new(180, 180),
+		Acceleration = Vector3.new(0, 2.5, 0), Rate = 24, Rotation = NumberRange.new(0, 360) })
 	-- Glowing blue eyes.
 	local head = c.char:FindFirstChild("Head")
 	if head and head:IsA("BasePart") then

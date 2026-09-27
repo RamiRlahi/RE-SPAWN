@@ -355,39 +355,36 @@ function CastPoses.iceClone(char: Model?)
 	})
 end
 
--- "The frozen one" reveal (Blizzard wind-up, 1.5s). The camera is low and in
--- front, so this is played to the lens: a looming stance, then one open hand
--- slowly reaches out toward the viewer; the reach locks out trembling as the
--- eyes flare (1.0s), and the palm thrusts forward as the storm breaks (1.5s).
+-- "The frozen one" reveal (Blizzard wind-up, 1.5s): no reach — the mage just
+-- stands there, squared up and still, head slightly lowered, breathing slow and
+-- heavy. The head lifts to stare into the camera as the eyes flare (1.0s); at
+-- the release (1.5s) the whole body tenses once as the storm breaks.
 CastPoses.ICE_BLIZZARD_EYES = 1.0
 CastPoses.ICE_BLIZZARD_RELEASE = 1.5
+local MENACE = { N = { -12, 0, 0 }, W = { 3, 0, 0 }, RS = { 4, 0, 14 }, LS = { 4, 0, -14 }, RE = { 12, 0, 0 }, LE = { 12, 0, 0 },
+	RH = { 0, 0, 4 }, LH = { 0, 0, -4 }, Root = { 0, 0, 0, 0, 0.05, 0 } }
 function CastPoses.iceBlizzard(char: Model?)
-	local loom = { N = { -18, 0, 0 }, W = { 4, 0, 0 }, RS = { 4, 0, 10 }, LS = { 4, 0, -10 }, RE = { 18, 0, 0 }, LE = { 18, 0, 0 },
-		Root = { 0, 0, 0, 0, 0.1, 0 } }
-	-- Half-reach: hand rising toward the camera, fingers still curled.
-	local reaching = { N = { -12, 0, 0 }, W = { -6, 0, 0 }, RS = { 55, 0, -6 }, RE = { 35, 0, 0 }, RW = { 10, 0, 0 },
-		LS = { -6, 0, -14 }, LE = { 20, 0, 0 }, Root = { 0, 0, 0, 0, 0.05, 0 }, RH = { 6, 0, 0 }, LH = { -8, 0, 0 } }
-	-- Full reach: arm locked straight at the lens, palm open, head level with it.
-	local reached = { N = { -4, 0, 0 }, W = { -12, 0, 0 }, RS = { 86, 0, -8 }, RE = { 4, 0, 0 }, RW = { -38, 0, 0 },
-		LS = { -10, 0, -18 }, LE = { 25, 0, 0 }, Root = { 0, 0, 0, 0, -0.05, 0 }, RH = { 12, 0, 0 }, LH = { -14, 0, 0 }, LK = { -12, 0, 0 } }
+	local stare = table.clone(MENACE)
+	stare.N = { 2, 0, 0 }
+	local tensed = table.clone(MENACE)
+	tensed.N = { 4, 0, 0 }
+	tensed.W = { 6, 0, 0 }
+	tensed.RS, tensed.LS = { -6, 0, 24 }, { -6, 0, -24 }
+	tensed.RH, tensed.LH = { 0, 0, 8 }, { 0, 0, -8 }
+	tensed.Root = { 0, 0, 0, 0, -0.1, 0 }
+	local breathe = function(t: number): Pose
+		local b = math.sin(t * 2.6) * 1.4
+		return { W = { b, 0, 0 }, RS = { 0, 0, b * 0.6 }, LS = { 0, 0, -b * 0.6 } }
+	end
 	CastPoses.play(char, {
-		{ dur = 0.3, style = Enum.EasingStyle.Sine, pose = loom },
-		-- The slow reach begins, heavy and deliberate.
-		{ dur = 0.7, style = Enum.EasingStyle.Sine, pose = reaching, wobble = function(t)
-			local b = math.sin(t * 3.2) * 1.2
-			return { W = { b, 0, 0 } }
-		end },
-		-- Eyes flare: the arm locks out toward us, trembling with gathered cold.
-		{ dur = 0.18, style = Enum.EasingStyle.Back, pose = reached },
-		{ dur = 0.24, pose = reached, wobble = function(t)
-			local s = math.sin(t * 55) * math.clamp((t - 1.18) / 0.24, 0, 1) * 3
-			return { RS = { s, 0, s * 0.5 }, RW = { s, 0, 0 }, W = { s * 0.2, 0, 0 } }
-		end },
-		-- Release: the palm thrusts forward as the storm erupts from it.
-		{ dur = 0.08, style = Enum.EasingStyle.Back, pose = { N = { 2, 0, 0 }, W = { -18, 0, 0 }, RS = { 92, 0, -6 }, RE = { 0, 0, 0 }, RW = { -55, 0, 0 },
-			LS = { -20, 0, -30 }, LE = { 30, 0, 0 }, Root = { 0, 0, 0, 0, -0.25, 0 }, RH = { 30, 0, 0 }, LH = { -25, 0, 0 }, RK = { -30, 0, 0 }, LK = { -10, 0, 0 } } },
-		{ dur = 0.45, pose = { N = { 0, 0, 0 }, W = { -12, 0, 0 }, RS = { 80, 0, -4 }, RW = { -40, 0, 0 },
-			LS = { -12, 0, -22 }, Root = { 0, 0, 0, 0, -0.2, 0 }, RH = { 24, 0, 0 }, LH = { -18, 0, 0 }, RK = { -24, 0, 0 } } },
+		{ dur = 0.3, style = Enum.EasingStyle.Sine, pose = MENACE },
+		{ dur = 0.7, pose = MENACE, wobble = breathe },
+		-- Eyes flare: the head comes up to stare into the lens.
+		{ dur = 0.35, style = Enum.EasingStyle.Sine, pose = stare, wobble = breathe },
+		{ dur = 0.07, pose = stare },
+		-- Release: one hard flex of the whole body as the storm erupts.
+		{ dur = 0.08, style = Enum.EasingStyle.Back, pose = tensed },
+		{ dur = 0.45, pose = tensed },
 	})
 end
 
@@ -407,9 +404,8 @@ local ULT_PREVIEW_POSES: { [string]: Pose } = {
 		p.RE, p.LE = { 115, 0, 0 }, { 115, 0, 0 }
 		return p
 	end)(),
-	-- Blizzard: one open hand reaching out toward the viewer.
-	ice_mage = { N = { -4, 0, 0 }, W = { -12, 0, 0 }, RS = { 86, 0, -8 }, RE = { 4, 0, 0 }, RW = { -38, 0, 0 },
-		LS = { -10, 0, -18 }, LE = { 25, 0, 0 }, RH = { 12, 0, 0 }, LH = { -14, 0, 0 } },
+	-- Blizzard: standing still and menacing, staring ahead.
+	ice_mage = MENACE,
 }
 
 function CastPoses.holdUltPreview(char: Model?, classId: string): boolean
