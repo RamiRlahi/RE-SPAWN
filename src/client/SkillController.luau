@@ -2025,10 +2025,10 @@ local function playRangerBasicAttackVFX(char: Model, lookDir: Vector3)
 	makeRangerArrow(startPos, lookDir, 70, NATURE_GREEN, 0.18, 0.26)
 end
 
-local function playRangerShootAnimation(char: Model)
+local function playRangerShootAnimation(char: Model, speed: number?): AnimationTrack?
 	local humanoid = char:FindFirstChildOfClass("Humanoid")
 	local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
-	if not humanoid or not animator then return end
+	if not humanoid or not animator then return nil end
 
 	local track = rangerShootTracks[humanoid]
 	if not track then
@@ -2042,7 +2042,34 @@ local function playRangerShootAnimation(char: Model)
 	end
 
 	if track.IsPlaying then track:Stop(0.05) end
-	track:Play(0.05)
+	track:Play(0.05, 1, speed or 1)
+	return track
+end
+
+-- When the arrow leaves the string: a "Release" marker in the shoot animation
+-- if it has one, otherwise part-way through the animation. Never later than
+-- the attack interval, and faster with attack speed.
+local RANGER_RELEASE_FRACTION = 0.45
+local RANGER_RELEASE_FALLBACK = 0.2 -- seconds, if the animation hasn't loaded yet
+local function onRangerRelease(track: AnimationTrack?, attackSpeed: number, interval: number, fire: () -> ())
+	local fired = false
+	local function once()
+		if fired then return end
+		fired = true
+		fire()
+	end
+	local timeout = RANGER_RELEASE_FALLBACK
+	if track then
+		local ok, sig = pcall(function() return track:GetMarkerReachedSignal("Release") end)
+		if ok and sig then
+			sig:Once(once)
+		end
+		if track.Length > 0 then
+			timeout = track.Length * RANGER_RELEASE_FRACTION
+		end
+	end
+	timeout = math.clamp(timeout / math.max(attackSpeed, 0.1), 0.05, interval * 0.9)
+	task.delay(timeout, once)
 end
 
 local function findRangerArrowImpact(casterChar: Model, origin: Vector3, direction: Vector3, range: number, width: number): Vector3
@@ -4788,13 +4815,15 @@ local function performBasicAttack()
 
 	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	local aimDirection: Vector3? = nil
+	local rangerTrack: AnimationTrack? = nil
+	local isRanger = player:GetAttribute("SelectedClass") == "ranger"
 	if rootPart then
 		local aimDir = getAimDirection(rootPart)
 		aimDirection = aimDir
 		rootPart.CFrame = CFrame.lookAt(rootPart.Position, rootPart.Position + aimDir)
 		local selClass = player:GetAttribute("SelectedClass")
 		if selClass == "ranger" then
-			playRangerShootAnimation(char)
+			rangerTrack = playRangerShootAnimation(char, attackSpeed)
 		elseif selClass == "cleric" then
 			CastPoses.clericSmite(char)
 			-- Release the smite on the forward sweep of the swing.
@@ -4807,13 +4836,21 @@ local function performBasicAttack()
 		end
 	end
 
-	if char:GetAttribute("IsMissileBuffActive") == true then
-		SkillController.LaunchMissile(char)
+	local function release()
+		if char:GetAttribute("IsMissileBuffActive") == true then
+			SkillController.LaunchMissile(char)
+		end
+		-- Fire server Remote for basic attack damage (the server spawns the arrow)
+		local performAttackRemote = Network.GetRemoteEvent(Network.Remotes.PerformAttack)
+		performAttackRemote:FireServer({ direction = aimDirection })
 	end
 
-	-- Fire server Remote for basic attack damage
-	local performAttackRemote = Network.GetRemoteEvent(Network.Remotes.PerformAttack)
-	performAttackRemote:FireServer({ direction = aimDirection })
+	if isRanger then
+		-- The arrow leaves on the animation's release, not on the click.
+		onRangerRelease(rangerTrack, attackSpeed, 0.38 / math.max(attackSpeed, 0.1), release)
+	else
+		release()
+	end
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
