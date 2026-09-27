@@ -361,17 +361,19 @@ end
 -- the release (1.5s) the whole body tenses once as the storm breaks.
 CastPoses.ICE_BLIZZARD_EYES = 1.0
 CastPoses.ICE_BLIZZARD_RELEASE = 1.5
-local MENACE = { N = { -12, 0, 0 }, W = { 3, 0, 0 }, RS = { 4, 0, 14 }, LS = { 4, 0, -14 }, RE = { 12, 0, 0 }, LE = { 12, 0, 0 },
-	RH = { 0, 0, 4 }, LH = { 0, 0, -4 }, Root = { 0, 0, 0, 0, 0.05, 0 } }
+-- Hunched forward with the shoulders hiked, arms hanging forward so the hands
+-- sit in front at waist height (legs compensate the lean to stay planted).
+local MENACE = { N = { 4, 0, 0 }, W = { -16, 0, 0 }, RS = { 32, 0, 12 }, LS = { 32, 0, -12 }, RE = { 35, 0, 0 }, LE = { 35, 0, 0 },
+	RH = { 16, 0, 5 }, LH = { 16, 0, -5 }, Root = { 0, 0, 0, 0, -0.1, 0 } }
 function CastPoses.iceBlizzard(char: Model?)
 	local stare = table.clone(MENACE)
-	stare.N = { 2, 0, 0 }
+	stare.N = { 12, 0, 0 } -- head up, glaring into the lens
 	local tensed = table.clone(MENACE)
-	tensed.N = { 4, 0, 0 }
-	tensed.W = { 6, 0, 0 }
-	tensed.RS, tensed.LS = { -6, 0, 24 }, { -6, 0, -24 }
-	tensed.RH, tensed.LH = { 0, 0, 8 }, { 0, 0, -8 }
-	tensed.Root = { 0, 0, 0, 0, -0.1, 0 }
+	tensed.N = { 14, 0, 0 }
+	tensed.W = { -20, 0, 0 }
+	tensed.RS, tensed.LS = { 40, 0, 26 }, { 40, 0, -26 } -- claws flare out
+	tensed.RH, tensed.LH = { 20, 0, 9 }, { 20, 0, -9 }
+	tensed.Root = { 0, 0, 0, 0, -0.2, 0 }
 	local breathe = function(t: number): Pose
 		local b = math.sin(t * 2.6) * 1.4
 		return { W = { b, 0, 0 }, RS = { 0, 0, b * 0.6 }, LS = { 0, 0, -b * 0.6 } }

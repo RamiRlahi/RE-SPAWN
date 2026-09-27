@@ -245,6 +245,22 @@ AURAS.ice_mage = function(c)
 		Size = seq(0, 2.5, 1, 6), Transparency = seq(0, 1, 0.15, 0.3, 0.75, 0.55, 1, 1),
 		Lifetime = NumberRange.new(0.7, 1.1), Speed = NumberRange.new(0.5, 2), SpreadAngle = Vector2.new(180, 180),
 		Acceleration = Vector3.new(0, 2.5, 0), Rate = 24, Rotation = NumberRange.new(0, 360) })
+	-- Ink strokes flung sideways off the silhouette.
+	local INK = ColorSequence.new(Color3.new(0, 0, 0), Color3.fromRGB(10, 12, 20))
+	for _, name in ipairs({ "Torso", "UpperTorso", "Head", "Left Arm", "Right Arm" }) do
+		local limb = c.char:FindFirstChild(name)
+		if limb and limb:IsA("BasePart") then
+			for _, face in ipairs({ Enum.NormalId.Left, Enum.NormalId.Right }) do
+				local a = Instance.new("Attachment")
+				a.Parent = limb
+				c.attach(a)
+				emitter(a, { Texture = "rbxassetid://1053548563", Color = INK, LightEmission = 0,
+					Orientation = Enum.ParticleOrientation.VelocityParallel, Size = seq(0, 0.4, 1, 0),
+					Transparency = seq(0, 0, 1, 1), Lifetime = NumberRange.new(0.12, 0.25), Speed = NumberRange.new(10, 20),
+					SpreadAngle = Vector2.new(30, 50), EmissionDirection = face, Rate = 14 })
+			end
+		end
+	end
 	-- Glowing blue eyes.
 	local head = c.char:FindFirstChild("Head")
 	if head and head:IsA("BasePart") then

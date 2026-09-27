@@ -1438,6 +1438,7 @@ end
 -- Silhouette + eyes play for everyone; the environment/grade only for the caster.
 -- ═════════════════════════════════════════════════════════════════════════════
 local SILHOUETTE = Color3.fromRGB(5, 7, 13)
+local PALE_HANDS = Color3.fromRGB(96, 116, 146)
 local EYE_BLUE = Color3.fromRGB(70, 175, 255)
 local EYE_CORE = Color3.fromRGB(200, 235, 255)
 local RIM = Color3.fromRGB(170, 215, 255)
@@ -1472,7 +1473,9 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 			local saved: { [string]: any } = { Color = d.Color, Material = d.Material }
 			if d:IsA("MeshPart") then saved.TextureID = d.TextureID end
 			darkened[d] = saved
-			d.Color = SILHOUETTE
+			local n = string.lower(d.Name)
+			local isArm = (string.find(n, "arm") ~= nil or string.find(n, "hand") ~= nil) and d.Parent == char
+			d.Color = if isArm then PALE_HANDS else SILHOUETTE
 			d.Material = Enum.Material.SmoothPlastic
 			if d:IsA("MeshPart") then d.TextureID = "" end
 		elseif d:IsA("Decal") or d:IsA("Texture") then
@@ -1549,6 +1552,62 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 	})
 	table.insert(wisps, { att = shroudAtt, pe = shroud })
 
+	-- Ink: sharp black strokes flung outward and sideways off the figure (the
+	-- reference's jagged brush energy), plus brushy black shards flickering
+	-- along the outline, re-scribbled several times a second.
+	local INK = colors(Color3.new(0, 0, 0), Color3.fromRGB(10, 12, 20))
+	for _, name in ipairs({ "Torso", "UpperTorso", "Head", "Left Arm", "Right Arm", "LeftUpperArm", "RightUpperArm" }) do
+		local limb = char:FindFirstChild(name)
+		if limb and limb:IsA("BasePart") then
+			for _, dirFace in ipairs({ Enum.NormalId.Left, Enum.NormalId.Right, Enum.NormalId.Top }) do
+				local a = Instance.new("Attachment")
+				a.Name = "InkStreaks"
+				a.Parent = limb
+				local big = name == "Torso" or name == "UpperTorso"
+				local pe = newEmitter(a, {
+					Texture = TEX_STREAK,
+					Color = INK,
+					LightEmission = 0,
+					Orientation = Enum.ParticleOrientation.VelocityParallel,
+					Size = seq(0, big and 0.55 or 0.35, 0.6, big and 0.4 or 0.25, 1, 0),
+					Transparency = seq(0, 0, 0.7, 0.1, 1, 1),
+					Lifetime = NumberRange.new(0.12, 0.28),
+					Speed = NumberRange.new(10, 24),
+					SpreadAngle = Vector2.new(dirFace == Enum.NormalId.Top and 50 or 30, 55),
+					EmissionDirection = dirFace,
+					Acceleration = right * 20,
+					Rate = (big and 38 or 16) * (dirFace == Enum.NormalId.Top and 0.5 or 1),
+				})
+				table.insert(wisps, { att = a, pe = pe })
+			end
+		end
+	end
+	local scribble = {}
+	for i = 1, 26 do
+		scribble[i] = newPart(folder, { Name = "InkShard", Size = Vector3.new(0.08, 0.14, 1), Color = Color3.new(0, 0, 0),
+			Material = Enum.Material.SmoothPlastic, Transparency = 1 })
+	end
+	task.spawn(function()
+		local t0 = os.clock()
+		while folder.Parent and os.clock() - t0 < duration do
+			local cf = root.CFrame
+			for _, sh in ipairs(scribble) do
+				-- A random point on the upper-body outline, flicking outward/sideways.
+				local side = math.random() < 0.5 and -1 or 1
+				local y = -0.6 + math.random() * 3.4
+				local x = side * (0.9 + math.random() * 0.8) * (1 - math.max(0, y - 1.8) * 0.35)
+				local p = (cf * CFrame.new(x, y, (math.random() - 0.5) * 0.6)).Position
+				local outward = (cf.RightVector * side + Vector3.new(0, (math.random() - 0.3) * 0.8, 0)).Unit
+				local len = 0.6 + math.random() * 1.8
+				sh.Size = Vector3.new(0.06 + math.random() * 0.08, 0.1, len)
+				sh.CFrame = CFrame.lookAt(p + outward * len * 0.4, p + outward * len)
+				sh.Transparency = math.random() < 0.25 and 1 or 0
+			end
+			task.wait(0.07)
+		end
+		for _, sh in ipairs(scribble) do sh.Transparency = 1 end
+	end)
+
 	-- ── Eyes: two icy-blue points on the face, dim at first ──
 	local eyes = {}
 	for side = -1, 1, 2 do
@@ -1557,7 +1616,7 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 			Name = "Eye",
 			Shape = Enum.PartType.Ball,
 			Size = Vector3.new(0.16, 0.16, 0.16),
-			Color = EYE_BLUE,
+			Color = EYE_CORE,
 			Material = Enum.Material.Neon,
 			Transparency = 0.6,
 			Anchored = false,
@@ -1586,8 +1645,8 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 		l.Parent = eye
 		local glow = newEmitter(eye, {
 			Texture = TEX_SPARKLE,
-			Color = colors(EYE_CORE, EYE_BLUE),
-			Size = seq(0, 0.5, 1, 0.3),
+			Color = colors(Color3.new(1, 1, 1), EYE_BLUE),
+			Size = seq(0, 0.65, 1, 0.35),
 			Transparency = seq(0, 0.3, 1, 1),
 			Lifetime = NumberRange.new(0.08, 0.12),
 			Speed = NumberRange.new(0),
@@ -1678,7 +1737,7 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 		grade = Instance.new("ColorCorrectionEffect")
 		grade.Name = "BlizzardRevealGrade"
 		grade.Parent = Lighting
-		TweenService:Create(grade, TweenInfo.new(0.3), { TintColor = Color3.fromRGB(190, 212, 255), Saturation = -0.55, Contrast = 0.25, Brightness = -0.03 }):Play()
+		TweenService:Create(grade, TweenInfo.new(0.3), { TintColor = Color3.fromRGB(190, 212, 255), Saturation = -0.5, Contrast = 0.28, Brightness = 0.05 }):Play()
 		dof = Instance.new("DepthOfFieldEffect")
 		dof.Name = "BlizzardRevealDOF"
 		dof.FocusDistance = 7
