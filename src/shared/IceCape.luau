@@ -50,7 +50,8 @@ local function weld(a: BasePart, b: BasePart)
 	w.Parent = b
 end
 
-function IceCape.Attach(character: Model)
+-- `tag` (e.g. "PreviewArmor") marks a client-only preview cape for cleanup.
+function IceCape.Attach(character: Model, tag: string?)
 	local torso = (character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")) :: BasePart?
 	if not torso then return end
 	local old = character:FindFirstChild("IceCape")
@@ -60,6 +61,7 @@ function IceCape.Attach(character: Model)
 	-- so nothing tugs on the character's assembly while assembling.
 	local model = Instance.new("Model")
 	model.Name = "IceCape"
+	if tag then model:SetAttribute(tag, true) end
 
 	-- Hang point: top of the back, just behind the shoulders (+Z is the back).
 	local hang = CFrame.new(0, torso.Size.Y * 0.45, torso.Size.Z * 0.5 + 0.08)
