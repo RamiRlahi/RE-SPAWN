@@ -31,6 +31,9 @@ AtmosphereManager.Config = {
 	DungeonClockTime = 14,
 
 	-- ── 2. Player Torch Light Controls ───────────────────────────────────────
+	-- TorchEnabled: master switch for the player torch (light + embers).
+	TorchEnabled = false,
+
 	-- TorchRange: Radius in studs that the torch illuminates around the player (e.g. 24 - 45).
 	TorchRange = 32,
 
@@ -179,6 +182,15 @@ function AtmosphereManager.AttachTorchLight(character: Model)
 				AtmosphereManager.AttachTorchLight(character)
 			end
 		end)
+		return
+	end
+
+	-- Torch switched off: strip any torch pieces already on the character.
+	if not AtmosphereManager.Config.TorchEnabled then
+		for _, name in ipairs({ "TorchLightMount", "PlayerTorchLight", "TorchEmbersAttachment" }) do
+			local existing = rootPart:FindFirstChild(name)
+			if existing then existing:Destroy() end
+		end
 		return
 	end
 

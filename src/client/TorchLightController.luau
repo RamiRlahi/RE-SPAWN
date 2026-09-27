@@ -21,7 +21,8 @@ local function ensureTorchAttached(char: Model)
 		AtmosphereManager.AttachTorchLight(char)
 		AtmosphereManager.AttachCharacterOutline(char)
 	else
-		local rootPart = (char:FindFirstChild("HumanoidRootPart") or char.PrimaryPart) :: BasePart?
+		-- Fallback torch (only if AtmosphereManager failed to load) — currently off.
+		local rootPart = nil :: BasePart?
 		if rootPart and not rootPart:FindFirstChild("PlayerTorchLight", true) then
 			local torchLight = Instance.new("PointLight")
 			torchLight.Name = "PlayerTorchLight"
