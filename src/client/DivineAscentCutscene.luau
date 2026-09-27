@@ -31,14 +31,18 @@ DivineAscentCutscene.REVIVE_AT = 3.7
 local token = 0
 
 -- ── Lighting: warm and shadow-free for the cinematic, restored afterwards ──
+-- Moody and dim so the god rays and the rim light carry the frame (like the
+-- reference: dark surroundings, warm light breaking from above).
 local HOLY_LIGHTING = {
 	GlobalShadows = false,
-	Ambient = Color3.fromRGB(125, 112, 95),
-	OutdoorAmbient = Color3.fromRGB(140, 128, 110),
-	EnvironmentDiffuseScale = 0.8,
+	Ambient = Color3.fromRGB(62, 56, 52),
+	OutdoorAmbient = Color3.fromRGB(78, 70, 64),
+	EnvironmentDiffuseScale = 0.5,
 }
 local savedLighting: { [string]: any }? = nil
 local savedGrade: boolean? = nil
+local savedBloom: { [string]: any }? = nil
+local effects: { Instance } = {}
 
 local function applyLighting()
 	if savedLighting then return end
@@ -54,6 +58,33 @@ local function applyLighting()
 		savedGrade = grade.Enabled
 		grade.Enabled = false
 	end
+	-- Warm, contrasty grade and a strong soft bloom for the glowing light.
+	local cc = Instance.new("ColorCorrectionEffect")
+	cc.Name = "AscentGrade"
+	cc.TintColor = Color3.fromRGB(255, 238, 214)
+	cc.Contrast = 0.22
+	cc.Saturation = -0.12
+	cc.Parent = Lighting
+	table.insert(effects, cc)
+	local bloom = Lighting:FindFirstChild("DungeonTorchBloom") :: BloomEffect?
+	if bloom then
+		savedBloom = { Enabled = bloom.Enabled, Intensity = bloom.Intensity, Size = bloom.Size, Threshold = bloom.Threshold }
+		bloom.Enabled, bloom.Intensity, bloom.Size, bloom.Threshold = true, 0.9, 32, 0.78
+	else
+		local b = Instance.new("BloomEffect")
+		b.Name = "AscentBloom"
+		b.Intensity, b.Size, b.Threshold = 0.9, 32, 0.78
+		b.Parent = Lighting
+		table.insert(effects, b)
+	end
+	local dof = Instance.new("DepthOfFieldEffect")
+	dof.Name = "AscentDOF"
+	dof.FocusDistance = 6
+	dof.InFocusRadius = 4
+	dof.NearIntensity = 0.15
+	dof.FarIntensity = 0.4
+	dof.Parent = Lighting
+	table.insert(effects, dof)
 end
 
 local function restoreLighting()
@@ -68,6 +99,17 @@ local function restoreLighting()
 		if grade then grade.Enabled = savedGrade end
 		savedGrade = nil
 	end
+	if savedBloom then
+		local bloom = Lighting:FindFirstChild("DungeonTorchBloom") :: BloomEffect?
+		if bloom then
+			for k, v in pairs(savedBloom) do (bloom :: any)[k] = v end
+		end
+		savedBloom = nil
+	end
+	for _, e in ipairs(effects) do
+		e:Destroy()
+	end
+	table.clear(effects)
 end
 
 local function getIso()
@@ -135,11 +177,12 @@ function DivineAscentCutscene.Play(duration: number, aimDir: Vector3?)
 			local camPos: Vector3, lookAt: Vector3, fov: number
 
 			if t < LIGHT_AT then
-				-- PRAYER: low, frontal, a touch off-centre; slow push toward the bowed head.
+				-- PRAYER: near the floor, front-left, tilted up past the bowed head into
+				-- the god rays breaking from above; a slow creep in.
 				local k = smooth(t / LIGHT_AT)
-				camPos = (base + fwd * 7.5 - right * 1.2 + Vector3.new(0, 0.2, 0)):Lerp(base + fwd * 4.6 - right * 0.8 + Vector3.new(0, 0.5, 0), k)
-				lookAt = base + Vector3.new(0, 0.3 + 0.2 * k, 0)
-				fov = 50 - 8 * k
+				camPos = (base + fwd * 6.5 - right * 3 + Vector3.new(0, -2, 0)):Lerp(base + fwd * 5.2 - right * 2.4 + Vector3.new(0, -1.8, 0), k)
+				lookAt = base - fwd * 1 + Vector3.new(0, 2.2, 0)
+				fov = 64 - 4 * k
 			elseif t < REVIVE_AT then
 				-- LIGHT: behind and to the right, craning up as the shaft of light lands.
 				local k = smooth((t - LIGHT_AT) / (REVIVE_AT - LIGHT_AT))
@@ -157,6 +200,13 @@ function DivineAscentCutscene.Play(duration: number, aimDir: Vector3?)
 
 			camera.CFrame = CFrame.lookAt(camPos, lookAt)
 			camera.FieldOfView = fov
+			-- Keep the Cleric (and, in the wide shot, the allies) in focus.
+			local dofFx = Lighting:FindFirstChild("AscentDOF") :: DepthOfFieldEffect?
+			if dofFx then
+				local d = (camPos - base).Magnitude
+				dofFx.FocusDistance = d
+				dofFx.InFocusRadius = math.max(4, d * 0.6)
+			end
 			RunService.RenderStepped:Wait()
 		end
 		finish()

@@ -606,6 +606,54 @@ function ClericFlair.prayerLight(char: Model, duration: number, lightAt: number,
 	local sigOuter = ring(f, 40, HOLY_GOLD, 0.45)
 	local sigInner = ring(f, 30, HOLY_IVORY, 0.6)
 
+	-- God rays: a fan of long, faint beams breaking from high behind the
+	-- Cleric and converging on them — present from the first frame.
+	local fwd = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+	fwd = fwd.Magnitude > 0.01 and fwd.Unit or Vector3.new(0, 0, -1)
+	local right = fwd:Cross(Vector3.yAxis).Unit
+	local source = root.Position - fwd * 14 + Vector3.new(0, 46, 0)
+	for i = 1, 9 do
+		local u = (i - 5) / 4
+		local target = g + right * (u * 5) + fwd * (math.random() - 0.3) * 3
+		local len = (target - source).Magnitude
+		local w = 0.8 + math.random() * 1.8
+		local beam = part(f, {
+			Name = "GodRay",
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(len, w, w),
+			CFrame = CFrame.lookAt((source + target) * 0.5, target) * CFrame.Angles(0, math.rad(90), 0),
+			Color = i % 3 == 0 and HOLY_WHITE or HOLY_IVORY,
+			Transparency = 1,
+		})
+		TweenService:Create(beam, TweenInfo.new(0.6 + math.random() * 0.5), { Transparency = 0.86 + math.random() * 0.06 }):Play()
+	end
+	-- Backlight: warm rim on the hair and shoulders, leaving the front in shade.
+	local rim = att(root.Position - fwd * 1.8 + Vector3.new(0, 2.6, 0), f)
+	local rimLight = light(rim, Color3.fromRGB(255, 214, 150), 0, 11)
+	TweenService:Create(rimLight, TweenInfo.new(0.6), { Brightness = 4 }):Play()
+	-- Dust drifting in the light, and a warm pool of light on the floor.
+	local dust = att(root.Position + Vector3.new(0, 2, 0), f)
+	emitter(dust, {
+		Texture = TEX_SPARKLE,
+		Color = ColorSequence.new(HOLY_IVORY),
+		Size = seq(0, 0.12, 0.5, 0.18, 1, 0),
+		Transparency = seq(0, 0.4, 1, 1),
+		Lifetime = NumberRange.new(3, 5),
+		Speed = NumberRange.new(0.2, 0.8),
+		SpreadAngle = Vector2.new(180, 180),
+		Acceleration = Vector3.new(0, -0.3, 0),
+		Rate = 25,
+	})
+	local pool = part(f, {
+		Name = "LightPool",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.05, 9, 9),
+		CFrame = CFrame.new(g + Vector3.new(0, 0.06, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = Color3.fromRGB(255, 205, 130),
+		Transparency = 1,
+	})
+	TweenService:Create(pool, TweenInfo.new(0.8), { Transparency = 0.8 }):Play()
+
 	local shaftParts: { BasePart } = {}
 	local spot: SpotLight? = nil
 	local fill: PointLight? = nil

@@ -244,8 +244,9 @@ function CastPoses.clericPrayer(char: Model?, duration: number, reviveAt: number
 		for k, v in pairs(b) do out[k] = v end
 		return out
 	end
-	-- Hands pressed together before the chest, head bowed.
-	local prayer = merge(kneel, { N = { -30, 0, 0 }, RS = { 62, 0, -30 }, LS = { 62, 0, 30 }, RE = { 70, 0, 0 }, LE = { 70, 0, 0 } })
+	-- Hunched forward over clasped hands raised to the chin, head bowed deep.
+	local prayer = merge(kneel, { W = { -22, 0, 0 }, N = { -36, 0, 0 },
+		RS = { 102, 0, -36 }, LS = { 102, 0, 36 }, RE = { 115, 0, 0 }, LE = { 115, 0, 0 } })
 	-- Revival: face lifted to the light, arms opening outward and up.
 	local blessed = merge(kneel, { N = { 22, 0, 0 }, W = { 12, 0, 0 }, RS = { 125, 0, 42 }, LS = { 125, 0, -42 }, RE = { 10, 0, 0 }, LE = { 10, 0, 0 } })
 	local prayHold = math.max(reviveAt - 0.1 - 0.45, 0.2)
