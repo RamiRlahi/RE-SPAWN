@@ -9,6 +9,7 @@ local ClassData = require(Shared:WaitForChild("ClassData"))
 local SkillData = require(Shared:WaitForChild("SkillData"))
 local SoundManager = require(script.Parent:WaitForChild("SoundManager"))
 local CastPoses = require(script.Parent.Parent:WaitForChild("CastPoses"))
+local UltPreviewFX = require(script.Parent.Parent:WaitForChild("UltPreviewFX"))
 local ClassArmor = require(Shared:WaitForChild("ClassArmor"))
 local IceCape = require(Shared:WaitForChild("IceCape"))
 
@@ -181,6 +182,7 @@ local function setSilhouette(character: Model?, on: boolean)
 end
 
 local function stopPreviewAnimation()
+	UltPreviewFX.Stop()
 	CastPoses.stop(player.Character)
 	setSilhouette(player.Character, false)
 	if player.Character then
@@ -367,8 +369,14 @@ local function applyClassCosmetics(classId: string)
 			end
 		end
 
-		-- 2. Play the ultimate's first pose / animation for this class
+		-- 2. Play the ultimate's first pose / animation for this class, with a
+		-- looping preview of the ultimate's effects around the character.
 		playPreviewAnimation(character, classId)
+		if ClassData.IsPlayable(classId) then
+			UltPreviewFX.Start(character, classId)
+		else
+			UltPreviewFX.Stop()
+		end
 
 		-- 3. Armor (and the Ice Mage's cape), fitted exactly as in-game but as
 		-- client-only copies tagged PreviewArmor.
