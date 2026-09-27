@@ -169,11 +169,23 @@ local function setSilhouette(character: Model?, on: boolean)
 			elseif d:IsA("SpecialMesh") and d.TextureId ~= "" then
 				silhouetted[d] = { TextureId = d.TextureId }
 				d.TextureId = ""
+			elseif d:IsA("Shirt") then
+				silhouetted[d] = { ShirtTemplate = d.ShirtTemplate }
+				d.ShirtTemplate = ""
+			elseif d:IsA("Pants") then
+				silhouetted[d] = { PantsTemplate = d.PantsTemplate }
+				d.PantsTemplate = ""
+			elseif d:IsA("ShirtGraphic") then
+				silhouetted[d] = { Graphic = d.Graphic }
+				d.Graphic = ""
+			elseif d:IsA("SurfaceAppearance") then
+				silhouetted[d] = { Parent = d.Parent }
+				d.Parent = nil
 			end
 		end
 	elseif not on then
 		for inst, props in pairs(silhouetted) do
-			if inst.Parent then
+			if inst.Parent or props.Parent then
 				for k, v in pairs(props) do
 					(inst :: any)[k] = v
 				end

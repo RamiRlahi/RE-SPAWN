@@ -1487,6 +1487,19 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 		elseif d:IsA("SpecialMesh") and d.TextureId ~= "" then
 			darkened[d] = { TextureId = d.TextureId }
 			d.TextureId = ""
+		elseif d:IsA("Shirt") then
+			darkened[d] = { ShirtTemplate = d.ShirtTemplate }
+			d.ShirtTemplate = ""
+		elseif d:IsA("Pants") then
+			darkened[d] = { PantsTemplate = d.PantsTemplate }
+			d.PantsTemplate = ""
+		elseif d:IsA("ShirtGraphic") then
+			darkened[d] = { Graphic = d.Graphic }
+			d.Graphic = ""
+		elseif d:IsA("SurfaceAppearance") then
+			-- Can't be recoloured; detach it (restored to its part afterwards).
+			darkened[d] = { Parent = d.Parent }
+			d.Parent = nil
 		end
 	end
 	local restored = false
@@ -1494,7 +1507,8 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 		if restored then return end
 		restored = true
 		for inst, props in pairs(darkened) do
-			if inst.Parent then
+			-- Detached SurfaceAppearances have no Parent until restored.
+			if inst.Parent or props.Parent then
 				for k, v in pairs(props) do (inst :: any)[k] = v end
 			end
 		end
@@ -1540,15 +1554,15 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 		Texture = TEX_SMOKE,
 		Color = DARK,
 		LightEmission = 0,
-		Size = seq(0, 3, 0.5, 5, 1, 7),
-		Transparency = seq(0, 1, 0.15, 0.2, 0.75, 0.5, 1, 1),
-		Lifetime = NumberRange.new(0.7, 1.1),
+		Size = seq(0, 3.5, 0.5, 5.5, 1, 7.5),
+		Transparency = seq(0, 1, 0.12, 0.08, 0.75, 0.4, 1, 1),
+		Lifetime = NumberRange.new(0.8, 1.2),
 		Speed = NumberRange.new(0.5, 2.5),
 		SpreadAngle = Vector2.new(180, 180),
 		Acceleration = Vector3.new(0, 3, 0) + right * 1.5,
 		Rotation = NumberRange.new(0, 360),
 		RotSpeed = NumberRange.new(-40, 40),
-		Rate = 34,
+		Rate = 55,
 	})
 	table.insert(wisps, { att = shroudAtt, pe = shroud })
 
@@ -1611,7 +1625,10 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 	-- ── Eyes: two icy-blue points on the face, dim at first ──
 	local eyes = {}
 	for side = -1, 1, 2 do
-		local offs = CFrame.new(side * head.Size.X * 0.17, head.Size.Y * 0.08, -head.Size.Z * 0.5 - 0.02)
+		-- R6 head parts are 2 studs wide but the visible head mesh is ~1.2, so
+		-- place the eyes by face size, not the part's bounding box.
+		local faceDepth = if head:FindFirstChildOfClass("SpecialMesh") then 0.6 else head.Size.Z * 0.5
+		local offs = CFrame.new(side * 0.16, 0.12, -faceDepth - 0.02)
 		local eye = newPart(folder, {
 			Name = "Eye",
 			Shape = Enum.PartType.Ball,

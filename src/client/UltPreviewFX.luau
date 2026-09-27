@@ -25,7 +25,7 @@ local TEX_FIRE = "rbxasset://textures/particles/fire_main.dds"
 
 local UltPreviewFX = {}
 
-local current: { folder: Folder, conns: { RBXScriptConnection }, attachments: { Instance } }? = nil
+local current: { folder: Folder, conns: { RBXScriptConnection }, attachments: { Instance }, cleanups: { () -> () } }? = nil
 
 -- ─── Helpers ────────────────────────────────────────────────────────────────
 local function part(parent: Instance, props: { [string]: any }): BasePart
@@ -102,7 +102,7 @@ end
 
 -- ─── Per-class auras ────────────────────────────────────────────────────────
 type Ctx = { char: Model, root: BasePart, folder: Folder, ground: Vector3, fwd: Vector3, right: Vector3,
-	onStep: ((number) -> ()) -> (), attach: (Instance) -> () }
+	onStep: ((number) -> ()) -> (), attach: (Instance) -> (), onCleanup: (() -> ()) -> () }
 
 local AURAS: { [string]: (Ctx) -> () } = {}
 
@@ -220,6 +220,45 @@ end
 AURAS.ice_mage = function(c)
 	local ICE = Color3.fromRGB(120, 220, 255)
 	local EYE = Color3.fromRGB(70, 175, 255)
+	-- The body itself goes black (pale blue-grey arms), clothing and textures
+	-- hidden — clothing templates draw over part colour. Restored on Stop.
+	local saved: { [Instance]: { [string]: any } } = {}
+	for _, d in ipairs(c.char:GetDescendants()) do
+		if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" and d.Transparency < 1 then
+			local props: { [string]: any } = { Color = d.Color, Material = d.Material }
+			if d:IsA("MeshPart") then props.TextureID = d.TextureID; d.TextureID = "" end
+			saved[d] = props
+			local n = string.lower(d.Name)
+			local isArm = (string.find(n, "arm") ~= nil or string.find(n, "hand") ~= nil) and d.Parent == c.char
+			d.Color = if isArm then Color3.fromRGB(96, 116, 146) else Color3.fromRGB(5, 7, 13)
+			d.Material = Enum.Material.SmoothPlastic
+		elseif d:IsA("Decal") or d:IsA("Texture") then
+			saved[d] = { Transparency = d.Transparency }
+			d.Transparency = 1
+		elseif d:IsA("SpecialMesh") and d.TextureId ~= "" then
+			saved[d] = { TextureId = d.TextureId }
+			d.TextureId = ""
+		elseif d:IsA("Shirt") then
+			saved[d] = { ShirtTemplate = d.ShirtTemplate }
+			d.ShirtTemplate = ""
+		elseif d:IsA("Pants") then
+			saved[d] = { PantsTemplate = d.PantsTemplate }
+			d.PantsTemplate = ""
+		elseif d:IsA("ShirtGraphic") then
+			saved[d] = { Graphic = d.Graphic }
+			d.Graphic = ""
+		elseif d:IsA("SurfaceAppearance") then
+			saved[d] = { Parent = d.Parent }
+			d.Parent = nil
+		end
+	end
+	c.onCleanup(function()
+		for inst, props in pairs(saved) do
+			if inst.Parent or props.Parent then
+				for k, v in pairs(props) do (inst :: any)[k] = v end
+			end
+		end
+	end)
 	-- Black energy over the whole silhouette: every visible part plus a core shroud.
 	local DARK = ColorSequence.new(Color3.fromRGB(4, 5, 10), Color3.fromRGB(16, 22, 40))
 	local count = 0
@@ -267,7 +306,8 @@ AURAS.ice_mage = function(c)
 		for side = -1, 1, 2 do
 			local eye = part(c.folder, { Shape = Enum.PartType.Ball, Size = Vector3.new(0.18, 0.18, 0.18), Color = EYE,
 				Anchored = false, Massless = true,
-				CFrame = head.CFrame * CFrame.new(side * head.Size.X * 0.17, head.Size.Y * 0.08, -head.Size.Z * 0.5 - 0.02) })
+				CFrame = head.CFrame * CFrame.new(side * 0.16, 0.12,
+					-(if head:FindFirstChildOfClass("SpecialMesh") then 0.6 else head.Size.Z * 0.5) - 0.02) })
 			local w = Instance.new("WeldConstraint")
 			w.Part0, w.Part1 = head, eye
 			w.Parent = eye
@@ -306,6 +346,7 @@ function UltPreviewFX.Stop()
 	if not cur then return end
 	current = nil
 	for _, conn in ipairs(cur.conns) do conn:Disconnect() end
+	for _, fn in ipairs(cur.cleanups) do pcall(fn) end
 	for _, a in ipairs(cur.attachments) do
 		if a.Parent then a:Destroy() end
 	end
@@ -321,7 +362,7 @@ function UltPreviewFX.Start(char: Model?, classId: string)
 	local folder = Instance.new("Folder")
 	folder.Name = "UltPreviewFX"
 	folder.Parent = Workspace.Terrain
-	local state = { folder = folder, conns = {}, attachments = {} }
+	local state = { folder = folder, conns = {}, attachments = {}, cleanups = {} }
 	current = state
 	local fwd = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
 	fwd = fwd.Magnitude > 0.01 and fwd.Unit or Vector3.new(0, 0, -1)
@@ -340,6 +381,9 @@ function UltPreviewFX.Start(char: Model?, classId: string)
 		end,
 		attach = function(inst)
 			table.insert(state.attachments, inst)
+		end,
+		onCleanup = function(fn)
+			table.insert(state.cleanups, fn)
 		end,
 	})
 end
