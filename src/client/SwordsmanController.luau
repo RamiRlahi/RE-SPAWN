@@ -350,8 +350,10 @@ function SwordsmanController.Basic(char: Model, root: BasePart): boolean
 	comboVFX(char, localStep, dir)
 	ClassFX.Sound("whoosh", root, 0.6, if localStep == 4 then 0.85 else 1.1 + localStep * 0.05)
 	if localStep == 3 then
-		-- Short lunge with the thrust.
-		root.AssemblyLinearVelocity = dir * 38 + Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+		-- Short lunge with the thrust (not off a ledge).
+		if SafeMove.ClampToFloor(root, dir, 4) >= 4 then
+			root.AssemblyLinearVelocity = dir * 38 + Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
+		end
 	end
 	Network.GetRemoteEvent(Network.Remotes.PerformAttack):FireServer({ direction = dir })
 	return true
@@ -371,11 +373,21 @@ local function releaseAfter(char: Model, t: number)
 	end)
 end
 
--- A horizontal-only dash (gravity still works), like the Gunslinger's roll.
--- It stops short of walls / steps in the way and ends back on the floor.
+-- A horizontal-only dash, like the Gunslinger's roll. It stops short of
+-- walls / steps in the way and of ledges / pits (never carries you off the
+-- floor), holds its height for the dash and ends back on the floor.
 local function dash(root: BasePart, dir: Vector3, dist: number, t: number)
 	local stand = SafeMove.StandHeight(root)
-	dist = SafeMove.ClampDash(root, dir, dist)
+	local start = root.CFrame
+	local full = dist
+	dist = math.min(SafeMove.ClampDash(root, dir, dist), SafeMove.ClampToFloor(root, dir, dist))
+	-- (cut short: same speed, shorter dash)
+	if full > 0 then t = t * math.max(dist / full, 0.25) end
+	local holdY = RunService.Heartbeat:Connect(function()
+		if not root.Parent then return end
+		local v = root.AssemblyLinearVelocity
+		if v.Y < 0 then root.AssemblyLinearVelocity = Vector3.new(v.X, 0, v.Z) end
+	end)
 	local att = Instance.new("Attachment")
 	att.Parent = root
 	local lv = Instance.new("LinearVelocity")
@@ -386,11 +398,18 @@ local function dash(root: BasePart, dir: Vector3, dist: number, t: number)
 	lv.VectorVelocity = dir * (dist / t)
 	lv.Parent = root
 	task.delay(t, function()
+		holdY:Disconnect()
 		lv:Destroy()
 		att:Destroy()
 		if root.Parent then
 			root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
 			SafeMove.SnapToFloor(root, stand)
+			-- Last resort: no floor under the end of the dash at all → back to
+			-- where it started instead of falling.
+			if not SafeMove.HasFloor(root) then
+				root.CFrame = start
+				root.AssemblyLinearVelocity = Vector3.zero
+			end
 		end
 	end)
 end

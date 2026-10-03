@@ -38,9 +38,10 @@ local FLOOR_SIZE = 12
 local MOBS_BASE = 7            -- mobs in a room at Threat I
 local MOBS_PER_TIER = 2        -- +2 per Threat tier
 local MOBS_MAX = 24
+local MELEE_WINDUP = 0.25      -- seconds between a melee mob's swing starting and it landing
 local ELITE_BASE_CHANCE = 0.03 -- per mob, at Threat I
-local ELITE_CHANCE_PER_TIER = 0.01
-local ELITE_MAX_CHANCE = 0.15
+local ELITE_CHANCE_PER_TIER = 0.007
+local ELITE_MAX_CHANCE = 0.1
 local ROOM_ACTIVATION_PADDING = 36
 local ROOM_REFRESH_INTERVAL = 0.75
 
@@ -794,7 +795,17 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 								lastAttack = now
 								if attackTrack then attackTrack:Play() end
 								if shambler then mobModel:SetAttribute("AttackAt", Workspace:GetServerTimeNow()) end
-								damagePlayer(target)
+								-- The swing lands a moment later, and only if the player is
+								-- still in reach and on the same level (step back to dodge).
+								task.delay(MELEE_WINDUP, function()
+									if not mobModel.Parent or humanoid.Health <= 0 or not rootPart.Parent then return end
+									local r = target:FindFirstChild("HumanoidRootPart") :: BasePart?
+									if not r then return end
+									local d = r.Position - rootPart.Position
+									if math.abs(d.Y) <= 5 and Vector3.new(d.X, 0, d.Z).Magnitude <= attackRange + 0.75 then
+										damagePlayer(target)
+									end
+								end)
 							end
 						end
 					end
@@ -955,6 +966,20 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 
 	-- 6. Mob Chase AI & Contact Touch Damage
 	local lastAttackTime = 0
+	-- Contact reach comes from the mob's actual body (its narrowest side) plus
+	-- the player's half-width, never more than the old fixed radius: a slime
+	-- only hurts when it is really touching you.
+	local scaleAtSpawn = mobModel:GetScale()
+	local bodyRadius = math.min(extents.X, extents.Z) * 0.5
+	local bodyHalfHeight = extents.Y * 0.5
+	local contactTicks = 0
+	local function inContact(pRoot: BasePart): boolean
+		local s = mobModel:GetScale() / scaleAtSpawn
+		local reach = math.min((bodyRadius + 1.3) * s, (isBoss and 7.5 or 4.5) * mobModel:GetScale())
+		local d = pRoot.Position - rootPart.Position
+		if math.abs(d.Y) > bodyHalfHeight * s + 3 then return false end
+		return Vector3.new(d.X, 0, d.Z).Magnitude <= reach
+	end
 	local function tryDealDamage(targetChar: Model)
 		local hum = targetChar:FindFirstChildOfClass("Humanoid")
 		local pRoot = targetChar:FindFirstChild("HumanoidRootPart")
@@ -1042,9 +1067,13 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 
 					-- If in close contact range, deal damage (a Magma Slime
 					-- only hurts when it bursts)
-					local hitRadius = (isBoss and 7.5 or 4.5) * mobModel:GetScale()
-					if mobModel:GetAttribute("NoContact") ~= true and (pRoot.Position - mobPos).Magnitude <= hitRadius then
-						tryDealDamage(closestPlayerChar)
+					-- (touching on two checks in a row: the server sees the player a
+					-- little behind where they are, so one brush isn't a hit)
+					if mobModel:GetAttribute("NoContact") ~= true and inContact(pRoot) then
+						contactTicks += 1
+						if contactTicks >= 2 then tryDealDamage(closestPlayerChar) end
+					else
+						contactTicks = 0
 					end
 				end
 			end
@@ -1121,8 +1150,8 @@ local function roomIsNearAnActivePlayer(room: any): boolean
 end
 
 -- Elites: tougher, hit harder, a bit bigger, wreathed in purple flames.
-local ELITE_HEALTH = 3
-local ELITE_DAMAGE = 1.6
+local ELITE_HEALTH = 2.2
+local ELITE_DAMAGE = 1.25
 local ELITE_XP = 3
 local ELITE_SCALE = 1.2
 local ELITE_PURPLE = Color3.fromRGB(170, 70, 255)

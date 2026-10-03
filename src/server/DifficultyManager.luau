@@ -18,12 +18,14 @@ local WeeklyModifiers = require(ReplicatedStorage:WaitForChild("Shared"):WaitFor
 local DifficultyManager = {}
 
 -- Seconds of run time per difficulty tier.
-local TIER_SECONDS = 60
+local TIER_SECONDS = 75
 -- Growth applied to spawned mobs per tier.
-local HEALTH_PER_TIER = 0.25
-local DAMAGE_PER_TIER = 0.12
-local SPEED_PER_TIER  = 0.04
+local HEALTH_PER_TIER = 0.18
+local DAMAGE_PER_TIER = 0.07
+local SPEED_PER_TIER  = 0.03
 local MAX_TIER = 30
+-- Every mob hit is scaled by this (all mobs, elites and bosses).
+local BASE_DAMAGE = 0.85
 
 type Clock = { start: number?, tier: number }
 local clocks: { [string]: Clock } = {}
@@ -52,8 +54,8 @@ function DifficultyManager.GetMobScale(runId: string?): { health: number, damage
 	local moon = if WeeklyModifiers.Is("blood_moon") then 1.5 else 1
 	return {
 		health = (1 + tier * HEALTH_PER_TIER) * c * moon,
-		damage = (1 + tier * DAMAGE_PER_TIER) * c,
-		speed  = math.min(1 + tier * SPEED_PER_TIER, 1.75),
+		damage = (BASE_DAMAGE + tier * DAMAGE_PER_TIER) * c,
+		speed  = math.min(1 + tier * SPEED_PER_TIER, 1.5),
 		tier = tier,
 	}
 end

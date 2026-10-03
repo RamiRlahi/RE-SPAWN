@@ -6,6 +6,9 @@
 
 	  • ClampDash(root, dir, dist)  shortens a dash so it stops short of walls,
 	                                stairs and props in the way.
+	  • ClampToFloor(root, dir, dist) shortens it so it stops before a
+	                                ledge or pit (never dashes off the floor).
+	  • HasFloor(root)              is there floor under the character at all.
 	  • StandHeight(root)           how high the root sits above the floor now.
 	  • SnapToFloor(root, height)   after a move, lifts the root back onto the
 	                                floor if it ended up below it.
@@ -61,6 +64,36 @@ function SafeMove.ClampDash(root: BasePart, dir: Vector3, dist: number): number
 		if hit then best = math.min(best, math.max(0, hit.Distance - 1.2)) end
 	end
 	return best
+end
+
+-- How far along `dir` there is still floor to stand on (no dashing off a
+-- ledge or into a pit). Samples the path every stud and a half; stops at the
+-- last point that has floor no more than a small step below the current one.
+function SafeMove.ClampToFloor(root: BasePart, dir: Vector3, dist: number): number
+	local flat = Vector3.new(dir.X, 0, dir.Z)
+	if flat.Magnitude < 0.01 or dist <= 0 then return dist end
+	flat = flat.Unit
+	local p = params(root.Parent :: Model)
+	local here = Workspace:Raycast(root.Position + Vector3.new(0, 1, 0), Vector3.new(0, -30, 0), p)
+	if not here then return 0 end
+	local floorY = here.Position.Y
+	local ok = 0
+	local step = 1.5
+	local d = step
+	while d <= dist + 0.01 do
+		local at = root.Position + flat * math.min(d, dist)
+		local hit = Workspace:Raycast(at + Vector3.new(0, 3, 0), Vector3.new(0, -12, 0), p)
+		if not hit or hit.Position.Y < floorY - 3 then break end
+		ok = math.min(d, dist)
+		d += step
+	end
+	-- (a little back from the edge, so the body doesn't hang over it)
+	return if ok >= dist then dist else math.max(0, ok - 1)
+end
+
+-- Is there any floor under the character (within a fall's reach)?
+function SafeMove.HasFloor(root: BasePart): boolean
+	return Workspace:Raycast(root.Position + Vector3.new(0, 1, 0), Vector3.new(0, -30, 0), params(root.Parent :: Model)) ~= nil
 end
 
 local function groundY(root: BasePart, at: Vector3): number?
