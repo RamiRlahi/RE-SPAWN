@@ -641,8 +641,10 @@ local function build(): ScreenGui
 		end
 		local list = payload.results or {}
 		local best = nil
+		local pulled = {}
 		for _, res in ipairs(list) do
 			local r = GachaRewards.Get(res.id)
+			if r then table.insert(pulled, r) end
 			if r and (not best or (table.find(GachaConfig.RarityOrder, r.rarity) or 0) > (table.find(GachaConfig.RarityOrder, best.rarity) or 0)) then best = r end
 		end
 		if not best then
@@ -656,7 +658,7 @@ local function build(): ScreenGui
 			LobbyCamera.SetClassSelectView()
 			showResults(list)
 			pulling = false
-		end)
+		end, pulled)
 	end)
 
 	showRight("Collection")

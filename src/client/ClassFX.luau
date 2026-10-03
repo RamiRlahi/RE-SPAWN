@@ -479,6 +479,19 @@ function ClassFX.Sound(key: string, at: BasePart | Vector3, volume: number, pitc
 	local list = SFX[key]
 	if list then play(list, at, volume, pitch, fadeAfter) end
 end
+-- A flat (2D) sound, same volume wherever the camera is: UI and cinematics.
+function ClassFX.Sound2D(key: string, volume: number, pitch: number?)
+	local list = SFX[key]
+	if not list then return end
+	local s = Instance.new("Sound")
+	s.SoundId = list[rng:NextInteger(1, #list)]
+	s.Volume = volume
+	s.PlaybackSpeed = pitch or 1
+	s.Parent = game:GetService("SoundService")
+	s:Play()
+	s.Ended:Once(function() s:Destroy() end)
+	Debris:AddItem(s, 15)
+end
 ClassFX.Ring = ring
 ClassFX.Burst = burst
 ClassFX.Afterimages = afterimages

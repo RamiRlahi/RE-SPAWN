@@ -18,7 +18,16 @@
 	                        warps, camera rockets up to reveal a sky-wide formation,
 	                        the figure descends; "???" … then the real name
 
-	SummonCinematic.Play(reward, onDone) — `reward` is a GachaRewards entry.
+	Across all of it: letterbox bars, bloom and a colour grade, a sound for
+	every beat, shockwaves on every impact. Before the sky opens, one shooting
+	star per pulled item crashes into the circle (coloured by its rarity, but
+	never above Epic: a gold pull stays a surprise). When the beam lands it
+	CLIMBS the rarities (blue → purple → gold → …), a flash, a shockwave and a
+	higher chime per step, stopping at the best pull. The reveal ends on the
+	name, a row of stars popping in one by one, and waits for a click.
+
+	SummonCinematic.Play(reward, onDone, all?) — `reward` is the best
+	GachaRewards entry; `all` every reward pulled (for the shooting stars).
 --]]
 
 local Players = game:GetService("Players")
@@ -32,6 +41,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local GachaConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GachaConfig"))
 local RewardPreview = require(script.Parent:WaitForChild("RewardPreview"))
+local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
 local UserInputService = game:GetService("UserInputService")
 
 local player = Players.LocalPlayer
@@ -195,7 +205,7 @@ local function silhouette(model: Model, accent: Color3): (number) -> ()
 end
 
 -- ─── Cinematic ──────────────────────────────────────────────────────────────
-function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
+function SummonCinematic.Play(reward: any, onDone: (() -> ())?, all: { any }?)
 	local char = player.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not char or not root then
@@ -257,9 +267,92 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 		t.Parent = gui
 		return t
 	end
-	local nameLabel = label(54, 0.78)
-	local rarityLabel = label(26, 0.86)
+	local nameLabel = label(54, 0.76)
+	local rarityLabel = label(26, 0.84)
 	local centerText = label(60, 0.5)
+	local continueLabel = label(16, 0.955)
+	continueLabel.Font = Enum.Font.GothamMedium
+	continueLabel.Text = "CLICK TO CONTINUE"
+	continueLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
+
+	-- Letterbox bars slide in: it's a film now.
+	local bars = {}
+	for i, anchorY in ipairs({ 0, 1 }) do
+		local bar = Instance.new("Frame")
+		bar.AnchorPoint = Vector2.new(0, anchorY)
+		bar.Position = UDim2.fromScale(0, anchorY)
+		bar.Size = UDim2.fromScale(1, 0)
+		bar.BackgroundColor3 = Color3.new(0, 0, 0)
+		bar.BorderSizePixel = 0
+		bar.ZIndex = 5
+		bar.Parent = gui
+		bars[i] = bar
+		tween(bar, 0.7, { Size = UDim2.fromScale(1, 0.1) }, Enum.EasingStyle.Quart)
+	end
+	-- (the name card sits above the bottom bar)
+	for _, l in ipairs({ nameLabel, rarityLabel, centerText, continueLabel }) do l.ZIndex = 6 end
+
+	-- Bloom makes every neon thing glow; the grade cools the room down.
+	local bloom = Instance.new("BloomEffect")
+	bloom.Name = "SummonBloom"
+	bloom.Intensity, bloom.Size, bloom.Threshold = 0.6, 36, 0.85
+	bloom.Parent = Lighting
+	local grade = Instance.new("ColorCorrectionEffect")
+	grade.Name = "SummonGrade"
+	grade.Contrast, grade.Saturation, grade.TintColor = 0.12, -0.15, Color3.fromRGB(215, 222, 255)
+	grade.Parent = Lighting
+	local function bloomKick(intensity: number)
+		bloom.Intensity = intensity
+		tween(bloom, 0.8, { Intensity = 0.6 })
+	end
+
+	-- Sound: flat (2D), so it's the same wherever the camera flies.
+	local function sfx(key: string, volume: number, pitch: number?)
+		ClassFX.Sound2D(key, volume, pitch)
+	end
+
+	-- A flat ring of light racing outward along the ground.
+	local function shockwave(at: Vector3, color: Color3, radius: number, t: number)
+		local segs = ringParts(world, 48, color, 0.05)
+		local st = os.clock()
+		local conn
+		conn = RunService.RenderStepped:Connect(function()
+			local a = math.clamp((os.clock() - st) / t, 0, 1)
+			local e = 1 - (1 - a) ^ 3
+			layRing(segs, CFrame.new(at), 0.5 + radius * e, 0.9 * (1 - a) + 0.1)
+			for _, sp in ipairs(segs) do sp.Transparency = 0.05 + 0.95 * a end
+			if a >= 1 then
+				conn:Disconnect()
+				for _, sp in ipairs(segs) do sp:Destroy() end
+			end
+		end)
+	end
+
+	-- A burst of sparkles (and a light flash) at a point.
+	local function burst(at: Vector3, color: Color3, count: number, speed: number)
+		local anchor = part(world, { Size = Vector3.one * 0.1, Transparency = 1, CFrame = CFrame.new(at) })
+		local pe = emitter(anchor, {
+			Color = ColorSequence.new(Color3.new(1, 1, 1), color), Size = seq(0, 0.6, 1, 0),
+			Lifetime = NumberRange.new(0.6, 1.4), Speed = NumberRange.new(speed * 0.5, speed),
+			SpreadAngle = Vector2.new(180, 180), Drag = 3, Rate = 0,
+		})
+		pe:Emit(count)
+		local l = Instance.new("PointLight")
+		l.Color, l.Brightness, l.Range = color, 6, 24
+		l.Parent = anchor
+		tween(l, 0.6, { Brightness = 0 })
+		Debris:AddItem(anchor, 2)
+	end
+
+	-- The rarities this summon climbs through: from Rare (Common stays
+	-- Common) up to the best pull.
+	local order = GachaConfig.RarityOrder
+	local bestIndex = table.find(order, rarity) or 1
+	local climb: { string } = {}
+	for i = math.min(2, bestIndex), bestIndex do table.insert(climb, order[i]) end
+	local function colorOf(r: string): Color3
+		return GachaConfig.Rarities[r] and GachaConfig.Rarities[r].color or HOLY
+	end
 
 	-- Silence: duck every playing sound (restored at the end).
 	local ducked: { [Sound]: number } = {}
@@ -302,6 +395,7 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 		task.delay(hold, function() tween(white, 0.35, { BackgroundTransparency = 1 }) end)
 	end
 	local function heartbeat()
+		sfx("boom", 0.55, 0.55)
 		tween(black, 0.08, { BackgroundTransparency = 0.72 })
 		shakeAmp = 0.15
 		task.delay(0.12, function() tween(black, 0.35, { BackgroundTransparency = 0.82 }) end)
@@ -312,6 +406,7 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 	camPos, camLook, camFov = base + fwd * 11 + Vector3.new(0, 2.4, 0), base + Vector3.new(0, 1.2, 0), 55
 	task.wait(0.15)
 	tween(black, 0.6 * S, { BackgroundTransparency = 0.82 })
+	sfx("wind", 0.35, 0.8)
 	moveCam(base + fwd * 7 + Vector3.new(0, 1.8, 0), base + Vector3.new(0, 1.2, 0), 55, 1.4 * S)
 	heartbeat()
 	task.wait(0.5 * S)
@@ -386,6 +481,7 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 		end
 	end)
 	tween(tomeLight, 0.8 * S, { Brightness = 3 })
+	sfx("charge", 0.45, 0.8)
 	local riseT0 = os.clock()
 	while os.clock() - riseT0 < 0.9 * S do
 		tomeRise = math.clamp((os.clock() - riseT0) / (0.9 * S), 0, 1)
@@ -401,17 +497,28 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 	tomeOpen = 1
 	flipSpeed = 9
 	upMotes.Rate = 40
+	sfx("magicBurst", 0.5, 1.1)
+	sfx("choir", 0.4, 1)
+	burst(tomePos, HOLY, 40, 8)
 	for _, bb in ipairs(runeGui) do tween(bb:FindFirstChildOfClass("TextLabel") :: TextLabel, 0.4, { TextTransparency = 0 }) end
 	task.wait(0.6 * S)
 
 	-- ── 3. THE CIRCLE ──
 	local circleCF = CFrame.new(ground + Vector3.new(0, 0.12, 0))
+	-- (drawn in plain holy white: the colour would give the rarity away)
 	local rings = {
-		{ parts = ringParts(world, 64, accent, 0.15), r = 16, th = 0.5, spin = 0.25, dashed = false },
+		{ parts = ringParts(world, 64, HOLY, 0.15), r = 16, th = 0.5, spin = 0.25, dashed = false, tinted = true },
 		{ parts = ringParts(world, 48, HOLY, 0.3), r = 12, th = 0.3, spin = -0.4, dashed = true },
-		{ parts = ringParts(world, 40, accent, 0.25), r = 8.5, th = 0.35, spin = 0.6, dashed = false },
+		{ parts = ringParts(world, 40, HOLY, 0.25), r = 8.5, th = 0.35, spin = 0.6, dashed = false, tinted = true },
 		{ parts = ringParts(world, 28, HOLY, 0.35), r = 5, th = 0.2, spin = -0.9, dashed = true },
 	}
+	local function tintCircle(color: Color3)
+		for _, ring in ipairs(rings) do
+			if ring.tinted then
+				for _, rp in ipairs(ring.parts) do tween(rp, 0.25, { Color = color }) end
+			end
+		end
+	end
 	local crosses = {}
 	for i = 1, 8 do
 		local v = part(world, { Size = Vector3.new(0.2, 1.4, 0.2), Color = GOLD })
@@ -420,7 +527,7 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 	end
 	local spiralAtt = part(world, { Size = Vector3.new(0.1, 0.1, 0.1), Transparency = 1, CFrame = circleCF })
 	local spiral = emitter(spiralAtt, {
-		Color = ColorSequence.new(accent, HOLY), Size = seq(0, 0.35, 1, 0), Lifetime = NumberRange.new(1, 1.4),
+		Color = ColorSequence.new(HOLY, GOLD), Size = seq(0, 0.35, 1, 0), Lifetime = NumberRange.new(1, 1.4),
 		Speed = NumberRange.new(4, 7), SpreadAngle = Vector2.new(180, 5), Acceleration = (tomePos - ground) * 1.2, Rate = 0,
 	})
 	local circleGrow = 0
@@ -441,13 +548,57 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 	end)
 	local growT0 = os.clock()
 	spiral.Rate = 60
+	sfx("rockHit", 0.5, 0.7)
+	sfx("angel", 0.35, 1)
+	shockwave(ground + Vector3.new(0, 0.3, 0), HOLY, 20, 0.9)
 	moveCam(base - fwd * 18 + right * 10 + Vector3.new(0, 16, 0), ground, 60, 1.4 * S) -- pull back: how vast it is
 	while os.clock() - growT0 < 0.9 * S do
 		circleGrow = 1 - (1 - math.clamp((os.clock() - growT0) / (0.9 * S), 0, 1)) ^ 3
 		RunService.RenderStepped:Wait()
 	end
 	circleGrow = 1
-	task.wait(0.6 * S)
+	task.wait(0.3 * S)
+
+	-- ── Shooting stars: one per pull, crashing into the circle ──
+	local pulls = if all and #all > 0 then all else { reward }
+	local starCount = #pulls
+	for i, r in ipairs(pulls) do
+		-- (never shown above Epic: that's for the climb to say)
+		local ri = math.min(table.find(order, r.rarity) or 1, 3)
+		local col = colorOf(order[ri])
+		local ang = (i / starCount) * math.pi * 2 + math.random() * 0.4
+		local land = ground + Vector3.new(math.cos(ang) * 9, 0.4, math.sin(ang) * 9)
+		local from = land + Vector3.new(-fwd.X * 40 + math.random(-15, 15), 90, -fwd.Z * 40 + math.random(-15, 15))
+		task.delay((i - 1) * (if starCount > 1 then 0.11 else 0) , function()
+			local star = part(world, { Shape = Enum.PartType.Ball, Size = Vector3.one * 1.3, Color = col, CFrame = CFrame.new(from) })
+			local a0 = Instance.new("Attachment")
+			a0.Position = Vector3.new(0, 0.6, 0)
+			a0.Parent = star
+			local a1 = Instance.new("Attachment")
+			a1.Position = Vector3.new(0, -0.6, 0)
+			a1.Parent = star
+			local trail = Instance.new("Trail")
+			trail.Attachment0, trail.Attachment1 = a0, a1
+			trail.Color = ColorSequence.new(Color3.new(1, 1, 1), col)
+			trail.Transparency = seq(0, 0, 1, 1)
+			trail.Lifetime = 0.35
+			trail.LightEmission = 1
+			trail.FaceCamera = true
+			trail.WidthScale = seq(0, 1, 1, 0)
+			trail.Parent = star
+			local fall = tween(star, 0.5, { CFrame = CFrame.new(land) }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+			fall.Completed:Once(function()
+				star.Transparency = 1
+				burst(land, col, 18, 10)
+				shockwave(land, col, 5, 0.45)
+				sfx("ding", 0.35, 0.9 + ri * 0.12)
+				shakeAmp = math.max(shakeAmp, 0.25)
+				Debris:AddItem(star, 0.4)
+			end)
+		end)
+	end
+	if starCount > 0 then sfx("arrowOut", 0.4, 0.6) end
+	task.wait(0.5 + (starCount - 1) * (if starCount > 1 then 0.11 else 0) + 0.35)
 
 	-- ── Mythic: the summon "fails" first ──
 	if rarity == "Mythic" then
@@ -475,20 +626,45 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 
 	-- ── 4. THE SKY OPENS ──
 	local beamTop = tomePos + Vector3.new(0, 140, 0)
+	local firstColor = colorOf(climb[1])
 	local beam = part(world, {
 		Shape = Enum.PartType.Cylinder, Size = Vector3.new(140, 0.2, 0.2),
 		CFrame = CFrame.new((beamTop + tomePos) / 2) * CFrame.Angles(0, 0, math.rad(90)), Color = HOLY, Transparency = 0.05,
 	})
 	local beamGlow = part(world, {
-		Shape = Enum.PartType.Cylinder, Size = Vector3.new(140, 0.2, 0.2), CFrame = beam.CFrame, Color = accent, Transparency = 0.7,
+		Shape = Enum.PartType.Cylinder, Size = Vector3.new(140, 0.2, 0.2), CFrame = beam.CFrame, Color = firstColor, Transparency = 0.7,
 	})
 	tween(beam, 0.25, { Size = Vector3.new(140, 2.4, 2.4) }, Enum.EasingStyle.Back)
 	tween(beamGlow, 0.3, { Size = Vector3.new(140, 7, 7) }, Enum.EasingStyle.Back)
 	flashWhite(if fast then 0.05 else 0.14)
+	bloomKick(2.2)
+	sfx("thunder", 0.7, 1)
+	sfx("boom", 0.8, 0.8)
+	shockwave(ground + Vector3.new(0, 0.3, 0), firstColor, 26, 0.8)
+	tintCircle(firstColor)
 	shakeAmp = if fast then 0.4 else 1
 	tween(black, 0.3, { BackgroundTransparency = 1 })
 	moveCam(base + fwd * 11 + Vector3.new(0, 2.5, 0), tomePos + Vector3.new(0, 1.5, 0), 55, 0.5)
 	task.wait(0.4)
+
+	-- ── THE CLIMB: the beam steps up through the rarities to the best pull ──
+	for step = 2, #climb do
+		task.wait(if step == #climb then 0.7 else 0.5)
+		local col = colorOf(climb[step])
+		tween(beamGlow, 0.15, { Color = col, Size = Vector3.new(140, 7 + step * 2.5, 7 + step * 2.5) })
+		tween(grade, 0.2, { TintColor = Color3.new(1, 1, 1):Lerp(col, 0.25) })
+		tintCircle(col)
+		white.BackgroundTransparency = 0.35
+		tween(white, 0.3, { BackgroundTransparency = 1 })
+		bloomKick(1.6 + step * 0.4)
+		shockwave(ground + Vector3.new(0, 0.3, 0), col, 18 + step * 6, 0.7)
+		burst(tomePos, col, 30 + step * 10, 14)
+		sfx("ding", 0.6, 0.8 + step * 0.18)
+		sfx("magicBurst", 0.45, 0.9 + step * 0.1)
+		shakeAmp = 0.5 + step * 0.25
+		camFov = math.max(40, camFov - 3)
+	end
+	if #climb > 1 then task.wait(0.45) end
 
 	-- ── 5. REVEAL ──
 	-- The figure: how the reward looks on the character it belongs to
@@ -500,16 +676,113 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 	local function placeFigure(pos: Vector3, yaw: number)
 		figure:PivotTo(CFrame.new(pos) * CFrame.lookAt(Vector3.zero, fwd).Rotation * CFrame.Angles(0, yaw, 0))
 	end
+	-- The reveal itself: colours, a burst, a shockwave, god rays behind the
+	-- figure, a ring of motes round it, a punch of the camera.
+	local rays: { BasePart } = {}
+	local raysConn: RBXScriptConnection? = nil
 	local function revealColors(stagger: number)
 		reveal(stagger)
+		local idx = bestIndex
+		burst(revealAt + Vector3.new(0, 1.5, 0), rarityColor, 40 + idx * 25, 12 + idx * 3)
+		shockwave(ground + Vector3.new(0, 0.35, 0), rarityColor, 14 + idx * 6, 0.9)
+		bloomKick(1.5 + idx * 0.4)
+		sfx("magicBurst", 0.6, 1)
+		sfx("choir", 0.35 + idx * 0.08, 1)
+		if idx >= 3 then sfx("angel", 0.5, 1.1) end
+		-- FOV punch
+		local fov0 = camFov
+		camFov = fov0 - 6
+		task.delay(0.05, function() moveCam(camPos, camLook, fov0, 0.6) end)
+		-- god rays fanning out behind the figure (Rare and up)
+		if idx >= 2 and #rays == 0 then
+			local raysCF = CFrame.lookAt(revealAt - fwd * 2.5 + Vector3.new(0, 2, 0), revealAt + Vector3.new(0, 2, 0) + fwd * 10)
+			for i = 1, 6 + idx * 2 do
+				rays[i] = part(world, { Size = Vector3.new(0.35 + (i % 3) * 0.25, 0.1, 0.1), Color = if i % 2 == 0 then HOLY else rarityColor, Transparency = 0.55 })
+			end
+			local rt0 = os.clock()
+			raysConn = RunService.RenderStepped:Connect(function()
+				local t = os.clock() - rt0
+				local grow = 1 - (1 - math.clamp(t / 0.8, 0, 1)) ^ 3
+				for i, r in ipairs(rays) do
+					local a = (i / #rays) * math.pi * 2 + t * 0.25 * (if i % 2 == 0 then 1 else -1)
+					local len = (18 + (i % 4) * 6) * grow
+					r.Size = Vector3.new(r.Size.X, len, 0.1)
+					r.CFrame = raysCF * CFrame.Angles(0, 0, a) * CFrame.new(0, len * 0.5, -0.5)
+				end
+			end)
+		end
+		-- motes circling the figure
+		local orbitAt = part(world, { Size = Vector3.one * 0.1, Transparency = 1, CFrame = CFrame.new(revealAt + Vector3.new(0, 0.2, 0)) })
+		emitter(orbitAt, {
+			Color = ColorSequence.new(HOLY, rarityColor), Size = seq(0, 0.3, 1, 0), Lifetime = NumberRange.new(1.5, 2.5),
+			Speed = NumberRange.new(0.5, 1.5), SpreadAngle = Vector2.new(180, 30), Acceleration = Vector3.new(0, 2, 0),
+			Rate = 12 + idx * 8, Shape = Enum.ParticleEmitterShape.Cylinder, ShapeInOut = Enum.ParticleEmitterShapeInOut.Outward,
+		})
 	end
+	-- The name slams in; then one star per rarity tier pops in, each with a
+	-- higher ding.
+	local starRow: Frame? = nil
 	local function nameCard(hidden: boolean?)
 		nameLabel.Text = if hidden then "???" else string.upper(reward.name)
 		nameLabel.TextColor3 = if hidden then Color3.new(1, 1, 1) else accent
 		rarityLabel.Text = if hidden then "" else string.upper(rarity)
 		rarityLabel.TextColor3 = rarityColor
-		tween(nameLabel, 0.5, { TextTransparency = 0 })
+		nameLabel.TextSize = 90
+		tween(nameLabel, 0.35, { TextTransparency = 0, TextSize = 54 }, Enum.EasingStyle.Back)
 		tween(rarityLabel, 0.5, { TextTransparency = 0 })
+		if hidden then return end
+		sfx("swordIn", 0.5, 1)
+		if starRow then starRow:Destroy() end
+		local row = Instance.new("Frame")
+		row.AnchorPoint = Vector2.new(0.5, 0.5)
+		row.Position = UDim2.fromScale(0.5, 0.68)
+		row.Size = UDim2.fromOffset(bestIndex * 46, 44)
+		row.BackgroundTransparency = 1
+		row.ZIndex = 6
+		row.Parent = gui
+		starRow = row
+		for i = 1, bestIndex do
+			local st = Instance.new("TextLabel")
+			st.AnchorPoint = Vector2.new(0.5, 0.5)
+			st.Position = UDim2.new(0, (i - 0.5) * 46, 0.5, 0)
+			st.Size = UDim2.fromOffset(44, 44)
+			st.BackgroundTransparency = 1
+			st.Font = Enum.Font.GothamBlack
+			st.Text = "★"
+			st.TextScaled = true
+			st.TextColor3 = rarityColor
+			st.TextStrokeTransparency = 0.2
+			st.TextTransparency = 1
+			st.ZIndex = 6
+			st.Parent = row
+			local sc = Instance.new("UIScale")
+			sc.Scale = 2.4
+			sc.Parent = st
+			task.delay(0.25 + i * 0.16, function()
+				tween(st, 0.15, { TextTransparency = 0 })
+				tween(sc, 0.3, { Scale = 1 }, Enum.EasingStyle.Back)
+				sfx("ding", 0.4, 0.9 + i * 0.12)
+			end)
+		end
+	end
+	-- Hold on the reveal until the player clicks (or a while passes).
+	local function waitForClick(minimum: number, maximum: number)
+		task.wait(minimum)
+		tween(continueLabel, 0.4, { TextTransparency = 0.2 })
+		local clicked = false
+		local conn = UserInputService.InputBegan:Connect(function(io)
+			if io.UserInputType == Enum.UserInputType.MouseButton1 or io.UserInputType == Enum.UserInputType.Touch
+				or io.KeyCode == Enum.KeyCode.Space or io.KeyCode == Enum.KeyCode.Return then
+				clicked = true
+			end
+		end)
+		local t0w = os.clock()
+		while not clicked and os.clock() - t0w < maximum - minimum do
+			continueLabel.TextTransparency = 0.25 + math.sin((os.clock() - t0w) * 4) * 0.2
+			RunService.RenderStepped:Wait()
+		end
+		conn:Disconnect()
+		tween(continueLabel, 0.2, { TextTransparency = 1 })
 	end
 
 	if rarity == "Common" then
@@ -518,7 +791,7 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 		task.wait(0.35)
 		revealColors(0.2)
 		nameCard()
-		task.wait(1)
+		waitForClick(1, 8)
 	elseif rarity == "Rare" then
 		for k = -1, 1, 2 do
 			local b = part(world, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(90, 1.2, 1.2), Color = rarityColor, Transparency = 0.3,
@@ -530,7 +803,7 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 		flashWhite(0.04)
 		revealColors(0.25)
 		nameCard()
-		task.wait(1.2)
+		waitForClick(1.2, 8)
 	elseif rarity == "Epic" then
 		-- The sky cracks.
 		local crackRoot = beamTop - Vector3.new(0, 110, 0)
@@ -545,11 +818,15 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 			end
 		end
 		shakeAmp = 0.8
+		sfx("iceBreak", 0.6, 0.7)
+		sfx("thunder", 0.6, 0.8)
 		task.wait(0.5)
 		-- Huge explosion.
 		local boom = part(world, { Shape = Enum.PartType.Ball, Size = Vector3.one * 2, CFrame = CFrame.new(revealAt + Vector3.new(0, 4, 0)), Color = rarityColor, Transparency = 0.1 })
 		tween(boom, 0.7, { Size = Vector3.one * 34, Transparency = 1 }, Enum.EasingStyle.Quart)
 		flashWhite(0.08)
+		sfx("quake", 0.7, 0.9)
+		bloomKick(3)
 		shakeAmp = 1.3
 		-- Silhouette descends.
 		local descT0 = os.clock()
@@ -562,7 +839,7 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 		placeFigure(revealAt, 0)
 		revealColors(0.5)
 		nameCard()
-		task.wait(1.6)
+		waitForClick(1.4, 10)
 	else -- Legendary / Mythic
 		if rarity == "Legendary" then
 			-- EVERYTHING STOPS.
@@ -570,6 +847,7 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 			flipSpeed, spiral.Rate, upMotes.Rate = 0, 0, 0
 			task.wait(0.7)
 			-- One tiny golden particle drifts past the camera.
+			sfx("chime", 0.35, 0.8)
 			local mote = part(world, { Shape = Enum.PartType.Ball, Size = Vector3.one * 0.08, Color = GOLD })
 			local ml = Instance.new("PointLight")
 			ml.Color, ml.Brightness, ml.Range = GOLD, 2, 3
@@ -626,6 +904,10 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 		-- BOOM: the celestial sigil behind the figure.
 		tween(black, 0.15, { BackgroundTransparency = 1 })
 		flashWhite(0.2)
+		sfx("quake", 0.8, 0.8)
+		sfx("boom", 0.9, 0.7)
+		bloomKick(3.5)
+		shockwave(ground + Vector3.new(0, 0.3, 0), rarityColor, 40, 1.1)
 		shakeAmp = 1.6
 		local sigilCF = CFrame.lookAt(revealAt - fwd * 4 + Vector3.new(0, 5, 0), revealAt - fwd * 4 + Vector3.new(0, 5, 0) + fwd)
 		local spokes = {}
@@ -676,13 +958,18 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 			flashWhite(0.1)
 		end
 		nameCard()
-		task.wait(2.2)
+		waitForClick(1.8, 12)
 		sigilConn:Disconnect()
 	end
 
 	-- ── Tear down ──
 	tween(black, 0.4, { BackgroundTransparency = 0 })
 	task.wait(0.45)
+	if raysConn then raysConn:Disconnect() end
+	bloom:Destroy()
+	grade:Destroy()
+	if starRow then starRow:Destroy() end
+	for _, bar in ipairs(bars) do tween(bar, 0.4, { Size = UDim2.fromScale(1, 0) }) end
 	camConn:Disconnect()
 	tomeConn:Disconnect()
 	circleConn:Disconnect()
