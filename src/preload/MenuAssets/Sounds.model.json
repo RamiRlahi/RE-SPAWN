@@ -1,0 +1,10 @@
+{
+  "ClassName": "Folder",
+  "Children": [
+    { "Name": "Hover", "ClassName": "Sound", "Properties": { "SoundId": "rbxassetid://9119978043" } },
+    { "Name": "Click", "ClassName": "Sound", "Properties": { "SoundId": "rbxassetid://9119979016" } },
+    { "Name": "Select", "ClassName": "Sound", "Properties": { "SoundId": "rbxassetid://9118835420" } },
+    { "Name": "Confirm", "ClassName": "Sound", "Properties": { "SoundId": "rbxassetid://9116394876" } },
+    { "Name": "Close", "ClassName": "Sound", "Properties": { "SoundId": "rbxassetid://9118835414" } }
+  ]
+}

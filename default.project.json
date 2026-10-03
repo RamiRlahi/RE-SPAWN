@@ -12,6 +12,13 @@
     "ReplicatedStorage": {
       "Shared": {
         "$path": "src/shared"
+      },
+      "Preload": {
+        "$className": "Folder",
+        "$ignoreUnknownInstances": true,
+        "MenuAssets": {
+          "$path": "src/preload/MenuAssets"
+        }
       }
     },
     "ServerScriptService": {
@@ -27,6 +34,12 @@
       },
       "StarterCharacterScripts": {
         "$path": "src/character"
+      }
+    },
+    "ReplicatedFirst": {
+      "$ignoreUnknownInstances": true,
+      "Loader": {
+        "$path": "src/first"
       }
     }
   }

@@ -37,10 +37,15 @@ local MOUSE_LEAD_FACTOR = 0.20                      -- Strength of mouse drag on
 local MAX_MOUSE_LEAD    = 8.0                       -- Max camera drag distance in studs
 local AIM_SMOOTHNESS    = 20                        -- Head rotation smoothness
 local MAX_HEAD_YAW      = math.rad(90)              -- Maximum 90° turn left and right
+local HEAD_AIM_ENABLED  = false                     -- Head follows the cursor (off: characters face forward)
 
--- Transparency for obstructing ceilings / walls
-local OBSTACLE_TRANSPARENCY = 1.0
-local OCCLUSION_RADIUS      = 3.0 -- Tight character-sized radius along camera sightlines
+-- How see-through ceilings / walls get when they block the view of you
+local OBSTACLE_TRANSPARENCY = 0.65 -- see-through, not gone (1 = invisible)
+local OCCLUSION_RADIUS      = 1.0 -- Thin sightlines: only what actually blocks the view
+-- A hit only counts if it's at least this far in front of the player along the
+-- sightline (toward the camera). Anything beside or behind the player — walls
+-- you stand next to, props at your feet — is left alone.
+local PLAYER_CLEARANCE      = 2.5
 
 -- ─────────────────────────────────────────────────────────────────────────────
 
@@ -49,6 +54,7 @@ local isPaused = false
 local renderConnection: RBXScriptConnection? = nil
 local currentFocusPos: Vector3? = nil
 local focusYLock: number? = nil
+local cameraZoom = 1
 
 -- Head aiming state
 local origNeckC0: CFrame? = nil
@@ -85,8 +91,17 @@ local function getCamera(): Camera
 	return cam
 end
 
+-- Spectating: follow another character instead of our own.
+local focusOverride: Model? = nil
+-- Or follow one part (e.g. your own torso as the body falls apart).
+local focusPart: BasePart? = nil
+
 local function getCharacterRoot(): (BasePart?, Humanoid?)
-	local char = player.Character
+	if focusPart and focusPart.Parent then
+		local owner = focusPart:FindFirstAncestorOfClass("Model")
+		return focusPart, owner and owner:FindFirstChildOfClass("Humanoid")
+	end
+	local char = if focusOverride and focusOverride.Parent then focusOverride else player.Character
 	if not char then return nil, nil end
 	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	local humanoid = char:FindFirstChildOfClass("Humanoid")
@@ -103,7 +118,9 @@ local function createAimCursor(): (ScreenGui, Frame)
 	local gui = Instance.new("ScreenGui")
 	gui.Name = "AimReticleGui"
 	gui.ResetOnSpawn = false
-	gui.DisplayOrder = 100
+	-- Above every in-game screen (death screen, tome choice, map) so the cursor
+	-- is never hidden behind one; the loading cover (1000) still covers it.
+	gui.DisplayOrder = 900
 	gui.IgnoreGuiInset = true
 	gui.Enabled = false
 	gui.Parent = pGui
@@ -304,8 +321,8 @@ local function updateOcclusion(camPos: Vector3, targetPos: Vector3, character: M
 		targetPos,                                      -- Character center / torso
 		targetPos + Vector3.new(0, 2.2, 0),             -- Head
 		targetPos + Vector3.new(0, -1.0, 0),            -- Lower torso
-		targetPos + camRight * 2.0,                     -- Right shoulder
-		targetPos - camRight * 2.0,                     -- Left shoulder
+		targetPos + camRight * 1.2,                     -- Right shoulder
+		targetPos - camRight * 1.2,                     -- Left shoulder
 		targetPos + Vector3.new(0, 3.5, 0),             -- Low ceiling overhead
 	}
 
@@ -325,7 +342,11 @@ local function updateOcclusion(camPos: Vector3, targetPos: Vector3, character: M
 			if hitPart:IsA("BasePart") and hitPart.Transparency < 1 then
 				-- Only fade objects above floor level (never fade the ground under the player)
 				local isGround = rayResult.Position.Y < (targetPos.Y - 1.5)
-				if not isGround then
+				-- Only fade what is genuinely between the camera and the player:
+				-- where the hit sits along the sightline must end before the player.
+				local along = (rayResult.Position - origin):Dot(dirUnit)
+				local betweenCameraAndPlayer = along < totalDistance - PLAYER_CLEARANCE
+				if not isGround and betweenCameraAndPlayer then
 					markHit(hitPart, currentlyHit)
 				end
 			end
@@ -384,6 +405,109 @@ end
 
 -- ── 4. Public API ─────────────────────────────────────────────────────────────
 
+-- ── Classic camera (Settings > Gameplay) ──
+-- Instead of the top-down follow: Roblox's normal third-person camera on the
+-- character (scroll to zoom, right-drag to turn), the plain mouse cursor.
+-- Cutscenes still Pause / Resume it like the top-down one.
+local function classicOn(): boolean
+	return Players.LocalPlayer:GetAttribute("Setting_classicCamera") == true
+end
+
+-- Forced shift lock: the mouse locked to the screen's centre, the camera
+-- over the right shoulder, the body turned to face where the camera looks
+-- (not while a skill drives it).
+local SHIFT_OFFSET = Vector3.new(1.75, 0, 0)
+local function shiftLockStep()
+	UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not hum or not root or hum.Health <= 0 then return end
+	if hum.CameraOffset ~= SHIFT_OFFSET then hum.CameraOffset = SHIFT_OFFSET end
+	if hum.AutoRotate then hum.AutoRotate = false end
+	if char:GetAttribute("IsSkillCasting") == true or hum.PlatformStand or root.Anchored then return end
+	local look = getCamera().CFrame.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude > 0.01 then
+		root.CFrame = CFrame.lookAt(root.Position, root.Position + flat.Unit)
+	end
+end
+
+-- The classic camera's crosshair: a small white cross at the screen's
+-- centre (where the locked mouse aims), in place of the arrow.
+local crosshairGui: ScreenGui? = nil
+local function crosshair(on: boolean)
+	if on and not crosshairGui then
+		local g = Instance.new("ScreenGui")
+		g.Name = "ClassicCrosshair"
+		g.IgnoreGuiInset = true
+		g.ResetOnSpawn = false
+		g.DisplayOrder = 40
+		local function bar(size: UDim2, pos: UDim2)
+			local f = Instance.new("Frame")
+			f.AnchorPoint = Vector2.new(0.5, 0.5)
+			f.Size = size
+			f.Position = pos
+			f.BackgroundColor3 = Color3.new(1, 1, 1)
+			f.BorderSizePixel = 0
+			local st = Instance.new("UIStroke")
+			st.Color = Color3.new(0, 0, 0)
+			st.Transparency = 0.4
+			st.Parent = f
+			f.Parent = g
+		end
+		local c = UDim2.fromScale(0.5, 0.5)
+		bar(UDim2.fromOffset(2, 2), c)                                         -- the dot
+		bar(UDim2.fromOffset(2, 8), c + UDim2.fromOffset(0, -9))               -- up
+		bar(UDim2.fromOffset(2, 8), c + UDim2.fromOffset(0, 9))                -- down
+		bar(UDim2.fromOffset(8, 2), c + UDim2.fromOffset(-9, 0))               -- left
+		bar(UDim2.fromOffset(8, 2), c + UDim2.fromOffset(9, 0))                -- right
+		g.Parent = player:WaitForChild("PlayerGui")
+		crosshairGui = g
+	end
+	if crosshairGui and crosshairGui.Enabled ~= on then crosshairGui.Enabled = on end
+end
+
+-- Picking a buff (the tome choice is open): the mouse is freed to click it.
+local function choosingBuff(): boolean
+	local pg = player:FindFirstChildOfClass("PlayerGui")
+	local ui = pg and pg:FindFirstChild("TomeProgressUI")
+	local choices = ui and ui:FindFirstChild("TomeChoices", true)
+	return choices ~= nil and ui:IsA("ScreenGui") and ui.Enabled and (choices :: GuiObject).Visible
+end
+
+local function releaseShiftLock()
+	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	crosshair(false)
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.CameraOffset = Vector3.zero
+		hum.AutoRotate = true
+	end
+end
+
+local function applyClassic(on: boolean)
+	local cam = getCamera()
+	if not on then releaseShiftLock() end
+	if on then
+		local _, hum = getCharacterRoot()
+		if cam.CameraType ~= Enum.CameraType.Custom then
+			cam.CameraType = Enum.CameraType.Custom
+			cam.FieldOfView = 70
+		end
+		if hum and cam.CameraSubject ~= hum then cam.CameraSubject = hum end
+		if cursorGui and cursorGui.Enabled then cursorGui.Enabled = false end
+	else
+		if cam.CameraType ~= Enum.CameraType.Scriptable then
+			cam.CameraType = Enum.CameraType.Scriptable
+			cam.FieldOfView = CAMERA_FOV
+		end
+		if cursorGui and not cursorGui.Enabled then cursorGui.Enabled = true end
+		if UserInputService.MouseIconEnabled then UserInputService.MouseIconEnabled = false end
+	end
+end
+
 function IsometricCamera.Start(transitionDuration: number?)
 	if isActive then return end
 	isActive = true
@@ -440,8 +564,29 @@ function IsometricCamera.Start(transitionDuration: number?)
 	-- Start live RenderStepped tracking loop
 	if renderConnection then renderConnection:Disconnect() end
 
+	local wasClassic: boolean? = nil
 	renderConnection = RunService.RenderStepped:Connect(function(dt)
 		if not isActive or isPaused then return end
+		-- (the setting, switched any time: hand the camera over / take it back)
+		local classic = classicOn()
+		if classic ~= wasClassic then
+			wasClassic = classic
+			applyClassic(classic)
+		end
+		if classic then
+			-- (the aim reticle is the top-down camera's; others re-enable it)
+			if cursorGui and cursorGui.Enabled then cursorGui.Enabled = false end
+			if choosingBuff() then
+				-- a free arrow to pick with; locked again once it's picked
+				releaseShiftLock()
+				if not UserInputService.MouseIconEnabled then UserInputService.MouseIconEnabled = true end
+			else
+				shiftLockStep()
+				crosshair(true)
+				if UserInputService.MouseIconEnabled then UserInputService.MouseIconEnabled = false end
+			end
+			return
+		end
 
 		local currentRoot, _ = getCharacterRoot()
 		if not currentRoot then return end
@@ -471,12 +616,21 @@ function IsometricCamera.Start(transitionDuration: number?)
 			end
 
 			-- Update Head Aiming toward cursor (clamped to ±90° maximum)
-			if player.Character then
+			if HEAD_AIM_ENABLED and player.Character then
 				updateHeadAim(player.Character, currentRoot, mouseWorldPos, dt)
 			end
 		end
 
 		local desiredFocusPos = rawTargetPos + leadOffset
+		-- A boss arena can widen the view (the player's "CameraZoom") and lean
+		-- it toward the boss ("CameraBias", a world point) so both fit.
+		local wantZoom = player:GetAttribute("CameraZoom")
+		cameraZoom += ((if typeof(wantZoom) == "number" then wantZoom else 1) - cameraZoom) * math.clamp(dt * 2, 0, 1)
+		local bias = player:GetAttribute("CameraBias")
+		if typeof(bias) == "Vector3" then
+			local toward = Vector3.new(bias.X - desiredFocusPos.X, 0, bias.Z - desiredFocusPos.Z)
+			desiredFocusPos += toward * 0.42
+		end
 
 		-- Smooth focus interpolation
 		if not currentFocusPos then
@@ -485,7 +639,7 @@ function IsometricCamera.Start(transitionDuration: number?)
 			currentFocusPos = currentFocusPos:Lerp(desiredFocusPos, math.clamp(dt * SMOOTHNESS, 0, 1))
 		end
 
-		local camPos = currentFocusPos + CAMERA_OFFSET
+		local camPos = currentFocusPos + CAMERA_OFFSET * cameraZoom
 		cam.CFrame = CFrame.lookAt(camPos, currentFocusPos)
 
 		-- Update ceiling/obstacle transparency solver
@@ -506,12 +660,27 @@ player.CharacterAdded:Connect(function()
 	end
 end)
 
+function IsometricCamera.SetFocusPart(part: BasePart?)
+	focusPart = part
+	currentFocusPos = nil
+end
+
+function IsometricCamera.SetFocus(character: Model?)
+	focusOverride = character
+	currentFocusPos = nil
+end
+
 function IsometricCamera.Pause()
 	isPaused = true
+	if classicOn() then releaseShiftLock() end
 end
 
 function IsometricCamera.Resume(transitionDuration: number?)
 	isPaused = false
+	if classicOn() then
+		applyClassic(true)
+		return
+	end
 	local cam = getCamera()
 	cam.CameraType = Enum.CameraType.Scriptable
 
@@ -550,6 +719,8 @@ end
 function IsometricCamera.Stop()
 	if not isActive then return end
 	isActive = false
+	if classicOn() then releaseShiftLock() end
+	isPaused = false -- (stopped mid-pause: the next Start must still follow)
 
 	if renderConnection then
 		renderConnection:Disconnect()

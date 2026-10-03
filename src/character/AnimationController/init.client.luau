@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local RunScope = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("RunScope"))
 local Network = require(Shared:WaitForChild("Network"))
 local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
 
@@ -48,17 +49,9 @@ local CLASS_ANIMATIONS = {
 	},
 }
 
-local ATTACK_ANIMATIONS = {
-	heavy_knight = {
-		running = "rbxassetid://97959206991231",
-		combo = {
-			"rbxassetid://89799832930197",  -- Attack 1
-			"rbxassetid://139832137467263", -- Attack 2
-			"rbxassetid://88609851560221",  -- Attack 3
-			"rbxassetid://86943794416151",  -- Attack 4
-		},
-	},
-}
+-- Uploaded attack combos per class. None right now: the Fire Knight's
+-- Emberblade (FireKnightController) and the Swordsman's combo are posed in code.
+local ATTACK_ANIMATIONS: { [string]: { running: string?, combo: { string } } } = {}
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Combat & Sprint State
@@ -76,6 +69,18 @@ local activeSpeedVFX: Instance? = nil
 
 local WALK_SPEED = 16
 local RUN_SPEED = 34
+
+-- Walk/run speed multiplier set by the server on the character (e.g. the
+-- Fire Knight's Inferno).
+local function speedMult(): number
+	local m = tonumber(character:GetAttribute("SpeedMult")) or 1
+	-- (standing in a Frozen elite's ice)
+	local until_ = character:GetAttribute("IceSlowUntil")
+	if typeof(until_) == "number" and workspace:GetServerTimeNow() < until_ then
+		m *= tonumber(character:GetAttribute("IceSlow")) or 0.5
+	end
+	return m
+end
 
 local AirborneState = {
 	[Enum.HumanoidStateType.Freefall] = true,
@@ -499,7 +504,7 @@ end
 local function performAttack()
 	if player:GetAttribute("InLobby") == true then return end
 	if humanoid.Health <= 0 then return end
-	if Workspace:GetAttribute("TomesPaused") == true then return end
+	if RunScope.Mine("TomesPaused") == true then return end
 
 	-- Block attacks while using the 1st ability (Spin Attack) or casting skills
 	if character:GetAttribute("IsSkill1Active") == true
@@ -615,7 +620,7 @@ local function performAttack()
 				attackBuffered = false
 				task.defer(performAttack)
 			else
-				humanoid.WalkSpeed = isSprinting and RUN_SPEED or WALK_SPEED
+				humanoid.WalkSpeed = (isSprinting and RUN_SPEED or WALK_SPEED) * speedMult()
 				UpdateMovement()
 			end
 		end
@@ -639,31 +644,52 @@ local function inputMatchesAction(input: InputObject, action: string): boolean
 	return input.UserInputType.Name == keyName
 end
 
+-- Sprint key: toggles sprinting (Settings > Toggle Sprint, on by default) or,
+-- with the setting off, sprints while held.
+local function sprintToggles(): boolean
+	return player:GetAttribute("Setting_toggleSprint") ~= false
+end
+
+local function setSprinting(on: boolean)
+	if isSprinting == on then return end
+	isSprinting = on
+	if on then
+		playDashShockwaveVFX()
+	else
+		stopSpeedSprintVFX()
+	end
+	pcall(function()
+		Network.GetRemoteEvent(Network.Remotes.SetSprint):FireServer(on)
+	end)
+end
+
 UserInputService.InputBegan:Connect(function(input, gpe)
 	if gpe then return end
+	-- (the settings panel is open: clicks are for it)
+	if game:GetService("Players").LocalPlayer:GetAttribute("SettingsOpen") == true then return end
 
 	if inputMatchesAction(input, "Sprint") then
-		if not isSprinting then
-			isSprinting = true
-			playDashShockwaveVFX()
-			pcall(function()
-				local setSprintRemote = Network.GetRemoteEvent(Network.Remotes.SetSprint)
-				setSprintRemote:FireServer(true)
-			end)
+		-- Toggle mode (the default setting): each press flips sprinting.
+		if isSprinting and sprintToggles() then
+			setSprinting(false)
+		-- No sprinting (or its dash burst) during an ultimate.
+		elseif not isSprinting and character:GetAttribute("IsUltActive") ~= true then
+			setSprinting(true)
 		end
 	elseif inputMatchesAction(input, "PrimaryAttack") or input.KeyCode == Enum.KeyCode.ButtonR2 then
-		performAttack()
+		-- That click is claiming a room reward (EmblemPrompt), not attacking;
+		-- and no swinging in the lobby (only in a run).
+		local lp = game:GetService("Players").LocalPlayer
+		if lp:GetAttribute("InteractReady") ~= true and lp:GetAttribute("InLobby") == false then
+			performAttack()
+		end
 	end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-	if inputMatchesAction(input, "Sprint") then
-		isSprinting = false
-		stopSpeedSprintVFX()
-		pcall(function()
-			local setSprintRemote = Network.GetRemoteEvent(Network.Remotes.SetSprint)
-			setSprintRemote:FireServer(false)
-		end)
+	-- Hold mode: letting go stops sprinting.
+	if inputMatchesAction(input, "Sprint") and not sprintToggles() then
+		setSprinting(false)
 	end
 end)
 
@@ -700,18 +726,32 @@ function playIdle()
 end
 
 function UpdateMovement()
-	if player:GetAttribute("InLobby") ~= false then
+	-- In the menus: just the idle. (Walking the lobby plaza is a real walk:
+	-- walk / run / jump animations as in a run.)
+	if player:GetAttribute("InLobby") ~= false and player:GetAttribute("InHub") ~= true then
 		stopSpeedSprintVFX()
 		playIdle()
 		return
 	end
 
-	-- During attack swing or skill cast, keep character stationary (unless skill manages velocity)
-	if isAttacking or character:GetAttribute("IsSkillCasting") == true then
+	-- Ultimates are a hard lock: no walking or running, locomotion cut to idle
+	-- so the ult's cast pose reads cleanly.
+	if character:GetAttribute("IsUltActive") == true then
+		humanoid.WalkSpeed = 0
+		stopSpeedSprintVFX()
+		if WalkTrack and WalkTrack.IsPlaying then WalkTrack:Stop(0.2) end
+		if RunTrack and RunTrack.IsPlaying then RunTrack:Stop(0.2) end
+		if IdleTrack and not IdleTrack.IsPlaying then IdleTrack:Play(0.2) end
+		return
+	end
+
+	-- During attack swing or skill cast, keep character stationary (unless skill manages velocity).
+	-- "Rooted": a class plants its feet for a swing (the Fire Knight's greatsword).
+	if isAttacking or character:GetAttribute("IsSkillCasting") == true or character:GetAttribute("Rooted") == true then
 		if character:GetAttribute("IsSkillCasting") == true and character:GetAttribute("AllowSkillMovement") == true then
 			-- Skill allows movement (e.g. spin attack or dash)
 			if humanoid.WalkSpeed == 0 then
-				humanoid.WalkSpeed = WALK_SPEED
+				humanoid.WalkSpeed = WALK_SPEED * speedMult()
 			end
 		else
 			humanoid.WalkSpeed = 0
@@ -730,7 +770,7 @@ function UpdateMovement()
 			IdleTrack:Stop(0.25)
 		end
 		if isSprinting then
-			humanoid.WalkSpeed = RUN_SPEED
+			humanoid.WalkSpeed = RUN_SPEED * speedMult()
 			if WalkTrack.IsPlaying then
 				WalkTrack:Stop(0.25)
 			end
@@ -740,7 +780,7 @@ function UpdateMovement()
 			RunTrack:AdjustSpeed(1)
 			startSpeedSprintVFX()
 		else
-			humanoid.WalkSpeed = WALK_SPEED
+			humanoid.WalkSpeed = WALK_SPEED * speedMult()
 			stopSpeedSprintVFX()
 			if RunTrack.IsPlaying then
 				RunTrack:Stop(0.25)
@@ -774,7 +814,7 @@ function UpdateMovement()
 			WalkTrack:AdjustSpeed(0.25)
 		end
 	else
-		humanoid.WalkSpeed = WALK_SPEED
+		humanoid.WalkSpeed = WALK_SPEED * speedMult()
 		stopSpeedSprintVFX()
 		playIdle()
 	end
@@ -782,13 +822,23 @@ end
 
 RunService.Heartbeat:Connect(UpdateMovement)
 
--- Load initial animations and listen for class changes
-task.spawn(function()
-	local currentClass = player:GetAttribute("SelectedClass") or "default"
-	loadClassAnimations(currentClass)
+-- Load initial animations and listen for class changes. (Walking the lobby
+-- the weapon is carried on the back, not held: the plain set, hands free.)
+local function animationSet(): string
+	if player:GetAttribute("InHub") == true then return "default" end
+	return player:GetAttribute("SelectedClass") or "default"
+end
 
-	player:GetAttributeChangedSignal("SelectedClass"):Connect(function()
-		local newClass = player:GetAttribute("SelectedClass") or "default"
-		loadClassAnimations(newClass)
-	end)
+task.spawn(function()
+	local loaded = animationSet()
+	loadClassAnimations(loaded)
+
+	local function refresh()
+		local want = animationSet()
+		if want == loaded then return end
+		loaded = want
+		loadClassAnimations(want)
+	end
+	player:GetAttributeChangedSignal("SelectedClass"):Connect(refresh)
+	player:GetAttributeChangedSignal("InHub"):Connect(refresh)
 end)

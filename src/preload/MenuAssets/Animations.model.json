@@ -1,0 +1,8 @@
+{
+  "ClassName": "Folder",
+  "Children": [
+    { "Name": "HeroIdle", "ClassName": "Animation", "Properties": { "AnimationId": "rbxassetid://86968114690424" } },
+    { "Name": "HeroWalk", "ClassName": "Animation", "Properties": { "AnimationId": "rbxassetid://109247200419554" } },
+    { "Name": "KnightPreview", "ClassName": "Animation", "Properties": { "AnimationId": "rbxassetid://101434181844277" } }
+  ]
+}

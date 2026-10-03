@@ -5,16 +5,25 @@
 --]]
 
 local Players = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local Debris = game:GetService("Debris")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local RunScope = require(Shared:WaitForChild("RunScope"))
 local SkillData = require(Shared:WaitForChild("SkillData"))
 local PlayerStats = require(script.Parent:WaitForChild("PlayerStats"))
+local RunStats = require(script.Parent:WaitForChild("RunStats"))
 local AllyManager = require(script.Parent:WaitForChild("AllyManager"))
 local MobManager = require(script.Parent:WaitForChild("MobManager"))
+local MobKinds = require(script.Parent:WaitForChild("MobKinds"))
+local Boons = require(script.Parent:WaitForChild("Boons"))
+local GunslingerServer = require(script.Parent:WaitForChild("GunslingerServer"))
+local SwordsmanServer = require(script.Parent:WaitForChild("SwordsmanServer"))
+local BerserkerServer = require(script.Parent:WaitForChild("BerserkerServer"))
+local FireKnightServer = require(script.Parent:WaitForChild("FireKnightServer"))
 
 local PhysicsService = game:GetService("PhysicsService")
 
@@ -86,6 +95,8 @@ end
 
 -- playerCooldowns[player][skillIndex] = lastCastTime
 local playerCooldowns: { [Player]: { [number]: number } } = {}
+-- cooldownLengths[player][skillIndex] = that cast's effective cooldown
+local cooldownLengths: { [Player]: { [number]: number } } = {}
 
 -- Character visibility storage for skill 3 (Phoenix Dash invisibility)
 local savedTransparencies: { [Model]: { [Instance]: number } } = {}
@@ -138,9 +149,32 @@ local function setCharacterVisibility(char: Model, visible: boolean)
 	end
 end
 
+-- No friendly fire: other players (co-op), friendly allies and Ice Clone
+-- decoys are never valid targets for damage, knockback, roots or chills.
+local function isFriendly(model: Model): boolean
+	return Players:GetPlayerFromCharacter(model) ~= nil
+		or model:GetAttribute("IsAlly") == true
+		or model:GetAttribute("IsDecoy") == true
+end
+
 -- ─────────────────────────────────────────────────────────────────────────────
--- Helper: Find all target humanoids in workspace (excluding caster)
+-- Helper: Find all target humanoids in workspace (excluding caster and friendlies)
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Huge bosses (the dragon) are hit anywhere on their body, not only near
+-- their centre: their HitProxy is moved to the body point nearest the caster
+-- (at the caster's height) and stands in for the root.
+local function hitPoint(model: Model, root: BasePart, casterChar: Model): BasePart
+	local radius = model:GetAttribute("HitRadius")
+	local proxy = model:FindFirstChild("HitProxy")
+	local from = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if typeof(radius) ~= "number" or not (proxy and proxy:IsA("BasePart")) or not from then return root end
+	local c = root.Position
+	local off = Vector3.new(from.Position.X - c.X, 0, from.Position.Z - c.Z)
+	local p = if off.Magnitude > radius then c + off.Unit * radius else Vector3.new(from.Position.X, c.Y, from.Position.Z)
+	proxy.CFrame = CFrame.new(p.X, from.Position.Y, p.Z)
+	return proxy
+end
+
 local function getPotentialTargets(casterChar: Model): { { character: Model, humanoid: Humanoid, rootPart: BasePart } }
 	local targets = {}
 	local addedSet: { [Model]: boolean } = {}
@@ -150,10 +184,14 @@ local function getPotentialTargets(casterChar: Model): { { character: Model, hum
 			-- Don't consider accessories or player character sub-models
 			if desc:FindFirstAncestorOfClass("Accessory") then continue end
 			if desc:IsDescendantOf(casterChar) then continue end
+			if isFriendly(desc) then continue end
 
 			local hum = desc:FindFirstChildOfClass("Humanoid")
 			if hum and hum.Health > 0 then
 				local root: BasePart? = (desc:FindFirstChild("HumanoidRootPart") or desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")) :: BasePart?
+				if root and desc:GetAttribute("HitRadius") ~= nil then
+					root = hitPoint(desc, root, casterChar)
+				end
 				if root then
 					addedSet[desc] = true
 					table.insert(targets, {
@@ -169,27 +207,165 @@ local function getPotentialTargets(casterChar: Model): { { character: Model, hum
 	return targets
 end
 
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Hit impact: per-attack knockback, stagger and impact VFX style.
+--   kb      extra knockback speed (studs/s) away from the attacker; 0 where the
+--           ability already applies its own impulse or is meant to pin/freeze
+--   lift    upward speed added to the knockback
+--   stagger seconds the mob's AI pauses (so MoveTo doesn't cancel the push)
+--   style   client impact VFX: slash / fire / arrow / nature / holy / ice
+--   heavy   bigger VFX + a small camera shake for the attacker
+-- ─────────────────────────────────────────────────────────────────────────────
+type ImpactProfile = { kb: number, lift: number, stagger: number, style: string, heavy: boolean? }
+local IMPACT_PROFILES: { [string]: ImpactProfile } = {
+	-- Fire Knight (Scorch / burning-ground ticks have no profile: no impact
+	-- VFX or stagger on every tick)
+	["CINDER SLASH"]         = { kb = 4,  lift = 0,  stagger = 0.3,  style = "fire" },
+	["SCORCHING CROSS"]      = { kb = 4,  lift = 0,  stagger = 0.3,  style = "fire" },
+	["FURNACE BREAKER"]      = { kb = 14, lift = 6,  stagger = 0.45, style = "fire", heavy = true },
+	["INFERNAL EXECUTION"]   = { kb = 26, lift = 10, stagger = 0.7,  style = "fire", heavy = true },
+	["FIRE LINE"]            = { kb = 0,  lift = 0,  stagger = 0.2,  style = "fire" },
+	["INFERNO BLAST"]        = { kb = 10, lift = 4,  stagger = 0.3,  style = "fire" },
+	["BLAZING CHARGE"]       = { kb = 0,  lift = 0,  stagger = 0.5,  style = "fire", heavy = true },
+	["RISING SLASH"]         = { kb = 6,  lift = 42, stagger = 0.9,  style = "fire", heavy = true },
+	["PHOENIX SLAM"]         = { kb = 34, lift = 16, stagger = 0.9,  style = "fire", heavy = true },
+	["PHOENIX FLARE"]        = { kb = 12, lift = 8,  stagger = 0.4,  style = "fire" },
+	["EARTHSHAKER"]          = { kb = 30, lift = 10, stagger = 0.8,  style = "fire", heavy = true },
+	["AFTERSHOCK"]           = { kb = 8,  lift = 4,  stagger = 0.35, style = "fire" },
+	["FIRE RING"]            = { kb = 22, lift = 8,  stagger = 0.6,  style = "fire", heavy = true },
+	["IGNITE"]               = { kb = 10, lift = 5,  stagger = 0.3,  style = "fire" },
+	["HEART OF THE INFERNO"] = { kb = 30, lift = 14, stagger = 1.0,  style = "fire", heavy = true },
+	["EXECUTION"]            = { kb = 20, lift = 6,  stagger = 1.0,  style = "fire", heavy = true },
+	["INFERNO ERUPTION"]     = { kb = 12, lift = 24, stagger = 0.8,  style = "fire", heavy = true },
+	-- Ranger
+	["VENOM ARROWS"]     = { kb = 0,  lift = 0,  stagger = 0.15, style = "arrow" },
+	["SEEKER BARRAGE"]   = { kb = 0,  lift = 0,  stagger = 0.15, style = "arrow" },
+	["RAIN OF ARROWS"]   = { kb = 0,  lift = 0,  stagger = 0.2,  style = "arrow" },
+	["VERDANT SLASH"]    = { kb = 0,  lift = 0,  stagger = 0.4,  style = "nature", heavy = true },
+	["ENTANGLING ARROW"] = { kb = 0,  lift = 0,  stagger = 0.2,  style = "nature" },
+	-- Cleric
+	["RADIANT BOLT"]     = { kb = 0,  lift = 0,  stagger = 0.2,  style = "holy" },
+	["DIVINE BEAM"]      = { kb = 6,  lift = 0,  stagger = 0.3,  style = "holy" },
+	["RADIANT GROUND"]   = { kb = 28, lift = 12, stagger = 0.5,  style = "holy", heavy = true },
+	["DIVINE ASCENT"]    = { kb = 0,  lift = 0,  stagger = 0.8,  style = "holy", heavy = true },
+	-- Ice Mage (spikes / beam / shatter / blizzard freeze their targets instead)
+	["ICE CRYSTAL"]      = { kb = 14, lift = 4,  stagger = 0.2,  style = "ice" },
+	["ICE SPIKES"]       = { kb = 0,  lift = 0,  stagger = 0,    style = "ice", heavy = true },
+	["ICE BEAM"]         = { kb = 0,  lift = 0,  stagger = 0,    style = "ice" },
+	["SHATTER"]          = { kb = 0,  lift = 0,  stagger = 0,    style = "ice", heavy = true },
+	["BLIZZARD"]         = { kb = 0,  lift = 0,  stagger = 0,    style = "ice" },
+	-- Gunslinger (bullets push a little; the final / Deadeye shots punch hard)
+	["SIX SHOOTER"]      = { kb = 6,  lift = 0,  stagger = 0.15, style = "bullet" },
+	["FAN THE HAMMER"]   = { kb = 5,  lift = 0,  stagger = 0.12, style = "bullet" },
+	["FINAL SHOT"]       = { kb = 24, lift = 5,  stagger = 0.35, style = "bullet", heavy = true },
+	["DEADEYE SHOT"]     = { kb = 18, lift = 4,  stagger = 0.45, style = "bullet", heavy = true },
+	["RICOCHET"]         = { kb = 9,  lift = 2,  stagger = 0.2,  style = "bullet" },
+	["RICOCHET BLAST"]   = { kb = 16, lift = 7,  stagger = 0.3,  style = "fire" },
+	["HIGH NOON"]        = { kb = 10, lift = 2,  stagger = 0.3,  style = "bullet", heavy = true },
+	["HIGH NOON EXECUTION"] = { kb = 42, lift = 12, stagger = 0.9, style = "bullet", heavy = true },
+	-- Swordsman
+	["SWORD COMBO"]        = { kb = 0,  lift = 0,  stagger = 0.25, style = "slash" },
+	["SWORD FINISHER"]     = { kb = 22, lift = 6,  stagger = 0.4,  style = "slash", heavy = true },
+	["SWORD RUSH"]         = { kb = 4,  lift = 0,  stagger = 0.35, style = "slash", heavy = true },
+	["COUNTER SLASH"]      = { kb = 10, lift = 40, stagger = 1.2,  style = "slash", heavy = true },
+	["WHIRL CUT"]          = { kb = 0,  lift = 0,  stagger = 0.2,  style = "slash" },
+	["WHIRL FINISH"]       = { kb = 34, lift = 10, stagger = 0.5,  style = "slash", heavy = true },
+	["BLADE STORM"]        = { kb = 6,  lift = 4,  stagger = 0.5,  style = "slash", heavy = true },
+	["BLADE STORM FINISH"] = { kb = 30, lift = 12, stagger = 0.9,  style = "slash", heavy = true },
+	-- Berserker
+	["BERSERK CLEAVE"]     = { kb = 6,  lift = 0,  stagger = 0.35, style = "slash" },
+	["BERSERK SMASH"]      = { kb = 24, lift = 8,  stagger = 0.5,  style = "slash", heavy = true },
+	["RUPTURE"]            = { kb = 12, lift = 22, stagger = 0.8,  style = "slash", heavy = true },
+	["BLOODSTORM"]         = { kb = 3,  lift = 0,  stagger = 0.4,  style = "slash" },
+	["BLOODSTORM FINISH"]  = { kb = 38, lift = 8,  stagger = 0.7,  style = "slash", heavy = true },
+	["BLOODRAGE PULSE"]    = { kb = 26, lift = 4,  stagger = 0.4,  style = "slash" },
+	["WORLDBREAKER"]       = { kb = 34, lift = 30, stagger = 1.2,  style = "slash", heavy = true },
+	["WORLDBREAKER EXECUTE"] = { kb = 44, lift = 20, stagger = 1.0, style = "slash", heavy = true },
+}
+
+local function applyImpact(player: Player, target: { character: Model, humanoid: Humanoid, rootPart: BasePart }, source: string, crit: boolean)
+	local profile = IMPACT_PROFILES[source]
+	if not profile then return end
+	local attackerRoot = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local away = attackerRoot and (target.rootPart.Position - attackerRoot.Position) or target.rootPart.CFrame.LookVector * -1
+	local flatAway = Vector3.new(away.X, 0, away.Z)
+	flatAway = flatAway.Magnitude > 0.1 and flatAway.Unit or Vector3.new(0, 0, 1)
+
+	-- Physics only on mobs (never shove other players' characters).
+	if not Players:GetPlayerFromCharacter(target.character) and not target.rootPart.Anchored then
+		-- Bosses aren't staggered by hits (it would freeze their move loop).
+		-- (nor are the mobs built not to be: a Brute)
+		if profile.stagger > 0 and target.character:GetAttribute("IsBoss") ~= true and target.character:GetAttribute("Unstaggerable") ~= true then
+			local untilTime = os.clock() + profile.stagger * (crit and 1.4 or 1)
+			if (target.character:GetAttribute("StaggerUntil") or 0) < untilTime then
+				target.character:SetAttribute("StaggerUntil", untilTime)
+			end
+		end
+		if profile.kb > 0 or profile.lift > 0 then
+			local mult = (crit and 1.3 or 1) * math.max(PlayerStats.GetStat(player, "knockback"), 0.1)
+			local v = flatAway * profile.kb * mult + Vector3.new(0, profile.lift * mult, 0)
+			target.rootPart.AssemblyLinearVelocity = Vector3.new(
+				target.rootPart.AssemblyLinearVelocity.X * 0.3 + v.X,
+				math.max(target.rootPart.AssemblyLinearVelocity.Y, 0) + v.Y,
+				target.rootPart.AssemblyLinearVelocity.Z * 0.3 + v.Z)
+		end
+	end
+
+	Network.GetRemoteEvent(Network.Remotes.HitImpact):FireAllClients({
+		position = target.rootPart.Position,
+		direction = flatAway,
+		style = profile.style,
+		crit = crit,
+		heavy = profile.heavy == true,
+		model = target.character,
+		attacker = player,
+	})
+end
+
 -- Keep combat authoritative while giving the attacking player immediate, exact
 -- feedback about the damage that was actually applied to a target.
-local function dealDamage(player: Player, target: { character: Model, humanoid: Humanoid, rootPart: BasePart }, amount: number, source: string)
+-- opts.forceCrit makes the hit a guaranteed critical (e.g. a Deadeye shot).
+-- Returns the damage dealt and whether it crit (nil if nothing was dealt).
+local function dealDamage(player: Player, target: { character: Model, humanoid: Humanoid, rootPart: BasePart }, amount: number, source: string, opts: { forceCrit: boolean? }?): (number?, boolean?)
 	local finalAmount = math.max(0, math.floor(amount))
-	if finalAmount <= 0 or target.humanoid.Health <= 0 then return end
+	if finalAmount <= 0 or target.humanoid.Health <= 0 then return nil, nil end
+	if isFriendly(target.character) then return nil, nil end -- belt and braces: no friendly fire
+	local shielded = false
+	-- (the run's boons: Frostbite, Executioner, Bloodlust, Second Wind…)
+	finalAmount = math.floor(finalAmount * Boons.DamageMult(player, target, source))
 
 	local isCrit = false
 	local critChance = PlayerStats.GetStat(player, "critChance")
-	if critChance > 0 and math.random() < critChance then
+	if (opts and opts.forceCrit) or Boons.ForceCrit(player, source) or (critChance > 0 and math.random() < critChance) then
 		isCrit = true
 		finalAmount = math.floor(finalAmount * 1.5)
 	end
 
-	target.humanoid:TakeDamage(finalAmount)
+	-- A Shielded elite's barrier soaks the hit first (MobKinds).
+	local shield = target.character:GetAttribute("Shield")
+	if typeof(shield) == "number" and shield > 0 then
+		local soaked = math.min(shield, finalAmount)
+		target.character:SetAttribute("Shield", shield - soaked)
+		finalAmount -= soaked
+		shielded = true
+	end
+	local killed = false
+	if finalAmount > 0 then
+		target.humanoid:TakeDamage(finalAmount)
+		killed = target.humanoid.Health <= 0
+		RunStats.OnDamage(player, target, finalAmount)
+		Boons.OnHit(player, target, finalAmount, source, isCrit)
+		if killed then Boons.OnKill(player, target, finalAmount, source) end
+	end
+	applyImpact(player, target, source, isCrit)
 
 	local lifesteal = PlayerStats.GetStat(player, "lifesteal")
 	if lifesteal > 0 then
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		if hum and hum.Health > 0 then
-			local heal = math.floor(finalAmount * lifesteal)
+			local cursed = char and (char:GetAttribute("CursedUntil") or 0) > os.clock()
+			local heal = math.floor(finalAmount * lifesteal * (if cursed then MobKinds.CURSE_HEAL else 1))
 			if heal > 0 then
 				hum.Health = math.min(hum.MaxHealth, hum.Health + heal)
 			end
@@ -199,8 +375,10 @@ local function dealDamage(player: Player, target: { character: Model, humanoid: 
 	Network.GetRemoteEvent(Network.Remotes.DamageDealt):FireClient(player, {
 		position = target.rootPart.Position + Vector3.new(0, 2.5, 0),
 		amount = finalAmount,
-		source = isCrit and (`{source} CRIT`) or source,
+		source = if shielded and finalAmount <= 0 then "SHIELD" else source,
+		crit = isCrit,
 	})
+	return finalAmount, isCrit
 end
 
 local function rotateFlatDirection(direction: Vector3, degrees: number): Vector3
@@ -222,6 +400,51 @@ local function getRangerCursorTarget(origin: Vector3, lookDir: Vector3, requeste
 	return origin + offset.Unit * math.min(offset.Magnitude, maxRange)
 end
 
+-- Ricochet Tome: after a projectile hit, bounce to the nearest enemy not yet
+-- hit in this chain, once per tome, each bounce doing a share of the last hit.
+local RICOCHET_RANGE = 22
+local RICOCHET_DAMAGE = 0.6
+local RICOCHET_HOP_TIME = 0.08
+-- Continuous beams tick many times a second; bouncing every tick would swamp.
+local NO_RICOCHET: { [string]: boolean } = { ["ICE BEAM"] = true }
+
+local function ricochet(player: Player, casterChar: Model, first: any, damage: number, source: string)
+	local bounces = math.floor(PlayerStats.GetStat(player, "ricochet"))
+	if bounces <= 0 or NO_RICOCHET[source] then return end
+	task.spawn(function()
+		local hit: { [Model]: boolean } = { [first.character] = true }
+		local fromPos: Vector3 = first.rootPart.Position
+		local dmg = damage
+		for _ = 1, bounces do
+			task.wait(RICOCHET_HOP_TIME)
+			local best, bestDist = nil, RICOCHET_RANGE
+			for _, t in ipairs(getPotentialTargets(casterChar)) do
+				if not hit[t.character] then
+					local d = (t.rootPart.Position - fromPos).Magnitude
+					if d < bestDist then best, bestDist = t, d end
+				end
+			end
+			if not best then break end
+			hit[best.character] = true
+			dmg = math.max(1, math.floor(dmg * RICOCHET_DAMAGE))
+			local toPos = best.rootPart.Position
+			Network.GetRemoteEvent(Network.Remotes.RicochetFX):FireAllClients({ from = fromPos, to = toPos, attacker = player })
+			dealDamage(player, best, dmg, source)
+			fromPos = toPos
+		end
+	end)
+end
+
+-- How far from a shot's line a target still counts as hit: the shot's own
+-- width, plus most of the target's body half-width (a shot clipping an arm
+-- or a held bow is a hit, not just one through its middle), plus a little
+-- for the mob having moved between the client's frame and ours.
+local LINE_LENIENCY = 0.6
+local function lineReach(target: any, width: number): number
+	local size = target.character:GetExtentsSize()
+	return width + math.min(math.max(size.X, size.Z) * 0.5, 8) * 0.6 + LINE_LENIENCY
+end
+
 local function damageFirstTargetOnLine(player: Player, casterChar: Model, origin: Vector3, direction: Vector3, range: number, width: number, damage: number, source: string)
 	local bestTarget = nil
 	local bestAlong = range
@@ -234,7 +457,7 @@ local function damageFirstTargetOnLine(player: Player, casterChar: Model, origin
 		if along >= 0 and along <= range then
 			local closest = origin + flatDir * along
 			local lateral = (Vector3.new(target.rootPart.Position.X, origin.Y, target.rootPart.Position.Z) - closest).Magnitude
-			if lateral <= width and along < bestAlong then
+			if lateral <= lineReach(target, width) and along < bestAlong then
 				bestAlong = along
 				bestTarget = target
 			end
@@ -243,6 +466,7 @@ local function damageFirstTargetOnLine(player: Player, casterChar: Model, origin
 
 	if bestTarget then
 		dealDamage(player, bestTarget, damage, source)
+		ricochet(player, casterChar, bestTarget, damage, source)
 		return bestTarget, bestAlong
 	end
 
@@ -612,388 +836,19 @@ local function executeRangerRainOfArrows(player: Player, casterChar: Model, orig
 end
 
 
--- ─────────────────────────────────────────────────────────────────────────────
--- Hitbox: Skill 1 — Spin Attack (5s Continuous AoE Whirlwind)
--- ─────────────────────────────────────────────────────────────────────────────
-local function executeSpinAttack(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
-	local duration = config.duration or 5.0
-	local damage = config.damage or 16
-	local radius = (config.range or 14) * (config.areaMultiplier or 1)
-	local tickInterval = 0.4
-	local totalTicks = math.floor(duration / tickInterval)
-	local casterRoot = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
-
-	casterChar:SetAttribute("IsSkill1Active", true)
-	casterChar:SetAttribute("IsSpinAttackActive", true)
-
-	task.spawn(function()
-		for i = 1, totalTicks do
-			if not casterChar or not casterChar.Parent then break end
-			local hum = casterChar:FindFirstChildOfClass("Humanoid")
-			if not hum or hum.Health <= 0 then break end
-
-			local currentPos = casterRoot and casterRoot.Position or origin
-			local targets = getPotentialTargets(casterChar)
-
-			for _, target in ipairs(targets) do
-				local dist = (target.rootPart.Position - currentPos).Magnitude
-				if dist <= radius then
-					dealDamage(player, target, damage, "WHIRLWIND")
-
-					-- Outward centrifugal impulse
-					local diff = target.rootPart.Position - currentPos
-					local flatDiff = Vector3.new(diff.X, 0, diff.Z)
-					local pushDir = flatDiff.Magnitude > 0.1 and flatDiff.Unit or Vector3.new(1, 0, 0)
-					local kbDir = (pushDir + Vector3.new(0, 0.25, 0)).Unit
-					target.rootPart:ApplyImpulse(kbDir * (target.rootPart.AssemblyMass * 12))
-					print(`[SkillManager] Spin Attack hit {target.character.Name} for {damage} damage!`)
-				end
-			end
-
-			task.wait(tickInterval)
-		end
-
-		if casterChar and casterChar.Parent then
-			casterChar:SetAttribute("IsSkill1Active", false)
-			casterChar:SetAttribute("IsSpinAttackActive", false)
-		end
-	end)
-end
-
--- ─────────────────────────────────────────────────────────────────────────────
--- Hitbox: Skill 2 — Fire Slam (Leap Slam with Fiery Shockwave)
--- ─────────────────────────────────────────────────────────────────────────────
-local function executeFireSlam(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, targetPosition: any, config: any)
-	local damage = config.damage or 55
-	local radius = (config.range or 16) * (config.areaMultiplier or 1)
-	local maxLeapDist = config.maxLeapDistance or 42
-	local landingPos = getRangerCursorTarget(origin, lookDir, targetPosition, maxLeapDist)
-	local casterRoot = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
-
-	-- Ground raycast to find exact ground surface at landing spot
-	local rayParams = RaycastParams.new()
-	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	local ignoreList: { Instance } = { casterChar }
-	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if desc:IsA("Model") and (desc:FindFirstChildOfClass("Humanoid") or desc:FindFirstAncestorOfClass("Accessory")) then
-			table.insert(ignoreList, desc)
-		end
-	end
-	rayParams.FilterDescendantsInstances = ignoreList
-	rayParams.IgnoreWater = true
-
-	local groundRay = Workspace:Raycast(landingPos + Vector3.new(0, 15, 0), Vector3.new(0, -50, 0), rayParams)
-	if groundRay then
-		local hum = casterChar:FindFirstChildOfClass("Humanoid")
-		local hipHeight = hum and hum.HipHeight or 2.0
-		local rootSizeY = casterRoot and casterRoot.Size.Y or 2.0
-		landingPos = Vector3.new(landingPos.X, groundRay.Position.Y + (rootSizeY * 0.5) + hipHeight, landingPos.Z)
-	end
-
-	-- Wait for the vertical leap apex & plunge (~0.72s) to deal damage on impact
-	task.spawn(function()
-		task.wait(0.72)
-		if not casterChar or not casterChar.Parent then return end
-		local hum = casterChar:FindFirstChildOfClass("Humanoid")
-		if not hum or hum.Health <= 0 then return end
-
-		-- Authoritatively synchronize caster position at landing spot
-		if casterRoot then
-			local flatDir = Vector3.new(landingPos.X - origin.X, 0, landingPos.Z - origin.Z)
-			local faceDir = flatDir.Magnitude > 0.1 and flatDir.Unit or lookDir
-			casterRoot.CFrame = CFrame.lookAt(landingPos, landingPos + faceDir)
-			casterRoot.AssemblyLinearVelocity = Vector3.zero
-		end
-
-		-- Hitbox & radial explosive impulse
-		local knockback = PlayerStats.GetStat(player, "knockback") or 1.0
-		local targets = getPotentialTargets(casterChar)
-		for _, target in ipairs(targets) do
-			local diff = target.rootPart.Position - landingPos
-			local dist = diff.Magnitude
-			if dist <= radius then
-				dealDamage(player, target, damage, "FIRE SLAM")
-
-				-- Radial knockback away from impact center + vertical blast lift
-				local flatDiff = Vector3.new(diff.X, 0, diff.Z)
-				local pushDir = flatDiff.Magnitude > 0.1 and flatDiff.Unit or Vector3.new(0, 0, 1)
-				local kbDir = (pushDir * 0.8 + Vector3.new(0, 0.65, 0)).Unit
-				local impulseMag = target.rootPart.AssemblyMass * (24 + knockback * 16)
-				target.rootPart:ApplyImpulse(kbDir * impulseMag)
-				print(`[SkillManager] Fire Slam hit {target.character.Name} for {damage} damage!`)
-			end
-		end
-	end)
-end
-
--- ─────────────────────────────────────────────────────────────────────────────
--- Hitbox: Skill 3 — Phoenix Dash (Dash + Whirlwind)
--- ─────────────────────────────────────────────────────────────────────────────
-local function executePhoenixDash(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
-	local dashDist = config.dashDistance or 24
-	local damage = config.damage or 25
-	local radius = (config.range or 8) * (config.areaMultiplier or 1)
-	local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
-
-	local hitTargets: { [Model]: boolean } = {}
-	local casterRoot = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
-
-	-- Check hits continuously during the 0.35s dash
-	task.spawn(function()
-		local startTime = os.clock()
-		while os.clock() - startTime < 0.35 do
-			local currentPos = casterRoot and casterRoot.Position or origin
-			local targets = getPotentialTargets(casterChar)
-			for _, target in ipairs(targets) do
-				if not hitTargets[target.character] then
-					local dist = (target.rootPart.Position - currentPos).Magnitude
-					if dist <= radius then
-						hitTargets[target.character] = true
-						dealDamage(player, target, damage, "PHOENIX DASH")
-						
-						-- Whirlwind upward burst
-						local outwardDir = (target.rootPart.Position - currentPos)
-						local flatOutward = Vector3.new(outwardDir.X, 0, outwardDir.Z)
-						local kbDir = (flatOutward.Magnitude > 0.1 and flatOutward.Unit or flatDir) + Vector3.new(0, 0.6, 0)
-						target.rootPart:ApplyImpulse(kbDir.Unit * (target.rootPart.AssemblyMass * 30))
-						print(`[SkillManager] Phoenix Dash hit {target.character.Name} for {damage} damage!`)
-					end
-				end
-			end
-			task.wait(0.05)
-		end
-	end)
-end
-
--- ─────────────────────────────────────────────────────────────────────────────
--- Hitbox: Skill 4 — Infernal Wrath (Ultimate: High Damage Impact Slash)
--- Server-authoritative hitboxes + server-side VFX spawning for all-player visibility.
---
--- Timeline:
---   t=0.00–1.00s : Windup (client camera Shot 1)
---   t=1.00–1.60s : Slash travels fast (0.60s). Server spawns hk_ult_slash in Workspace.
---   t=1.60s       : Explosion impact. Server spawns Light Explosion VFX in Workspace.
--- ─────────────────────────────────────────────────────────────────────────────
 local Debris = game:GetService("Debris")
-
-local function executeInfernalWrath(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
-	local damage = config.damage or 100
-	local radius = (config.range or 24) * (config.areaMultiplier or 1)
-	local flatDir = Vector3.new(lookDir.X, 0, lookDir.Z).Unit
-	local travelDist = 32.0
-	local impactPos = origin + flatDir * travelDist
-
-	task.spawn(function()
-		-- Wait 1.50s for windup + slash animation, then slash wave travels fast across 0.60s
-		task.wait(1.50)
-		if not casterChar or not casterChar.Parent then return end
-
-		-- ── Server-side Slash VFX (visible to all players) ──
-		local slashStartPos = origin + flatDir * 3.0 + Vector3.new(0, 1.2, 0)
-		local slashEndPos = impactPos + Vector3.new(0, 1.2, 0)
-		local slashTemplate = findVFXAsset("hk_ult_slash") or findVFXAsset("hk_ult") or findVFXAsset("ult_slash")
-		local slashClone: Instance? = nil
-
-		if slashTemplate then
-			slashClone = slashTemplate:Clone()
-			if slashClone:IsA("Model") then
-				local prim = slashClone.PrimaryPart or slashClone:FindFirstChildWhichIsA("BasePart")
-				if prim then
-					prim.CanCollide = false
-					prim.CanTouch = false
-					prim.CanQuery = false
-					prim.Anchored = true
-					slashClone:PivotTo(CFrame.lookAt(slashStartPos, slashStartPos + flatDir))
-				end
-				for _, d in ipairs(slashClone:GetDescendants()) do
-					if d:IsA("BasePart") then
-						d.CanCollide = false
-						d.CanTouch = false
-						d.CanQuery = false
-						d.Anchored = true
-					elseif d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
-						d.Enabled = true
-					end
-				end
-			elseif slashClone:IsA("BasePart") then
-				slashClone.CanCollide = false
-				slashClone.CanTouch = false
-				slashClone.CanQuery = false
-				slashClone.Anchored = true
-				slashClone.CFrame = CFrame.lookAt(slashStartPos, slashStartPos + flatDir)
-				for _, d in ipairs(slashClone:GetDescendants()) do
-					if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
-						d.Enabled = true
-					end
-				end
-			end
-			slashClone.Parent = Workspace.Terrain
-		else
-			-- Server procedural slash wave fallback
-			local slashPart = Instance.new("Part")
-			slashPart.Name = "ProceduralSlashWave"
-			slashPart.Size = Vector3.new(12, 1.5, 4)
-			slashPart.Transparency = 0.25
-			slashPart.Material = Enum.Material.Neon
-			slashPart.Color = Color3.fromRGB(255, 115, 25)
-			slashPart.CanCollide = false
-			slashPart.CanTouch = false
-			slashPart.CanQuery = false
-			slashPart.Anchored = true
-			slashPart.CFrame = CFrame.lookAt(slashStartPos, slashStartPos + flatDir)
-
-			local slashMesh = Instance.new("SpecialMesh")
-			slashMesh.MeshType = Enum.MeshType.Sphere
-			slashMesh.Scale = Vector3.new(1, 0.15, 0.6)
-			slashMesh.Parent = slashPart
-
-			local pe = Instance.new("ParticleEmitter")
-			pe.Color = ColorSequence.new({
-				ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 230, 90)),
-				ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 90, 20)),
-				ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 20, 10)),
-			})
-			pe.LightEmission = 1
-			pe.Size = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 3.5),
-				NumberSequenceKeypoint.new(1, 0.5),
-			})
-			pe.Lifetime = NumberRange.new(0.2, 0.45)
-			pe.Rate = 90
-			pe.Speed = NumberRange.new(6, 16)
-			pe.SpreadAngle = Vector2.new(30, 15)
-			pe.Orientation = Enum.ParticleOrientation.VelocityParallel
-			pe.Parent = slashPart
-
-			local pLight = Instance.new("PointLight")
-			pLight.Color = Color3.fromRGB(255, 120, 30)
-			pLight.Range = 16
-			pLight.Brightness = 3
-			pLight.Parent = slashPart
-
-			slashPart.Parent = Workspace.Terrain
-			slashClone = slashPart
-		end
-
-		-- ── Hitbox: Fast slash travel across 0.60s ──
-		local hitDuringTravel: { [Model]: boolean } = {}
-		local travelStartTime = os.clock()
-		local travelDur = 0.60
-
-		while os.clock() - travelStartTime < travelDur do
-			local alpha = math.clamp((os.clock() - travelStartTime) / travelDur, 0, 1)
-			local curPos = slashStartPos:Lerp(slashEndPos, alpha)
-
-			-- Move the server-side slash VFX model
-			if slashClone and slashClone.Parent then
-				local orientCF = CFrame.lookAt(curPos, curPos + flatDir)
-				if slashClone:IsA("Model") then
-					slashClone:PivotTo(orientCF)
-				elseif slashClone:IsA("BasePart") then
-					slashClone.CFrame = orientCF
-				end
-			end
-
-			local targets = getPotentialTargets(casterChar)
-			for _, target in ipairs(targets) do
-				if not hitDuringTravel[target.character] then
-					local dist = (target.rootPart.Position - curPos).Magnitude
-					if dist <= 8.0 then
-						hitDuringTravel[target.character] = true
-						dealDamage(player, target, math.floor(damage * 0.4), "INFERNAL WRATH")
-						local kbDir = (flatDir + Vector3.new(0, 0.4, 0)).Unit
-						target.rootPart:ApplyImpulse(kbDir * (target.rootPart.AssemblyMass * 25))
-						print(`[SkillManager] Infernal Wrath Slash Wave hit {target.character.Name}!`)
-					end
-				end
-			end
-			task.wait(0.04)
-		end
-
-		-- Cleanup slash VFX
-		if slashClone and slashClone.Parent then
-			for _, d in ipairs(slashClone:GetDescendants()) do
-				if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
-					d.Enabled = false
-				end
-			end
-			Debris:AddItem(slashClone, 0.4)
-		end
-
-		-- ── Explosion Impact at t ≈ 1.60s ──
-		if not casterChar or not casterChar.Parent then return end
-
-		-- Server-side Explosion VFX (visible to all players)
-		local explTemplate = findVFXAsset("Light Explosion VFX") or findVFXAsset("Light Explosion") or findVFXAsset("Light_Explosion_VFX") or findVFXAsset("Explosion")
-		if explTemplate then
-			local explClone = explTemplate:Clone()
-			if explClone:IsA("Model") then
-				explClone:PivotTo(CFrame.new(impactPos))
-				for _, d in ipairs(explClone:GetDescendants()) do
-					if d:IsA("BasePart") then
-						d.CanCollide = false
-						d.CanTouch = false
-						d.CanQuery = false
-						d.Anchored = true
-					elseif d:IsA("ParticleEmitter") then
-						d.Enabled = true
-						d:Emit(15)
-					elseif d:IsA("Beam") or d:IsA("Trail") then
-						d.Enabled = true
-					end
-				end
-			elseif explClone:IsA("BasePart") then
-				explClone.CanCollide = false
-				explClone.Anchored = true
-				explClone.CFrame = CFrame.new(impactPos)
-				for _, d in ipairs(explClone:GetDescendants()) do
-					if d:IsA("ParticleEmitter") then
-						d.Enabled = true
-						d:Emit(15)
-					end
-				end
-			end
-			explClone.Parent = Workspace.Terrain
-
-			-- Cleanup explosion after it fades
-			task.delay(1.2, function()
-				if explClone and explClone.Parent then
-					for _, d in ipairs(explClone:GetDescendants()) do
-						if d:IsA("ParticleEmitter") or d:IsA("Beam") or d:IsA("Trail") then
-							d.Enabled = false
-						end
-					end
-					Debris:AddItem(explClone, 0.5)
-				end
-			end)
-		end
-
-		-- Hitbox: Explosion damage
-		local targets = getPotentialTargets(casterChar)
-		for _, target in ipairs(targets) do
-			local dist = (target.rootPart.Position - impactPos).Magnitude
-			if dist <= radius then
-				local finalDmg = hitDuringTravel[target.character] and math.floor(damage * 0.6) or damage
-				dealDamage(player, target, finalDmg, "INFERNAL WRATH")
-				
-				-- Heavy explosive knockback upward and outward
-				local outward = (target.rootPart.Position - impactPos)
-				local flatOutward = Vector3.new(outward.X, 0, outward.Z)
-				local kbDir = (flatOutward.Magnitude > 0.1 and flatOutward.Unit or flatDir) + Vector3.new(0, 0.7, 0)
-				target.rootPart:ApplyImpulse(kbDir.Unit * (target.rootPart.AssemblyMass * 45))
-				print(`[SkillManager] Infernal Wrath (Ultimate Impact) hit {target.character.Name} for {finalDmg} damage!`)
-			end
-		end
-	end)
-end
-
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Cleric Basic Combat: Divine Touch + Divine Beam
 -- ─────────────────────────────────────────────────────────────────────────────
-local function healCharacter(targetChar: Model, amount: number)
+local function healCharacter(targetChar: Model, amount: number, healer: Player?)
 	local hum = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
 	if hum and hum.Health > 0 then
+		local before = hum.Health
+		-- (a Cursed elite's mark cuts healing hard; relics: Vampire Fang, Saint's Bell)
+		if (targetChar:GetAttribute("CursedUntil") or 0) > os.clock() then amount *= MobKinds.CURSE_HEAL end
+		amount = Boons.OnHeal(healer, targetChar, amount)
 		hum.Health = math.min(hum.MaxHealth, hum.Health + amount)
+		if healer then RunStats.Add(healer, "healing", hum.Health - before) end
 	end
 end
 
@@ -1029,12 +884,17 @@ local function getClericHealTarget(casterChar: Model, range: number): Model?
 	return bestTarget
 end
 
-local function executeClericDivineTouch(player: Player, casterChar: Model, config: any)
+-- Returns where it healed (the player it chose, and an ally), so every
+-- client draws the heal sign on whoever was actually healed.
+local function executeClericDivineTouch(player: Player, casterChar: Model, config: any): { Vector3 }
+	local healed: { Vector3 } = {}
 	local range = config.range or 30
 	local healAmount = config.healAmount or 35
 	local targetChar = getClericHealTarget(casterChar, range)
 	if targetChar then
-		healCharacter(targetChar, healAmount)
+		healCharacter(targetChar, healAmount, player)
+		local tr = targetChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if tr then table.insert(healed, tr.Position) end
 	end
 	-- Allies: heal the hovered ally if the client named one, else the nearest ally in range.
 	local root = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
@@ -1048,8 +908,11 @@ local function executeClericDivineTouch(player: Player, casterChar: Model, confi
 		end
 		if ally then
 			AllyManager.HealAlly(ally, healAmount)
+			local ar = (ally:FindFirstChild("HumanoidRootPart") or ally.PrimaryPart) :: BasePart?
+			if ar then table.insert(healed, ar.Position) end
 		end
 	end
+	return healed
 end
 
 local function executeClericDivineBeam(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
@@ -1079,7 +942,7 @@ local function executeClericDivineBeam(player: Player, casterChar: Model, origin
 				if along >= 0 and along <= range then
 					local lateral = (flatOffset - flatDir * along).Magnitude
 					local vertical = math.abs(offset.Y)
-					if lateral <= halfWidth and vertical <= 6 then
+					if lateral <= lineReach(target, halfWidth) and vertical <= 6 then
 						dealDamage(player, target, perHit, "DIVINE BEAM")
 					end
 				end
@@ -1101,56 +964,40 @@ local function executeClericDivineAscent(player: Player, casterChar: Model, orig
 	local healAmount = (config.healAmount or 100) * (config.areaMultiplier or 1)
 	local damage = config.damage or 90
 	local radius = (config.range or 30) * (config.areaMultiplier or 1)
-	local duration = config.duration or 8.0
-	local returnCFrame = casterRoot.CFrame
+	local duration = config.duration or 5.5
+	local reviveTime = math.min(config.reviveTime or 3.7, duration)
 
-	-- Lift the caster into the sky (rooted but floating) during the ascension
+	-- Kneel where they stand: root the Cleric (facing the aim) for the cinematic.
+	local flat = Vector3.new(lookDir.X, 0, lookDir.Z)
+	if flat.Magnitude < 0.001 then flat = casterRoot.CFrame.LookVector end
+	flat = Vector3.new(flat.X, 0, flat.Z).Unit
+	local kneelCF = CFrame.lookAt(casterRoot.Position, casterRoot.Position + flat)
 	casterChar:SetAttribute("IsSkillCasting", true)
 	casterRoot.Anchored = true
+	casterRoot.CFrame = kneelCF
 
-	-- Heal + cleanse every ally (and self) in the aura
-	local function applyHealAura()
+	-- THE REVIVAL: fallen teammates rise beside the Cleric, players are healed
+	-- and cleansed, enemies are smitten.
+	task.delay(reviveTime, function()
+		if not casterChar.Parent then return end
+		local okDM, DeathManager = pcall(function()
+			return require(script.Parent:WaitForChild("DeathManager")) :: any
+		end)
+		if okDM and DeathManager then
+			DeathManager.ReviveParty(player, casterRoot.Position + flat * 3)
+		end
 		for _, other in ipairs(Players:GetPlayers()) do
 			local oc = other.Character
-			if oc and oc.Parent then
-				local oroot = oc:FindFirstChild("HumanoidRootPart")
-				if oroot and (oroot.Position - origin).Magnitude <= radius then
-					healCharacter(oc, healAmount)
-					oc:SetAttribute("DebuffCleanse", os.clock())
-				end
+			local oroot = oc and oc:FindFirstChild("HumanoidRootPart")
+			if oc and oroot and (oroot.Position - origin).Magnitude <= radius then
+				healCharacter(oc, healAmount, player)
+				oc:SetAttribute("DebuffCleanse", os.clock())
 			end
 		end
-	end
-	applyHealAura()
-
-	-- Creation-of-Adam tableau: lift the caster HIGH into the sky first, then
-	-- spawn the revived party just below him so they read as reaching up to him.
-	-- (The old mural cinematic FireClient is gone - it filmed an unstreamed
-	--  far-away mural, which just faded the screen to black.)
-	local liftFlatDir = Vector3.new(lookDir.X, 0, lookDir.Z)
-	if liftFlatDir.Magnitude < 0.001 then liftFlatDir = casterRoot.CFrame.LookVector end
-	liftFlatDir = Vector3.new(liftFlatDir.X, 0, liftFlatDir.Z).Unit
-	local casterPos = origin + Vector3.new(0, 53, 0)
-	-- Take network ownership from the client so the server's anchor/CFrame actually
-	-- holds (a client-owned character ignores the server's Anchored and falls).
-	pcall(function() casterRoot:SetNetworkOwner(nil) end)
-	casterRoot.CFrame = CFrame.lookAt(casterPos, casterPos + liftFlatDir)
-
-	AllyManager.SpawnAlliesBehindPlayer(player, returnCFrame)
-
-	-- Revive (and heal) downed allies inside the aura.
-	AllyManager.HealAlliesInRadius(origin, radius, healAmount)
-
-	-- Divine judgment: damage + knock enemies inside the zone
-	task.spawn(function()
-		task.wait(1.6)
-		if not casterChar or not casterChar.Parent then return end
-		local targets = getPotentialTargets(casterChar)
-		for _, target in ipairs(targets) do
-			local dist = (target.rootPart.Position - origin).Magnitude
-			if dist <= radius then
+		for _, target in ipairs(getPotentialTargets(casterChar)) do
+			if not Players:GetPlayerFromCharacter(target.character) and (target.rootPart.Position - origin).Magnitude <= radius then
 				dealDamage(player, target, damage, "DIVINE ASCENT")
-				local kb = (target.rootPart.Position - origin)
+				local kb = target.rootPart.Position - origin
 				local flatKb = Vector3.new(kb.X, 0, kb.Z)
 				local kbDir = (flatKb.Magnitude > 0.1 and flatKb.Unit or Vector3.new(0, 0, 1)) + Vector3.new(0, 0.5, 0)
 				target.rootPart:ApplyImpulse(kbDir.Unit * (target.rootPart.AssemblyMass * 30))
@@ -1158,35 +1005,11 @@ local function executeClericDivineAscent(player: Player, casterChar: Model, orig
 		end
 	end)
 
-	-- End of ascension: reset the player and party to the ground together, then release them.
+	-- End: release the Cleric.
 	task.delay(duration, function()
-		if casterChar and casterChar.Parent then
-			local root2 = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
-			local hum2 = casterChar:FindFirstChildOfClass("Humanoid")
-			if root2 then
-				local rayParams = RaycastParams.new()
-				rayParams.FilterType = Enum.RaycastFilterType.Exclude
-				rayParams.FilterDescendantsInstances = {casterChar, Workspace:FindFirstChild("Allies")}
-				rayParams.IgnoreWater = true
-				local hit = Workspace:Raycast(root2.Position + Vector3.new(0, 8, 0), Vector3.new(0, -120, 0), rayParams)
-				if hit then
-					local hipHeight = hum2 and hum2.HipHeight or 2
-					local y = hit.Position.Y + (root2.Size.Y * 0.5) + hipHeight
-					root2.CFrame = CFrame.new(root2.Position.X, y, root2.Position.Z) * (root2.CFrame - root2.Position)
-				end
-				root2.AssemblyLinearVelocity = Vector3.zero
-				root2.AssemblyAngularVelocity = Vector3.zero
-			end
-		end
-
-		AllyManager.ReleaseAllies()
-
-		if casterChar and casterChar.Parent then
+		if casterChar.Parent then
 			local root2 = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
 			if root2 then
-				root2.CFrame = returnCFrame
-				root2.AssemblyLinearVelocity = Vector3.zero
-				root2.AssemblyAngularVelocity = Vector3.zero
 				root2.Anchored = false
 				pcall(function() root2:SetNetworkOwner(player) end)
 			end
@@ -1214,7 +1037,7 @@ local function executeClericRadiantGround(player: Player, casterChar: Model, ori
 			if oroot and ohum and ohum.Health > 0 then
 				local flatOffset = Vector3.new(oroot.Position.X - flatOrigin.X, 0, oroot.Position.Z - flatOrigin.Z)
 				if flatOffset.Magnitude <= radius then
-					healCharacter(oc, healAmount)
+					healCharacter(oc, healAmount, player)
 					oc:SetAttribute("DebuffCleanse", os.clock())
 				end
 			end
@@ -1237,8 +1060,197 @@ local function executeClericRadiantGround(player: Player, casterChar: Model, ori
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Ice Mage
+-- ─────────────────────────────────────────────────────────────────────────────
+local ICE_CORE = Color3.fromRGB(150, 235, 255)
+local ICE_BODY = Color3.fromRGB(120, 200, 255)
+
+local function fireIceEvent(payload: any)
+	Network.GetRemoteEvent(Network.Remotes.IceMageEvent):FireAllClients(payload)
+end
+
+local function chillTarget(target: any, duration: number)
+	if Players:GetPlayerFromCharacter(target.character) then return end
+	MobManager.ChillMob(target.character, duration)
+	fireIceEvent({ kind = "Chill", model = target.character, duration = duration })
+end
+
+-- Skill 1: a line of spikes races along the floor; each enemy is hit when the
+-- spike front reaches it, so damage lines up with the eruption the clients see.
+local function executeIceSpikes(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
+	local range = config.range or 42
+	local halfWidth = (config.width or 4) * (config.areaMultiplier or 1) * 0.5 + 1
+	local speed = config.projectileSpeed or 95
+	local flatDir = rotateFlatDirection(lookDir, 0)
+	for _, target in ipairs(getPotentialTargets(casterChar)) do
+		local offset = target.rootPart.Position - origin
+		local flatOffset = Vector3.new(offset.X, 0, offset.Z)
+		local along = flatOffset:Dot(flatDir)
+		if along >= 0 and along <= range and (flatOffset - flatDir * along).Magnitude <= halfWidth and math.abs(offset.Y) <= 8 then
+			task.delay(along / speed, function()
+				if target.humanoid.Health <= 0 then return end
+				dealDamage(player, target, config.damage, "ICE SPIKES")
+				chillTarget(target, 0.9)
+			end)
+		end
+	end
+end
+
+-- Skill 2: channelled beam that stops on the first enemy along the caster's facing.
+local function executeIceBeam(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
+	local range = config.range or 55
+	local duration = config.duration or 3
+	local width = (config.width or 3) * (config.areaMultiplier or 1) * 0.5 + 0.5
+	local TICK = 0.25
+	local perHit = config.damage * TICK / math.max(duration, 0.001)
+	task.spawn(function()
+		local t0 = os.clock()
+		while os.clock() - t0 < duration do
+			local root = casterChar.Parent and casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if not root then break end
+			local target = damageFirstTargetOnLine(player, casterChar, root.Position, root.CFrame.LookVector, range, width, perHit, "ICE BEAM")
+			if target then
+				chillTarget(target, TICK + 0.3)
+			end
+			task.wait(TICK)
+		end
+	end)
+end
+
+-- Skill 3: crystalline clone of the caster that taunts, then explodes.
+local function buildIceClone(casterChar: Model, cframe: CFrame, health: number): Model?
+	local wasArchivable = casterChar.Archivable
+	casterChar.Archivable = true
+	local clone = casterChar:Clone()
+	casterChar.Archivable = wasArchivable
+	if not clone then return nil end
+
+	clone.Name = "IceClone"
+	for _, d in ipairs(clone:GetDescendants()) do
+		if d:IsA("Script") or d:IsA("LocalScript") or d:IsA("Tool") or d:IsA("ForceField")
+			or d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Light")
+			or d:IsA("BillboardGui") or d:IsA("Sound") or d:IsA("Clothing") or d:IsA("ShirtGraphic") then
+			d:Destroy()
+		elseif d:IsA("Decal") then
+			d.Transparency = 0.6
+			d.Color3 = ICE_CORE
+		end
+	end
+	for _, d in ipairs(clone:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.CanCollide = false
+			d.CanTouch = false
+			d.CastShadow = false
+			d.Massless = true
+			if d.Name ~= "HumanoidRootPart" and d.Transparency < 1 then
+				d.Material = Enum.Material.Glass
+				d.Color = ICE_BODY
+				d.Transparency = 0.35
+				d.Reflectance = 0.25
+				if d:IsA("MeshPart") then d.TextureID = "" end
+				local sm = d:FindFirstChildOfClass("SpecialMesh")
+				if sm then sm.TextureId = "" end
+			end
+		end
+	end
+
+	local hum = clone:FindFirstChildOfClass("Humanoid")
+	local root = clone:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not hum or not root then
+		clone:Destroy()
+		return nil
+	end
+	hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	hum.BreakJointsOnDeath = false
+	hum.RequiresNeck = false
+	hum.WalkSpeed = 0
+	hum.JumpPower = 0
+	hum.MaxHealth = health
+	hum.Health = health
+	root.CanCollide = true
+	root.Anchored = true
+	clone:SetAttribute("IsDecoy", true)
+	clone:PivotTo(cframe)
+	return clone
+end
+
+local function executeIceClone(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
+	local casterRoot = casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not casterRoot then return end
+	local flatDir = rotateFlatDirection(lookDir, 0)
+	local spawnPos = casterRoot.Position + flatDir * 6
+	-- Don't put the clone inside a wall.
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	rp.FilterDescendantsInstances = { casterChar }
+	local wallHit = Workspace:Raycast(casterRoot.Position, flatDir * 7, rp)
+	if wallHit then spawnPos = casterRoot.Position + flatDir * math.max(0, wallHit.Distance - 2) end
+
+	local tauntRadius = (config.range or 34) * (config.areaMultiplier or 1)
+	local clone = buildIceClone(casterChar, CFrame.lookAt(spawnPos, spawnPos + flatDir), config.cloneHealth or 50)
+	if not clone then return end
+	local folder = Workspace:FindFirstChild("IceClones")
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = "IceClones"
+		folder.Parent = Workspace
+	end
+	clone:SetAttribute("TauntRadius", tauntRadius)
+	clone.Parent = folder
+	MobManager.RegisterDecoy(clone, tauntRadius)
+
+	local hum = clone:FindFirstChildOfClass("Humanoid") :: Humanoid
+	local shattered = false
+	local function shatter()
+		if shattered then return end
+		shattered = true
+		MobManager.UnregisterDecoy(clone)
+		local pos = clone:GetPivot().Position
+		local radius = (config.explosionRadius or 14) * (config.areaMultiplier or 1)
+		fireIceEvent({ kind = "CloneShatter", position = pos, radius = radius })
+		for _, target in ipairs(getPotentialTargets(casterChar)) do
+			if not Players:GetPlayerFromCharacter(target.character) and (target.rootPart.Position - pos).Magnitude <= radius then
+				dealDamage(player, target, config.damage, "SHATTER")
+				chillTarget(target, 2.0)
+			end
+		end
+		clone:Destroy()
+	end
+	hum.Died:Connect(shatter)
+	task.delay(config.duration or 10, shatter)
+	casterChar.AncestryChanged:Connect(function(_, parent)
+		if not parent then shatter() end
+	end)
+end
+
+-- Ultimate: Blizzard. Mobs are frozen through the reveal cutscene;
+-- the storm batters everything inside the zone on a steady tick.
+local function executeIceBlizzard(player: Player, casterChar: Model, origin: Vector3, config: any)
+	local radius = (config.range or 48) * (config.areaMultiplier or 1)
+	local duration = config.duration or 6
+	local TICK = 0.5
+	local perHit = config.damage * TICK / math.max(duration, 0.001)
+	task.spawn(function()
+		local t0 = os.clock()
+		while os.clock() - t0 < duration do
+			for _, target in ipairs(getPotentialTargets(casterChar)) do
+				if not Players:GetPlayerFromCharacter(target.character) then
+					local offset = target.rootPart.Position - origin
+					if Vector3.new(offset.X, 0, offset.Z).Magnitude <= radius then
+						dealDamage(player, target, perHit, "BLIZZARD")
+					end
+				end
+			end
+			task.wait(TICK)
+		end
+	end)
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Main Skill Request Handler
 -- ─────────────────────────────────────────────────────────────────────────────
+local ultCutscene: (string, any) -> number
+
 function SkillManager.HandleSkillUse(player: Player, payload: any)
 	if typeof(payload) ~= "table" then return end
 
@@ -1253,10 +1265,13 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	if not humanoid or not rootPart or humanoid.Health <= 0 then return end
 
 	-- Block skills in lobby
-	if player:GetAttribute("InLobby") == true then return end
+	if player:GetAttribute("InLobby") ~= false then return end -- (only in a run: never in the lobby)
 
 	-- Block skills while a tome/level-up selection is pausing the game.
-	if Workspace:GetAttribute("TomesPaused") == true then return end
+	if RunScope.Paused(player.Character) then
+		if player:GetAttribute("SelectedClass") == "gunslinger" then GunslingerServer.Refused(player, skillIndex) end
+		return
+	end
 
 	-- Block skill use while Skill 1 (Spin Attack) is active
 	if char:GetAttribute("IsSkill1Active") == true or char:GetAttribute("IsSpinAttackActive") == true then
@@ -1281,6 +1296,18 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	effectiveConfig.projectileCount = math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount")))
 	effectiveConfig.allyTarget = payload.allyTarget
 
+	-- Gunslinger: e.g. Fan the Hammer needs bullets in the cylinder.
+	if classId == "gunslinger" and not GunslingerServer.CanUseSkill(player, skillIndex) then
+		GunslingerServer.Refused(player, skillIndex)
+		return
+	end
+	-- Swordsman: nothing mid-Whirlwind / mid-Blade Storm.
+	if classId == "swordsman" and not SwordsmanServer.CanUseSkill(player, skillIndex) then return end
+	-- Berserker: nothing mid-leap, mid-Bloodstorm or mid-Worldbreaker.
+	if classId == "berserker" and not BerserkerServer.CanUseSkill(player, skillIndex) then return end
+	-- Fire Knight: nothing mid-charge / mid-guard / mid-slam / mid-awakening.
+	if classId == "heavy_knight" and not FireKnightServer.CanUseSkill(player, skillIndex) then return end
+
 	-- Validate Cooldown
 	local now = os.clock()
 	if not playerCooldowns[player] then
@@ -1290,12 +1317,23 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	local lastUsed = playerCooldowns[player][skillIndex] or 0
 	local cdBuffer = 0.12 -- 120ms leeway for latency
 	if now - lastUsed < (effectiveConfig.cooldown - cdBuffer) then
-		warn(`[SkillManager] {player.Name} attempted to use Skill {skillIndex} before cooldown expired!`)
+		-- The client thought it was ready (e.g. its timer drifted): resync
+		-- its cooldown to ours instead of silently eating the cast.
+		Network.GetRemoteEvent(Network.Remotes.SkillCooldownUpdate):FireClient(player, {
+			skillIndex = skillIndex,
+			cooldown = effectiveConfig.cooldown,
+			elapsed = now - lastUsed,
+		})
+		if classId == "gunslinger" then GunslingerServer.Refused(player, skillIndex) end
 		return
 	end
 
 	-- Mark cooldown
 	playerCooldowns[player][skillIndex] = now
+	RunStats.Add(player, "abilities", 1)
+	Boons.OnAbility(player)
+	cooldownLengths[player] = cooldownLengths[player] or {}
+	cooldownLengths[player][skillIndex] = effectiveConfig.cooldown
 
 	-- Direction and origin extraction
 	local clientOrigin = typeof(payload.origin) == "Vector3" and payload.origin or rootPart.Position
@@ -1310,10 +1348,9 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 		direction = Vector3.new(payload.direction.X, 0, payload.direction.Z).Unit
 	end
 	local targetPosition = payload.targetPosition
+	local healAt: { Vector3 }? = nil -- Divine Touch: who it actually healed
 	if classId == "ranger" and skillIndex == 4 then
 		targetPosition = getRangerCursorTarget(origin, direction, targetPosition, effectiveConfig.range or 42)
-	elseif classId == "heavy_knight" and skillIndex == 2 then
-		targetPosition = getRangerCursorTarget(origin, direction, targetPosition, effectiveConfig.maxLeapDistance or 42)
 	end
 
 	-- Execute authoritative skill logic
@@ -1327,40 +1364,50 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 		elseif skillIndex == 4 then
 			executeRangerRainOfArrows(player, char, origin, direction, targetPosition, effectiveConfig)
 		end
-	elseif classId == "heavy_knight" and skillIndex == 1 then
-		executeSpinAttack(player, char, origin, direction, effectiveConfig)
-	elseif classId == "heavy_knight" and skillIndex == 2 then
-		executeFireSlam(player, char, origin, direction, targetPosition, effectiveConfig)
-	elseif classId == "heavy_knight" and skillIndex == 3 then
-		executePhoenixDash(player, char, origin, direction, effectiveConfig)
-	elseif classId == "heavy_knight" and skillIndex == 4 then
-		executeInfernalWrath(player, char, origin, direction, effectiveConfig)
+	elseif classId == "heavy_knight" then
+		FireKnightServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig)
 	elseif classId == "cleric" and skillIndex == 1 then
-		executeClericDivineTouch(player, char, effectiveConfig)
+		healAt = executeClericDivineTouch(player, char, effectiveConfig)
 	elseif classId == "cleric" and skillIndex == 2 then
 		executeClericDivineBeam(player, char, origin, direction, effectiveConfig)
 	elseif classId == "cleric" and skillIndex == 3 then
 		executeClericRadiantGround(player, char, origin, effectiveConfig)
 	elseif classId == "cleric" and skillIndex == 4 then
 		executeClericDivineAscent(player, char, origin, direction, effectiveConfig)
+	elseif classId == "gunslinger" then
+		GunslingerServer.OnSkill(player, char, skillIndex, origin, direction, targetPosition, effectiveConfig)
+	elseif classId == "swordsman" then
+		SwordsmanServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig)
+	elseif classId == "berserker" then
+		BerserkerServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig,
+			if typeof(targetPosition) == "Vector3" then targetPosition else nil)
+	elseif classId == "ice_mage" then
+		if skillIndex == 1 then
+			-- Hits line up with the cast pose's impact frame (castDelay).
+			task.delay(effectiveConfig.castDelay or 0, executeIceSpikes, player, char, origin, direction, effectiveConfig)
+		elseif skillIndex == 2 then
+			executeIceBeam(player, char, origin, direction, effectiveConfig)
+		elseif skillIndex == 3 then
+			task.delay(effectiveConfig.castDelay or 0, executeIceClone, player, char, origin, direction, effectiveConfig)
+		elseif skillIndex == 4 then
+			task.delay(effectiveConfig.castDelay or 0, executeIceBlizzard, player, char, origin, effectiveConfig)
+		end
 	end
 
-	-- Ultimates freeze every mob in place for the ult duration.
+	-- Ultimates freeze every mob only while the cutscene plays; they move
+	-- again as the camera cuts back.
 	if skillIndex == 4 then
-		local freezeTime = effectiveConfig.duration
-		if typeof(freezeTime) ~= "number" or freezeTime <= 0 then
-			freezeTime = 6.0
-		end
-		MobManager.FreezeMobs(freezeTime)
+		MobManager.FreezeMobs(ultCutscene(classId, effectiveConfig) + 0.1, RunScope.Of(char))
 	end
 
 	-- Replicate VFX to other players (for Skill 4, fire to ALL including caster
 	-- since server handles the main VFX and caster needs client-side camera/particles)
+	-- (Divine Touch goes to the caster too: only the server knows who it healed.)
 	local vfxRemote = Network.GetRemoteEvent(Network.Remotes.SkillVFX)
 	for _, otherPlayer in ipairs(Players:GetPlayers()) do
 		-- For skill 4: server spawns main VFX, so only send for client-side extras
 		-- For other skills: send to everyone except caster (caster already plays locally)
-		if otherPlayer ~= player or skillIndex == 4 then
+		if otherPlayer ~= player or skillIndex == 4 or healAt then
 			if skillIndex ~= 4 or otherPlayer ~= player then
 				vfxRemote:FireClient(otherPlayer, {
 					player = player,
@@ -1370,6 +1417,7 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 					targetPosition = targetPosition,
 					projectileCount = effectiveConfig.projectileCount,
 					areaMultiplier = effectiveConfig.areaMultiplier,
+					healAt = healAt,
 				})
 			end
 		end
@@ -1385,6 +1433,17 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	print(`[SkillManager] {player.Name} successfully cast Skill {skillIndex} ({config.name})`)
 end
 
+-- Seconds each class's ult cutscene holds the camera (matches the client).
+ultCutscene = function(classId: string, config: any): number
+	if classId == "cleric" then return config.duration or 2 end
+	if classId == "ice_mage" then return config.castDelay or 1.5 end
+	if classId == "gunslinger" then return 1.4 end
+	if classId == "swordsman" then return SwordsmanServer.STORM_WINDUP end
+	if classId == "berserker" then return BerserkerServer.GATHER_TIME end -- Worldbreaker's gathering
+	if classId == "heavy_knight" then return FireKnightServer.AWAKEN end
+	return 1.0 -- Ranger close-up
+end
+
 function SkillManager.HandleBasicAttack(player: Player, payload: any)
 	local char = player.Character
 	if not char then return end
@@ -1392,8 +1451,28 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 	local humanoid = char:FindFirstChildOfClass("Humanoid")
 	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not humanoid or not rootPart or humanoid.Health <= 0 then return end
-	if player:GetAttribute("InLobby") == true then return end
-	if Workspace:GetAttribute("TomesPaused") == true then return end
+	if player:GetAttribute("InLobby") ~= false then return end -- (only in a run: never in the lobby)
+	if RunScope.Paused(player.Character) then return end
+	-- The Gunslinger's revolver has its own ammo, fire rate and roll shot.
+	if player:GetAttribute("SelectedClass") == "gunslinger" then
+		GunslingerServer.OnShoot(player, char, rootPart, payload)
+		return
+	end
+	-- The Swordsman's 4-hit combo, Momentum and its own swing speed.
+	if player:GetAttribute("SelectedClass") == "swordsman" then
+		SwordsmanServer.OnBasic(player, char, rootPart, payload)
+		return
+	end
+	-- The Berserker's greatsword chain and Bloodrage.
+	if player:GetAttribute("SelectedClass") == "berserker" then
+		BerserkerServer.OnBasic(player, char, rootPart, payload)
+		return
+	end
+	-- The Fire Knight's Emberblade combo, Heat and Scorch.
+	if player:GetAttribute("SelectedClass") == "heavy_knight" then
+		FireKnightServer.OnBasic(player, char, rootPart, payload)
+		return
+	end
 	local now = os.clock()
 	local attackInterval = 0.38 / math.max(PlayerStats.GetStat(player, "basicAttackSpeed"), 0.1)
 	if now - (basicAttackTimes[player] or 0) < attackInterval then return end
@@ -1411,6 +1490,14 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 	local classId = player:GetAttribute("SelectedClass")
 	if typeof(classId) ~= "string" then return end
 
+	-- Everyone else sees this attack too (the attacker already drew it).
+	local fxRemote = Network.GetRemoteEvent(Network.Remotes.BasicAttackFX)
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other ~= player then
+			fxRemote:FireClient(other, { attacker = player, classId = classId, direction = flatLook })
+		end
+	end
+
 	if classId == "ranger" then
 		if char:GetAttribute("IsMissileBuffActive") == true then
 			SkillManager.HandleMissileAttack(player, char)
@@ -1420,7 +1507,8 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 		local arrowOrigin = origin + Vector3.new(0, 1.2, 0)
 		local extraProjectiles = math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount")))
 		local projectileCount = 1 + extraProjectiles
-		local hitWidth = 2.0 * PlayerStats.GetStat(player, "size")
+		-- Generous hit line, plus a little aim assist below: arrows are easy to land.
+		local hitWidth = 3.5 * PlayerStats.GetStat(player, "size")
 		local knockback = PlayerStats.GetStat(player, "knockback")
 		local projectileSpeed = PlayerStats.GetStat(player, "projectileSpeed")
 		local spreadStep = 8 -- 8 degrees between adjacent arrows
@@ -1430,6 +1518,22 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 			local angle = startAngle + (index - 1) * spreadStep
 			local direction = rotateFlatDirection(flatLook, angle)
 			local target, hitDistance = damageFirstTargetOnLine(player, char, arrowOrigin, direction, 70, hitWidth, damage, "VENOM ARROWS")
+			if not target then
+				-- Aim assist: the nearest enemy within 10° of the shot.
+				local best, bestD = nil, 70
+				for _, t in ipairs(getPotentialTargets(char)) do
+					local d = t.rootPart.Position - arrowOrigin
+					local flatD = Vector3.new(d.X, 0, d.Z)
+					if flatD.Magnitude > 0.5 and flatD.Magnitude < bestD and flatD.Unit:Dot(direction) > math.cos(math.rad(10)) then
+						best, bestD = t, flatD.Magnitude
+					end
+				end
+				if best then
+					dealDamage(player, best, damage, "VENOM ARROWS")
+					ricochet(player, char, best, damage, "VENOM ARROWS")
+					target, hitDistance = best, bestD
+				end
+			end
 			applyRangerArrowKnockback(target, direction, knockback)
 			fireRangerArrowVisual(arrowOrigin, direction, hitDistance or 70, projectileSpeed)
 		end
@@ -1438,7 +1542,7 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 
 	if classId == "cleric" then
 		-- Radiant Bolt: ranged holy projectile fired straight forward.
-		local damage = math.floor(24 * PlayerStats.GetStat(player, "damage"))
+		local damage = math.floor(34 * PlayerStats.GetStat(player, "damage"))
 		local boltOrigin = origin + Vector3.new(0, 1.4, 0)
 		local hitWidth = 2.5 * PlayerStats.GetStat(player, "size")
 		local target = damageFirstTargetOnLine(player, char, boltOrigin, flatLook, 60, hitWidth, damage, "RADIANT BOLT")
@@ -1449,35 +1553,61 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 		return
 	end
 
-	if classId ~= "heavy_knight" then return end
-
-	if char:GetAttribute("IsMissileBuffActive") == true then
-		SkillManager.HandleMissileAttack(player, char)
-	end
-
-	local targets = getPotentialTargets(char)
-	local hitCount = 0
-
-	for _, target in ipairs(targets) do
-		local diff = target.rootPart.Position - origin
-		local dist = diff.Magnitude
-		if dist <= 14.0 then
-			local flatDiff = Vector3.new(diff.X, 0, diff.Z).Unit
-			local dot = flatLook:Dot(flatDiff)
-			if dot > -0.1 or dist <= 6.0 then
-				local damage = math.floor(35 * PlayerStats.GetStat(player, "damage"))
-				dealDamage(player, target, damage, "BASIC ATTACK")
-				hitCount += 1
-
-				local kbDir = (flatLook + Vector3.new(0, 0.25, 0)).Unit
-				target.rootPart:ApplyImpulse(kbDir * (target.rootPart.AssemblyMass * 16))
-				print(`[SkillManager] Basic Attack hit {target.character.Name} for {damage} damage!`)
-			end
-		end
+	if classId == "ice_mage" then
+		-- Ice Crystal: a single fast shard that hits the first enemy in line.
+		local damage = math.floor(22 * PlayerStats.GetStat(player, "damage"))
+		local hitWidth = 2.2 * PlayerStats.GetStat(player, "size")
+		damageFirstTargetOnLine(player, char, origin + Vector3.new(0, 1.4, 0), flatLook, 60, hitWidth, damage, "ICE CRYSTAL")
+		return
 	end
 end
 
+-- Take `seconds` off a skill's remaining cooldown and tell the caster.
+local function reduceCooldown(player: Player, skillIndex: number, seconds: number)
+	local last = playerCooldowns[player] and playerCooldowns[player][skillIndex]
+	local length = cooldownLengths[player] and cooldownLengths[player][skillIndex]
+	if not last or not length then return end
+	playerCooldowns[player][skillIndex] = last - seconds
+	Network.GetRemoteEvent(Network.Remotes.SkillCooldownUpdate):FireClient(player, {
+		skillIndex = skillIndex,
+		cooldown = length,
+		elapsed = os.clock() - (last - seconds),
+	})
+end
+
 function SkillManager.Init()
+	GunslingerServer.Init({
+		getPotentialTargets = getPotentialTargets,
+		dealDamage = dealDamage,
+		ricochet = ricochet,
+		reduceCooldown = reduceCooldown,
+		freezeMobs = MobManager.FreezeMobs,
+	})
+	SwordsmanServer.Init({
+		getPotentialTargets = getPotentialTargets,
+		dealDamage = dealDamage,
+		setParryHook = MobManager.SetParryHook,
+		roomBoundsAt = MobManager.RoomBoundsAt,
+	})
+	BerserkerServer.Init({
+		getPotentialTargets = getPotentialTargets,
+		dealDamage = dealDamage,
+		addIncomingHook = MobManager.AddIncomingHook,
+	})
+	FireKnightServer.Init({
+		getPotentialTargets = getPotentialTargets,
+		dealDamage = dealDamage,
+		addParryHook = MobManager.AddParryHook,
+		addIncomingHook = MobManager.AddIncomingHook,
+	})
+	Boons.Init({
+		dealDamage = dealDamage,
+		getPotentialTargets = getPotentialTargets,
+		getStat = PlayerStats.GetStat,
+		chill = MobManager.ChillMob,
+		addIncomingHook = MobManager.AddIncomingHook,
+	})
+
 	local useSkillRemote = Network.GetRemoteEvent(Network.Remotes.UseSkill)
 	useSkillRemote.OnServerEvent:Connect(function(player: Player, payload: any)
 		SkillManager.HandleSkillUse(player, payload)
@@ -1488,8 +1618,16 @@ function SkillManager.Init()
 		SkillManager.HandleBasicAttack(player, payload)
 	end)
 
+	-- Picking a class starts a fresh run: fresh cooldowns (the client clears
+	-- its own on ClassConfirmed). Deaths and revives keep them.
+	Network.GetRemoteEvent(Network.Remotes.SelectClass).OnServerEvent:Connect(function(player: Player)
+		playerCooldowns[player] = nil
+		cooldownLengths[player] = nil
+	end)
+
 	Players.PlayerRemoving:Connect(function(player: Player)
 		playerCooldowns[player] = nil
+		cooldownLengths[player] = nil
 		basicAttackTimes[player] = nil
 	end)
 

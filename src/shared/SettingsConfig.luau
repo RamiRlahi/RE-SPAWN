@@ -12,6 +12,11 @@ export type PlayerSettings = {
 	cameraShake: boolean,
 	lowDetailVFX: boolean,
 	damageNumbers: boolean,
+	toggleSprint: boolean, -- sprint key toggles sprinting on/off (instead of hold)
+	shadows: boolean,      -- world shadows (Lighting.GlobalShadows, on this client)
+	bloom: boolean,        -- bloom / sun-ray glow post effects
+	teammateCinematics: boolean, -- play teammates' ultimate cutscenes on your screen
+	classicCamera: boolean, -- a normal third-person camera in runs instead of the top-down one
 	keybinds: { [string]: string }, -- actionName -> Enum.KeyCode name or UserInputType name
 }
 
@@ -33,6 +38,11 @@ local DefaultSettings: PlayerSettings = {
 	cameraShake = true,
 	lowDetailVFX = false,
 	damageNumbers = true,
+	toggleSprint = true,
+	shadows = true,
+	bloom = true,
+	teammateCinematics = true,
+	classicCamera = false,
 	keybinds = {
 		["PrimaryAttack"] = "MouseButton1",
 		["Skill1"] = "E",
@@ -57,6 +67,11 @@ function SettingsConfig.CloneDefaultSettings(): PlayerSettings
 		cameraShake = DefaultSettings.cameraShake,
 		lowDetailVFX = DefaultSettings.lowDetailVFX,
 		damageNumbers = DefaultSettings.damageNumbers,
+		toggleSprint = DefaultSettings.toggleSprint,
+		shadows = DefaultSettings.shadows,
+		bloom = DefaultSettings.bloom,
+		teammateCinematics = DefaultSettings.teammateCinematics,
+		classicCamera = DefaultSettings.classicCamera,
 		keybinds = {},
 	}
 	for action, key in pairs(DefaultSettings.keybinds) do

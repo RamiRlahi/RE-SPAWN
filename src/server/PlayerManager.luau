@@ -10,6 +10,19 @@ local ClassData = require(Shared:WaitForChild("ClassData"))
 local ClassManager = require(script.Parent:WaitForChild("ClassManager"))
 local AnimationManager = require(script.Parent:WaitForChild("AnimationManager"))
 local PlayerStats = require(script.Parent:WaitForChild("PlayerStats"))
+local ClassArmor = require(Shared:WaitForChild("ClassArmor"))
+local IceCape = require(Shared:WaitForChild("IceCape"))
+
+-- Class armor (the Ice Mage's is its cape) is a summon reward: without it the
+-- character keeps its own avatar (the weapon is equipped by WeaponManager).
+local function equipClassArmor(character: Model, classId: string)
+	local player = Players:GetPlayerFromCharacter(character)
+	if not player or player:GetAttribute(`Armor_{classId}`) ~= true then return end
+	ClassArmor.Equip(character, classId)
+	if classId == "ice_mage" then
+		IceCape.Attach(character)
+	end
+end
 
 
 local PlayerManager = {}
@@ -39,7 +52,6 @@ local function setupCharacter(player: Player, character: Model)
 
 	-- Attach player torch light & embers, and visual outline
 	AtmosphereManager.AttachTorchLight(character)
-	AtmosphereManager.AttachCharacterOutline(character)
 
 	local inLobby = player:GetAttribute("InLobby")
 	if inLobby == nil or inLobby == true then
@@ -129,250 +141,6 @@ function PlayerManager.Init()
 		print(`[PlayerManager] {player.Name} left the game.`)
 	end)
 
--- Maps armor piece name -> R6 body part name it should be welded to
-local ARMOR_WELD_MAP: { [string]: string } = {
-	chestplate              = "Torso",
-	gauntlet_heavyknight    = "Left Arm",
-	leftarm_heavyknight     = "Left Arm",
-	rightarm_heavyknight    = "Right Arm",
-	heavyknight_BELT        = "Torso",
-	leftleg                 = "Left Leg",
-	rightleg                = "Right Leg",
-	Accessory               = "Torso",
-	Cape                    = "Torso",
-	cape                    = "Torso",
-	RangerCloak             = "Torso",
-}
-
-local ROT270 = CFrame.Angles(0, math.rad(270), 0)
-local ROT90 = CFrame.Angles(0, math.rad(90), 0)
-
-
-local ARMOR_CFRAME_OFFSETS: { [string]: CFrame } = {
-	chestplate              = ROT270 * CFrame.new(0, 0, 0),
-	gauntlet_heavyknight    = ROT90 * CFrame.new(0, 0, 0),
-	leftarm_heavyknight     = ROT270 * CFrame.new(0, -0.2, 0),
-	rightarm_heavyknight    = ROT270 * CFrame.new(0, -0.2, 0),
-	heavyknight_BELT        = ROT270 * CFrame.new(0, -1.9, 0),
-	leftleg                 = ROT270 * CFrame.Angles(0, 0, math.rad(10)) * CFrame.new(-0.1, 0, 0),
-	rightleg                = ROT270 * CFrame.Angles(0, 0, math.rad(10)) * CFrame.new(-0.1, 0, 0),
-	Accessory               = CFrame.new(0, -0.5, 1), -- Pushed outward so cape drapes OVER the armor
-	Cape                    = ROT270 * CFrame.new(0, 0, 1),
-	cape                    = ROT270 * CFrame.new(0, 0, 1),
-	RangerCloak             = ROT90 * CFrame.new(0, 0, 0),
-}
-
-
-local ARMOR_SCALE = 1
-
-local ARMOR_PIECE_SCALES: { [string]: number } = {
-	leftleg  = 1.08, -- Slightly enlarged to fit over boots cleanly
-	rightleg = 1.08,
-}
-
-
-local function scaleArmorPiece(piece: Instance, scale: number)
-	if scale == 1 then return end
-	if piece:IsA("Model") then
-		local pivot = piece:GetPivot()
-		for _, part in ipairs(piece:GetDescendants()) do
-			if part:IsA("BasePart") then
-				local relative = pivot:ToObjectSpace(part.CFrame)
-				local scaledPos = relative.Position * scale
-				local rot = relative - relative.Position
-				part.Size *= scale
-				part.CFrame = pivot * CFrame.new(scaledPos) * rot
-			end
-		end
-	elseif piece:IsA("Accessory") then
-		local handle = piece:FindFirstChild("Handle")
-		if handle and handle:IsA("BasePart") then
-			handle.Size *= scale
-		end
-	elseif piece:IsA("BasePart") then
-		piece.Size *= scale
-	end
-end
-
-
-local function weldArmorPiece(piece: Model | BasePart, targetPart: BasePart, pieceName: string)
-	local pieceScale = ARMOR_PIECE_SCALES[pieceName] or ARMOR_SCALE
-	scaleArmorPiece(piece, pieceScale)
-
-	local parts: { BasePart } = {}
-	if piece:IsA("BasePart") then
-		table.insert(parts, piece)
-	elseif piece:IsA("Model") then
-		for _, desc in ipairs(piece:GetDescendants()) do
-			if desc:IsA("BasePart") then
-				table.insert(parts, desc)
-			end
-		end
-	end
-
-	if #parts == 0 then return end
-
-	local offset = ARMOR_CFRAME_OFFSETS[pieceName] or CFrame.identity
-
-	local pieceCFrame: CFrame
-	if piece:IsA("Model") then
-		local cf, _ = piece:GetBoundingBox()
-		pieceCFrame = cf
-	else
-		pieceCFrame = piece.CFrame
-	end
-
-	local targetCF = targetPart.CFrame * offset
-	local transform = targetCF * pieceCFrame:Inverse()
-
-	for _, part in ipairs(parts) do
-		part.CanCollide = false
-		part.CanTouch = false
-		part.CanQuery = false
-		part.Massless = true
-		part.Anchored = false
-		part.CFrame = transform * part.CFrame
-
-		local weld = Instance.new("WeldConstraint")
-		weld.Name = "ArmorWeld"
-		weld.Part0 = targetPart
-		weld.Part1 = part
-		weld.Parent = part
-	end
-end
-
-
-local ENABLE_CLASS_ARMOR = true
-
-local function equipClassArmor(character: Model, classId: string)
-	if not ENABLE_CLASS_ARMOR then return end
-
-	local CLASS_ARMOR_FOLDERS = {
-		heavy_knight = "heavy knight armor",
-		ranger = "Ranger armor",
-	}
-
-	local folderName = CLASS_ARMOR_FOLDERS[classId]
-	if not folderName then return end
-
-	local assets = ReplicatedStorage:FindFirstChild("Assets")
-	local classes = assets and assets:FindFirstChild("Classes")
-	local armorFolder = classes and classes:FindFirstChild(folderName)
-	if not armorFolder then return end
-
-	-- Position each armor piece individually on its target limb
-	for _, piece in ipairs(armorFolder:GetChildren()) do
-		if piece:IsA("Tool") then
-			continue
-		end
-
-		-- Omit leg armor pieces for Heavy Knight
-		if classId == "heavy_knight" and (piece.Name == "leftleg" or piece.Name == "rightleg" or string.find(string.lower(piece.Name), "leg") ~= nil) then
-			continue
-		end
-
-		print(`[ArmorEquip] Processing armor piece: "{piece.Name}" (ClassName: {piece.ClassName})`)
-		local clone = piece:Clone()
-
-
-		-- Scale first
-		local pieceScale = ARMOR_PIECE_SCALES[piece.Name] or ARMOR_SCALE
-		scaleArmorPiece(clone, pieceScale)
-
-		-- RangerCloak has an authored "root" part. Align that root to the
-		-- character root (with a small visual drop) instead of centering the
-		-- whole model on the torso.
-		local cloakRoot: BasePart? = nil
-		local rootAlignedCloak = classId == "ranger" and piece.Name == "RangerCloak"
-		if rootAlignedCloak then
-			local foundRoot = clone:FindFirstChild("root", true)
-			if foundRoot and foundRoot:IsA("BasePart") then
-				cloakRoot = foundRoot
-			else
-				warn("[ArmorEquip] RangerCloak needs a BasePart named 'root'.")
-				clone:Destroy()
-				continue
-			end
-		end
-
-		-- Determine target R6 limb
-		local targetPartName = ARMOR_WELD_MAP[piece.Name] or "Torso"
-		local targetPart = character:FindFirstChild(targetPartName) :: BasePart?
-		if not targetPart then
-			clone.Parent = character
-			continue
-		end
-
-		-- Get the rotation offset for this piece
-		local rotOffset = rootAlignedCloak and CFrame.new(0, 0.15, 0) or (ARMOR_CFRAME_OFFSETS[piece.Name] or CFrame.identity)
-
-		-- Get the bounding box center of this piece
-		local pieceCF: CFrame
-		if rootAlignedCloak and cloakRoot then
-			pieceCF = cloakRoot.CFrame
-		elseif clone:IsA("Model") then
-			pieceCF = clone:GetBoundingBox()
-		elseif clone:IsA("Accessory") then
-			local handle = clone:FindFirstChild("Handle") :: BasePart?
-			if handle then
-				pieceCF = handle.CFrame
-			else
-				pieceCF = CFrame.identity
-			end
-		elseif clone:IsA("BasePart") then
-			pieceCF = clone.CFrame
-		else
-			clone.Parent = character
-			continue
-		end
-
-		-- Snap the piece center to the limb center with rotation
-		local targetCF = targetPart.CFrame * rotOffset
-		local transform = targetCF * pieceCF:Inverse()
-
-		-- Apply transform to all parts
-		for _, desc in ipairs(clone:GetDescendants()) do
-			if desc:IsA("BasePart") then
-				desc.CanCollide = false
-				desc.CanTouch = false
-				desc.CanQuery = false
-				desc.Massless = true
-				desc.Anchored = false
-				desc.CFrame = transform * desc.CFrame
-			end
-		end
-		if clone:IsA("BasePart") then
-			local bp = clone :: BasePart
-			bp.CanCollide = false
-			bp.CanTouch = false
-			bp.CanQuery = false
-			bp.Massless = true
-			bp.Anchored = false
-			bp.CFrame = transform * bp.CFrame
-		end
-
-		clone.Parent = character
-
-		-- Weld every BasePart in this piece to the target limb
-		for _, desc in ipairs(clone:GetDescendants()) do
-			if desc:IsA("BasePart") then
-				local weld = Instance.new("WeldConstraint")
-				weld.Name = "ArmorWeld"
-				weld.Part0 = targetPart
-				weld.Part1 = desc
-				weld.Parent = desc
-			end
-		end
-		if clone:IsA("BasePart") then
-			local weld = Instance.new("WeldConstraint")
-			weld.Name = "ArmorWeld"
-			weld.Part0 = targetPart
-			weld.Part1 = clone :: BasePart
-			weld.Parent = clone
-		end
-	end
-
-end
 
 
 

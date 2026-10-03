@@ -25,19 +25,51 @@ local UltimateCameraChoreography = {}
 
 local activeSequenceToken = 0
 
-function UltimateCameraChoreography.PlaySequence(
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Close-up: the shared "ult wind-up" shot every class uses.
+-- The camera cuts to the front of the character (slightly right and above),
+-- drifts in on the face for `duration`, then snaps back to the gameplay camera.
+-- `onRelease` fires right before the hand-back (the ult's release moment).
+-- Returns a function reporting whether this shot is still the active one.
+--
+-- `framing` overrides the shot: offsets are { forward, right, up } from the
+-- character (forward = toward the camera side the character faces).
+-- ─────────────────────────────────────────────────────────────────────────────
+export type Framing = {
+	startOffset: { number },
+	endOffset: { number },
+	focusHeight: number,
+	fovStart: number,
+	fovEnd: number,
+}
+
+local DEFAULT_FRAMING: Framing = {
+	startOffset = { 5.5, 2.5, 3.2 },
+	endOffset = { 4.8, 2.2, 2.8 },
+	focusHeight = 2.2,
+	fovStart = 55,
+	fovEnd = 58,
+}
+
+function UltimateCameraChoreography.PlayCloseUp(
 	character: Model,
 	aimDirection: Vector3,
-	onImpact: (() -> ())?,
+	duration: number?,
+	onRelease: (() -> ())?,
 	onComplete: (() -> ())?,
-	onSlashStart: (() -> ())?
-)
+	framing: Framing?
+): () -> boolean
+	local frame = framing or DEFAULT_FRAMING
 	activeSequenceToken += 1
 	local myToken = activeSequenceToken
+	local shotDur = duration or 1.0
 
 	local rootPart = character:FindFirstChild("HumanoidRootPart") :: BasePart?
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if not rootPart or not humanoid then return end
+	local function isStillActive(): boolean
+		return activeSequenceToken == myToken and character.Parent ~= nil and humanoid ~= nil and humanoid.Health > 0
+	end
+	if not rootPart or not humanoid then return isStillActive end
 
 	-- Pause IsometricCamera if active
 	local successIso, IsometricCamera = pcall(function()
@@ -49,59 +81,15 @@ function UltimateCameraChoreography.PlaySequence(
 		IsometricCamera.Pause()
 	end
 
-	-- Take over camera
 	camera.CameraType = Enum.CameraType.Scriptable
 
-	local function isStillActive()
-		return activeSequenceToken == myToken and character.Parent ~= nil and humanoid.Health > 0
-	end
-
-	-- Flatten aim direction
 	local flatDir = Vector3.new(aimDirection.X, 0, aimDirection.Z)
 	if flatDir.Magnitude < 0.001 then
 		flatDir = rootPart.CFrame.LookVector
 	end
 	flatDir = flatDir.Unit
+	local rightVec = CFrame.lookAt(rootPart.Position, rootPart.Position + flatDir).RightVector
 
-	local facingCF = CFrame.lookAt(rootPart.Position, rootPart.Position + flatDir)
-	local rightVec = facingCF.RightVector
-	local lookVec = flatDir
-
-	-- Find the sword/weapon part for tracking
-	local function getSwordPart(): BasePart
-		local weapon = character:FindFirstChild("EquippedWeapon") or character:FindFirstChild("PreviewGreatsword") or character:FindFirstChildOfClass("Tool")
-		if weapon then
-			for _, desc in ipairs(weapon:GetDescendants()) do
-				if desc:IsA("MeshPart") or (desc:IsA("BasePart") and desc.Name ~= "Handle") then
-					return desc
-				end
-			end
-			if weapon:FindFirstChild("Handle") then
-				return weapon.Handle :: BasePart
-			end
-		end
-		return character:FindFirstChild("RightHand") or character:FindFirstChild("Right Arm") or rootPart
-	end
-
-	-- Camera shake helper
-	local function triggerShake(intensity: number, duration: number)
-		task.spawn(function()
-			local startTime = os.clock()
-			while os.clock() - startTime < duration and isStillActive() do
-				local alpha = 1 - ((os.clock() - startTime) / duration)
-				local cur = intensity * alpha
-				local offset = Vector3.new(
-					(math.random() - 0.5) * cur,
-					(math.random() - 0.5) * cur * 0.6,
-					(math.random() - 0.5) * cur
-				)
-				camera.CFrame = camera.CFrame * CFrame.new(offset)
-				RunService.RenderStepped:Wait()
-			end
-		end)
-	end
-
-	-- Restore camera helper
 	local function restoreCamera()
 		if activeSequenceToken ~= myToken then return end
 		if wasIsoActive and successIso and IsometricCamera then
@@ -109,9 +97,7 @@ function UltimateCameraChoreography.PlaySequence(
 		else
 			camera.CameraType = Enum.CameraType.Custom
 			camera.FieldOfView = 70
-			if humanoid then
-				camera.CameraSubject = humanoid
-			end
+			camera.CameraSubject = humanoid
 		end
 		if onComplete then
 			pcall(onComplete)
@@ -119,68 +105,65 @@ function UltimateCameraChoreography.PlaySequence(
 	end
 
 	task.spawn(function()
-		-- =====================================================================
-		-- SHOT 1: 0.00s – 1.00s | Front Close-Up View (1.0s)
-		-- Camera in FRONT of character, slightly above and to the right,
-		-- looking back at the character's face/upper body during windup.
-		-- =====================================================================
 		local charPos = rootPart.Position
-		local swordPart = getSwordPart()
+		local function offset(o: { number }): Vector3
+			return charPos + flatDir * o[1] + rightVec * o[2] + Vector3.new(0, o[3], 0)
+		end
+		local shotStart = offset(frame.startOffset)
+		-- Subtle drift over the shot (by default: creeps slightly closer and lower)
+		local shotEnd = offset(frame.endOffset)
+		local focusUp = Vector3.new(0, frame.focusHeight, 0)
+		camera.CFrame = CFrame.lookAt(shotStart, charPos + focusUp)
+		camera.FieldOfView = frame.fovStart
 
-		-- Camera positioned in front of the character, slightly right and above
-		local frontOffset = lookVec * 5.5 + rightVec * 2.5 + Vector3.new(0, 3.2, 0)
-		local shot1Start = charPos + frontOffset
-		-- Subtle drift: camera creeps slightly closer and lower over the 1s
-		local shot1End = charPos + lookVec * 4.8 + rightVec * 2.2 + Vector3.new(0, 2.8, 0)
-
-		-- Focus on character's upper body / face area
-		local faceFocus = charPos + Vector3.new(0, 2.2, 0)
-
-		camera.CFrame = CFrame.lookAt(shot1Start, faceFocus)
-		camera.FieldOfView = 55
-
-		local shot1Conn: RBXScriptConnection? = nil
-		local shot1StartTime = os.clock()
-		local SHOT1_DUR = 1.00
-
-		shot1Conn = RunService.RenderStepped:Connect(function()
-			if not isStillActive() or os.clock() - shot1StartTime >= SHOT1_DUR then
-				if shot1Conn then shot1Conn:Disconnect() end
+		local t0 = os.clock()
+		local conn: RBXScriptConnection? = nil
+		conn = RunService.RenderStepped:Connect(function()
+			if not isStillActive() or os.clock() - t0 >= shotDur then
+				if conn then conn:Disconnect() end
 				return
 			end
-			local elapsed = os.clock() - shot1StartTime
-			local alpha = math.clamp(elapsed / SHOT1_DUR, 0, 1)
+			local alpha = math.clamp((os.clock() - t0) / shotDur, 0, 1)
 			local smooth = 1 - math.pow(1 - alpha, 2)
-
-			local curPos = shot1Start:Lerp(shot1End, smooth)
 			-- Track the character's head/chest area as focus point
-			local curFocus = rootPart.Position + Vector3.new(0, 2.2, 0)
-			camera.CFrame = CFrame.lookAt(curPos, curFocus)
-			camera.FieldOfView = 55 + (58 - 55) * smooth
+			camera.CFrame = CFrame.lookAt(shotStart:Lerp(shotEnd, smooth), rootPart.Position + focusUp)
+			camera.FieldOfView = frame.fovStart + (frame.fovEnd - frame.fovStart) * smooth
 		end)
 
-		task.wait(SHOT1_DUR)
-		if shot1Conn then shot1Conn:Disconnect() end
+		task.wait(shotDur)
+		if conn then conn:Disconnect() end
 		if not isStillActive() then restoreCamera() return end
 
-		-- Fire slash start callback — first animation is done, player begins slash
-		if onSlashStart then
-			local ok, err = pcall(onSlashStart)
+		if onRelease then
+			local ok, err = pcall(onRelease)
 			if not ok then
-				warn("[UltimateCameraChoreography] onSlashStart failed:", err)
+				warn("[UltimateCameraChoreography] onRelease failed:", err)
 			end
 		end
-
-		-- Restore camera immediately back to normal gameplay camera
 		restoreCamera()
+	end)
 
-		-- Trigger impact explosion callback at t = 2.10s (1.10s after Shot 1 ends)
+	return isStillActive
+end
+
+-- Heavy Knight: close-up during the wind-up animation, slash starts on the
+-- hand-back, impact explosion 1.10s later.
+function UltimateCameraChoreography.PlaySequence(
+	character: Model,
+	aimDirection: Vector3,
+	onImpact: (() -> ())?,
+	onComplete: (() -> ())?,
+	onSlashStart: (() -> ())?
+)
+	local isStillActive
+	isStillActive = UltimateCameraChoreography.PlayCloseUp(character, aimDirection, 1.0, function()
+		if onSlashStart then onSlashStart() end
 		task.delay(1.10, function()
 			if isStillActive() and onImpact then
 				pcall(onImpact)
 			end
 		end)
-	end)
+	end, onComplete)
 end
 
 function UltimateCameraChoreography.StopSequence()

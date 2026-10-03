@@ -4,6 +4,7 @@ local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
 
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
@@ -137,7 +138,7 @@ function DivineBeamChannel.play(char, range, duration)
 
 	local holder = Instance.new("Folder")
 	holder.Name = "ClericDivineBeam"
-	holder.Parent = Workspace.Terrain
+	holder.Parent = VariantFX.Root()
 
 	local length = range
 

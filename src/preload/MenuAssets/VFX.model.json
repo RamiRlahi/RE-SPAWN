@@ -1,0 +1,7 @@
+{
+  "ClassName": "Folder",
+  "Children": [
+    { "Name": "Sparkles", "ClassName": "Decal", "Properties": { "Texture": "rbxasset://textures/particles/sparkles_main.dds" } },
+    { "Name": "Smoke", "ClassName": "Decal", "Properties": { "Texture": "rbxasset://textures/particles/smoke_main.dds" } }
+  ]
+}
