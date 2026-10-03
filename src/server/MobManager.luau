@@ -350,13 +350,18 @@ end
 -- from the player's view keeps them to what the player can actually see.
 local MAX_LAG = 0.25
 local INTERP = 0.1
-local function seenOffset(mobRoot: BasePart, playerRoot: BasePart): Vector3
+-- How far to move the mob (relative to the player, in server space) to put
+-- it where the player sees it.
+local function lagShift(mobRoot: BasePart, playerRoot: BasePart): Vector3
 	local plr = Players:GetPlayerFromCharacter(playerRoot.Parent)
 	local lag = if plr then math.clamp(plr:GetNetworkPing(), 0, MAX_LAG) else 0
 	local pv, mv = playerRoot.AssemblyLinearVelocity, mobRoot.AssemblyLinearVelocity
-	local playerAt = playerRoot.Position + Vector3.new(pv.X, 0, pv.Z) * lag
-	local mobAt = mobRoot.Position - Vector3.new(mv.X, 0, mv.Z) * (lag + INTERP)
-	return playerAt - mobAt
+	return -Vector3.new(mv.X, 0, mv.Z) * (lag + INTERP) - Vector3.new(pv.X, 0, pv.Z) * lag
+end
+
+-- Player minus mob, as the player sees them.
+local function seenOffset(mobRoot: BasePart, playerRoot: BasePart): Vector3
+	return playerRoot.Position - mobRoot.Position - lagShift(mobRoot, playerRoot)
 end
 
 local function isDecoy(model: Model?): boolean
@@ -983,20 +988,45 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 
 	-- 6. Mob Chase AI & Contact Touch Damage
 	local lastAttackTime = 0
-	-- Contact reach comes from the mob's actual body (its narrowest side) plus
-	-- the player's half-width, never more than the old fixed radius: a slime
-	-- only hurts when it is really touching you.
-	local scaleAtSpawn = mobModel:GetScale()
-	local bodyRadius = math.min(extents.X, extents.Z) * 0.5
-	local bodyHalfHeight = extents.Y * 0.5
-	local contactTicks = 0
-	local function inContact(pRoot: BasePart): boolean
-		local s = mobModel:GetScale() / scaleAtSpawn
-		local reach = math.min((bodyRadius + 1.3) * s, (isBoss and 7.5 or 4.5) * mobModel:GetScale())
-		local d = seenOffset(rootPart, pRoot)
-		if math.abs(d.Y) > bodyHalfHeight * s + 3 then return false end
-		return Vector3.new(d.X, 0, d.Z).Magnitude <= reach
+	-- Contact damage is a real collision: the mob's visible body overlapping
+	-- the player's body (no reach). Round parts (a slime's spheres) are tested
+	-- as spheres, the rest as their boxes; both placed where the player sees
+	-- the mob (lagShift).
+	local bodyParts: { BasePart } = {}
+	for _, d in ipairs(mobModel:GetDescendants()) do
+		if d:IsA("BasePart") and d.Transparency < 0.95 and not d:FindFirstAncestorOfClass("Accessory") then
+			table.insert(bodyParts, d)
+		end
 	end
+	if #bodyParts == 0 then table.insert(bodyParts, rootPart) end
+	local function isRound(p: BasePart): boolean
+		if p:IsA("Part") and p.Shape == Enum.PartType.Ball then return true end
+		if string.find(p.Name, "Sphere") then return true end
+		local s = p.Size
+		return p:IsA("MeshPart") and math.abs(s.X - s.Z) <= 0.25 * math.max(s.X, s.Z)
+	end
+	local function touches(targetChar: Model): boolean
+		local pRoot = targetChar:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if not pRoot then return false end
+		local shift = lagShift(rootPart, pRoot)
+		local op = OverlapParams.new()
+		op.FilterType = Enum.RaycastFilterType.Include
+		op.FilterDescendantsInstances = { targetChar }
+		op.RespectCanCollide = false
+		for _, bp in ipairs(bodyParts) do
+			if bp.Parent and bp.Transparency < 0.95 then
+				local hits = if isRound(bp)
+					then Workspace:GetPartBoundsInRadius(bp.Position + shift, math.min(bp.Size.X, bp.Size.Z) * 0.5, op)
+					else Workspace:GetPartBoundsInBox(bp.CFrame + shift, bp.Size, op)
+				for _, h in ipairs(hits) do
+					-- the body itself, not a hat / cape hanging off it
+					if h.Parent == targetChar then return true end
+				end
+			end
+		end
+		return false
+	end
+	local contactTarget: Model? = nil
 	local function tryDealDamage(targetChar: Model)
 		local hum = targetChar:FindFirstChildOfClass("Humanoid")
 		local pRoot = targetChar:FindFirstChild("HumanoidRootPart")
@@ -1082,17 +1112,26 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 				if pRoot then
 					humanoid:MoveTo(pRoot.Position)
 
-					-- If in close contact range, deal damage (a Magma Slime
-					-- only hurts when it bursts)
-					-- (touching on two checks in a row: the server sees the player a
-					-- little behind where they are, so one brush isn't a hit)
-					if mobModel:GetAttribute("NoContact") ~= true and inContact(pRoot) then
-						contactTicks += 1
-						if contactTicks >= 2 then tryDealDamage(closestPlayerChar) end
-					else
-						contactTicks = 0
-					end
+					-- (contact damage: the loop below)
+					contactTarget = closestPlayerChar
 				end
+			else
+				contactTarget = nil
+			end
+		end
+	end)
+
+	-- Contact damage, checked often so a brief bump counts and a near miss
+	-- doesn't (a Magma Slime only hurts when it bursts).
+	task.spawn(function()
+		while mobModel.Parent and humanoid.Health > 0 do
+			task.wait(0.1)
+			if not rootPart.Parent then break end
+			local target = contactTarget
+			if target and target.Parent and mobModel:GetAttribute("NoContact") ~= true
+				and not rootPart.Anchored and not mobsAreFrozen(mobModel) and not runPaused(mobModel)
+				and touches(target) then
+				tryDealDamage(target)
 			end
 		end
 	end)
