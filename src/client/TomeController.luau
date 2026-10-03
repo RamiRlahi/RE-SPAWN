@@ -1,30 +1,26 @@
 --!strict
--- Run progression UI: a segmented XP bar and a three-tome level-up choice.
--- Styled to match the medieval guild-hall menu (wood / brass / Antique),
--- with a distinct accent colour per buff.
+-- Run progression UI: the account XP bar, and the level-up / relic choice
+-- (shown by ChoiceScreen: each tome a 3D book, each relic its own model).
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RunScope = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("RunScope"))
 local Network = require(Shared:WaitForChild("Network"))
 local TomeData = require(Shared:WaitForChild("TomeData"))
+local ChoiceScreen = require(script.Parent:WaitForChild("ChoiceScreen"))
 
 -- ── Palette (matches TitleScreen / SettingsModal) ────────────────────────────
 local BRASS = Color3.fromRGB(194, 132, 52)
 local BRASS_LIGHT = Color3.fromRGB(255, 213, 128)
 local BRASS_DARK = Color3.fromRGB(120, 78, 26)
-local PLAQUE = Color3.fromRGB(37, 28, 24)
 local PLAQUE_DARK = Color3.fromRGB(17, 13, 13)
-local WOOD_MID = Color3.fromRGB(72, 48, 33)
 local PARCHMENT = Color3.fromRGB(239, 213, 170)
 local INK = Color3.fromRGB(28, 15, 10)
-local GLYPH = "❖"
 
 local FONT = Enum.Font.Antique
 
@@ -37,15 +33,8 @@ TomeController.AccentFor = accentFor
 local barRoot: Frame? = nil
 local fill: Frame? = nil
 local progressText: TextLabel? = nil
--- Per-tome icon images (optional). Key = tome id, value = "rbxassetid://...".
--- Drop matching image Decals in ReplicatedStorage and paste their ids here (same workflow as the skill icons).
-local TOME_ICONS = {
-	-- damage = "rbxassetid://000000000000000",
-}
-
 local choiceOverlay: Frame? = nil
-local rerollButton: TextButton? = nil
-local rerollLabel: TextLabel? = nil
+local choiceScreen: any = nil
 
 local function addGradient(parent: Instance, c1: Color3, c2: Color3, rotation: number?): UIGradient
 	local grad = Instance.new("UIGradient")
@@ -70,12 +59,6 @@ local function makeText(parent: Instance, text: string, size: number, color: Col
 	label.Text = text
 	label.Parent = parent
 	return label
-end
-
-local function addCorner(parent: Instance, corner: number)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, corner)
-	c.Parent = parent
 end
 
 -- The account level bar: shown during a run (not in the menus).
@@ -118,265 +101,12 @@ local function levelUpBanner(gui: ScreenGui, level: number)
 	task.delay(3.1, function() banner:Destroy() end)
 end
 
-local function buildCard(parent: Instance, tome: any, index: number, total: number)
-	local accent = accentFor(tome.id)
-	local accentBright = accent:Lerp(Color3.new(1, 1, 1), 0.35)
-
-	local slotW = 1 / total
-	local card = Instance.new("TextButton")
-	card.Name = `Tome_{tome.id}`
-	card.Size = UDim2.new(slotW, -16, 1, -12)
-	card.Position = UDim2.new((index - 1) * slotW, 8, 0, 6)
-	card.BackgroundTransparency = 1
-	card.Text = ""
-	card.BorderSizePixel = 0
-	card.AutoButtonColor = false
-	card.ZIndex = 22
-	card.Parent = parent
-
-	-- Depth shadow plaque behind
-	local shadow = Instance.new("Frame")
-	shadow.Name = "Depth"
-	shadow.Size = UDim2.new(1, 6, 1, 8)
-	shadow.Position = UDim2.new(0, 4, 0, 6)
-	shadow.BackgroundColor3 = Color3.fromRGB(8, 5, 4)
-	shadow.BorderSizePixel = 0
-	shadow.ZIndex = 1
-	shadow.Parent = card
-	addCorner(shadow, 8)
-
-	-- Wood plaque face
-	local face = Instance.new("Frame")
-	face.Name = "Face"
-	face.Size = UDim2.fromScale(1, 1)
-	face.BackgroundColor3 = PLAQUE
-	face.BorderSizePixel = 0
-	face.ZIndex = 2
-	face.Parent = card
-	addCorner(face, 8)
-	addGradient(face, WOOD_MID, PLAQUE_DARK, 90)
-
-	-- Brass outer stroke, tinted toward the buff accent
-	local outer = Instance.new("UIStroke")
-	outer.Color = accent:Lerp(BRASS, 0.35)
-	outer.Thickness = 2
-	outer.Transparency = 0.05
-	outer.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	outer.Parent = face
-
-	-- Inner hairline
-	local inner = Instance.new("Frame")
-	inner.Name = "Inner"
-	inner.Size = UDim2.new(1, -10, 1, -10)
-	inner.Position = UDim2.new(0, 5, 0, 5)
-	inner.BackgroundTransparency = 1
-	inner.ZIndex = 3
-	inner.Parent = face
-	local innerStroke = Instance.new("UIStroke")
-	innerStroke.Color = BRASS_DARK
-	innerStroke.Thickness = 1
-	innerStroke.Transparency = 0.4
-	innerStroke.Parent = inner
-	addCorner(inner, 6)
-
-	-- ── Emblem seal (fills the upper half of the card) ──────────────────────
-	local emblem = Instance.new("Frame")
-	emblem.Name = "Emblem"
-	emblem.AnchorPoint = Vector2.new(0.5, 0)
-	emblem.Position = UDim2.new(0.5, 0, 0, 16)
-	emblem.Size = UDim2.new(0, 68, 0, 68)
-	emblem.BackgroundColor3 = PLAQUE_DARK
-	emblem.BorderSizePixel = 0
-	emblem.ZIndex = 4
-	emblem.Parent = face
-	addCorner(emblem, 34)
-	local emblemGrad = Instance.new("UIGradient")
-	emblemGrad.Color = ColorSequence.new(accent:Lerp(PLAQUE_DARK, 0.5), PLAQUE_DARK)
-	emblemGrad.Rotation = 90
-	emblemGrad.Parent = emblem
-	local emblemRing = Instance.new("UIStroke")
-	emblemRing.Color = accent
-	emblemRing.Thickness = 2
-	emblemRing.Transparency = 0.1
-	emblemRing.Parent = emblem
-
-	-- Wax-seal monogram fallback
-	local monogram = makeText(emblem, string.sub(tome.name, 1, 1), 34, accentBright, INK)
-	monogram.Name = "Monogram"
-	monogram.Size = UDim2.fromScale(1, 1)
-	monogram.ZIndex = 5
-
-	-- Real icon image (shown when TOME_ICONS[tome.id] is set)
-	local iconImage = Instance.new("ImageLabel")
-	iconImage.Name = "Icon"
-	iconImage.Size = UDim2.new(1, -8, 1, -8)
-	iconImage.Position = UDim2.new(0.5, 0, 0.5, 0)
-	iconImage.AnchorPoint = Vector2.new(0.5, 0.5)
-	iconImage.BackgroundTransparency = 1
-	iconImage.BorderSizePixel = 0
-	iconImage.ScaleType = Enum.ScaleType.Fit
-	iconImage.ZIndex = 6
-	iconImage.Visible = false
-	iconImage.Parent = emblem
-	addCorner(iconImage, 30)
-	local iconId = TOME_ICONS[tome.id]
-	if iconId and iconId ~= "" then
-		iconImage.Image = iconId
-		iconImage.Visible = true
-		monogram.Visible = false
-	end
-
-	-- Accent header bar
-	local bar = Instance.new("Frame")
-	bar.Name = "AccentBar"
-	bar.Size = UDim2.new(1, -28, 0, 3)
-	bar.Position = UDim2.new(0, 14, 0, 9)
-	bar.BackgroundColor3 = accent
-	bar.BorderSizePixel = 0
-	bar.ZIndex = 4
-	bar.Parent = face
-	addCorner(bar, 2)
-	local barGlow = Instance.new("UIStroke")
-	barGlow.Color = accentBright
-	barGlow.Thickness = 1
-	barGlow.Transparency = 0.4
-	barGlow.Parent = bar
-
-	-- Title
-	local title = makeText(face, tome.name, 19, accentBright, INK)
-	title.Name = "Title"
-	title.Size = UDim2.new(1, -20, 0, 24)
-	title.Position = UDim2.new(0, 10, 0, 90)
-	title.TextXAlignment = Enum.TextXAlignment.Center
-	title.TextWrapped = true
-	title.ZIndex = 4
-
-	-- Category tag
-	-- (a boon reads its level: what this pick takes it to)
-	local t = tome :: any
-	local category = if tome.category == "Boon" then `BOON  ·  LV {t.level or 1} / {t.maxLevel or 3}`
-		elseif tome.category == "Relic" then (if tome.classId then "CLASS RELIC" else "RUN RELIC")
-		elseif tome.category == "Unlockable" then "UNLOCKABLE"
-		else "BASE"
-	local tag = makeText(face, category, 11, if tome.category == "Boon" then accentBright else BRASS, INK)
-	tag.Name = "Tag"
-	tag.Size = UDim2.new(1, -20, 0, 13)
-	tag.Position = UDim2.new(0, 10, 0, 115)
-	tag.TextXAlignment = Enum.TextXAlignment.Center
-	tag.ZIndex = 4
-
-	-- Divider
-	local divider = Instance.new("Frame")
-	divider.Name = "Divider"
-	divider.Size = UDim2.new(1, -28, 0, 1)
-	divider.Position = UDim2.new(0, 14, 0, 132)
-	divider.BackgroundColor3 = accent
-	divider.BackgroundTransparency = 0.55
-	divider.BorderSizePixel = 0
-	divider.ZIndex = 4
-	divider.Parent = face
-
-	-- Description
-	local description = makeText(face, tome.description, 14, PARCHMENT, INK)
-	description.Name = "Description"
-	description.Size = UDim2.new(1, -24, 0, 52)
-	description.Position = UDim2.new(0, 12, 0, 140)
-	description.TextXAlignment = Enum.TextXAlignment.Center
-	description.TextYAlignment = Enum.TextYAlignment.Top
-	description.TextWrapped = true
-	description.ZIndex = 4
-	-- (a boon's text, with what it evolves into, can run long: it shrinks to fit)
-	description.TextScaled = true
-	local fitText = Instance.new("UITextSizeConstraint")
-	fitText.MaxTextSize = 14
-	fitText.MinTextSize = 9
-	fitText.Parent = description
-
-	-- Corner ornaments in the accent colour
-	for _, pos in ipairs({
-		{ UDim2.new(0, 8, 0, 8), Enum.TextXAlignment.Left },
-		{ UDim2.new(1, -8, 0, 8), Enum.TextXAlignment.Right },
-	}) do
-		local orn = Instance.new("TextLabel")
-		orn.BackgroundTransparency = 1
-		orn.Size = UDim2.new(0, 16, 0, 16)
-		orn.Position = pos[1]
-		orn.AnchorPoint = (pos[2] == Enum.TextXAlignment.Right) and Vector2.new(1, 0) or Vector2.new(0, 0)
-		orn.Font = FONT
-		orn.Text = GLYPH
-		orn.TextSize = 13
-		orn.TextColor3 = accent
-		orn.TextStrokeColor3 = INK
-		orn.TextStrokeTransparency = 0.5
-		orn.ZIndex = 4
-		orn.Parent = face
-	end
-
-	-- Hover + click feedback
-	local baseStroke = outer.Color
-	local baseTransparency = outer.Transparency
-	card.MouseEnter:Connect(function()
-		if not card.Active then return end
-		TweenService:Create(face, TweenInfo.new(0.15, Enum.EasingStyle.Quad), { BackgroundColor3 = PLAQUE:Lerp(accent, 0.12) }):Play()
-		TweenService:Create(outer, TweenInfo.new(0.15, Enum.EasingStyle.Quad), { Color = accentBright, Transparency = 0, Thickness = 3 }):Play()
-	end)
-	card.MouseLeave:Connect(function()
-		TweenService:Create(face, TweenInfo.new(0.15, Enum.EasingStyle.Quad), { BackgroundColor3 = PLAQUE }):Play()
-		TweenService:Create(outer, TweenInfo.new(0.15, Enum.EasingStyle.Quad), { Color = baseStroke, Transparency = baseTransparency, Thickness = 2 }):Play()
-	end)
-	card.Activated:Connect(function()
-		if not card.Active then return end
-		choiceOverlay.Visible = false
-		Network.GetRemoteEvent(Network.Remotes.ChooseTome):FireServer(tome.id)
-	end)
-
-	return card
-end
-
+-- A level-up's tomes / boons or a relic found: the pick-one screen
+-- (ChoiceScreen: 3D books and relics on pedestals).
 local function showChoices(choices: { any }, rerollsRemaining: number, lockDuration: number)
-	if not choiceOverlay then return end
+	if not choiceOverlay or not choiceScreen then return end
 	choiceOverlay.Visible = true
-	local cards = choiceOverlay:FindFirstChild("Cards") :: Frame
-	for _, child in ipairs(cards:GetChildren()) do
-		if child:IsA("TextButton") then child:Destroy() end
-	end
-
-	for index, tome in ipairs(choices) do
-		buildCard(cards, tome, index, #choices)
-	end
-
-	-- (a relic found: the heading says so)
-	local relics = #choices > 0 and choices[1].category == "Relic"
-	local heading = choiceOverlay:FindFirstChild("Heading") :: TextLabel?
-	local sub = choiceOverlay:FindFirstChild("Subheading") :: TextLabel?
-	if heading then heading.Text = if relics then "A RELIC FOUND" else "CHOOSE A TOME" end
-	if sub then sub.Text = if relics then "—  CHOOSE ONE TO CARRY (3 RELIC SLOTS)  —" else "—  CHOOSE A TOME  —" end
-
-	if rerollButton and rerollLabel then
-		rerollLabel.Text = rerollsRemaining > 0 and `REROLL  ({rerollsRemaining})` or "NO REROLLS LEFT"
-		rerollButton.Visible = rerollsRemaining > 0
-		rerollButton.Active = false
-		rerollButton.AutoButtonColor = false
-	end
-	for _, child in ipairs(cards:GetChildren()) do
-		if child:IsA("TextButton") then
-			child.Active = false
-			child.AutoButtonColor = false
-		end
-	end
-	task.delay(lockDuration, function()
-		if not choiceOverlay or not choiceOverlay.Visible then return end
-		for _, child in ipairs(cards:GetChildren()) do
-			if child:IsA("TextButton") then
-				child.Active = true
-				child.AutoButtonColor = true
-			end
-		end
-		if rerollButton and rerollsRemaining > 0 then
-			rerollButton.Active = true
-			rerollButton.AutoButtonColor = true
-		end
-	end)
+	choiceScreen.Show(choices, rerollsRemaining, lockDuration)
 end
 
 function TomeController.Init()
@@ -456,89 +186,15 @@ function TomeController.Init()
 		end
 	end)
 
-	-- Dark backdrop lives on its OWN low ZIndex layer. Previously the overlay itself
-	-- was the dark panel at ZIndex 20, which rendered ABOVE the cards' inner elements
-	-- (they use ZIndex 1-4), blacking out the tome panels. ZIndex is global per ScreenGui.
-	local backdrop = Instance.new("Frame")
-	backdrop.Name = "Backdrop"
-	backdrop.Size = UDim2.fromScale(1, 1)
-	backdrop.BackgroundColor3 = PLAQUE_DARK
-	backdrop.BackgroundTransparency = 0.35
-	backdrop.BorderSizePixel = 0
-	backdrop.ZIndex = 0
-	backdrop.Parent = choiceOverlay
-
-	-- Heading plaque
-	local heading = makeText(choiceOverlay, "CHOOSE A TOME", 40, BRASS_LIGHT, INK)
-	heading.Name = "Heading"
-	heading.Size = UDim2.new(1, 0, 0, 46)
-	heading.Position = UDim2.new(0, 0, 0.5, -166)
-	heading.ZIndex = 21
-	local headingGlow = Instance.new("UIStroke")
-	headingGlow.Color = BRASS_DARK
-	headingGlow.Thickness = 1
-	headingGlow.Transparency = 0.5
-	headingGlow.Parent = heading
-
-	local subheading = makeText(choiceOverlay, "—  CHOOSE A TOME  —", 18, PARCHMENT, INK)
-	subheading.Name = "Subheading"
-	subheading.Size = UDim2.new(1, 0, 0, 22)
-	subheading.Position = UDim2.new(0, 0, 0.5, -116)
-	subheading.ZIndex = 21
-
-	local cards = Instance.new("Frame")
-	cards.Name = "Cards"
-	cards.AnchorPoint = Vector2.new(0.5, 0.5)
-	cards.Position = UDim2.new(0.5, 0, 0.5, 6)
-	cards.Size = UDim2.new(0.56, 0, 0, 200)
-	cards.BackgroundTransparency = 1
-	cards.ZIndex = 21
-	cards.Parent = choiceOverlay
-
-	rerollButton = Instance.new("TextButton")
-	rerollButton.Name = "Reroll"
-	rerollButton.AnchorPoint = Vector2.new(0.5, 0)
-	rerollButton.Position = UDim2.new(0.5, 0, 0.5, 120)
-	rerollButton.Size = UDim2.new(0, 170, 0, 38)
-	rerollButton.BackgroundColor3 = PLAQUE
-	rerollButton.BorderSizePixel = 0
-	rerollButton.Text = ""
-	rerollButton.ZIndex = 22
-	rerollButton.Parent = choiceOverlay
-	addCorner(rerollButton, 6)
-	addGradient(rerollButton, WOOD_MID, PLAQUE_DARK, 90)
-	-- Text on its own label: the wood gradient would tint the button's own
-	-- text nearly black.
-	rerollLabel = Instance.new("TextLabel")
-	rerollLabel.Name = "Label"
-	rerollLabel.Size = UDim2.fromScale(1, 1)
-	rerollLabel.BackgroundTransparency = 1
-	rerollLabel.Font = FONT
-	rerollLabel.TextSize = 17
-	rerollLabel.TextColor3 = BRASS_LIGHT
-	rerollLabel.TextStrokeColor3 = INK
-	rerollLabel.TextStrokeTransparency = 0.4
-	rerollLabel.ZIndex = 23
-	rerollLabel.Parent = rerollButton
-	local rerollStroke = Instance.new("UIStroke")
-	rerollStroke.Color = BRASS
-	rerollStroke.Thickness = 2
-	rerollStroke.Transparency = 0.15
-	rerollStroke.Parent = rerollButton
-	rerollButton.MouseEnter:Connect(function()
-		if not rerollButton.Active then return end
-		TweenService:Create(rerollButton, TweenInfo.new(0.15), { BackgroundColor3 = PLAQUE:Lerp(BRASS, 0.15) }):Play()
-		TweenService:Create(rerollStroke, TweenInfo.new(0.15), { Color = BRASS_LIGHT, Transparency = 0 }):Play()
+	choiceScreen = ChoiceScreen.Create(overlay, function(id: string)
+		overlay.Visible = false
+		Network.GetRemoteEvent(Network.Remotes.ChooseTome):FireServer(id)
+	end, function()
+		Network.GetRemoteEvent(Network.Remotes.RerollTomes):FireServer()
 	end)
-	rerollButton.MouseLeave:Connect(function()
-		TweenService:Create(rerollButton, TweenInfo.new(0.15), { BackgroundColor3 = PLAQUE }):Play()
-		TweenService:Create(rerollStroke, TweenInfo.new(0.15), { Color = BRASS, Transparency = 0.15 }):Play()
-	end)
-	rerollButton.Activated:Connect(function()
-		if rerollButton and rerollButton.Active then
-			rerollButton.Active = false
-			Network.GetRemoteEvent(Network.Remotes.RerollTomes):FireServer()
-		end
+	-- (closed from anywhere: stop the 3D models spinning)
+	overlay:GetPropertyChangedSignal("Visible"):Connect(function()
+		if not overlay.Visible then choiceScreen.Hide() end
 	end)
 
 	Network.GetRemoteEvent(Network.Remotes.TomeProgress).OnClientEvent:Connect(function(payload: any)
