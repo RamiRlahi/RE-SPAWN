@@ -342,6 +342,23 @@ local function findDecoyTarget(mobPos: Vector3): (Model?, number)
 	return best, bestDist
 end
 
+-- Where the player and the mob are relative to each other ON THE PLAYER'S
+-- SCREEN. The server sees the player a ping behind where they really are, and
+-- the player sees the mob a ping (plus interpolation) behind where the server
+-- has it: while a mob chases you those add up to several studs, so "touching"
+-- on the server looked like a hit from far away. Judging melee / contact hits
+-- from the player's view keeps them to what the player can actually see.
+local MAX_LAG = 0.25
+local INTERP = 0.1
+local function seenOffset(mobRoot: BasePart, playerRoot: BasePart): Vector3
+	local plr = Players:GetPlayerFromCharacter(playerRoot.Parent)
+	local lag = if plr then math.clamp(plr:GetNetworkPing(), 0, MAX_LAG) else 0
+	local pv, mv = playerRoot.AssemblyLinearVelocity, mobRoot.AssemblyLinearVelocity
+	local playerAt = playerRoot.Position + Vector3.new(pv.X, 0, pv.Z) * lag
+	local mobAt = mobRoot.Position - Vector3.new(mv.X, 0, mv.Z) * (lag + INTERP)
+	return playerAt - mobAt
+end
+
 local function isDecoy(model: Model?): boolean
 	return model ~= nil and decoys[model] ~= nil
 end
@@ -801,7 +818,7 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 									if not mobModel.Parent or humanoid.Health <= 0 or not rootPart.Parent then return end
 									local r = target:FindFirstChild("HumanoidRootPart") :: BasePart?
 									if not r then return end
-									local d = r.Position - rootPart.Position
+									local d = seenOffset(rootPart, r)
 									if math.abs(d.Y) <= 5 and Vector3.new(d.X, 0, d.Z).Magnitude <= attackRange + 0.75 then
 										damagePlayer(target)
 									end
@@ -976,7 +993,7 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 	local function inContact(pRoot: BasePart): boolean
 		local s = mobModel:GetScale() / scaleAtSpawn
 		local reach = math.min((bodyRadius + 1.3) * s, (isBoss and 7.5 or 4.5) * mobModel:GetScale())
-		local d = pRoot.Position - rootPart.Position
+		local d = seenOffset(rootPart, pRoot)
 		if math.abs(d.Y) > bodyHalfHeight * s + 3 then return false end
 		return Vector3.new(d.X, 0, d.Z).Magnitude <= reach
 	end
