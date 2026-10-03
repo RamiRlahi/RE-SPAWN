@@ -1,0 +1,2 @@
+-- Replaces Roblox's default "Health" character script, which regenerates HP
+-- over time. Health only comes back from healing (tomes, rooms, abilities).

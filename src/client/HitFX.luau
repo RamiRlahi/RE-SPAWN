@@ -22,6 +22,7 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Network = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Network"))
+local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
 
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
@@ -32,6 +33,9 @@ local TEX_FIRE = "rbxasset://textures/particles/fire_main.dds"
 local CRIT_GOLD = Color3.fromRGB(255, 215, 90)
 
 local HitFX = {}
+
+-- Whose hit is being drawn (its VFX variant colours the impact).
+local currentAttacker: Player? = nil
 
 -- ─── Helpers ────────────────────────────────────────────────────────────────
 local function part(props: { [string]: any }): BasePart
@@ -46,13 +50,13 @@ local function part(props: { [string]: any }): BasePart
 	for k, v in pairs(props) do
 		(p :: any)[k] = v
 	end
-	p.Parent = Workspace.Terrain
+	p.Parent = VariantFX.RootFor(currentAttacker)
 	return p
 end
 
 local function burst(pos: Vector3, props: { [string]: any }, count: number, life: number?)
 	local a = Instance.new("Attachment")
-	a.Parent = Workspace.Terrain
+	a.Parent = VariantFX.RootFor(currentAttacker)
 	a.WorldPosition = pos
 	local pe = Instance.new("ParticleEmitter")
 	pe.LightInfluence = 0
@@ -75,7 +79,7 @@ end
 
 local function flashLight(pos: Vector3, color: Color3, brightness: number, range: number)
 	local a = Instance.new("Attachment")
-	a.Parent = Workspace.Terrain
+	a.Parent = VariantFX.RootFor(currentAttacker)
 	a.WorldPosition = pos
 	local l = Instance.new("PointLight")
 	l.Color, l.Brightness, l.Range, l.Shadows = color, brightness, range, false
@@ -191,6 +195,23 @@ STYLES.arrow = function(h)
 		Speed = NumberRange.new(1, 3) }, 3)
 end
 
+-- Gunslinger bullets: a brass spark spray, a ring on heavy/crit hits and a
+-- small gunpowder puff.
+STYLES.bullet = function(h)
+	local c = h.pos + Vector3.new(0, 0.9, 0)
+	local brass = if h.crit then CRIT_GOLD else Color3.fromRGB(255, 196, 110)
+	burst(c, { Texture = TEX_SPARKLE, Color = ColorSequence.new(Color3.fromRGB(255, 250, 230), brass), LightEmission = 1,
+		Size = seq(0, 0.4 * h.scale, 1, 0), Lifetime = NumberRange.new(0.12, 0.28), Speed = NumberRange.new(16, 30),
+		SpreadAngle = Vector2.new(35, 35), EmissionDirection = Enum.NormalId.Front }, math.floor(12 * h.scale))
+	if h.heavy or h.crit then
+		ringWave(c - h.dir * 0.6, -h.dir, 0.3, 2.2 * h.scale, 0.2, brass)
+	end
+	burst(c, { Texture = TEX_SMOKE, Color = ColorSequence.new(Color3.fromRGB(150, 138, 124), Color3.fromRGB(90, 84, 78)), LightEmission = 0,
+		Size = seq(0, 0.7, 1, 2.2 * h.scale), Transparency = seq(0, 0.5, 1, 1), Lifetime = NumberRange.new(0.4, 0.7),
+		Speed = NumberRange.new(1, 3) }, 3)
+	flashLight(c, brass, 2 * h.scale, 8)
+end
+
 STYLES.nature = function(h)
 	local c = h.pos + Vector3.new(0, 0.6, 0)
 	local side = h.dir:Cross(Vector3.yAxis).Unit
@@ -257,7 +278,28 @@ local function shake(amount: number)
 	end)
 end
 
+-- Ricochet Tome hop: a bright streak from one enemy to the next plus a spark.
+local RICOCHET_COLOR = Color3.fromRGB(255, 214, 120)
+local function ricochetHop(from: Vector3, to: Vector3)
+	local lift = Vector3.new(0, 1.5, 0)
+	local a, b = from + lift, to + lift
+	local len = (b - a).Magnitude
+	if len < 0.1 then return end
+	local streak = part({ Size = Vector3.new(0.25, 0.25, len), CFrame = CFrame.lookAt((a + b) / 2, b), Color = RICOCHET_COLOR, Transparency = 0.1 })
+	TweenService:Create(streak, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Transparency = 1, Size = Vector3.new(0.05, 0.05, len) }):Play()
+	Debris:AddItem(streak, 0.25)
+	burst(b, { Texture = TEX_SPARKLE, Color = ColorSequence.new(Color3.new(1, 1, 1), RICOCHET_COLOR), LightEmission = 1,
+		Size = seq(0, 0.5, 1, 0), Lifetime = NumberRange.new(0.15, 0.3), Speed = NumberRange.new(8, 16) }, 10, 0.5)
+	flashLight(b, RICOCHET_COLOR, 2, 8)
+end
+
 function HitFX.Init()
+	Network.GetRemoteEvent(Network.Remotes.RicochetFX).OnClientEvent:Connect(function(p: any)
+		if typeof(p) ~= "table" or typeof(p.from) ~= "Vector3" or typeof(p.to) ~= "Vector3" then return end
+		currentAttacker = if typeof(p.attacker) == "Instance" and p.attacker:IsA("Player") then p.attacker else nil
+		ricochetHop(p.from, p.to)
+		currentAttacker = nil
+	end)
 	Network.GetRemoteEvent(Network.Remotes.HitImpact).OnClientEvent:Connect(function(p: any)
 		if typeof(p) ~= "table" or typeof(p.position) ~= "Vector3" then return end
 		local style = STYLES[p.style]
@@ -265,8 +307,10 @@ function HitFX.Init()
 		local crit = p.crit == true
 		local heavy = p.heavy == true
 		if style then
+			currentAttacker = if typeof(p.attacker) == "Instance" and p.attacker:IsA("Player") then p.attacker else nil
 			style({ pos = p.position, dir = dir, crit = crit, heavy = heavy,
 				scale = (heavy and 1.4 or 1) * (crit and 1.35 or 1) })
+			currentAttacker = nil
 		end
 		if typeof(p.model) == "Instance" and p.model:IsA("Model") then
 			hitFlash(p.model, crit)

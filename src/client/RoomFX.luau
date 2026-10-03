@@ -229,75 +229,6 @@ local function coinToss(coin: Instance?)
 	end)
 end
 
--- ─── Gold counter ───────────────────────────────────────────────────────────
-local function buildGoldCounter()
-	local gui = Instance.new("ScreenGui")
-	gui.Name = "GoldCounter"
-	gui.ResetOnSpawn = false
-	gui.IgnoreGuiInset = false
-	gui.Parent = player:WaitForChild("PlayerGui")
-	local frame = Instance.new("Frame")
-	frame.AnchorPoint = Vector2.new(0, 1)
-	frame.Position = UDim2.new(0, 20, 1, -80) -- just above the health bar
-	frame.Size = UDim2.fromOffset(130, 30)
-	frame.BackgroundColor3 = Color3.fromRGB(18, 16, 22)
-	frame.BackgroundTransparency = 0.2
-	frame.Parent = gui
-	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = Color3.fromRGB(140, 110, 40)
-	stroke.Thickness = 1.5
-	stroke.Parent = frame
-	local coin = Instance.new("Frame")
-	coin.Size = UDim2.fromOffset(16, 16)
-	coin.Position = UDim2.new(0, 10, 0.5, -8)
-	coin.BackgroundColor3 = GOLD
-	coin.Parent = frame
-	Instance.new("UICorner", coin).CornerRadius = UDim.new(1, 0)
-	local label = Instance.new("TextLabel")
-	label.BackgroundTransparency = 1
-	label.Position = UDim2.new(0, 34, 0, 0)
-	label.Size = UDim2.new(1, -40, 1, 0)
-	label.Font = Enum.Font.GothamBlack
-	label.TextSize = 18
-	label.TextXAlignment = Enum.TextXAlignment.Left
-	label.TextColor3 = Color3.fromRGB(255, 220, 120)
-	label.Parent = frame
-	local scale = Instance.new("UIScale")
-	scale.Parent = frame
-
-	local shown = player:GetAttribute("Gold") or 0
-	label.Text = tostring(shown)
-	local function refreshVisible()
-		frame.Visible = player:GetAttribute("InLobby") ~= true
-	end
-	refreshVisible()
-	player:GetAttributeChangedSignal("InLobby"):Connect(refreshVisible)
-
-	local counting = false
-	player:GetAttributeChangedSignal("Gold"):Connect(function()
-		local target = player:GetAttribute("Gold") or 0
-		local gained = target > shown
-		label.TextColor3 = gained and Color3.fromRGB(150, 255, 150) or Color3.fromRGB(255, 120, 120)
-		scale.Scale = gained and 1.15 or 0.92
-		TweenService:Create(scale, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
-		if counting then return end
-		counting = true
-		task.spawn(function()
-			while shown ~= (player:GetAttribute("Gold") or 0) do
-				local goal = player:GetAttribute("Gold") or 0
-				local step = math.max(1, math.ceil(math.abs(goal - shown) / 8))
-				shown += (goal > shown) and step or -step
-				if math.abs(goal - shown) < step then shown = goal end
-				label.Text = tostring(shown)
-				task.wait(0.025)
-			end
-			label.TextColor3 = Color3.fromRGB(255, 220, 120)
-			counting = false
-		end)
-	end)
-end
-
 -- ─── Per-frame ──────────────────────────────────────────────────────────────
 local function step()
 	local t = os.clock()
@@ -395,7 +326,6 @@ function RoomFX.Init()
 		end
 	end)
 
-	task.spawn(buildGoldCounter)
 	RunService.RenderStepped:Connect(step)
 end
 

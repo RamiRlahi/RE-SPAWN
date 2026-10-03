@@ -3,13 +3,14 @@ local Players = game:GetService("Players")
 
 local SoundManager = {}
 
--- Audio asset IDs (configure with your custom asset IDs when ready)
+-- Audio asset IDs (Roblox's licensed Pro Sound Effects library). Soft wooden
+-- knocks and paper suit the guild-hall menus; swap any id to change it.
 local Sounds = {
-	Hover = "",
-	Click = "",
-	Select = "",
-	Confirm = "",
-	Close = "",
+	Hover = "rbxassetid://9119978043",   -- Temple Blocks, soft double hit
+	Click = "rbxassetid://9119979016",   -- Temple Blocks, double hit
+	Select = "rbxassetid://9118835420",  -- Scrapbook page turn
+	Confirm = "rbxassetid://9116394876", -- soft magic chime
+	Close = "rbxassetid://9118835414",   -- Scrapbook page turn
 	Error = "",
 }
 

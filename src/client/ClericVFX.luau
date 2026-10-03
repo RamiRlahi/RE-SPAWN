@@ -3,6 +3,7 @@ local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
 
 local HOLY_IVORY = Color3.fromRGB(255, 250, 238)
 local HOLY_GOLD = Color3.fromRGB(255, 206, 112)
@@ -16,7 +17,7 @@ function ClericVFX.playRadiantGround(origin, radius)
 	radius = radius or 16
 	local holder = Instance.new("Folder")
 	holder.Name = "ClericRadiantGround"
-	holder.Parent = Workspace.Terrain
+	holder.Parent = VariantFX.Root()
 
 	-- Find the ground surface under the origin so the ray lands on the floor.
 	local rayParams = RaycastParams.new()
@@ -101,7 +102,7 @@ function ClericVFX.playRadiantGround(origin, radius)
 	local light = Instance.new("PointLight")
 	light.Color = HOLY_GOLD
 	light.Brightness = 5
-	light.Range = radius * 1.6
+	light.Range = math.min(radius, 16) * 1.6 -- (the unscaled zone: not by the Size Tome)
 	light.Shadows = false
 	light.Parent = flash
 

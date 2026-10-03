@@ -1,7 +1,7 @@
 --[[
 	SummonScreen.luau
-	The summon page, styled like the class-selection menu (UITheme panels, gold
-	section tags, gold gradient action buttons, carousel-style back button).
+	The summon page, styled like the title menu and class selection (MenuStyle:
+	dark wood plaques, brass rails, crimson ribbons, parchment Antique text).
 
 	  top      title, back button, currency pills
 	  left     featured banner panel + Rates & Pity (odds disclosure generated
@@ -26,12 +26,28 @@ local GachaConfig = require(Shared:WaitForChild("GachaConfig"))
 local GachaRewards = require(Shared:WaitForChild("GachaRewards"))
 local ClassData = require(Shared:WaitForChild("ClassData"))
 local SoundManager = require(script.Parent:WaitForChild("SoundManager"))
+local MenuStyle = require(script.Parent:WaitForChild("MenuStyle"))
 local SummonCinematic = require(script.Parent.Parent:WaitForChild("SummonCinematic"))
 local LobbyCamera = require(script.Parent.Parent:WaitForChild("LobbyCamera"))
 
 local player = Players.LocalPlayer
-local C = UITheme.Colors
-local F = UITheme.Fonts
+-- The guild-hall palette under the names this screen was written with.
+local MC = MenuStyle.Colors
+local C = {
+	Surface = MC.Plaque,
+	SurfaceAlt = MC.PlaqueDark,
+	SurfaceSelected = MC.PlaqueHover,
+	Border = MC.BrassDark,
+	Gold = MC.BrassLight,
+	GoldLight = Color3.fromRGB(255, 236, 194),
+	TextPrimary = MC.Parchment,
+	TextSecondary = Color3.fromRGB(222, 196, 156),
+	TextMuted = MC.ParchmentMuted,
+	BackgroundOverlay = Color3.fromRGB(10, 6, 5),
+	Danger = Color3.fromRGB(235, 96, 74),
+}
+local FONT = MenuStyle.Font
+local F = { Title = FONT, Header = FONT, Body = FONT, Sub = FONT, Button = FONT, Tag = FONT }
 
 local SummonScreen = {}
 
@@ -42,14 +58,16 @@ local payWith = "tickets"
 local pulling = false
 
 -- ─── Menu-style building blocks ─────────────────────────────────────────────
+-- A wood plaque (no inner rail: most panels lay out their children in lists).
 local function panel(parent: Instance, props: { [string]: any }): (Frame, UIStroke)
 	local f = Instance.new("Frame")
 	f.BackgroundColor3 = C.Surface
-	f.BackgroundTransparency = 0.15
+	f.BackgroundTransparency = 0.06
+	f.BorderSizePixel = 0
 	for k, v in pairs(props) do (f :: any)[k] = v end
 	f.Parent = parent
-	UITheme.AddCorner(f, 10)
-	return f, UITheme.AddStroke(f, C.Border, 1.5, 0.4)
+	UITheme.AddGradient(f, Color3.fromRGB(64, 47, 37), MC.PlaqueDark, 90)
+	return f, UITheme.AddStroke(f, C.Border, 2, 0)
 end
 
 local function label(parent: Instance, props: { [string]: any }): TextLabel
@@ -60,65 +78,63 @@ local function label(parent: Instance, props: { [string]: any }): TextLabel
 	t.TextSize = 13
 	t.TextXAlignment = Enum.TextXAlignment.Left
 	t.TextWrapped = true
+	t.TextStrokeColor3 = MC.Ink
+	t.TextStrokeTransparency = 0.35
 	for k, v in pairs(props) do (t :: any)[k] = v end
+	t.TextSize += 2 -- Antique runs smaller than the sizes this screen was laid out in
 	t.Parent = parent
 	return t
 end
 
--- Small uppercase gold section tag, like "CLASS COMBAT SKILLS".
+-- Small uppercase brass section tag, like "CLASS COMBAT SKILLS".
 local function sectionTag(parent: Instance, text: string, props: { [string]: any }?): TextLabel
 	local t = label(parent, { Text = string.upper(text), Font = F.Tag, TextSize = 12, TextColor3 = C.Gold, Size = UDim2.new(1, 0, 0, 18) })
 	for k, v in pairs(props or {}) do (t :: any)[k] = v end
 	return t
 end
 
--- Gold gradient action button, like "CONFIRM & ENTER WORLD".
+-- Ribboned plaque action button, like "BEGIN EXPEDITION".
 local function primaryButton(parent: Instance, text: string, props: { [string]: any }, onClick: () -> ()): TextButton
 	local b = Instance.new("TextButton")
-	b.AutoButtonColor = false
-	b.BackgroundColor3 = C.Gold
-	b.Font = F.Button
-	b.TextSize = 16
-	b.TextColor3 = Color3.fromRGB(20, 15, 10)
 	b.Text = text
+	MenuStyle.TextPlaque(b, true, onClick)
 	for k, v in pairs(props) do (b :: any)[k] = v end
 	b.Parent = parent
-	UITheme.AddCorner(b, 8)
-	local s = UITheme.AddStroke(b, C.GoldLight, 2, 0)
-	UITheme.AddGradient(b, C.GoldLight, C.Gold, 90)
-	UITheme.MakeButtonInteractive(b, s, C.GoldLight, SoundManager.PlayHover, onClick)
 	return b
 end
 
--- Dark secondary button, like the carousel arrows / tabs.
+-- Plain plaque button (tabs, back, buy rows).
 local function secondaryButton(parent: Instance, text: string, props: { [string]: any }, onClick: () -> ()): (TextButton, UIStroke)
 	local b = Instance.new("TextButton")
-	b.AutoButtonColor = false
-	b.BackgroundColor3 = C.SurfaceAlt
-	b.Font = F.Button
-	b.TextSize = 13
-	b.TextColor3 = C.TextPrimary
 	b.Text = text
-	for k, v in pairs(props) do (b :: any)[k] = v end
-	b.Parent = parent
-	UITheme.AddCorner(b, 8)
-	local s = UITheme.AddStroke(b, C.Border, 1.5, 0.2)
-	UITheme.MakeButtonInteractive(b, s, C.Gold, SoundManager.PlayHover, function()
+	local s = MenuStyle.TextPlaque(b, false, function()
 		SoundManager.PlaySelect()
 		onClick()
 	end)
+	for k, v in pairs(props) do (b :: any)[k] = v end
+	if props.TextSize then b.TextSize += 2 end -- Antique runs small
+	b.Parent = parent
 	return b, s
 end
 
 local function rarityColor(r: string): Color3
 	return GachaConfig.Rarities[r] and GachaConfig.Rarities[r].color or C.TextPrimary
 end
+-- Whether any reward of this type is currently in the game (relics are
+-- switched off for now; their section and rules hide while none exist).
+local function hasRewardType(kind: string): boolean
+	for _, r in ipairs(GachaRewards.All) do
+		if r.type == kind then return true end
+	end
+	return false
+end
+
 local function owned(id: string): boolean
 	local r = GachaRewards.Get(id)
 	if not r then return false end
-	if r.type == "character" or r.type == "exclusive" then return state.collection.characters[id] ~= nil end
+	if r.type == "character" or r.type == "variant" then return state.collection.characters[id] ~= nil end
 	if r.type == "relic" then return state.collection.relics[id] ~= nil end
-	if r.type == "cosmetic" then return state.collection.cosmetics[id] == true end
+	if r.type == "cosmetic" or r.type == "armor" then return state.collection.cosmetics[id] == true end
 	return false
 end
 local function displayName(r: any): string
@@ -162,16 +178,20 @@ local function build(): ScreenGui
 	vignette.BackgroundTransparency = 0.55
 	vignette.Parent = sg
 	local vg = Instance.new("UIGradient")
+	vg.Color = ColorSequence.new(Color3.fromRGB(0, 0, 0), Color3.fromRGB(50, 32, 23))
 	vg.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(0.35, 1), NumberSequenceKeypoint.new(0.65, 1), NumberSequenceKeypoint.new(1, 0.2) })
 	vg.Parent = vignette
 
 	-- ── Top bar ──
-	label(sg, { Text = "SUMMONING SANCTUM", Font = F.Title, TextSize = 26, TextColor3 = C.Gold, TextXAlignment = Enum.TextXAlignment.Center,
-		AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 22), Size = UDim2.fromOffset(600, 32) })
+	label(sg, { Text = "SUMMONING SANCTUM", Font = F.Title, TextSize = 30, TextColor3 = C.Gold, TextXAlignment = Enum.TextXAlignment.Center,
+		TextStrokeColor3 = Color3.fromRGB(36, 8, 3), TextStrokeTransparency = 0.1,
+		AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 20), Size = UDim2.fromOffset(600, 34) })
 	local banner = GachaConfig.Banners[GachaConfig.DefaultBanner]
 	label(sg, { Text = string.upper(banner.name), Font = F.Tag, TextSize = 12, TextColor3 = C.TextMuted, TextXAlignment = Enum.TextXAlignment.Center,
 		AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 54), Size = UDim2.fromOffset(600, 16) })
-	secondaryButton(sg, "◀  BACK", { Position = UDim2.fromOffset(24, 22), Size = UDim2.fromOffset(110, 44), TextSize = 14 }, function()
+	MenuStyle.Rule(sg, 76, 0.24)
+	-- Below Roblox's top-left buttons.
+	secondaryButton(sg, "< BACK", { Position = UDim2.fromOffset(24, 70), Size = UDim2.fromOffset(110, 44), TextSize = 14 }, function()
 		SummonScreen.Close()
 	end)
 	local currencyRow = Instance.new("Frame")
@@ -186,7 +206,7 @@ local function build(): ScreenGui
 	crl.Padding = UDim.new(0, 8)
 	crl.Parent = currencyRow
 	local pills: { [string]: TextLabel } = {}
-	for _, key in ipairs({ "tickets", "crystals", "soulShards", "relicDust", "ascension" }) do
+	for _, key in ipairs({ "tickets", "crystals", "soulShards", "relicDust" }) do
 		local pill = panel(currencyRow, { Size = UDim2.fromOffset(100, 44) })
 		pills[key] = label(pill, { Font = F.Header, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1) })
 	end
@@ -199,7 +219,7 @@ local function build(): ScreenGui
 	-- ── Left: featured banner ──
 	local featured = GachaRewards.Get(banner.featured)
 	local fColor = featured and (featured.accent or rarityColor(featured.rarity)) or C.Gold
-	local left, leftStroke = panel(sg, { Position = UDim2.fromOffset(24, 84), Size = UDim2.new(0, 340, 1, -200) })
+	local left, leftStroke = panel(sg, { Position = UDim2.fromOffset(24, 124), Size = UDim2.new(0, 340, 1, -240) })
 	leftStroke.Color = fColor
 	UITheme.AddPadding(left, 16, 16, 16, 16)
 	local ll = Instance.new("UIListLayout")
@@ -225,7 +245,7 @@ local function build(): ScreenGui
 	end)
 
 	-- ── Right: collection / shop ──
-	local right = panel(sg, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -24, 0, 84), Size = UDim2.new(0, 360, 1, -200) })
+	local right = panel(sg, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -24, 0, 124), Size = UDim2.new(0, 360, 1, -240) })
 	UITheme.AddPadding(right, 12, 12, 12, 12)
 	local rightTabs: { [string]: TextButton } = {}
 	local rightPages: { [string]: ScrollingFrame } = {}
@@ -286,36 +306,65 @@ local function build(): ScreenGui
 			order += 1
 			sectionTag(pg, text, { LayoutOrder = order, Size = UDim2.new(1, 0, 0, 22) })
 		end
-		tag("Exclusive Characters")
+		tag("VFX Variants")
 		local any = false
+		local function variantRow(r: any, classId: string)
+			local active = state.equipped.variants[classId] == r.id
+			local className = (ClassData.GetClass(classId) or { name = classId }).name
+			order += 1
+			itemRow(pg, order, r, `{string.upper(className)} · {string.upper(r.rarity)}`,
+				if active then "UNEQUIP" else "EQUIP", function()
+					act({ kind = "equipVariant", classId = classId, id = if active then nil else r.id })
+				end, active)
+		end
 		for _, r in ipairs(GachaRewards.All) do
-			local o = r.type == "exclusive" and state.collection.characters[r.id]
-			if o then
+			if r.type == "variant" and state.collection.characters[r.id] then
 				any = true
-				local active = state.equipped.variants[r.classId] == r.id
-				local className = (ClassData.GetClass(r.classId :: string) or { name = r.classId }).name
-				order += 1
-				itemRow(pg, order, r, `{string.upper(className)} · ASCENSION {o.ascension}/{GachaConfig.Duplicates.maxAscension}`,
-					if active then "UNEQUIP" else "EQUIP", function()
-						act({ kind = "equipVariant", classId = r.classId, id = if active then nil else r.id })
-					end, active)
+				if r.classId then
+					variantRow(r, r.classId)
+				else
+					-- Universal variant: one equip row per playable class.
+					for _, classId in ipairs(ClassData.Order) do
+						if ClassData.IsPlayable(classId) then variantRow(r, classId) end
+					end
+				end
 			end
 		end
 		if not any then
 			order += 1
-			label(pg, { Text = "None yet — summon to discover exclusive characters.", TextSize = 12, TextColor3 = C.TextMuted, Size = UDim2.new(1, 0, 0, 20), LayoutOrder = order })
+			label(pg, { Text = "None yet — summon to discover VFX variants.", TextSize = 12, TextColor3 = C.TextMuted, Size = UDim2.new(1, 0, 0, 20), LayoutOrder = order })
 		end
-		tag(`Relics · {#state.equipped.relics}/{GachaConfig.RelicSlots} Equipped`)
-		for _, r in ipairs(GachaRewards.All) do
-			local o = r.type == "relic" and state.collection.relics[r.id]
-			if o then
-				local active = table.find(state.equipped.relics, r.id) ~= nil
-				order += 1
-				itemRow(pg, order, r, `{string.upper(r.rarity)} · LEVEL {o.level}/{GachaConfig.Duplicates.maxRelicLevel}`,
-					if active then "UNEQUIP" else "EQUIP", function()
-						act({ kind = if active then "unequipRelic" else "equipRelic", id = r.id })
-					end, active)
+		if hasRewardType("relic") then
+			tag(`Relics · {#state.equipped.relics}/{GachaConfig.RelicSlots} Equipped`)
+			for _, r in ipairs(GachaRewards.All) do
+				local o = r.type == "relic" and state.collection.relics[r.id]
+				if o then
+					local active = table.find(state.equipped.relics, r.id) ~= nil
+					order += 1
+					itemRow(pg, order, r, `{string.upper(r.rarity)} · LEVEL {o.level}/{GachaConfig.Duplicates.maxRelicLevel}`,
+						if active then "UNEQUIP" else "EQUIP", function()
+							act({ kind = if active then "unequipRelic" else "equipRelic", id = r.id })
+						end, active)
+				end
 			end
+		end
+		tag("Armor")
+		local anyArmor = false
+		for _, r in ipairs(GachaRewards.All) do
+			if r.type == "armor" and state.collection.cosmetics[r.id] then
+				anyArmor = true
+				local worn = (state.equipped.armor or {})[r.classId] == r.id
+				local className = (ClassData.GetClass(r.classId :: string) or { name = r.classId }).name
+				order += 1
+				itemRow(pg, order, r, `{string.upper(className)} · {string.upper(r.rarity)}`,
+					if worn then "UNEQUIP" else "EQUIP", function()
+						act({ kind = "equipArmor", classId = r.classId, id = if worn then nil else r.id })
+					end, worn)
+			end
+		end
+		if not anyArmor then
+			order += 1
+			label(pg, { Text = "None yet — summon to win each class's armor.", TextSize = 12, TextColor3 = C.TextMuted, Size = UDim2.new(1, 0, 0, 20), LayoutOrder = order })
 		end
 		tag("Awakened Characters")
 		for _, r in ipairs(GachaRewards.All) do
@@ -344,15 +393,46 @@ local function build(): ScreenGui
 		for _, c in ipairs(pg:GetChildren()) do
 			if c:IsA("GuiObject") then c:Destroy() end
 		end
-		sectionTag(pg, "Crystals", { LayoutOrder = 1, Size = UDim2.new(1, 0, 0, 22) })
+		local order = 0
+		local function nextOrder(): number
+			order += 1
+			return order
+		end
+
+		-- Direct purchases (fixed price, not random).
+		sectionTag(pg, "Featured", { LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 22) })
+		for _, item in ipairs(GachaConfig.ShopItems) do
+			local r = GachaRewards.Get(item.id)
+			if r then
+				itemRow(pg, nextOrder(), r, string.upper(r.rarity))
+				if owned(r.id) then
+					label(pg, { Text = "OWNED — equip it in the Collection.", Font = F.Tag, TextSize = 11, TextColor3 = C.Gold,
+						Size = UDim2.new(1, 0, 0, 22), LayoutOrder = nextOrder() })
+				else
+					for _, currency in ipairs({ "crystals", "relicDust" }) do
+						local price = item.price[currency]
+						if price then
+							local have = state.currencies[currency] or 0
+							secondaryButton(pg, `BUY · {GachaConfig.Currencies[currency].glyph} {price}  (you have {have})`,
+								{ Size = UDim2.new(1, -6, 0, 36), LayoutOrder = nextOrder(), TextColor3 = if have >= price then C.Gold else C.TextMuted }, function()
+									SoundManager.PlayConfirm()
+									act({ kind = "buyShopItem", id = r.id, pay = currency })
+								end)
+						end
+					end
+				end
+			end
+		end
+
+		sectionTag(pg, "Crystals", { LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 22) })
 		if #state.products == 0 then
 			label(pg, { Text = "Crystal packs are coming soon.\n\nSummon Tickets are earned from bosses and every few dozen kills.",
-				TextSize = 13, TextColor3 = C.TextSecondary, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 2 })
+				TextSize = 13, TextColor3 = C.TextSecondary, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = nextOrder() })
 		else
 			label(pg, { Text = "Crystals are premium currency used for summons. See Rates & Pity for the exact odds before summoning.",
-				TextSize = 12, TextColor3 = C.TextMuted, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 2 })
-			for i, prod in ipairs(state.products) do
-				primaryButton(pg, `💎 {prod.label}`, { Size = UDim2.new(1, -6, 0, 44), LayoutOrder = 2 + i }, function()
+				TextSize = 12, TextColor3 = C.TextMuted, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = nextOrder() })
+			for _, prod in ipairs(state.products) do
+				primaryButton(pg, `💎 {prod.label}`, { Size = UDim2.new(1, -6, 0, 44), LayoutOrder = nextOrder() }, function()
 					SoundManager.PlayConfirm()
 					Network.GetRemoteEvent(Network.Remotes.GachaAction):FireServer({ kind = "buyCrystals", id = prod.id })
 				end)
@@ -448,8 +528,11 @@ local function build(): ScreenGui
 		rline("DUPLICATES", C.Gold, F.Tag, 12)
 		local D = GachaConfig.Duplicates
 		rline(`• Characters: the first copy Awakens them; further copies become Soul Shards ({D.shardsPerSoul} Shards = 1 Soul).`)
-		rline(`• Exclusive characters: copies raise Ascension (max {D.maxAscension}), then become Ascension Sigils.`)
-		rline(`• Relics: copies raise level (max {D.maxRelicLevel}), then become Relic Dust. Titles: copies become Relic Dust.`)
+		rline("• VFX variants: cosmetic only; copies become Soul Shards.")
+		if hasRewardType("relic") then
+			rline(`• Relics: copies raise level (max {D.maxRelicLevel}), then become Relic Dust.`)
+		end
+		rline("• Titles: copies become Relic Dust.")
 		rline("INDIVIDUAL REWARD ODDS (PER SUMMON, BEFORE PITY)", C.Gold, F.Tag, 12)
 		for _, rarity in ipairs(GachaConfig.RarityOrder) do
 			local list = GachaRewards.InPoolByRarity(banner.pool, rarity)
@@ -510,12 +593,20 @@ local function build(): ScreenGui
 				card.AutoButtonColor = false
 				card.Text = ""
 				card.BackgroundColor3 = C.SurfaceAlt
+				card.BorderSizePixel = 0
 				card.LayoutOrder = i
 				card.ZIndex = 32
 				card.Parent = grid
-				UITheme.AddCorner(card, 8)
-				local s = UITheme.AddStroke(card, rarityColor(r.rarity), 2, 0.1)
-				UITheme.MakeButtonInteractive(card, s, C.GoldLight, SoundManager.PlayHover, function()
+				UITheme.AddGradient(card, Color3.fromRGB(64, 47, 37), MC.PlaqueDark, 90)
+				UITheme.AddStroke(card, rarityColor(r.rarity), 2, 0.1)
+				card.MouseEnter:Connect(function()
+					SoundManager.PlayHover()
+					card.BackgroundColor3 = C.SurfaceSelected
+				end)
+				card.MouseLeave:Connect(function()
+					card.BackgroundColor3 = C.SurfaceAlt
+				end)
+				card.Activated:Connect(function()
 					SoundManager.PlaySelect()
 					showcase(r)
 				end)
@@ -576,7 +667,8 @@ end
 function SummonScreen.Open()
 	if not gui then gui = build() end
 	hideOtherGuis(true)
-	(gui :: ScreenGui).Enabled = true
+	local sg = gui :: ScreenGui
+	sg.Enabled = true
 	Network.GetRemoteEvent(Network.Remotes.RequestGacha):FireServer()
 end
 

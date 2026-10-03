@@ -1,186 +1,61 @@
 --!strict
--- Medieval title menu inspired by a guild hall notice board: warm brass, dark wood, and stacked plaques.
+-- The title menu, after the RE:SPAWN key art: the logo top-left, a thin
+-- ornamented rail down the left edge, and quiet entries (MenuEntry) that sit at
+-- ~65% opacity and light up gold on hover. It fades in as the last beat of the
+-- backdrop's opening sequence (MenuBackdrop.OnRevealed).
 
 local TweenService = game:GetService("TweenService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local UITheme = require(Shared:WaitForChild("UITheme"))
-local SoundManager = require(script.Parent:WaitForChild("SoundManager"))
+local MenuStyle = require(script.Parent:WaitForChild("MenuStyle"))
+local MenuEntry = require(script.Parent:WaitForChild("MenuEntry"))
+
+local MenuBackdrop: any = nil
+pcall(function()
+	MenuBackdrop = require(script.Parent.Parent:WaitForChild("MenuBackdrop", 5) :: any)
+end)
 
 export type TitleScreenCallbacks = {
 	onStartGame: () -> (),
 	onOpenSettings: () -> (),
+	onOpenKeybinds: (() -> ())?,
+	onOpenCredits: (() -> ())?,
+	onQuit: (() -> ())?,
 }
 
 local TitleScreen = {}
 
 local LOGO_IMAGE = "rbxassetid://74919387892039"
-local BRASS = Color3.fromRGB(194, 132, 52)
-local BRASS_LIGHT = Color3.fromRGB(255, 213, 128)
-local PLAQUE = Color3.fromRGB(37, 28, 24)
-local PLAQUE_DARK = Color3.fromRGB(17, 13, 13)
-local PARCHMENT = Color3.fromRGB(239, 213, 170)
+local BRASS = MenuEntry.Colors.Brass
+local BRASS_LIGHT = MenuEntry.Colors.BrassLight
+local BOLD = MenuEntry.Bold
+local shape = MenuEntry.Shape
 
-local function addOrnament(parent: Instance, position: UDim2, anchorPoint: Vector2, rotation: number)
-	local ornament = Instance.new("TextLabel")
-	ornament.Size = UDim2.fromOffset(30, 30)
-	ornament.AnchorPoint = anchorPoint
-	ornament.Position = position
-	ornament.BackgroundTransparency = 1
-	ornament.Text = "❖"
-	ornament.Font = Enum.Font.Antique
-	ornament.TextSize = 26
-	ornament.TextColor3 = BRASS_LIGHT
-	ornament.TextStrokeColor3 = Color3.fromRGB(78, 41, 14)
-	ornament.TextStrokeTransparency = 0.15
-	ornament.Rotation = rotation
-	ornament.ZIndex = 3
-	ornament.Parent = parent
-	return ornament
+local function group(parent: Instance, name: string): CanvasGroup
+	local g = Instance.new("CanvasGroup")
+	g.Name = name
+	g.BackgroundTransparency = 1
+	g.GroupTransparency = 1 -- faded in by the opening sequence
+	g.Parent = parent
+	return g
 end
 
-local function createButton(parent: Instance, label: string, order: number, onClick: () -> ())
-	local button = Instance.new("TextButton")
-	button.Name = label:gsub("%s+", "") .. "Button"
-	button.Size = UDim2.new(1, 0, 0, 52)
-	button.BackgroundColor3 = PLAQUE
-	button.BorderSizePixel = 0
-	button.AutoButtonColor = false
-	button.LayoutOrder = order
-	-- The left edge reads closer to the player while the right edge recedes,
-	-- matching the angled wooden-menu perspective of the reference.
-	button.Rotation = -4
-	button.Text = ""
-	button.Parent = parent
-
-	local depthShadow = Instance.new("Frame")
-	depthShadow.Name = "PlaqueDepthShadow"
-	depthShadow.Size = UDim2.new(1, 2, 1, 2)
-	depthShadow.Position = UDim2.fromOffset(-2, 5)
-	depthShadow.BackgroundColor3 = Color3.fromRGB(8, 5, 4)
-	depthShadow.BackgroundTransparency = 0.28
-	depthShadow.BorderSizePixel = 0
-	depthShadow.ZIndex = 0
-	depthShadow.Parent = button
-
-	local scale = Instance.new("UIScale")
-	scale.Parent = button
-	local outerStroke = UITheme.AddStroke(button, Color3.fromRGB(96, 58, 26), 2, 0)
-	local gradient = UITheme.AddGradient(button, Color3.fromRGB(64, 47, 37), PLAQUE_DARK, 90)
-
-	-- A narrow inner brass rail gives the button the layered, framed-plaque silhouette.
-	local inset = Instance.new("Frame")
-	inset.Name = "InnerBrassRail"
-	inset.Size = UDim2.new(1, -14, 1, -12)
-	inset.Position = UDim2.fromOffset(7, 6)
-	inset.BackgroundTransparency = 1
-	inset.BorderSizePixel = 0
-	inset.ZIndex = 2
-	inset.Parent = button
-	UITheme.AddStroke(inset, BRASS, 1, 0.12)
-
-	local lowerEdge = Instance.new("Frame")
-	lowerEdge.Size = UDim2.new(1, -18, 0, 1)
-	lowerEdge.Position = UDim2.new(0, 9, 1, -7)
-	lowerEdge.BackgroundColor3 = Color3.fromRGB(95, 57, 27)
-	lowerEdge.BorderSizePixel = 0
-	lowerEdge.ZIndex = 3
-	lowerEdge.Parent = button
-
-	-- Darken the distant end very slightly so the right side appears to fall away.
-	local distanceShade = Instance.new("Frame")
-	distanceShade.Name = "FarEdgeShade"
-	distanceShade.Size = UDim2.new(0.38, 0, 1, -12)
-	distanceShade.AnchorPoint = Vector2.new(1, 0.5)
-	distanceShade.Position = UDim2.new(1, -6, 0.5, 0)
-	distanceShade.BackgroundColor3 = Color3.fromRGB(8, 5, 4)
-	distanceShade.BackgroundTransparency = 0.72
-	distanceShade.BorderSizePixel = 0
-	distanceShade.ZIndex = 2
-	distanceShade.Parent = button
-	local distanceGradient = Instance.new("UIGradient")
-	distanceGradient.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 1),
-		NumberSequenceKeypoint.new(1, 0),
-	})
-	distanceGradient.Parent = distanceShade
-
-	-- The small red tab makes each option read as a physical banner rather than a flat UI control.
-	local ribbon = Instance.new("Frame")
-	ribbon.Name = "CrimsonRibbon"
-	ribbon.Size = UDim2.fromOffset(18, 58)
-	ribbon.Position = UDim2.fromOffset(16, -3)
-	ribbon.BackgroundColor3 = Color3.fromRGB(103, 27, 20)
-	ribbon.BorderSizePixel = 0
-	ribbon.Rotation = -4
-	ribbon.ZIndex = 4
-	ribbon.Parent = button
-	UITheme.AddGradient(ribbon, Color3.fromRGB(159, 54, 35), Color3.fromRGB(64, 16, 15), 90)
-	UITheme.AddStroke(ribbon, Color3.fromRGB(59, 16, 12), 1, 0.2)
-
-	local ribbonSeal = Instance.new("TextLabel")
-	ribbonSeal.Size = UDim2.fromScale(1, 0.56)
-	ribbonSeal.Position = UDim2.fromScale(0, 0.12)
-	ribbonSeal.BackgroundTransparency = 1
-	ribbonSeal.Text = "❖"
-	ribbonSeal.Font = Enum.Font.Antique
-	ribbonSeal.TextSize = 15
-	ribbonSeal.TextColor3 = BRASS_LIGHT
-	ribbonSeal.TextStrokeColor3 = Color3.fromRGB(76, 39, 10)
-	ribbonSeal.TextStrokeTransparency = 0.2
-	ribbonSeal.ZIndex = 5
-	ribbonSeal.Parent = ribbon
-
-	local text = Instance.new("TextLabel")
-	text.Name = "ButtonLabel"
-	text.Size = UDim2.new(1, -96, 1, 0)
-	text.Position = UDim2.fromOffset(66, 0)
-	text.BackgroundTransparency = 1
-	text.Text = label
-	text.Font = Enum.Font.Antique
-	text.TextSize = 19
-	text.TextColor3 = PARCHMENT
-	text.TextStrokeColor3 = Color3.fromRGB(28, 15, 10)
-	text.TextStrokeTransparency = 0.1
-	text.TextXAlignment = Enum.TextXAlignment.Center
-	text.ZIndex = 4
-	text.Parent = button
-
-	local ornament = addOrnament(button, UDim2.new(1, -15, 0.5, 0), Vector2.new(0.5, 0.5), 0)
-
-	-- Entrance pop, staggered per plaque, for a livelier feel.
-	scale.Scale = 0.85
-	task.delay(0.06 * (order - 1) + 0.12, function()
-		TweenService:Create(scale, UITheme.Tweens.Spring, { Scale = 1 }):Play()
-	end)
-
-	button.MouseEnter:Connect(function()
-		SoundManager.PlayHover()
-		TweenService:Create(button, UITheme.Tweens.Fast, { BackgroundColor3 = Color3.fromRGB(66, 44, 28) }):Play()
-		TweenService:Create(scale, UITheme.Tweens.Spring, { Scale = 1.05 }):Play()
-		TweenService:Create(outerStroke, UITheme.Tweens.Fast, { Color = BRASS_LIGHT, Thickness = 2.5 }):Play()
-		TweenService:Create(text, UITheme.Tweens.Fast, { TextColor3 = Color3.fromRGB(255, 236, 194) }):Play()
-		TweenService:Create(gradient, UITheme.Tweens.Fast, { Rotation = 0 }):Play()
-		if ornament then
-			TweenService:Create(ornament, UITheme.Tweens.Spring, { Rotation = 90, TextColor3 = BRASS_LIGHT }):Play()
-		end
-	end)
-	button.MouseLeave:Connect(function()
-		TweenService:Create(button, UITheme.Tweens.Fast, { BackgroundColor3 = PLAQUE }):Play()
-		TweenService:Create(scale, UITheme.Tweens.Fast, { Scale = 1 }):Play()
-		TweenService:Create(outerStroke, UITheme.Tweens.Fast, { Color = Color3.fromRGB(96, 58, 26), Thickness = 2 }):Play()
-		TweenService:Create(text, UITheme.Tweens.Fast, { TextColor3 = PARCHMENT }):Play()
-		TweenService:Create(gradient, UITheme.Tweens.Fast, { Rotation = 90 }):Play()
-		if ornament then
-			TweenService:Create(ornament, UITheme.Tweens.Spring, { Rotation = 0 }):Play()
-		end
-	end)
-	button.Activated:Connect(function()
-		SoundManager.PlayClick()
-		TweenService:Create(scale, UITheme.Tweens.Fast, { Scale = 0.975 }):Play()
-		task.delay(0.1, onClick)
-	end)
+-- The thin ornamented rail down the left screen edge (also used by the
+-- campfire screen).
+function TitleScreen.Rail(parent: Instance): Frame
+	local edge = Instance.new("Frame")
+	edge.Position = UDim2.new(0, 22, 0, 30)
+	edge.Size = UDim2.new(0, 1, 1, -60)
+	edge.BackgroundColor3 = BRASS
+	edge.BackgroundTransparency = 0.3
+	edge.BorderSizePixel = 0
+	edge.Parent = parent
+	for _, y in ipairs({ 0, 0.25, 0.5, 0.75, 1 }) do
+		local d = shape(edge, Vector2.new(7, 7), UDim2.fromScale(0.5, y), 45)
+		local s = d:FindFirstChildOfClass("UIStroke")
+		if s then s.Color = BRASS_LIGHT end
+		shape(edge, Vector2.new(2, 2), UDim2.fromScale(0.5, y), 45, true).BackgroundColor3 = BRASS_LIGHT
+	end
+	return edge
 end
 
 function TitleScreen.Create(parent: GuiObject, callbacks: TitleScreenCallbacks): CanvasGroup
@@ -190,101 +65,117 @@ function TitleScreen.Create(parent: GuiObject, callbacks: TitleScreenCallbacks):
 	container.BackgroundTransparency = 1
 	container.Parent = parent
 
-	-- The vignette anchors the menu in the middle without hiding the environment at the edges.
-	local shade = Instance.new("Frame")
-	shade.Name = "CinematicVignette"
-	shade.Size = UDim2.fromScale(1, 1)
-	shade.BackgroundColor3 = Color3.fromRGB(10, 6, 5)
-	shade.BackgroundTransparency = 0.25
-	shade.BorderSizePixel = 0
-	shade.Parent = container
-	local shadeGradient = Instance.new("UIGradient")
-	shadeGradient.Color = ColorSequence.new(Color3.fromRGB(0, 0, 0), Color3.fromRGB(50, 32, 23))
-	shadeGradient.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.14),
-		NumberSequenceKeypoint.new(0.5, 0.62),
-		NumberSequenceKeypoint.new(1, 0.14),
-	})
-	shadeGradient.Parent = shade
+	local rail = group(container, "EdgeRail")
+	rail.Size = UDim2.new(0, 44, 1, 0)
+	TitleScreen.Rail(rail)
 
 	local menu = Instance.new("Frame")
-	menu.Name = "GuildHallMenu"
+	menu.Name = "TitleMenu"
 	menu.AnchorPoint = Vector2.new(0, 0.5)
-	menu.Position = UDim2.new(0.065, 0, 0.52, 0)
-	menu.Size = UDim2.new(0.39, 0, 0, 400)
+	menu.Position = UDim2.new(0.035, 0, 0.5, 0)
+	menu.Size = UDim2.new(0.3, 0, 0, 640)
 	menu.BackgroundTransparency = 1
 	menu.Parent = container
+	MenuEntry.FitHeight(menu, 640)
 
+	-- Logo, tagline and rule.
+	local head = group(menu, "Head")
+	head.Size = UDim2.new(1, 0, 0, 200)
 	local logo = Instance.new("ImageLabel")
 	logo.Name = "RespawnLogo"
-	logo.Size = UDim2.new(1, 40, 0, 128)
-	logo.Position = UDim2.new(0, -20, 0, 0)
+	logo.Size = UDim2.new(1, 0, 0, 154)
 	logo.BackgroundTransparency = 1
 	logo.Image = LOGO_IMAGE
 	logo.ScaleType = Enum.ScaleType.Fit
-	logo.Visible = LOGO_IMAGE ~= ""
-	logo.Parent = menu
-
-	local title = Instance.new("TextLabel")
-	title.Name = "RespawnTitleFallback"
-	title.Size = UDim2.new(1, 0, 0, 82)
-	title.Position = UDim2.new(0, 0, 0, 28)
-	title.BackgroundTransparency = 1
-	title.Text = "RE//SPAWN"
-	title.Font = Enum.Font.Antique
-	title.TextSize = 52
-	title.TextStrokeColor3 = Color3.fromRGB(36, 8, 3)
-	title.TextStrokeTransparency = 0.1
-	title.TextColor3 = Color3.fromRGB(255, 184, 93)
-	title.Visible = LOGO_IMAGE == ""
-	title.Parent = menu
+	local ar = Instance.new("UIAspectRatioConstraint")
+	ar.AspectRatio = 2.4
+	ar.Parent = logo
+	logo.Parent = head
 
 	local tagline = Instance.new("TextLabel")
 	tagline.Size = UDim2.new(1, 0, 0, 24)
-	tagline.Position = UDim2.new(0, 0, 0, 124)
+	tagline.Position = UDim2.new(0, 0, 0, 158)
 	tagline.BackgroundTransparency = 1
 	tagline.Text = "RISE.  FALL.  RETURN STRONGER."
-	tagline.Font = Enum.Font.Antique
+	tagline.FontFace = BOLD
 	tagline.TextSize = 16
+	tagline.TextStrokeTransparency = 0.5
 	tagline.TextColor3 = BRASS_LIGHT
-	tagline.TextXAlignment = Enum.TextXAlignment.Center
-	tagline.Parent = menu
+	tagline.TextTransparency = 0.15
+	tagline.TextXAlignment = Enum.TextXAlignment.Left
+	tagline.Parent = head
 
 	local rule = Instance.new("Frame")
-	rule.Size = UDim2.new(0.82, 0, 0, 2)
-	rule.AnchorPoint = Vector2.new(0.5, 0)
-	rule.Position = UDim2.new(0.5, 0, 0, 152)
+	rule.Size = UDim2.new(1, 0, 0, 1)
+	rule.Position = UDim2.new(0, 0, 0, 190)
 	rule.BackgroundColor3 = BRASS
 	rule.BorderSizePixel = 0
-	rule.Parent = menu
-	addOrnament(menu, UDim2.new(0.5, 0, 0, 153), Vector2.new(0.5, 0.5), 0)
+	rule.Parent = head
+	local rg = Instance.new("UIGradient")
+	rg.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) })
+	rg.Parent = rule
+	MenuStyle.Ornament(head, UDim2.new(0, 6, 0, 190), Vector2.new(0.5, 0.5), 0)
 
+	-- The entries.
+	local list = group(menu, "Entries")
+	list.Position = UDim2.new(0, 0, 0, 214)
+	list.Size = UDim2.new(1, 0, 0, 420)
 	local options = Instance.new("Frame")
-	options.Name = "PlaqueMenuOptions"
-	options.Size = UDim2.new(0.94, 0, 0, 150)
-	options.AnchorPoint = Vector2.new(0.5, 0)
-	options.Position = UDim2.new(0.5, 0, 0, 182)
+	options.Name = "MenuOptions"
+	options.Size = UDim2.new(1, 0, 0, 330)
 	options.BackgroundTransparency = 1
-	options.Parent = menu
+	options.Parent = list
 	local layout = Instance.new("UIListLayout")
-	-- Rotated plaques need more vertical breathing room than flat buttons.
-	layout.Padding = UDim.new(0, 16)
+	layout.Padding = UDim.new(0, 4)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = options
 
-	createButton(options, "BEGIN EXPEDITION", 1, callbacks.onStartGame)
-	createButton(options, "SETTINGS  /  KEYBINDS", 2, callbacks.onOpenSettings)
+	local function none() end
+	MenuEntry.Button(options, "PLAY", "play", 1, callbacks.onStartGame)
+	MenuEntry.Button(options, "SETTINGS", "settings", 2, callbacks.onOpenSettings)
+	MenuEntry.Button(options, "KEYBINDS", "keybinds", 3, callbacks.onOpenKeybinds or callbacks.onOpenSettings)
+	MenuEntry.Button(options, "CREDITS", "credits", 4, callbacks.onOpenCredits or none)
+	MenuEntry.Button(options, "QUIT", "quit", 5, callbacks.onQuit or none)
 
 	local version = Instance.new("TextLabel")
 	version.Size = UDim2.new(1, 0, 0, 20)
-	version.Position = UDim2.new(0, 0, 1, -24)
+	version.Position = UDim2.new(0, 14, 0, 360)
 	version.BackgroundTransparency = 1
-	version.Text = "v0.1.0  •  ALPHA BUILD"
-	version.Font = Enum.Font.Antique
-	version.TextSize = 12
-	version.TextColor3 = Color3.fromRGB(159, 121, 85)
-	version.TextXAlignment = Enum.TextXAlignment.Center
-	version.Parent = menu
+	version.Text = "VERSION 0.1  •  THE AWAKENING"
+	version.FontFace = BOLD
+	version.TextSize = 11
+	version.TextColor3 = Color3.fromRGB(190, 160, 120)
+	version.TextTransparency = 0.4
+	version.TextXAlignment = Enum.TextXAlignment.Left
+	version.Parent = list
+
+	-- Opening sequence (timed from the backdrop's reveal, as the loading
+	-- screen fades over 1s): the logo at 1.1s, the menu and rail at 1.4s.
+	local shown = false
+	local function reveal(elapsed: number)
+		if shown then return end
+		shown = true
+		task.delay(math.max(0, 1.1 - elapsed), function()
+			head.Position = UDim2.fromOffset(-14, 0)
+			TweenService:Create(head, TweenInfo.new(0.9, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+				GroupTransparency = 0, Position = UDim2.fromOffset(0, 0),
+			}):Play()
+		end)
+		task.delay(math.max(0, 1.4 - elapsed), function()
+			list.Position = UDim2.new(0, -10, 0, 214)
+			TweenService:Create(list, TweenInfo.new(0.8, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+				GroupTransparency = 0, Position = UDim2.new(0, 0, 0, 214),
+			}):Play()
+			TweenService:Create(rail, TweenInfo.new(1.2), { GroupTransparency = 0 }):Play()
+		end)
+	end
+	if MenuBackdrop and MenuBackdrop.OnRevealed then
+		MenuBackdrop.OnRevealed(reveal)
+	else
+		reveal(99)
+	end
+	-- Never leave the menu hidden if the backdrop didn't build.
+	task.delay(15, function() reveal(99) end)
 
 	return container
 end

@@ -24,8 +24,10 @@ local function safeRequire(childName: string)
 end
 
 local TitleScreen = safeRequire("TitleScreen")
-local SettingsModal = safeRequire("SettingsModal")
+local SettingsModal = safeRequire("SettingsModal") -- in a run: the glass panel in the world
+local MenuSettingsModal = safeRequire("MenuSettingsModal") -- on the title screen: the menu-styled window
 local ClassSelectionScreen = safeRequire("ClassSelectionScreen")
+local CampfireScreen = safeRequire("CampfireScreen")
 local MinimapUI = safeRequire("MinimapUI")
 local GameHUD = safeRequire("GameHUD")
 
@@ -47,11 +49,35 @@ local playerGui = player:WaitForChild("PlayerGui") :: PlayerGui
 local screenGui: ScreenGui
 local titleScreenGroup: CanvasGroup
 local settingsModalGroup: CanvasGroup
+local menuSettingsGroup: CanvasGroup? = nil
+local menuSettingsStale = false -- (settings changed in a run: rebuild before showing)
+local buildMenuSettings: () -> ()
 local classSelectGroup: CanvasGroup
+local campfireGroup: CanvasGroup? = nil
 
 local currentSettings = SettingsConfig.CloneDefaultSettings()
 
+-- Graphics settings, held on this client (lighting presets change on the way
+-- in and out of the dungeon, so they're re-applied every second).
+local function applyGraphics(settings: any)
+	local Lighting = game:GetService("Lighting")
+	local shadows = not (settings and settings.shadows == false)
+	local bloom = not (settings and settings.bloom == false)
+	if Lighting.GlobalShadows ~= shadows then Lighting.GlobalShadows = shadows end
+	for _, e in ipairs(Lighting:GetChildren()) do
+		if (e:IsA("BloomEffect") or e:IsA("SunRaysEffect")) and e.Enabled ~= bloom then e.Enabled = bloom end
+	end
+end
+
 local function applySettingsToRuntime(settings: any)
+	applyGraphics(settings)
+	-- Read by the character script (sprint toggle vs hold).
+	player:SetAttribute("Setting_toggleSprint", not (settings and settings.toggleSprint == false))
+	-- Read by SkillController (teammates' ult cutscenes on your screen or not).
+	player:SetAttribute("Setting_teammateCinematics", not (settings and settings.teammateCinematics == false))
+	-- Read by IsometricCamera (top-down or a normal third-person camera).
+	player:SetAttribute("Setting_classicCamera", settings ~= nil and settings.classicCamera == true)
+	player:SetAttribute("Setting_lowDetailVFX", settings ~= nil and settings.lowDetailVFX == true)
 	if settings and settings.keybinds then
 		for action, key in pairs(settings.keybinds) do
 			player:SetAttribute(`Keybind_{action}`, key)
@@ -86,6 +112,72 @@ local function fadeCanvas(group: CanvasGroup, targetTrans: number, duration: num
 	tween:Play()
 end
 
+-- QUIT: a small "leave?" confirmation over the title screen. Roblox can't close
+-- the app from a game, so leaving takes you out of the server with a farewell.
+local quitDialog: Frame? = nil
+local function showQuitConfirm()
+	if quitDialog then
+		quitDialog.Visible = true
+		return
+	end
+	local MenuEntry = safeRequire("MenuEntry")
+	local overlay = Instance.new("TextButton") -- swallows clicks behind it
+	overlay.Name = "QuitConfirm"
+	overlay.Text = ""
+	overlay.AutoButtonColor = false
+	overlay.Size = UDim2.fromScale(1, 1)
+	overlay.BackgroundColor3 = Color3.fromRGB(4, 3, 8)
+	overlay.BackgroundTransparency = 0.35
+	overlay.ZIndex = 50
+	overlay.Parent = screenGui
+	quitDialog = overlay
+
+	local panel = Instance.new("Frame")
+	panel.AnchorPoint = Vector2.new(0.5, 0.5)
+	panel.Position = UDim2.fromScale(0.5, 0.5)
+	panel.Size = UDim2.fromOffset(380, 250)
+	panel.BackgroundColor3 = Color3.fromRGB(16, 11, 20)
+	panel.BackgroundTransparency = 0.1
+	panel.ZIndex = 51
+	panel.Parent = overlay
+	UITheme.AddCorner(panel, 6)
+	UITheme.AddStroke(panel, Color3.fromRGB(194, 132, 52), 1.5, 0.2)
+
+	local title = Instance.new("TextLabel")
+	title.BackgroundTransparency = 1
+	title.Position = UDim2.fromOffset(0, 18)
+	title.Size = UDim2.new(1, 0, 0, 30)
+	title.FontFace = Font.new("rbxasset://fonts/families/Merriweather.json", Enum.FontWeight.Bold)
+	title.TextSize = 22
+	title.TextColor3 = Color3.fromRGB(255, 213, 128)
+	title.Text = "LEAVE RE:SPAWN?"
+	title.ZIndex = 52
+	title.Parent = panel
+
+	local list = Instance.new("Frame")
+	list.BackgroundTransparency = 1
+	list.Position = UDim2.fromOffset(40, 70)
+	list.Size = UDim2.new(1, -80, 0, 130)
+	list.ZIndex = 52
+	list.Parent = panel
+	local layout = Instance.new("UIListLayout")
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Padding = UDim.new(0, 6)
+	layout.Parent = list
+
+	if MenuEntry then
+		MenuEntry.Button(list, "LEAVE", "quit", 1, function()
+			player:Kick("Thanks for playing RE:SPAWN. See you soon!")
+		end)
+		MenuEntry.Button(list, "STAY", "play", 2, function()
+			overlay.Visible = false
+		end)
+	end
+	for _, d in ipairs(panel:GetDescendants()) do
+		if d:IsA("GuiObject") and d.ZIndex < 52 then d.ZIndex = 52 end
+	end
+end
+
 function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 	screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "LobbyScreenGui"
@@ -93,6 +185,24 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 	screenGui.IgnoreGuiInset = true
 	screenGui.DisplayOrder = 100
 	screenGui.Parent = playerGui
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			pcall(applyGraphics, currentSettings)
+		end
+	end)
+
+	-- The Toggle Menu key (default M, rebindable) in the dungeon: the settings
+	-- window (angled, in the world). (Not Escape: Roblox keeps that for its
+	-- own menu and a game can't take it over.)
+	game:GetService("UserInputService").InputBegan:Connect(function(input: InputObject, processed: boolean)
+		if processed or game:GetService("UserInputService"):GetFocusedTextBox() then return end
+		-- (not while the settings window is waiting for a new key)
+		if settingsModalGroup and settingsModalGroup:GetAttribute("Listening") == true then return end
+		local keyName = (currentSettings and currentSettings.keybinds and currentSettings.keybinds.OpenMenu) or "M"
+		if input.KeyCode.Name ~= keyName then return end
+		UIManager.ToggleInGameSettings()
+	end)
 
 	-- 1. Initialize Title Screen
 	if TitleScreen then
@@ -103,6 +213,7 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 			onOpenSettings = function()
 				UIManager.ShowSettings()
 			end,
+			onQuit = showQuitConfirm,
 		})
 	end
 
@@ -117,9 +228,30 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 				applySettingsToRuntime(currentSettings)
 				local saveRemote = Network.GetRemoteEvent(Network.Remotes.SaveSettings)
 				saveRemote:FireServer(newSettings)
+				menuSettingsStale = true
 			end,
 		})
 	end
+	-- The title screen's window (menu style); it holds its own copy of the
+	-- settings, so it's rebuilt when they changed in a run.
+	buildMenuSettings = function()
+		if not MenuSettingsModal then return end
+		if menuSettingsGroup then menuSettingsGroup:Destroy() end
+		menuSettingsStale = false
+		menuSettingsGroup = MenuSettingsModal.Create(screenGui, currentSettings, {
+			onClose = function()
+				UIManager.CloseSettings()
+			end,
+			onSave = function(newSettings)
+				currentSettings = newSettings
+				applySettingsToRuntime(currentSettings)
+				local saveRemote = Network.GetRemoteEvent(Network.Remotes.SaveSettings)
+				saveRemote:FireServer(newSettings)
+				if SettingsModal and settingsModalGroup then SettingsModal.Reload(settingsModalGroup, currentSettings) end
+			end,
+		})
+	end
+	buildMenuSettings()
 
 	-- 3. Initialize Class Selection Screen
 	if ClassSelectionScreen then
@@ -131,6 +263,17 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 				local selectRemote = Network.GetRemoteEvent(Network.Remotes.SelectClass)
 				selectRemote:FireServer(classId)
 				onGameStartRequested(classId)
+				-- Take a seat at the campfire; the run starts from its portal.
+				UIManager.ShowCampfire()
+			end,
+		})
+	end
+
+	-- 3b. The campfire: the party gathers, readies up and leaves by portal.
+	if CampfireScreen then
+		campfireGroup = CampfireScreen.Create(screenGui, {
+			onChangeClass = function()
+				UIManager.ShowClassSelect()
 			end,
 		})
 	end
@@ -164,6 +307,10 @@ function UIManager.ShowTitle()
 		settingsModalGroup.Visible = false
 		settingsModalGroup.GroupTransparency = 1
 	end
+	if menuSettingsGroup then
+		menuSettingsGroup.Visible = false
+		menuSettingsGroup.GroupTransparency = 1
+	end
 
 	if LobbyCamera then
 		pcall(function()
@@ -180,28 +327,51 @@ function UIManager.ShowTitle()
 	end
 end
 
+local inGameSettings = false -- opened with Escape during a run (the menu UI is off)
+
 function UIManager.ShowSettings()
+	if player:GetAttribute("InLobby") == false then
+		-- In the dungeon: just the settings window over the game.
+		inGameSettings = true
+		screenGui.Enabled = true
+		if settingsModalGroup then
+			settingsModalGroup.Visible = true
+			fadeCanvas(settingsModalGroup, 0, 0.2)
+		end
+		return
+	end
 	-- Settings is a separate screen state; fully hide the title controls so the
 	-- modal's translucent backdrop can't reveal them (a fade alone isn't enough -
 	-- UIStrokes / rotated plaques still ghost through at GroupTransparency 1).
+	if menuSettingsStale or not menuSettingsGroup then buildMenuSettings() end
+	local menuGroup = menuSettingsGroup
+	if not menuGroup then return end
 	if titleScreenGroup and titleScreenGroup.Visible then
 		fadeCanvas(titleScreenGroup, 1, 0.15, function()
-			if settingsModalGroup and settingsModalGroup.Visible then
+			if menuGroup.Visible then
 				titleScreenGroup.Visible = false
 			end
 		end)
 	end
-
-	if settingsModalGroup then
-		settingsModalGroup.Visible = true
-		fadeCanvas(settingsModalGroup, 0, 0.2)
-	end
+	menuGroup.Visible = true
+	fadeCanvas(menuGroup, 0, 0.2)
 end
 
 function UIManager.CloseSettings()
-	if settingsModalGroup then
-		fadeCanvas(settingsModalGroup, 1, 0.2, function()
-			settingsModalGroup.Visible = false
+	if inGameSettings then
+		inGameSettings = false
+		if settingsModalGroup then
+			fadeCanvas(settingsModalGroup, 1, 0.2, function()
+				settingsModalGroup.Visible = false
+				if player:GetAttribute("InLobby") == false then screenGui.Enabled = false end
+			end)
+		end
+		return
+	end
+	local menuGroup = menuSettingsGroup
+	if menuGroup then
+		fadeCanvas(menuGroup, 1, 0.2, function()
+			menuGroup.Visible = false
 			if titleScreenGroup then
 				titleScreenGroup.Visible = true
 				fadeCanvas(titleScreenGroup, 0, 0.15)
@@ -211,17 +381,37 @@ function UIManager.CloseSettings()
 end
 
 function UIManager.ShowClassSelect()
+	-- The class preview is on the hero standing in the menu scene; the camera
+	-- just eases in front of it.
 	if LobbyCamera then
 		pcall(function()
-			LobbyCamera.SetClassSelectView()
+			LobbyCamera.StartHeroMode()
 		end)
 	end
 
-	if titleScreenGroup and classSelectGroup then
-		fadeCanvas(titleScreenGroup, 1, 0.25, function()
-			titleScreenGroup.Visible = false
+	-- From the title or back from the campfire.
+	local from = if campfireGroup and campfireGroup.Visible then campfireGroup else titleScreenGroup
+	if from and classSelectGroup then
+		fadeCanvas(from, 1, 0.25, function()
+			from.Visible = false
 			classSelectGroup.Visible = true
 			fadeCanvas(classSelectGroup, 0, 0.25)
+		end)
+	end
+end
+
+function UIManager.ShowCampfire()
+	if LobbyCamera then
+		pcall(function()
+			LobbyCamera.StartCampfireMode()
+		end)
+	end
+	local group = campfireGroup
+	if group and classSelectGroup then
+		fadeCanvas(classSelectGroup, 1, 0.25, function()
+			classSelectGroup.Visible = false
+			group.Visible = true
+			fadeCanvas(group, 0, 0.35)
 		end)
 	end
 end
@@ -243,6 +433,11 @@ function UIManager.FadeOutToGame(onComplete: (() -> ())?)
 		if titleScreenGroup then titleScreenGroup.Visible = false end
 		if classSelectGroup then classSelectGroup.Visible = false end
 		if settingsModalGroup then settingsModalGroup.Visible = false end
+		if menuSettingsGroup then menuSettingsGroup.Visible = false end
+		if campfireGroup then
+			campfireGroup.Visible = false
+			campfireGroup.GroupTransparency = 1
+		end
 
 		-- Wait until character has actually teleported/spawned into the map
 		task.spawn(function()
@@ -280,6 +475,34 @@ function UIManager.FadeOutToGame(onComplete: (() -> ())?)
 	end)
 
 	fadeIn:Play()
+end
+
+-- Back to the title menu (after dying): hide the HUD, show the lobby again.
+-- The Toggle Menu key during a run opens / closes the settings window.
+function UIManager.ToggleInGameSettings()
+	if player:GetAttribute("InLobby") ~= false then return end
+	if settingsModalGroup and settingsModalGroup.Visible then
+		UIManager.CloseSettings()
+	else
+		UIManager.ShowSettings()
+	end
+end
+
+function UIManager.ReturnToMenu()
+	inGameSettings = false
+	if GameHUD then pcall(function() GameHUD.SetVisible(false) end) end
+	if MinimapUI then pcall(function() MinimapUI.SetVisible(false) end) end
+	screenGui.Enabled = true
+	if classSelectGroup then classSelectGroup.Visible = false end
+	if settingsModalGroup then settingsModalGroup.Visible = false end
+	if menuSettingsGroup then menuSettingsGroup.Visible = false end
+	if campfireGroup then campfireGroup.Visible = false end
+	if LobbyCamera then pcall(function() LobbyCamera.StartTitleMode() end) end
+	if titleScreenGroup then
+		titleScreenGroup.Visible = true
+		titleScreenGroup.GroupTransparency = 1
+		fadeCanvas(titleScreenGroup, 0, 0.4)
+	end
 end
 
 return UIManager

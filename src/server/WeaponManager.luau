@@ -15,17 +15,33 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local WeaponGrip = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("WeaponGrip"))
+local RevolverModel = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RevolverModel"))
+local SwordModel = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SwordModel"))
+local BerserkerLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BerserkerLook"))
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Configuration
 -- ─────────────────────────────────────────────────────────────────────────────
-local WEAPON_CONFIG: { [string]: { toolName: string, leftHand: boolean? } } = {
+-- build: makes the tool in code instead of cloning a ReplicatedStorage asset.
+local WEAPON_CONFIG: { [string]: { toolName: string, leftHand: boolean?, build: (() -> Tool)? } } = {
 	heavy_knight = {
 		toolName = "Greatsword",
 	},
 	ranger = {
 		toolName = "Bow",
 		leftHand = true,
+	},
+	gunslinger = {
+		toolName = "Revolver",
+		build = RevolverModel.Build,
+	},
+	swordsman = {
+		toolName = "Longsword",
+		build = SwordModel.Build,
+	},
+	berserker = {
+		toolName = "Ragebringer",
+		build = BerserkerLook.BuildGreatsword,
 	},
 }
 
@@ -136,8 +152,8 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 		if oldBackpackTool then oldBackpackTool:Destroy() end
 	end
 
-	-- 2. Fetch tool template directly from ReplicatedStorage
-	local toolTemplate = findWeaponTemplate(config.toolName)
+	-- 2. Fetch tool template directly from ReplicatedStorage (or build it)
+	local toolTemplate: Instance? = if config.build then config.build() else findWeaponTemplate(config.toolName)
 
 	if not toolTemplate then
 		warn(`[WeaponManager] ❌ Tool '{config.toolName}' not found in ReplicatedStorage!`)
@@ -149,8 +165,8 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 
 	print(`[WeaponManager] Found weapon template: '{toolTemplate:GetFullName()}' ({toolTemplate.ClassName})`)
 
-	-- 3. Clone Tool
-	local tool = toolTemplate:Clone()
+	-- 3. Clone Tool (a built tool is already a fresh instance)
+	local tool = if config.build then toolTemplate else toolTemplate:Clone()
 	if not tool:IsA("Tool") then
 		local innerTool = tool:FindFirstChildWhichIsA("Tool")
 		if innerTool then
@@ -318,10 +334,13 @@ end
 
 function WeaponManager.Init()
 	Players.PlayerAdded:Connect(function(player: Player)
-		player.CharacterAdded:Connect(function()
+		player.CharacterAdded:Connect(function(character)
 			task.wait(1.5)
+			-- Only in a run: back in the lobby / menus you carry nothing (the
+			-- menu hero is dressed for whichever class is being shown).
+			if player:GetAttribute("InLobby") ~= false or player.Character ~= character then return end
 			local classId = player:GetAttribute("SelectedClass")
-			if classId then
+			if classId and not character:FindFirstChildOfClass("Tool") then
 				WeaponManager.EquipWeapon(player, classId)
 			end
 		end)

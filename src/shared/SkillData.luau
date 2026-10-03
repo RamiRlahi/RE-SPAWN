@@ -69,51 +69,83 @@ local SkillData: { [string]: ClassSkills } = {
 			description = "Fire an arrow skyward to mark a large zone, then call down a repeated storm of arrows.",
 		},
 	},
+	-- The Fire Knight (class id kept as heavy_knight; FireKnightServer).
 	heavy_knight = {
 		[1] = {
-			name = "Spin Attack",
+			name = "Blazing Charge",
 			slot = 1,
 			keybind = "E",
-			cooldown = 8.0,
-			damage = 45,
-			duration = 5.0,
-			range = 14,
-			description = "A continuous spinning whirlwind attack for 5 seconds, slicing all nearby enemies.",
-			animationId = "rbxassetid://94745840711885",
+			cooldown = 7.0,
+			damage = 40, -- on contact; the upward slash deals more
+			dashDistance = 22,
+			description = "Charge forward in flames, dragging enemies along, and finish with an upward slash that launches them. Overheated: a flaming bull rush that plows through everything and leaves the path burning.",
 		},
 		[2] = {
-			name = "Fire Slam",
+			name = "Phoenix Slam",
 			slot = 2,
 			keybind = "F",
-			cooldown = 12.0,
-			damage = 55,
-			range = 16,
-			maxLeapDistance = 42,
-			description = "Leap into the air and strike the ground, creating a fiery shockwave.",
-			animationId = "rbxassetid://84579017139529",
+			cooldown = 9.0,
+			damage = 90, -- the impact (Overheated: flares go off round it too)
+			range = 40, -- how far from where you take off you can land
+			description = "Soar into the air and become a phoenix of fire. Move the marker to pick your landing spot and click (or press F again) to dive: an explosion that leaves the ground burning. Overheated: a bigger impact, more explosions and a lingering inferno.",
 		},
 		[3] = {
-			name = "Phoenix Dash",
+			name = "Infernal Earthshaker",
 			slot = 3,
 			keybind = "Q",
-			cooldown = 7.5,
-			damage = 35,
-			dashDistance = 24,
-			dashSpeed = 80,
-			range = 8,
-			description = "Surge forward in a roaring whirlwind of flames, scorching foes.",
-			animationId = "rbxassetid://139832137467263",
+			cooldown = 11.0,
+			damage = 70,
+			range = 14,
+			description = "Raise the sword and drive it into the ground: a giant explosion, aftershocks traveling outward, and patches of fire left behind. Overheated: three expanding rings of fire.",
 		},
 		[4] = {
-			name = "Infernal Wrath",
+			name = "Heart of the Inferno",
 			slot = 4,
 			keybind = "R",
-			cooldown = 30.0,
+			cooldown = 40.0,
 			damage = 150,
-			description = "Ultimate: Empower your sword in roaring flames and slam down a massive impact slash that shatters the earth into a rock crater.",
-			animationId = "rbxassetid://84579017139529",
-			slashAnimationId = "rbxassetid://108875775887071",
+			description = "Ultimate: plant the sword and awaken. For several seconds every attack explodes; then every flame is drawn into the sword for one enormous flame wave that erupts. At 100 Heat: the Primordial Inferno.",
 		},
+	},
+}
+
+-- The Berserker, the Crimson Ravager (BerserkerServer).
+SkillData.berserker = {
+	[1] = {
+		name = "Rupture",
+		slot = 1,
+		keybind = "E",
+		cooldown = 8.0,
+		damage = 75,
+		range = 14,
+		description = "Leap to the cursor (up to 17 studs) and crash down with the greatsword: the ground fractures in a crater and a shockwave knocks enemies up.",
+	},
+	[2] = {
+		name = "Bloodstorm",
+		slot = 2,
+		keybind = "F",
+		cooldown = 10.0,
+		damage = 30,
+		range = 24,
+		description = "Dash from enemy to enemy with ever faster slashes, then finish with a spinning cleave that throws them away. You take half damage during it.",
+	},
+	[3] = {
+		name = "Bloodrage: Unchained",
+		slot = 3,
+		keybind = "Q",
+		cooldown = 22.0,
+		damage = 30,
+		duration = 8,
+		description = "Force your body past its limits: a crimson pulse, then +35% attack speed and +25% damage for 8 seconds. Your next skill is Empowered.",
+	},
+	[4] = {
+		name = "Worldbreaker",
+		slot = 4,
+		keybind = "R",
+		cooldown = 40.0,
+		damage = 160,
+		range = 34,
+		description = "Ultimate: gather, launch into the sky and dive onto the target area dragging a giant crimson blade. A delayed second explosion executes badly wounded enemies.",
 	},
 }
 
@@ -124,7 +156,7 @@ SkillData.cleric = {
 		keybind = "E",
 		cooldown = 3.0,
 		damage = 0,
-		healAmount = 35,
+		healAmount = 70,
 		maxCharges = 3,
 		description = "Send a bolt of sacred green fire that tracks and heals the lowest ally. Holds 3 charges.",
 	},
@@ -133,7 +165,7 @@ SkillData.cleric = {
 		slot = 2,
 		keybind = "F",
 		cooldown = 15.0,
-		damage = 130,
+		damage = 190, -- over the whole channel
 		range = 60,
 		width = 4.5,
 		duration = 5.0,
@@ -144,7 +176,7 @@ SkillData.cleric = {
 		slot = 3,
 		keybind = "Q",
 		cooldown = 20.0,
-		damage = 10,
+		damage = 16,
 		range = 16,
 		duration = 5.0,
 		healAmount = 12,
@@ -155,12 +187,12 @@ SkillData.cleric = {
 		slot = 4,
 		keybind = "R",
 		cooldown = 60.0,
-		damage = 90,
+		damage = 160,
 		range = 30,
-		duration = 5.5, -- length of the ascension cinematic
-		reviveTime = 3.7, -- the revival beat of the cinematic (DivineAscentCutscene.REVIVE_AT)
+		duration = 2.0, -- length of the ascension cinematic
+		reviveTime = 1.2, -- the revival beat of the cinematic (DivineAscentCutscene.REVIVE_AT)
 		healAmount = 100,
-		description = "Ultimate: Kneel in prayer and call down the light. Fallen allies behind you are revived, the party is healed and cleansed, and nearby enemies are smitten.",
+		description = "Ultimate: Kneel in prayer and call down the light. Fallen teammates rise beside you, the party is healed and cleansed, and nearby enemies are smitten.",
 	},
 }
 
@@ -211,6 +243,90 @@ SkillData.ice_mage = {
 		duration = 6.0,
 		castDelay = 1.5, -- "frozen one" reveal close-up; the storm breaks as it cuts back
 		description = "Ultimate: Call down a raging blizzard over the battlefield, freezing every enemy and battering those inside with ice.",
+	},
+}
+
+SkillData.gunslinger = {
+	[1] = {
+		name = "Fan the Hammer",
+		slot = 1,
+		keybind = "E",
+		cooldown = 6.0,
+		damage = 18, -- per bullet; fires every bullet left in the cylinder
+		range = 34,
+		description = "Rapidly fire every bullet left in the revolver: huge short-range burst, empties the cylinder.",
+	},
+	[2] = {
+		name = "Gunslinger's Roll",
+		slot = 2,
+		keybind = "F",
+		cooldown = 3.2,
+		damage = 0,
+		dashDistance = 15,
+		duration = 0.26, -- roll time; i-frames last a little longer
+		description = "Roll a short distance with brief invulnerability, then fire one shot toward the cursor.",
+	},
+	[3] = {
+		name = "Deadeye Ricochet",
+		slot = 3,
+		keybind = "Q",
+		cooldown = 7.0,
+		damage = 26, -- per ricochet projectile
+		range = 24, -- coin throw distance
+		duration = 2.6, -- how long the coin hangs in the air
+		description = "Toss a spinning coin. Shoot it to split the bullet into ricochets that seek nearby enemies.",
+	},
+	[4] = {
+		name = "High Noon",
+		slot = 4,
+		keybind = "R",
+		cooldown = 40.0,
+		damage = 55, -- per marked target; the execution shot deals far more
+		range = 50,
+		duration = 3.7, -- standoff + volley + execution (mobs are frozen through it)
+		description = "Ultimate: time slows, enemies in range are marked, gunned down one by one, and the last is executed with a Deadeye shot.",
+	},
+}
+
+SkillData.swordsman = {
+	[1] = {
+		name = "Sword Rush",
+		slot = 1,
+		keybind = "E",
+		cooldown = 6.0,
+		damage = 30, -- per strike; the second strike is stronger on enemies hit by both
+		dashDistance = 20,
+		width = 6.0,
+		description = "Dash forward through enemies with two rapid strikes. Enemies hit by both take extra damage. Empowered: longer dash, wider cut, a third strike.",
+	},
+	[2] = {
+		name = "Parry",
+		slot = 2,
+		keybind = "F",
+		cooldown = 8.0,
+		damage = 90, -- the counter slash
+		duration = 0.6, -- parry window
+		range = 14,
+		description = "Guard for a moment. Parry an attack to negate it, stun the attacker and counter with a huge upward slash. Empowered: longer window, bigger counter.",
+	},
+	[3] = {
+		name = "Whirlwind",
+		slot = 3,
+		keybind = "Q",
+		cooldown = 10.0,
+		damage = 14, -- per spin hit; the last hit deals more and launches
+		range = 13,
+		duration = 1.2,
+		description = "Spin with the blade out, hitting everything around you and dragging smaller foes in; the last cut launches them. Empowered: bigger and longer.",
+	},
+	[4] = {
+		name = "Blade Storm",
+		slot = 4,
+		keybind = "R",
+		cooldown = 35.0,
+		damage = 60, -- per dash slash; the final X deals far more
+		range = 45,
+		description = "Ultimate: plant the sword and slow the world, flash to every enemy in the room in a chain of slashes, then carve a giant X that hits the whole room.",
 	},
 }
 

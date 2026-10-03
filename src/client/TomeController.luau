@@ -5,11 +5,14 @@
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local TomeData = require(Shared:WaitForChild("TomeData"))
 
 -- ── Palette (matches TitleScreen / SettingsModal) ────────────────────────────
 local BRASS = Color3.fromRGB(194, 132, 52)
@@ -24,40 +27,12 @@ local GLYPH = "❖"
 
 local FONT = Enum.Font.Antique
 
--- Distinct accent colour per buff (keyed by tome id).
-local BUFF_COLORS: { [string]: Color3 } = {
-	agility = Color3.fromRGB(120, 230, 140),
-	attack_speed = Color3.fromRGB(255, 160, 90),
-	cooldown = Color3.fromRGB(120, 190, 255),
-	damage = Color3.fromRGB(255, 100, 100),
-	evasion = Color3.fromRGB(185, 160, 255),
-	gold = Color3.fromRGB(255, 205, 80),
-	health = Color3.fromRGB(255, 120, 150),
-	knockback = Color3.fromRGB(205, 170, 120),
-	precision = Color3.fromRGB(255, 230, 120),
-	projectile_speed = Color3.fromRGB(130, 230, 230),
-	regen = Color3.fromRGB(120, 245, 180),
-	shield = Color3.fromRGB(150, 200, 255),
-	silver = Color3.fromRGB(210, 215, 230),
-	size = Color3.fromRGB(230, 170, 255),
-	armor = Color3.fromRGB(170, 190, 210),
-	attraction = Color3.fromRGB(255, 140, 220),
-	bloody = Color3.fromRGB(205, 45, 55),
-	chaos = Color3.fromRGB(200, 120, 255),
-	cursed = Color3.fromRGB(150, 85, 190),
-	duration = Color3.fromRGB(255, 180, 80),
-	luck = Color3.fromRGB(130, 230, 120),
-	quantity = Color3.fromRGB(255, 210, 140),
-	thorns = Color3.fromRGB(120, 180, 90),
-	xp = Color3.fromRGB(120, 200, 255),
-}
-
 local function accentFor(id: string?): Color3
-	if id and BUFF_COLORS[id] then return BUFF_COLORS[id] end
-	return BRASS_LIGHT
+	return TomeData.AccentFor(id)
 end
 
 local TomeController = {}
+TomeController.AccentFor = accentFor
 local barRoot: Frame? = nil
 local fill: Frame? = nil
 local progressText: TextLabel? = nil
@@ -69,6 +44,7 @@ local TOME_ICONS = {
 
 local choiceOverlay: Frame? = nil
 local rerollButton: TextButton? = nil
+local rerollLabel: TextLabel? = nil
 
 local function addGradient(parent: Instance, c1: Color3, c2: Color3, rotation: number?): UIGradient
 	local grad = Instance.new("UIGradient")
@@ -101,11 +77,44 @@ local function addCorner(parent: Instance, corner: number)
 	c.Parent = parent
 end
 
+-- The account level bar: shown during a run (not in the menus).
 local function setProgress(level: number, xp: number, xpToNext: number)
 	if not barRoot or not fill or not progressText then return end
-	barRoot.Visible = level > 0
-	fill.Size = UDim2.new(math.clamp(xp / math.max(xpToNext, 1), 0, 1), 0, 1, 0)
-	progressText.Text = `LV. {level}   •   {xp} / {xpToNext}`
+	barRoot.Visible = level > 0 and player:GetAttribute("InLobby") == false
+	if xpToNext <= 0 then
+		fill.Size = UDim2.new(1, 0, 1, 0)
+		progressText.Text = `LV. {level}   •   MAX`
+	else
+		fill.Size = UDim2.new(math.clamp(xp / xpToNext, 0, 1), 0, 1, 0)
+		progressText.Text = `LV. {level}   •   {xp} / {xpToNext} XP`
+	end
+end
+
+local function refreshProgress()
+	setProgress(player:GetAttribute("AccountLevel") or 0, player:GetAttribute("AccountXP") or 0,
+		player:GetAttribute("AccountXPToNext") or 0)
+end
+
+-- "LEVEL UP" across the top of the screen when the account gains a level.
+local function levelUpBanner(gui: ScreenGui, level: number)
+	local banner = makeText(gui, "LEVEL UP", 44, BRASS_LIGHT, INK)
+	banner.Name = "AccountLevelUp"
+	banner.AnchorPoint = Vector2.new(0.5, 0)
+	banner.Position = UDim2.new(0.5, 0, 0, 90)
+	banner.Size = UDim2.fromOffset(600, 50)
+	banner.ZIndex = 30
+	local sub = makeText(banner, `LEVEL {level}`, 20, PARCHMENT, INK)
+	sub.Position = UDim2.fromOffset(0, 46)
+	sub.Size = UDim2.new(1, 0, 0, 24)
+	sub.ZIndex = 30
+	banner.TextTransparency, sub.TextTransparency = 1, 1
+	TweenService:Create(banner, TweenInfo.new(0.35), { TextTransparency = 0 }):Play()
+	TweenService:Create(sub, TweenInfo.new(0.35), { TextTransparency = 0 }):Play()
+	task.delay(2.4, function()
+		TweenService:Create(banner, TweenInfo.new(0.6), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+		TweenService:Create(sub, TweenInfo.new(0.6), { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	end)
+	task.delay(3.1, function() banner:Destroy() end)
 end
 
 local function buildCard(parent: Instance, tome: any, index: number, total: number)
@@ -122,7 +131,6 @@ local function buildCard(parent: Instance, tome: any, index: number, total: numb
 	card.BorderSizePixel = 0
 	card.AutoButtonColor = false
 	card.ZIndex = 22
-	card.Rotation = -3
 	card.Parent = parent
 
 	-- Depth shadow plaque behind
@@ -299,12 +307,10 @@ local function buildCard(parent: Instance, tome: any, index: number, total: numb
 		if not card.Active then return end
 		TweenService:Create(face, TweenInfo.new(0.15, Enum.EasingStyle.Quad), { BackgroundColor3 = PLAQUE:Lerp(accent, 0.12) }):Play()
 		TweenService:Create(outer, TweenInfo.new(0.15, Enum.EasingStyle.Quad), { Color = accentBright, Transparency = 0, Thickness = 3 }):Play()
-		TweenService:Create(card, TweenInfo.new(0.15, Enum.EasingStyle.Quad), { Rotation = 0 }):Play()
 	end)
 	card.MouseLeave:Connect(function()
 		TweenService:Create(face, TweenInfo.new(0.15, Enum.EasingStyle.Quad), { BackgroundColor3 = PLAQUE }):Play()
 		TweenService:Create(outer, TweenInfo.new(0.15, Enum.EasingStyle.Quad), { Color = baseStroke, Transparency = baseTransparency, Thickness = 2 }):Play()
-		TweenService:Create(card, TweenInfo.new(0.15, Enum.EasingStyle.Quad), { Rotation = -3 }):Play()
 	end)
 	card.Activated:Connect(function()
 		if not card.Active then return end
@@ -327,8 +333,8 @@ local function showChoices(choices: { any }, rerollsRemaining: number, lockDurat
 		buildCard(cards, tome, index, #choices)
 	end
 
-	if rerollButton then
-		rerollButton.Text = rerollsRemaining > 0 and `REROLL  ({rerollsRemaining})` or "NO REROLLS LEFT"
+	if rerollButton and rerollLabel then
+		rerollLabel.Text = rerollsRemaining > 0 and `REROLL  ({rerollsRemaining})` or "NO REROLLS LEFT"
 		rerollButton.Visible = rerollsRemaining > 0
 		rerollButton.Active = false
 		rerollButton.AutoButtonColor = false
@@ -414,6 +420,23 @@ function TomeController.Init()
 	choiceOverlay.ZIndex = 20
 	choiceOverlay.Parent = gui
 
+	-- While choosing, show the normal mouse cursor instead of the aim reticle
+	-- (the reticle stops following the mouse while the game is paused).
+	local overlay = choiceOverlay
+	overlay:GetPropertyChangedSignal("Visible"):Connect(function()
+		local pg = player:FindFirstChildOfClass("PlayerGui")
+		local found = pg and pg:FindFirstChild("AimReticleGui")
+		local reticle = if found and found:IsA("ScreenGui") then found else nil
+		if overlay.Visible then
+			UserInputService.MouseIconEnabled = true
+			if reticle then reticle.Enabled = false end
+		elseif reticle then
+			-- Back to the aim reticle (only in a run, where the reticle lives).
+			reticle.Enabled = true
+			UserInputService.MouseIconEnabled = false
+		end
+	end)
+
 	-- Dark backdrop lives on its OWN low ZIndex layer. Previously the overlay itself
 	-- was the dark panel at ZIndex 20, which rendered ABOVE the cards' inner elements
 	-- (they use ZIndex 1-4), blacking out the tome panels. ZIndex is global per ScreenGui.
@@ -427,7 +450,7 @@ function TomeController.Init()
 	backdrop.Parent = choiceOverlay
 
 	-- Heading plaque
-	local heading = makeText(choiceOverlay, "LEVEL UP", 40, BRASS_LIGHT, INK)
+	local heading = makeText(choiceOverlay, "CHOOSE A TOME", 40, BRASS_LIGHT, INK)
 	heading.Name = "Heading"
 	heading.Size = UDim2.new(1, 0, 0, 46)
 	heading.Position = UDim2.new(0, 0, 0.5, -166)
@@ -460,15 +483,24 @@ function TomeController.Init()
 	rerollButton.Size = UDim2.new(0, 170, 0, 38)
 	rerollButton.BackgroundColor3 = PLAQUE
 	rerollButton.BorderSizePixel = 0
-	rerollButton.Font = FONT
-	rerollButton.TextSize = 17
-	rerollButton.TextColor3 = BRASS_LIGHT
-	rerollButton.TextStrokeColor3 = INK
-	rerollButton.TextStrokeTransparency = 0.4
+	rerollButton.Text = ""
 	rerollButton.ZIndex = 22
 	rerollButton.Parent = choiceOverlay
 	addCorner(rerollButton, 6)
 	addGradient(rerollButton, WOOD_MID, PLAQUE_DARK, 90)
+	-- Text on its own label: the wood gradient would tint the button's own
+	-- text nearly black.
+	rerollLabel = Instance.new("TextLabel")
+	rerollLabel.Name = "Label"
+	rerollLabel.Size = UDim2.fromScale(1, 1)
+	rerollLabel.BackgroundTransparency = 1
+	rerollLabel.Font = FONT
+	rerollLabel.TextSize = 17
+	rerollLabel.TextColor3 = BRASS_LIGHT
+	rerollLabel.TextStrokeColor3 = INK
+	rerollLabel.TextStrokeTransparency = 0.4
+	rerollLabel.ZIndex = 23
+	rerollLabel.Parent = rerollButton
 	local rerollStroke = Instance.new("UIStroke")
 	rerollStroke.Color = BRASS
 	rerollStroke.Thickness = 2
@@ -492,8 +524,43 @@ function TomeController.Init()
 
 	Network.GetRemoteEvent(Network.Remotes.TomeProgress).OnClientEvent:Connect(function(payload: any)
 		if typeof(payload) == "table" then
-			setProgress(payload.level or 1, payload.xp or 0, payload.xpToNext or 1)
+			setProgress(payload.level or 1, payload.xp or 0, payload.xpToNext or 0)
 		end
+	end)
+	for _, attr in ipairs({ "AccountXP", "AccountXPToNext", "InLobby" }) do
+		player:GetAttributeChangedSignal(attr):Connect(refreshProgress)
+	end
+
+	-- While a teammate is choosing a tome (the game is paused for everyone),
+	-- say who everyone's waiting on.
+	local waiting = makeText(gui, "", 22, PARCHMENT, INK)
+	waiting.Name = "WaitingForTome"
+	waiting.AnchorPoint = Vector2.new(0.5, 0)
+	waiting.Position = UDim2.new(0.5, 0, 0, 140)
+	waiting.Size = UDim2.fromOffset(720, 30)
+	waiting.ZIndex = 25
+	waiting.Visible = false
+	local function refreshWaiting()
+		local who = Workspace:GetAttribute("TomesChoosing")
+		local choosingMyself = choiceOverlay ~= nil and choiceOverlay.Visible
+		local show = Workspace:GetAttribute("TomesPaused") == true and typeof(who) == "string"
+			and not choosingMyself and player:GetAttribute("InLobby") == false
+		waiting.Visible = show
+		if show then waiting.Text = `WAITING FOR {string.upper(who :: string)} TO CHOOSE A TOME…` end
+	end
+	Workspace:GetAttributeChangedSignal("TomesPaused"):Connect(refreshWaiting)
+	Workspace:GetAttributeChangedSignal("TomesChoosing"):Connect(refreshWaiting)
+	if choiceOverlay then choiceOverlay:GetPropertyChangedSignal("Visible"):Connect(refreshWaiting) end
+	refreshWaiting()
+	local shownLevel: number? = player:GetAttribute("AccountLevel")
+	player:GetAttributeChangedSignal("AccountLevel"):Connect(function()
+		local level = player:GetAttribute("AccountLevel")
+		-- The first value is the saved level arriving, not a level up.
+		if typeof(level) == "number" and shownLevel and level > shownLevel then
+			levelUpBanner(gui, level)
+		end
+		shownLevel = level
+		refreshProgress()
 	end)
 	Network.GetRemoteEvent(Network.Remotes.TomeChoices).OnClientEvent:Connect(function(payload: any)
 		if typeof(payload) == "table" and typeof(payload.choices) == "table" then
@@ -501,7 +568,7 @@ function TomeController.Init()
 		end
 	end)
 
-	setProgress(player:GetAttribute("Level") or 0, player:GetAttribute("XP") or 0, player:GetAttribute("XPToNext") or 1)
+	refreshProgress()
 end
 
 return TomeController

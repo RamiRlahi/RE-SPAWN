@@ -48,17 +48,9 @@ local CLASS_ANIMATIONS = {
 	},
 }
 
-local ATTACK_ANIMATIONS = {
-	heavy_knight = {
-		running = "rbxassetid://97959206991231",
-		combo = {
-			"rbxassetid://89799832930197",  -- Attack 1
-			"rbxassetid://139832137467263", -- Attack 2
-			"rbxassetid://88609851560221",  -- Attack 3
-			"rbxassetid://86943794416151",  -- Attack 4
-		},
-	},
-}
+-- Uploaded attack combos per class. None right now: the Fire Knight's
+-- Emberblade (FireKnightController) and the Swordsman's combo are posed in code.
+local ATTACK_ANIMATIONS: { [string]: { running: string?, combo: { string } } } = {}
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Combat & Sprint State
@@ -76,6 +68,12 @@ local activeSpeedVFX: Instance? = nil
 
 local WALK_SPEED = 16
 local RUN_SPEED = 34
+
+-- Walk/run speed multiplier set by the server on the character (e.g. the
+-- Fire Knight's Inferno).
+local function speedMult(): number
+	return tonumber(character:GetAttribute("SpeedMult")) or 1
+end
 
 local AirborneState = {
 	[Enum.HumanoidStateType.Freefall] = true,
@@ -615,7 +613,7 @@ local function performAttack()
 				attackBuffered = false
 				task.defer(performAttack)
 			else
-				humanoid.WalkSpeed = isSprinting and RUN_SPEED or WALK_SPEED
+				humanoid.WalkSpeed = (isSprinting and RUN_SPEED or WALK_SPEED) * speedMult()
 				UpdateMovement()
 			end
 		end
@@ -639,32 +637,50 @@ local function inputMatchesAction(input: InputObject, action: string): boolean
 	return input.UserInputType.Name == keyName
 end
 
+-- Sprint key: toggles sprinting (Settings > Toggle Sprint, on by default) or,
+-- with the setting off, sprints while held.
+local function sprintToggles(): boolean
+	return player:GetAttribute("Setting_toggleSprint") ~= false
+end
+
+local function setSprinting(on: boolean)
+	if isSprinting == on then return end
+	isSprinting = on
+	if on then
+		playDashShockwaveVFX()
+	else
+		stopSpeedSprintVFX()
+	end
+	pcall(function()
+		Network.GetRemoteEvent(Network.Remotes.SetSprint):FireServer(on)
+	end)
+end
+
 UserInputService.InputBegan:Connect(function(input, gpe)
 	if gpe then return end
+	-- (the settings panel is open: clicks are for it)
+	if game:GetService("Players").LocalPlayer:GetAttribute("SettingsOpen") == true then return end
 
 	if inputMatchesAction(input, "Sprint") then
+		-- Toggle mode (the default setting): each press flips sprinting.
+		if isSprinting and sprintToggles() then
+			setSprinting(false)
 		-- No sprinting (or its dash burst) during an ultimate.
-		if not isSprinting and character:GetAttribute("IsUltActive") ~= true then
-			isSprinting = true
-			playDashShockwaveVFX()
-			pcall(function()
-				local setSprintRemote = Network.GetRemoteEvent(Network.Remotes.SetSprint)
-				setSprintRemote:FireServer(true)
-			end)
+		elseif not isSprinting and character:GetAttribute("IsUltActive") ~= true then
+			setSprinting(true)
 		end
 	elseif inputMatchesAction(input, "PrimaryAttack") or input.KeyCode == Enum.KeyCode.ButtonR2 then
-		performAttack()
+		-- That click is claiming a room reward (EmblemPrompt), not attacking.
+		if game:GetService("Players").LocalPlayer:GetAttribute("InteractReady") ~= true then
+			performAttack()
+		end
 	end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
-	if inputMatchesAction(input, "Sprint") then
-		isSprinting = false
-		stopSpeedSprintVFX()
-		pcall(function()
-			local setSprintRemote = Network.GetRemoteEvent(Network.Remotes.SetSprint)
-			setSprintRemote:FireServer(false)
-		end)
+	-- Hold mode: letting go stops sprinting.
+	if inputMatchesAction(input, "Sprint") and not sprintToggles() then
+		setSprinting(false)
 	end
 end)
 
@@ -718,12 +734,13 @@ function UpdateMovement()
 		return
 	end
 
-	-- During attack swing or skill cast, keep character stationary (unless skill manages velocity)
-	if isAttacking or character:GetAttribute("IsSkillCasting") == true then
+	-- During attack swing or skill cast, keep character stationary (unless skill manages velocity).
+	-- "Rooted": a class plants its feet for a swing (the Fire Knight's greatsword).
+	if isAttacking or character:GetAttribute("IsSkillCasting") == true or character:GetAttribute("Rooted") == true then
 		if character:GetAttribute("IsSkillCasting") == true and character:GetAttribute("AllowSkillMovement") == true then
 			-- Skill allows movement (e.g. spin attack or dash)
 			if humanoid.WalkSpeed == 0 then
-				humanoid.WalkSpeed = WALK_SPEED
+				humanoid.WalkSpeed = WALK_SPEED * speedMult()
 			end
 		else
 			humanoid.WalkSpeed = 0
@@ -742,7 +759,7 @@ function UpdateMovement()
 			IdleTrack:Stop(0.25)
 		end
 		if isSprinting then
-			humanoid.WalkSpeed = RUN_SPEED
+			humanoid.WalkSpeed = RUN_SPEED * speedMult()
 			if WalkTrack.IsPlaying then
 				WalkTrack:Stop(0.25)
 			end
@@ -752,7 +769,7 @@ function UpdateMovement()
 			RunTrack:AdjustSpeed(1)
 			startSpeedSprintVFX()
 		else
-			humanoid.WalkSpeed = WALK_SPEED
+			humanoid.WalkSpeed = WALK_SPEED * speedMult()
 			stopSpeedSprintVFX()
 			if RunTrack.IsPlaying then
 				RunTrack:Stop(0.25)
@@ -786,7 +803,7 @@ function UpdateMovement()
 			WalkTrack:AdjustSpeed(0.25)
 		end
 	else
-		humanoid.WalkSpeed = WALK_SPEED
+		humanoid.WalkSpeed = WALK_SPEED * speedMult()
 		stopSpeedSprintVFX()
 		playIdle()
 	end

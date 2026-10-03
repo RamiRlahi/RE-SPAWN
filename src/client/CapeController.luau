@@ -38,6 +38,11 @@ end
 
 local STIFFNESS = 60
 local DAMPING = 11
+-- "Gravity": once lifted, the cape is pulled back down this many times harder
+-- than it's lifted, so it settles quickly instead of floating.
+local GRAVITY = 3.5
+local FALL_STIFFNESS = STIFFNESS * GRAVITY
+local FALL_DAMPING = DAMPING * math.sqrt(GRAVITY) -- same bounce, just faster
 
 local function step(dt: number)
 	dt = math.min(dt, 1 / 20)
@@ -84,7 +89,12 @@ local function step(dt: number)
 			local a = state.angles[i]
 			local v = state.velocities[i]
 			-- Damped spring toward the target bend: gives weight and follow-through.
-			v += ((target - a) * STIFFNESS - v * DAMPING) * dt
+			-- Lifted further out than the target (more negative X) means the
+			-- cape is coming back down: pull harder.
+			local falling = a.X < target.X
+			local stiff = if falling then FALL_STIFFNESS else STIFFNESS
+			local damp = if falling then FALL_DAMPING else DAMPING
+			v += ((target - a) * stiff - v * damp) * dt
 			a += v * dt
 			state.angles[i], state.velocities[i] = a, v
 			joint.Transform = CFrame.Angles(a.X, 0, a.Z)

@@ -20,6 +20,7 @@ local Debris = game:GetService("Debris")
 local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 local UserInputService = game:GetService("UserInputService")
+local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
 
 local player = Players.LocalPlayer
 
@@ -41,7 +42,7 @@ local shakeFn: ((number, number) -> ())? = nil
 local function vfxFolder(name: string): Folder
 	local f = Instance.new("Folder")
 	f.Name = name
-	f.Parent = Workspace.Terrain
+	f.Parent = VariantFX.Root()
 	return f
 end
 
@@ -87,7 +88,7 @@ end
 
 local function attachmentAt(pos: Vector3): Attachment
 	local att = Instance.new("Attachment")
-	att.Parent = Workspace.Terrain
+	att.Parent = VariantFX.Root()
 	att.WorldPosition = pos
 	return att
 end
@@ -1062,7 +1063,7 @@ function IceMageVFX.playCloneShatter(position: Vector3, radius: number)
 	TweenService:Create(flash, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = Vector3.one * 11, Transparency = 1 }):Play()
 	local sphere = newPart(folder, { Shape = Enum.PartType.Ball, Size = Vector3.new(3, 3, 3), Color = ICE_CYAN, Material = Enum.Material.ForceField, Transparency = 0.1, CFrame = CFrame.new(position) })
 	TweenService:Create(sphere, TweenInfo.new(0.55, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = Vector3.one * radius * 2, Transparency = 1 }):Play()
-	flashLight(position, ICE_WHITE, 10, radius * 2.5, 0.7)
+	flashLight(position, ICE_WHITE, 10, math.min(radius * 2.5, 30), 0.7) -- (capped: not by the Size Tome)
 
 	-- Violent shard spray.
 	flingShards(folder, position, 26, 55, 1.3)
@@ -1330,7 +1331,7 @@ function IceMageVFX.playBlizzard(center: Vector3, radius: number, duration: numb
 	})
 
 	local stormLight = Instance.new("PointLight")
-	stormLight.Color, stormLight.Brightness, stormLight.Range = ICE_CYAN, 2, radius
+	stormLight.Color, stormLight.Brightness, stormLight.Range = ICE_CYAN, 2, math.min(radius, 48) -- (not by the Size Tome)
 	stormLight.Parent = swirlHub
 
 	-- Cinematic cold grade for anyone standing inside the storm.
@@ -1346,7 +1347,7 @@ function IceMageVFX.playBlizzard(center: Vector3, radius: number, duration: numb
 		return Vector3.new(off.X, 0, off.Z).Magnitude <= radius + 6
 	end
 	if playerInside() then
-		TweenService:Create(grade, TweenInfo.new(0.6), { TintColor = Color3.fromRGB(205, 228, 255), Contrast = 0.12, Saturation = -0.15, Brightness = 0.03 }):Play()
+		TweenService:Create(grade, TweenInfo.new(0.6), { TintColor = VariantFX.ColorFor(VariantFX.OwnerNear(ground), Color3.fromRGB(205, 228, 255)), Contrast = 0.12, Saturation = -0.15, Brightness = 0.03 }):Play()
 		shake(1.1, 0.6)
 	end
 
@@ -1481,7 +1482,7 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 		elseif d:IsA("Decal") or d:IsA("Texture") then
 			darkened[d] = { Transparency = d.Transparency }
 			d.Transparency = 1
-		elseif d:IsA("Highlight") and d.Name == "PartOutline" then
+		elseif d:IsA("Highlight") and (d.Name == "CharacterOutline" or d.Name == "PartOutline") then
 			darkened[d] = { Enabled = d.Enabled }
 			d.Enabled = false
 		elseif d:IsA("SpecialMesh") and d.TextureId ~= "" then
@@ -1754,7 +1755,7 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 		grade = Instance.new("ColorCorrectionEffect")
 		grade.Name = "BlizzardRevealGrade"
 		grade.Parent = Lighting
-		TweenService:Create(grade, TweenInfo.new(0.3), { TintColor = Color3.fromRGB(190, 212, 255), Saturation = -0.5, Contrast = 0.28, Brightness = 0.05 }):Play()
+		TweenService:Create(grade, TweenInfo.new(0.3), { TintColor = VariantFX.ColorFor(Players:GetPlayerFromCharacter(char), Color3.fromRGB(190, 212, 255)), Saturation = -0.5, Contrast = 0.28, Brightness = 0.05 }):Play()
 		dof = Instance.new("DepthOfFieldEffect")
 		dof.Name = "BlizzardRevealDOF"
 		dof.FocusDistance = 7

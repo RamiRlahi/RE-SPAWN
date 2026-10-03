@@ -35,6 +35,24 @@ Network.Remotes = {
 	HitImpact           = "HitImpact",       -- server → all clients: { position, style, direction, crit, heavy }
 	RoomEvent           = "RoomEvent",       -- server → all clients: special-room feedback (pops, coins, bursts)
 	IceMageEvent        = "IceMageEvent",    -- server → all clients: { kind = "CloneShatter"|"Chill", ... }
+	GunslingerFX        = "GunslingerFX",
+	BasicAttackFX       = "BasicAttackFX",   -- server → other clients: { attacker, classId, direction } (Ranger / Cleric / Ice Mage basic attacks, so everyone sees them)
+	FireKnightFX        = "FireKnightFX",    -- server → clients: Emberblade swings, charge, Phoenix Slam, Earthshaker, ignites, Overheat, Heart of the Inferno
+	FireKnightAim       = "FireKnightAim",   -- client → server: { target = Vector3 } where the Phoenix Slam lands
+	BerserkerFX         = "BerserkerFX",     -- server → clients: combo swings, Rupture, Bloodstorm, Bloodrage: Unchained, Worldbreaker
+	SwordsmanFX         = "SwordsmanFX",     -- server → clients: combo swings, rush, parry, whirlwind, Blade Storm, momentum    -- server → clients: Gunslinger shots, coins, splits, reloads, High Noon
+	DragonFX            = "DragonFX",        -- server → clients: the dragon boss's fireballs, breath, gusts, roars, knockback, beam clash
+	DragonBeam          = "DragonBeam",      -- server → beam target: { phase = "start"|"end", token, keys, windup, duration, success? }
+	DragonBeamResult    = "DragonBeamResult", -- client → server: (token, step) each correct arrow key while holding the shield
+	RicochetFX          = "RicochetFX",      -- server → all clients: { from, to, attacker } one ricochet hop
+	PartyState          = "PartyState",      -- server → client: { leader = userId?, members = { {userId, name} } }
+	PartyAction         = "PartyAction",     -- client → server: invite / accept / decline / leave / kick / request
+	PartyInvite         = "PartyInvite",     -- server → invited client: { fromUserId, fromName }
+	CampfireState       = "CampfireState",   -- server → party: { members = { {userId, name, classId, seated, seat, ready} }, portalAt?, open, stagger, walk }
+	CampfireAction      = "CampfireAction",  -- client → server: { kind = "ready", value } | { kind = "class", classId } | { kind = "seat", seat } | { kind = "leave" }
+	DeathState          = "DeathState",      -- server → dead client: { mode = "solo"|"coop"|"wipe"|"clear", alive = {userId} }
+	DeathAction         = "DeathAction",
+	ClaimReward         = "ClaimReward",     -- client → server: the room reward Model you left-clicked near     -- client → server: "respawn" | "menu"
 }
 
 local function getFolder(): Folder

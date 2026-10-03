@@ -1,16 +1,14 @@
 --[[
 	RewardPreview.luau
-	Builds a showcase model showing how a gacha reward looks on the character it
-	belongs to — a copy of the local player's character, dressed with the same
-	shared code the real game uses:
+	Builds a showcase model for a gacha reward: a plain gray dummy rig (no
+	armor, clothing or accessories) held in the class's ultimate pose, the
+	same pose the class-select screen shows.
 
-	  character / exclusive  that class's armor (ClassArmor), weapon (bow in the
-	                         left hand), Ice Mage cape, held in the class's
-	                         ultimate pose; exclusives add an aura in their colour
+	  character / variant    the reward's class pose (a universal variant uses
+	                         your class); variants add an aura in their colour
 	                         and their title overhead
-	  relic                  your current class, with the relic floating and
-	                         orbiting at the shoulder
-	  cosmetic (title)       your current class with the title overhead
+	  relic                  the relic floating and orbiting at the shoulder
+	  cosmetic (title)       the title overhead
 	  material               a floating crystal with the item's icon
 
 	RewardPreview.Build(reward) → (model, cleanup)
@@ -25,22 +23,11 @@ local GachaConfig = require(Shared:WaitForChild("GachaConfig"))
 local ClassArmor = require(Shared:WaitForChild("ClassArmor"))
 local IceCape = require(Shared:WaitForChild("IceCape"))
 local CastPoses = require(script.Parent:WaitForChild("CastPoses"))
+local ClothCape = require(script.Parent:WaitForChild("ClothCape"))
 
 local player = Players.LocalPlayer
 
 local RewardPreview = {}
-
-local WEAPONS = { heavy_knight = "Greatsword", ranger = "Bow" }
-local LEFT_HANDED = { ranger = true }
-
-local function findTemplate(name: string): Instance?
-	local direct = ReplicatedStorage:FindFirstChild(name)
-	if direct then return direct end
-	for _, d in ipairs(ReplicatedStorage:GetDescendants()) do
-		if d.Name == name and (d:IsA("Tool") or d:IsA("Model")) then return d end
-	end
-	return nil
-end
 
 local function part(parent: Instance, props: { [string]: any }): BasePart
 	local p = Instance.new(props.ClassName or "Part") :: BasePart
@@ -77,8 +64,7 @@ local function billboard(adornee: BasePart, str: string, color: Color3, offsetY:
 	return bb
 end
 
--- A clean copy of the player's character: no scripts, tools, preview gear,
--- VFX or class armor — ready to be dressed for a class.
+-- A copy of the player's character stripped down to a plain gray dummy rig.
 local function cleanCharacterCopy(): Model?
 	local char = player.Character
 	if not char then return nil end
@@ -89,7 +75,7 @@ local function cleanCharacterCopy(): Model?
 	if not clone then return nil end
 	clone.Name = "RewardPreview"
 	for _, d in ipairs(clone:GetDescendants()) do
-		if d:IsA("BaseScript") or d:IsA("Tool") or d:IsA("Sound") or d:IsA("ForceField")
+		if d:IsA("BaseScript") or d:IsA("Tool") or d:IsA("Constraint") or d:IsA("BodyMover") or d:IsA("Sound") or d:IsA("ForceField")
 			or d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Light") or d:IsA("Highlight")
 			or (d:IsA("BillboardGui") and d.Name ~= "Title")
 			or (d:IsA("Model") and d.Name == "IceCape")
@@ -107,6 +93,27 @@ local function cleanCharacterCopy(): Model?
 			end
 		end
 	end
+	-- Plain gray dummy: no clothing, accessories, face, skin textures or colours.
+	for _, d in ipairs(clone:GetDescendants()) do
+		if d:IsA("Accessory") or d:IsA("Clothing") or d:IsA("ShirtGraphic") or d:IsA("BodyColors")
+			or d:IsA("SurfaceAppearance") or d:IsA("Decal") or d:IsA("Texture") then
+			d:Destroy()
+		elseif d:IsA("SpecialMesh") then
+			d.TextureId = ""
+		end
+	end
+	for _, d in ipairs(clone:GetChildren()) do
+		-- Anything left that isn't the body rig itself (armor models, capes...).
+		if d:IsA("Model") or d:IsA("Folder") then d:Destroy() end
+	end
+	for _, d in ipairs(clone:GetDescendants()) do
+		if d:IsA("MeshPart") then d.TextureID = "" end
+		if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" then
+			d.Color = Color3.fromRGB(163, 162, 165)
+			d.Material = Enum.Material.SmoothPlastic
+			d.Transparency = 0
+		end
+	end
 	local hum = clone:FindFirstChildOfClass("Humanoid")
 	if hum then
 		hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
@@ -121,48 +128,6 @@ local function cleanCharacterCopy(): Model?
 		end
 	end
 	return clone
-end
-
-local function giveWeapon(model: Model, classId: string)
-	local name = WEAPONS[classId]
-	local template = name and findTemplate(name)
-	if not template then return end
-	local tool = template:Clone()
-	if not tool:IsA("Tool") then
-		local inner = tool:FindFirstChildWhichIsA("Tool")
-		if inner then tool = inner end
-	end
-	local handle = tool:FindFirstChild("Handle") or tool:FindFirstChildWhichIsA("BasePart")
-	local arm = model:FindFirstChild(if LEFT_HANDED[classId] then "Left Arm" else "Right Arm")
-		or model:FindFirstChild(if LEFT_HANDED[classId] then "LeftHand" else "RightHand")
-	if not (handle and handle:IsA("BasePart") and arm and arm:IsA("BasePart")) then return end
-	for _, d in ipairs(tool:GetDescendants()) do
-		if d:IsA("BasePart") then
-			d.Anchored, d.CanCollide, d.Massless = false, false, true
-		end
-	end
-	-- Loose tool parts ride on the handle.
-	for _, d in ipairs(tool:GetDescendants()) do
-		if d:IsA("BasePart") and d ~= handle then
-			local w = Instance.new("WeldConstraint")
-			w.Part0, w.Part1 = handle, d
-			w.Parent = d
-		end
-	end
-	tool.Parent = model
-	-- Same geometry as Roblox's RightGrip: hand attachment × the tool's Grip.
-	local grip = Instance.new("Weld")
-	grip.Part0 = arm
-	grip.Part1 = handle
-	grip.C0 = CFrame.new(0, -arm.Size.Y * 0.5, 0) * CFrame.Angles(math.rad(-90), 0, 0)
-	grip.C1 = if tool:IsA("Tool") then tool.Grip else CFrame.identity
-	grip.Parent = arm
-end
-
-local function dressAs(model: Model, classId: string)
-	ClassArmor.Equip(model, classId, "RewardPreview")
-	if classId == "ice_mage" then IceCape.Attach(model, "RewardPreview") end
-	giveWeapon(model, classId)
 end
 
 local function crystal(parent: Instance, reward: any, size: number): BasePart
@@ -229,18 +194,46 @@ function RewardPreview.Build(reward: any): (Model, () -> ())
 	local root = model:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if root then
 		model.PrimaryPart = root
-		dressAs(model, classId)
+		-- Armor rewards are shown worn by the dummy.
+		if reward.type == "armor" then
+			ClassArmor.Equip(model, classId, "RewardPreview")
+			if classId == "ice_mage" then IceCape.Attach(model, "RewardPreview") end
+			if classId == "heavy_knight" then ClothCape.Attach(model, "RewardPreview", ClothCape.FIRE_KNIGHT) end
+		end
 	end
+	-- CastPoses multiplies its pose onto Motor6D.Transform every frame, relying
+	-- on the Animator to reset the joints first. The dummy has no animation
+	-- playing, so reset them ourselves or the pose compounds and the rig spins.
+	local motors: { Motor6D } = {}
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("Motor6D") then table.insert(motors, d) end
+	end
+	local resetEvent = (RunService :: any).PreAnimation or RunService.RenderStepped
+	table.insert(conns, resetEvent:Connect(function()
+		for _, m in ipairs(motors) do m.Transform = CFrame.identity end
+	end))
 	-- Pose once it's in the world (motors need a parent to animate).
 	model.AncestryChanged:Connect(function(_, parent)
-		if parent and root then
-			CastPoses.holdUltPreview(model, classId)
+		if not (parent and root) then return end
+		-- Same pose as the class-select screen: the Heavy Knight uses its
+		-- uploaded animation, the other classes a held procedural pose.
+		if classId ~= "heavy_knight" and CastPoses.holdUltPreview(model, classId) then return end
+		local humanoid = model:FindFirstChildOfClass("Humanoid")
+		if not humanoid then return end
+		local animator = humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator")
+		animator.Parent = humanoid
+		local anim = Instance.new("Animation")
+		anim.AnimationId = "rbxassetid://101434181844277"
+		local ok, track = pcall(function() return animator:LoadAnimation(anim) end)
+		if ok and track then
+			track.Looped = true
+			track:Play(0)
 		end
 	end)
 
 	local accent = reward.accent or GachaConfig.Rarities[reward.rarity].color
 	if root then
-		if reward.type == "exclusive" then
+		if reward.type == "variant" then
 			-- Aura in the character's colours + title overhead.
 			local a = Instance.new("Attachment")
 			a.Parent = root
@@ -258,7 +251,7 @@ function RewardPreview.Build(reward: any): (Model, () -> ())
 			local l = Instance.new("PointLight")
 			l.Color, l.Brightness, l.Range = accent, 2.5, 14
 			l.Parent = root
-			billboard(root, `✦ {reward.title or reward.name} ✦`, accent, 4.2)
+			billboard(root, reward.title or reward.name, accent, 4.2)
 		elseif reward.type == "cosmetic" then
 			billboard(root, reward.title or reward.name, accent, 4.2)
 		elseif reward.type == "relic" then

@@ -1,8 +1,12 @@
 --[[
 	DifficultyManager.luau
-	Server-side run clock + escalating difficulty.
+	Server-side run clock + escalating difficulty (the Threat tier).
 	Publishes elapsed run seconds + difficulty tier as Workspace attributes so the
 	client HUD can read them directly (attributes replicate, no remote needed).
+
+	The clock starts when a player is actually in the dungeon and runs until
+	Reset (a new run, or the whole party back at the menu); after a Reset it
+	starts again with the next run.
 --]]
 
 local Workspace = game:GetService("Workspace")
@@ -56,18 +60,9 @@ function DifficultyManager.Start()
 	currentTier = 0
 	Workspace:SetAttribute("RunElapsed", 0)
 	Workspace:SetAttribute("RunTier", 0)
-
-	task.spawn(function()
-		while true do
-			task.wait(1)
-			local elapsed = DifficultyManager.GetElapsed()
-			currentTier = math.min(math.floor(elapsed / TIER_SECONDS), MAX_TIER)
-			Workspace:SetAttribute("RunElapsed", math.floor(elapsed))
-			Workspace:SetAttribute("RunTier", currentTier)
-		end
-	end)
 end
 
+-- Back to Threat 0 with the clock stopped (it starts again with the next run).
 function DifficultyManager.Reset()
 	startClock = nil
 	currentTier = 0
@@ -75,13 +70,20 @@ function DifficultyManager.Reset()
 	Workspace:SetAttribute("RunTier", 0)
 end
 
--- Auto-start the clock once any player has actually entered the dungeon.
+-- The one clock loop: starts the clock once a player has actually entered the
+-- dungeon, then ticks the elapsed time and the Threat tier while a run is on.
+-- (It used to start only the first time and spawn a ticker per Start, so a
+-- Reset stopped the clock for good and the Threat never went back to 0.)
 task.spawn(function()
 	while true do
 		task.wait(0.5)
-		if playerInRun() then
-			DifficultyManager.Start()
-			break
+		if not startClock then
+			if playerInRun() then DifficultyManager.Start() end
+		else
+			local elapsed = DifficultyManager.GetElapsed()
+			currentTier = math.min(math.floor(elapsed / TIER_SECONDS), MAX_TIER)
+			Workspace:SetAttribute("RunElapsed", math.floor(elapsed))
+			Workspace:SetAttribute("RunTier", currentTier)
 		end
 	end
 end)

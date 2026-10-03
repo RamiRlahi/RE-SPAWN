@@ -29,12 +29,13 @@ export type Profile = {
 	collection: {
 		characters: { [string]: { copies: number, ascension: number } },
 		relics: { [string]: { level: number } },
-		cosmetics: { [string]: boolean },
+		cosmetics: { [string]: boolean },                -- titles and armor sets
 	},
-	equipped: { relics: { string }, variants: { [string]: string } }, -- variants: classId → exclusive character id
+	equipped: { relics: { string }, variants: { [string]: string }, armor: { [string]: string } }, -- classId → VFX variant id / armor id
 	pity: { [string]: { sinceEpic: number, sinceLegendary: number, guaranteedFeatured: boolean } },
 	stats: { [string]: number },                      -- lifetime counters (pulls, kills…)
 	purchases: { [string]: boolean },                 -- processed receipt ids (idempotent grants)
+	account: { level: number, xp: number },           -- account level 1..100 (AccountManager)
 }
 
 local function newProfile(): Profile
@@ -44,10 +45,11 @@ local function newProfile(): Profile
 		unlocked = {},
 		currencies = {},
 		collection = { characters = {}, relics = {}, cosmetics = {} },
-		equipped = { relics = {}, variants = {} },
+		equipped = { relics = {}, variants = {}, armor = {} },
 		pity = {},
 		stats = {},
 		purchases = {},
+		account = { level = 1, xp = 0 },
 	}
 end
 
@@ -63,6 +65,7 @@ local function reconcile(data: any): Profile
 	p.collection.cosmetics = p.collection.cosmetics or {}
 	p.equipped.relics = p.equipped.relics or {}
 	p.equipped.variants = p.equipped.variants or {}
+	p.equipped.armor = p.equipped.armor or {}
 	return p
 end
 

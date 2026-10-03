@@ -8,22 +8,39 @@ local UITheme = require(Shared:WaitForChild("UITheme"))
 local ClassData = require(Shared:WaitForChild("ClassData"))
 local SkillData = require(Shared:WaitForChild("SkillData"))
 local SoundManager = require(script.Parent:WaitForChild("SoundManager"))
+local MenuStyle = require(script.Parent:WaitForChild("MenuStyle"))
+local M = MenuStyle.Colors
 local CastPoses = require(script.Parent.Parent:WaitForChild("CastPoses"))
 local UltPreviewFX = require(script.Parent.Parent:WaitForChild("UltPreviewFX"))
 local LobbyCamera = require(script.Parent.Parent:WaitForChild("LobbyCamera"))
 local TalentConstellation = require(script.Parent:WaitForChild("TalentConstellation"))
 local SummonScreen = require(script.Parent:WaitForChild("SummonScreen"))
-local ClassArmor = require(Shared:WaitForChild("ClassArmor"))
-local IceCape = require(Shared:WaitForChild("IceCape"))
-local WeaponGrip = require(Shared:WaitForChild("WeaponGrip"))
+local CoopScreen = require(script.Parent:WaitForChild("CoopScreen"))
+local SwordModel = require(Shared:WaitForChild("SwordModel"))
+local ClassLook = require(script.Parent.Parent:WaitForChild("ClassLook"))
+local MenuBackdrop: any = nil
+pcall(function()
+	MenuBackdrop = require(script.Parent.Parent:WaitForChild("MenuBackdrop", 5) :: any)
+end)
 
 local player = Players.LocalPlayer
 
--- Preview weapons per class (matches WeaponManager's loadouts).
-local PREVIEW_WEAPONS: { [string]: string } = {
-	heavy_knight = "Greatsword",
-	ranger = "Bow",
-}
+-- The class preview is shown on the hero standing in the menu scene (the same
+-- one you see on the title screen), not on your real character.
+local function previewTarget(): Model?
+	local hero = MenuBackdrop and MenuBackdrop.Hero and MenuBackdrop.Hero()
+	return hero or player.Character
+end
+
+-- The greatsword's twist in the class-select preview only (about the
+-- handle's Y axis, which runs along the blade). Flip the sign if it turns
+-- the wrong way.
+local PREVIEW_SWORD_TWIST = CFrame.Angles(0, math.rad(45), 0)
+-- Where the Swordsman's planted longsword's grip sits, in Torso space: centred
+-- at chest height between his hands, point down into the ground. Scaled
+-- so the tip just bites into the ground.
+local SWORDSMAN_PLANT = CFrame.new(0, 0, -1.38)
+local SWORDSMAN_PLANT_SCALE = 0.85
 
 local KNIGHT_HAIR_COLOR = Color3.fromRGB(250, 205, 101)
 local originalHairColors: { [BasePart]: Color3 } = {}
@@ -55,92 +72,6 @@ local function tintKnightHair(character: Model?, classId: string)
 			elseif originalHairColors[desc] then
 				desc.Color = originalHairColors[desc]
 				originalHairColors[desc] = nil
-			end
-		end
-	end
-end
-
-local function findWeaponTemplate(name: string): Instance?
-	local targetName = string.lower(name)
-	print(`[DEBUG-ClientWeapon] Searching for weapon template: "{name}" in ReplicatedStorage...`)
-
-	local exact = ReplicatedStorage:FindFirstChild(name)
-		or ReplicatedStorage:FindFirstChild(name, true)
-	if exact then
-		print(`[DEBUG-ClientWeapon] Found exact match: {exact:GetFullName()} ({exact.ClassName})`)
-		return exact
-	end
-
-	local assets = ReplicatedStorage:FindFirstChild("Assets")
-	if assets then
-		local inAssets = assets:FindFirstChild(name) or assets:FindFirstChild(name, true)
-		if inAssets then
-			print(`[DEBUG-ClientWeapon] Found in Assets: {inAssets:GetFullName()} ({inAssets.ClassName})`)
-			return inAssets
-		end
-	end
-
-	for _, child in ipairs(ReplicatedStorage:GetDescendants()) do
-		if string.lower(child.Name) == targetName then
-			print(`[DEBUG-ClientWeapon] Found case-insensitive match: {child:GetFullName()} ({child.ClassName})`)
-			return child
-		end
-	end
-	for _, child in ipairs(ReplicatedStorage:GetDescendants()) do
-		local lower = string.lower(child.Name)
-		if (child:IsA("Tool") or child:IsA("Model") or child:IsA("BasePart")) and (string.find(lower, "greatsword") or string.find(lower, "great_sword") or string.find(lower, "sword")) then
-			print(`[DEBUG-ClientWeapon] Found partial match: {child:GetFullName()} ({child.ClassName})`)
-			return child
-		end
-	end
-
-	warn(`[DEBUG-ClientWeapon] ❌ Weapon "{name}" NOT found in ReplicatedStorage! Listing top-level ReplicatedStorage children:`)
-	for _, child in ipairs(ReplicatedStorage:GetChildren()) do
-		warn(`   RS Child: "{child.Name}" ({child.ClassName})`)
-	end
-	return nil
-end
-
--- Disable CanCollide and set Massless on every BasePart inside a tool.
-local function disableCollision(root: Instance)
-	if root:IsA("BasePart") then
-		(root :: BasePart).CanCollide = false
-		(root :: BasePart).Massless   = true
-	end
-	for _, part in ipairs(root:GetDescendants()) do
-		if part:IsA("BasePart") then
-			part.CanCollide = false
-			part.Massless   = true
-		end
-	end
-end
-
--- Weld every BasePart in the tool (except Handle) TO the Handle.
-local function weldLoosePartsToHandle(tool: Tool, handle: BasePart)
-	for _, part in ipairs(tool:GetDescendants()) do
-		if part:IsA("BasePart") and part ~= handle then
-			local alreadyWelded = false
-			for _, w in ipairs(part:GetChildren()) do
-				if w:IsA("Weld") or w:IsA("WeldConstraint") or w:IsA("Motor6D") then
-					alreadyWelded = true
-					break
-				end
-			end
-			if not alreadyWelded then
-				for _, w in ipairs(handle:GetChildren()) do
-					if (w:IsA("Weld") or w:IsA("WeldConstraint"))
-						and ((w :: Weld).Part0 == part or (w :: Weld).Part1 == part) then
-						alreadyWelded = true
-						break
-					end
-				end
-			end
-
-			if not alreadyWelded then
-				local wc      = Instance.new("WeldConstraint")
-				wc.Part0      = handle
-				wc.Part1      = part :: BasePart
-				wc.Parent     = handle
 			end
 		end
 	end
@@ -199,33 +130,14 @@ end
 
 local function stopPreviewAnimation()
 	UltPreviewFX.Stop()
-	CastPoses.stop(player.Character)
-	setSilhouette(player.Character, false)
-	if player.Character then
-		ClassArmor.Remove(player.Character, "PreviewArmor")
-	end
+	local target = previewTarget()
+	CastPoses.stop(target)
+	setSilhouette(target, false)
 	currentAnimToken += 1
 	if currentPreviewTrack then
 		currentPreviewTrack:Stop(0.2)
 		currentPreviewTrack:Destroy()
 		currentPreviewTrack = nil
-	end
-	local character = player.Character
-	if character then
-		for _, instance in ipairs(character:GetChildren()) do
-			-- Never remove gameplay tools here. The real weapon is equipped on the
-			-- server as the selection screen is fading away, so only clean previews.
-			if instance:GetAttribute("PreviewWeapon") or instance.Name == "PreviewGreatsword" then
-				instance:Destroy()
-			end
-		end
-	end
-	if player.Backpack then
-		for _, instance in ipairs(player.Backpack:GetChildren()) do
-			if instance:GetAttribute("PreviewWeapon") or instance.Name == "PreviewGreatsword" then
-				instance:Destroy()
-			end
-		end
 	end
 end
 
@@ -302,109 +214,52 @@ local function playPreviewAnimation(character: Model, classId: string)
 	end)
 end
 
+-- Class armor is a summon reward; the server sets Armor_<classId> while it's
+-- owned and equipped. Without it the preview shows your avatar + the weapon.
+local function wearsArmor(classId: string): boolean
+	return player:GetAttribute(`Armor_{classId}`) == true
+end
+
+local previewClassId: string? = nil
+
+-- How the weapon sits in the preview: the Swordsman plants his blade
+-- point-down for the Blade Storm pose, and the greatsword turns its flat face
+-- to the camera.
+local function previewGrip(classId: string, grip: CFrame): CFrame
+	if classId == "swordsman" then return SwordModel.FlippedGrip(grip) end
+	if classId == "heavy_knight" then return grip * PREVIEW_SWORD_TWIST end
+	return grip
+end
+
 local function applyClassCosmetics(classId: string)
-	task.spawn(function()
-		-- Only apply cosmetic pose/weapon if the character selection screen is actively visible
-		if currentScreenContainer and not currentScreenContainer.Visible then
-			return
-		end
+	previewClassId = classId
+	if currentScreenContainer and not currentScreenContainer.Visible then return end
+	local character = previewTarget()
+	if not character then return end
+	-- Weapon in hand and (if owned) armor, then the ultimate's pose with a
+	-- looping preview of its effects.
+	ClassLook.Apply(character, classId, {
+		armor = wearsArmor(classId),
+		grip = previewGrip,
+		-- Blade Storm: the longsword stands point-down in front of him, both
+		-- hands folded on the hilt.
+		plant = if classId == "swordsman" then SWORDSMAN_PLANT else nil,
+		plantScale = SWORDSMAN_PLANT_SCALE,
+	})
+	playPreviewAnimation(character, classId)
+	if ClassData.IsPlayable(classId) then
+		UltPreviewFX.Start(character, classId)
+	else
+		UltPreviewFX.Stop()
+	end
+end
 
-		local character = player.Character
-		if not character or not character.Parent then
-			character = player.CharacterAdded:Wait()
-		end
-		if not character then
-			warn("[DEBUG-ClientCosmetics] No player.Character found when applying cosmetics!")
-			return
-		end
-
-		if currentScreenContainer and not currentScreenContainer.Visible then
-			return
-		end
-
-		local rootPart = character:WaitForChild("HumanoidRootPart", 5)
-		if not rootPart then
-			warn("[DEBUG-ClientCosmetics] No HumanoidRootPart found on character!")
-			return
-		end
-
-		print(`[DEBUG-ClientCosmetics] Applying cosmetics & ultimate pose for classId: "{classId}" on {character.Name}`)
-
-		local humanoid = character:FindFirstChildOfClass("Humanoid")
-
-		-- Remove all previously applied preview armor and preview weapons
-		for _, instance in ipairs(character:GetChildren()) do
-			if instance:GetAttribute("PreviewArmor") or instance:GetAttribute("PreviewWeapon") or instance.Name == "PreviewGreatsword" then
-				instance:Destroy()
-			end
-		end
-		for _, instance in ipairs(player.Backpack:GetChildren()) do
-			if instance:GetAttribute("PreviewArmor") or instance:GetAttribute("PreviewWeapon") or instance.Name == "PreviewGreatsword" then
-				instance:Destroy()
-			end
-		end
-		for _, limbName in ipairs({ "Right Arm", "RightHand", "Left Arm", "LeftHand" }) do
-			local limb = character:FindFirstChild(limbName)
-			if limb then
-				for _, w in ipairs(limb:GetChildren()) do
-					if w.Name == "RightGrip" or w.Name == "LeftGrip" or w.Name == "PreviewGrip" or w:GetAttribute("PreviewArmor") or w:GetAttribute("PreviewWeapon") then
-						w:Destroy()
-					end
-				end
-			end
-		end
-
-		-- 1. Preview the class weapon via Humanoid:EquipTool (matching gameplay)
-		local weaponName = PREVIEW_WEAPONS[classId]
-		if weaponName and humanoid and ClassData.IsPlayable(classId) then
-			local swordTemplate = findWeaponTemplate(weaponName)
-
-			if swordTemplate then
-				local tool = swordTemplate:Clone()
-				if not tool:IsA("Tool") then
-					local inner = tool:FindFirstChildWhichIsA("Tool")
-					if inner then
-						tool = inner
-					end
-				end
-
-				tool.Name = if classId == "heavy_knight" then "PreviewGreatsword" else `Preview{weaponName}`
-				tool:SetAttribute("PreviewWeapon", true)
-
-				disableCollision(tool)
-
-				local handle = tool:FindFirstChild("Handle") :: BasePart? or tool:FindFirstChildWhichIsA("BasePart")
-				if handle and tool:IsA("Tool") then
-					weldLoosePartsToHandle(tool, handle)
-				end
-
-				tool.Parent = player.Backpack
-				humanoid:EquipTool(tool)
-				if classId == "ranger" then
-					WeaponGrip.ToLeftHand(character, tool) -- bow in the left hand, as in-game
-				end
-
-				print(`[DEBUG-ClientCosmetics] Preview equipped Tool '{tool.Name}' via Humanoid:EquipTool directly on {character.Name}`)
-			end
-		end
-
-		-- 2. Play the ultimate's first pose / animation for this class, with a
-		-- looping preview of the ultimate's effects around the character.
-		playPreviewAnimation(character, classId)
-		if ClassData.IsPlayable(classId) then
-			UltPreviewFX.Start(character, classId)
-		else
-			UltPreviewFX.Stop()
-		end
-
-		-- 3. Armor (and the Ice Mage's cape), fitted exactly as in-game but as
-		-- client-only copies tagged PreviewArmor.
-		if not ClassData.IsPlayable(classId) then return end
-		if currentScreenContainer and not currentScreenContainer.Visible then return end
-		ClassArmor.Remove(character, "PreviewArmor")
-		ClassArmor.Equip(character, classId, "PreviewArmor")
-		if classId == "ice_mage" then
-			IceCape.Attach(character, "PreviewArmor")
+-- The hero is re-copied when your avatar finishes loading or changes: dress
+-- the new copy too.
+if MenuBackdrop and MenuBackdrop.OnHeroChanged then
+	MenuBackdrop.OnHeroChanged(function()
+		if previewClassId and currentScreenContainer and currentScreenContainer.Visible then
+			applyClassCosmetics(previewClassId)
 		end
 	end)
 end
@@ -415,6 +270,15 @@ export type ClassSelectionCallbacks = {
 }
 
 local ClassSelectionScreen = {}
+
+-- Pulling or (un)equipping armor refreshes the preview of the shown class.
+player.AttributeChanged:Connect(function(name)
+	if string.sub(name, 1, 6) ~= "Armor_" or not previewClassId then return end
+	if currentScreenContainer and currentScreenContainer.Visible then
+		tintKnightHair(previewTarget(), if wearsArmor(previewClassId) then previewClassId else "")
+		applyClassCosmetics(previewClassId)
+	end
+end)
 
 function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectionCallbacks): CanvasGroup
 	local container = Instance.new("CanvasGroup")
@@ -430,7 +294,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	local vignette = Instance.new("Frame")
 	vignette.Name = "Vignette"
 	vignette.Size = UDim2.new(1, 0, 1, 0)
-	vignette.BackgroundColor3 = UITheme.Colors.BackgroundOverlay
+	vignette.BackgroundColor3 = Color3.fromRGB(10, 6, 5)
 	vignette.BackgroundTransparency = 0.5
 	vignette.BorderSizePixel = 0
 	vignette.Parent = container
@@ -442,6 +306,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		NumberSequenceKeypoint.new(0.7, 0.75),
 		NumberSequenceKeypoint.new(1, 0.2),
 	})
+	vignetteGrad.Color = ColorSequence.new(Color3.fromRGB(0, 0, 0), Color3.fromRGB(50, 32, 23))
 	vignetteGrad.Rotation = 0
 	vignetteGrad.Parent = vignette
 
@@ -454,20 +319,10 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 
 	local backBtn = Instance.new("TextButton")
 	backBtn.Name = "BackButton"
-	backBtn.Size = UDim2.new(0, 140, 0, 38)
-	backBtn.Position = UDim2.new(0, 24, 0.5, -19)
-	backBtn.BackgroundColor3 = UITheme.Colors.Surface
-	backBtn.AutoButtonColor = false
-	backBtn.Text = "← TITLE"
-	backBtn.TextColor3 = UITheme.Colors.TextSecondary
-	backBtn.Font = UITheme.Fonts.Button
-	backBtn.TextSize = 13
+	backBtn.Size = UDim2.new(0, 150, 0, 44)
+	backBtn.Position = UDim2.new(0, 24, 0, 70) -- below Roblox's top-left buttons
 	backBtn.Parent = topBar
-
-	UITheme.AddCorner(backBtn, 6)
-	local backStroke = UITheme.AddStroke(backBtn, UITheme.Colors.Border, 1, 0.5)
-	UITheme.MakeButtonInteractive(backBtn, backStroke, UITheme.Colors.Gold, SoundManager.PlayHover, function()
-		SoundManager.PlayClick()
+	MenuStyle.PlaqueButton(backBtn, "< TITLE", { textSize = 17 }, function()
 		callbacks.onBackToTitle()
 	end)
 
@@ -478,9 +333,11 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	headerTitle.Position = UDim2.new(0.5, 0, 0, 12)
 	headerTitle.BackgroundTransparency = 1
 	headerTitle.Text = "CHOOSE YOUR CLASS"
-	headerTitle.TextColor3 = UITheme.Colors.GoldLight
-	headerTitle.Font = UITheme.Fonts.Header
-	headerTitle.TextSize = 22
+	headerTitle.TextColor3 = M.BrassLight
+	headerTitle.Font = MenuStyle.Font
+	headerTitle.TextSize = 30
+	headerTitle.TextStrokeColor3 = Color3.fromRGB(36, 8, 3)
+	headerTitle.TextStrokeTransparency = 0.1
 	headerTitle.Parent = topBar
 
 	local headerCounter = Instance.new("TextLabel")
@@ -490,10 +347,11 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	headerCounter.Position = UDim2.new(0.5, 0, 0, 42)
 	headerCounter.BackgroundTransparency = 1
 	headerCounter.Text = "CLASS 1 OF 8"
-	headerCounter.TextColor3 = UITheme.Colors.TextMuted
-	headerCounter.Font = UITheme.Fonts.Tag
-	headerCounter.TextSize = 11
+	headerCounter.TextColor3 = M.ParchmentMuted
+	headerCounter.Font = MenuStyle.Font
+	headerCounter.TextSize = 14
 	headerCounter.Parent = topBar
+	MenuStyle.Rule(topBar, 66, 0.26)
 
 	---------------------------------------------------------------------
 	-- Left Panel: Identity, Lore & Animated Stats
@@ -514,19 +372,51 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	local constellation = TalentConstellation.Create(container)
 
 	-- Summon (gacha) entry point.
+	-- Summon (gacha) entry point: a square plaque with a die on it.
 	local summonBtn = Instance.new("TextButton")
 	summonBtn.Name = "SummonButton"
 	summonBtn.AnchorPoint = Vector2.new(1, 0)
-	summonBtn.Position = UDim2.new(1, -24, 0, 20)
-	summonBtn.Size = UDim2.fromOffset(170, 44)
-	summonBtn.BackgroundColor3 = UITheme.Colors.Gold
-	summonBtn.Font = UITheme.Fonts.Button
-	summonBtn.TextSize = 17
-	summonBtn.TextColor3 = Color3.fromRGB(20, 15, 10)
-	summonBtn.Text = "✦ SUMMON"
+	summonBtn.Position = UDim2.new(1, -24, 0, 12)
+	summonBtn.Size = UDim2.fromOffset(62, 62)
 	summonBtn.Parent = container
-	UITheme.AddCorner(summonBtn, 8)
-	summonBtn.MouseButton1Click:Connect(function()
+	local die = Instance.new("Frame")
+	die.Name = "Die"
+	die.AnchorPoint = Vector2.new(0.5, 0.5)
+	die.Position = UDim2.fromScale(0.5, 0.5)
+	die.Size = UDim2.fromOffset(34, 34)
+	die.Rotation = -10
+	die.BackgroundColor3 = M.Parchment
+	die.BorderSizePixel = 0
+	die.ZIndex = 5
+	die.Parent = summonBtn
+	UITheme.AddCorner(die, 7)
+	UITheme.AddStroke(die, M.Ink, 1.5, 0)
+	UITheme.AddGradient(die, Color3.fromRGB(255, 248, 232), Color3.fromRGB(214, 190, 150), 45)
+	-- Five pips.
+	for _, at in ipairs({ { 0.25, 0.25 }, { 0.75, 0.25 }, { 0.5, 0.5 }, { 0.25, 0.75 }, { 0.75, 0.75 } }) do
+		local pip = Instance.new("Frame")
+		pip.AnchorPoint = Vector2.new(0.5, 0.5)
+		pip.Position = UDim2.fromScale(at[1], at[2])
+		pip.Size = UDim2.fromOffset(7, 7)
+		pip.BackgroundColor3 = M.Crimson
+		pip.BorderSizePixel = 0
+		pip.ZIndex = 6
+		pip.Parent = die
+		UITheme.AddCorner(pip, 4)
+	end
+	-- Co-op party (invite friends; XP is shared in the dungeon).
+	CoopScreen.Init() -- listen for party updates and invites from the start
+	local coopBtn = Instance.new("TextButton")
+	coopBtn.Name = "CoopButton"
+	coopBtn.AnchorPoint = Vector2.new(1, 0)
+	coopBtn.Position = UDim2.new(1, -98, 0, 12)
+	coopBtn.Size = UDim2.fromOffset(150, 62)
+	coopBtn.Parent = container
+	MenuStyle.PlaqueButton(coopBtn, "CO-OP", { ribbon = true, textSize = 20 }, function()
+		CoopScreen.Open()
+	end)
+
+	MenuStyle.PlaqueButton(summonBtn, "", {}, function()
 		SoundManager.PlayConfirm()
 		SummonScreen.Open()
 	end)
@@ -694,20 +584,16 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	rightPanel.Size = UDim2.new(0, 360, 1, -170)
 	rightPanel.AnchorPoint = Vector2.new(1, 0)
 	rightPanel.Position = UDim2.new(1, -24, 0, 75)
-	rightPanel.BackgroundColor3 = UITheme.Colors.Surface
-	rightPanel.BackgroundTransparency = 0.15
 	rightPanel.Parent = container
-
-	UITheme.AddCorner(rightPanel, 10)
-	local rightStroke = UITheme.AddStroke(rightPanel, UITheme.Colors.Border, 1.5, 0.4)
+	MenuStyle.Plaque(rightPanel)
 
 	local rightScroll = Instance.new("ScrollingFrame")
 	rightScroll.Name = "RightScroll"
-	rightScroll.Size = UDim2.new(1, -24, 1, -24)
-	rightScroll.Position = UDim2.new(0, 12, 0, 12)
+	rightScroll.Size = UDim2.new(1, -30, 1, -30)
+	rightScroll.Position = UDim2.new(0, 15, 0, 15)
 	rightScroll.BackgroundTransparency = 1
 	rightScroll.ScrollBarThickness = 3
-	rightScroll.ScrollBarImageColor3 = UITheme.Colors.Gold
+	rightScroll.ScrollBarImageColor3 = M.Brass
 	rightScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 	rightScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	rightScroll.Parent = rightPanel
@@ -721,12 +607,12 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	-- 1. Skills Section Header
 	local skillsHeader = Instance.new("TextLabel")
 	skillsHeader.Name = "SkillsHeader"
-	skillsHeader.Size = UDim2.new(1, 0, 0, 20)
+	skillsHeader.Size = UDim2.new(1, 0, 0, 22)
 	skillsHeader.BackgroundTransparency = 1
 	skillsHeader.Text = "CLASS COMBAT SKILLS"
-	skillsHeader.TextColor3 = UITheme.Colors.GoldLight
-	skillsHeader.Font = UITheme.Fonts.Header
-	skillsHeader.TextSize = 13
+	skillsHeader.TextColor3 = M.BrassLight
+	skillsHeader.Font = MenuStyle.Font
+	skillsHeader.TextSize = 17
 	skillsHeader.TextXAlignment = Enum.TextXAlignment.Left
 	skillsHeader.LayoutOrder = 1
 	skillsHeader.Parent = rightScroll
@@ -748,12 +634,12 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	-- 2. Equipment Section Header
 	local eqHeader = Instance.new("TextLabel")
 	eqHeader.Name = "EquipmentHeader"
-	eqHeader.Size = UDim2.new(1, 0, 0, 20)
+	eqHeader.Size = UDim2.new(1, 0, 0, 22)
 	eqHeader.BackgroundTransparency = 1
 	eqHeader.Text = "SIGNATURE EQUIPMENT"
-	eqHeader.TextColor3 = UITheme.Colors.GoldLight
-	eqHeader.Font = UITheme.Fonts.Header
-	eqHeader.TextSize = 13
+	eqHeader.TextColor3 = M.BrassLight
+	eqHeader.Font = MenuStyle.Font
+	eqHeader.TextSize = 17
 	eqHeader.TextXAlignment = Enum.TextXAlignment.Left
 	eqHeader.LayoutOrder = 3
 	eqHeader.Parent = rightScroll
@@ -763,13 +649,10 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	eqCard.Name = "EquipmentCard"
 	eqCard.Size = UDim2.new(1, 0, 0, 0)
 	eqCard.AutomaticSize = Enum.AutomaticSize.Y
-	eqCard.BackgroundColor3 = UITheme.Colors.SurfaceAlt
 	eqCard.LayoutOrder = 4
 	eqCard.Parent = rightScroll
-
-	UITheme.AddCorner(eqCard, 8)
-	local eqStroke = UITheme.AddStroke(eqCard, UITheme.Colors.Gold, 1.5, 0.4)
-	UITheme.AddPadding(eqCard, 10, 10, 12, 12)
+	MenuStyle.Plaque(eqCard, true, true)
+	UITheme.AddPadding(eqCard, 12, 12, 14, 14)
 
 	local eqLayout = Instance.new("UIListLayout")
 	eqLayout.FillDirection = Enum.FillDirection.Vertical
@@ -781,9 +664,9 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	eqNameLabel.Name = "EqName"
 	eqNameLabel.Size = UDim2.new(1, 0, 0, 20)
 	eqNameLabel.BackgroundTransparency = 1
-	eqNameLabel.Font = UITheme.Fonts.Header
-	eqNameLabel.TextSize = 15
-	eqNameLabel.TextColor3 = UITheme.Colors.GoldLight
+	eqNameLabel.Font = MenuStyle.Font
+	eqNameLabel.TextSize = 18
+	eqNameLabel.TextColor3 = M.BrassLight
 	eqNameLabel.TextXAlignment = Enum.TextXAlignment.Left
 	eqNameLabel.LayoutOrder = 1
 	eqNameLabel.Parent = eqCard
@@ -798,21 +681,22 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	local eqRarityBadge = Instance.new("TextLabel")
 	eqRarityBadge.Name = "EqRarity"
 	eqRarityBadge.Size = UDim2.new(0, 140, 1, 0)
-	eqRarityBadge.BackgroundColor3 = UITheme.Colors.Surface
-	eqRarityBadge.Font = UITheme.Fonts.Tag
-	eqRarityBadge.TextSize = 10
-	eqRarityBadge.TextColor3 = UITheme.Colors.Gold
+	eqRarityBadge.BackgroundColor3 = M.Crimson
+	eqRarityBadge.BorderSizePixel = 0
+	eqRarityBadge.Font = MenuStyle.Font
+	eqRarityBadge.TextSize = 12
+	eqRarityBadge.TextColor3 = M.Parchment
 	eqRarityBadge.Parent = eqMetaRow
-	UITheme.AddCorner(eqRarityBadge, 3)
+	UITheme.AddStroke(eqRarityBadge, Color3.fromRGB(59, 16, 12), 1, 0.2)
 
 	local eqSlotLabel = Instance.new("TextLabel")
 	eqSlotLabel.Name = "EqSlot"
 	eqSlotLabel.Size = UDim2.new(1, -150, 1, 0)
 	eqSlotLabel.Position = UDim2.new(0, 148, 0, 0)
 	eqSlotLabel.BackgroundTransparency = 1
-	eqSlotLabel.Font = UITheme.Fonts.Sub
-	eqSlotLabel.TextSize = 11
-	eqSlotLabel.TextColor3 = UITheme.Colors.TextMuted
+	eqSlotLabel.Font = MenuStyle.Font
+	eqSlotLabel.TextSize = 13
+	eqSlotLabel.TextColor3 = M.ParchmentMuted
 	eqSlotLabel.TextXAlignment = Enum.TextXAlignment.Left
 	eqSlotLabel.Parent = eqMetaRow
 
@@ -821,9 +705,9 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	eqDescLabel.Size = UDim2.new(1, 0, 0, 0)
 	eqDescLabel.AutomaticSize = Enum.AutomaticSize.Y
 	eqDescLabel.BackgroundTransparency = 1
-	eqDescLabel.Font = UITheme.Fonts.Sub
-	eqDescLabel.TextSize = 11
-	eqDescLabel.TextColor3 = UITheme.Colors.TextSecondary
+	eqDescLabel.Font = MenuStyle.Font
+	eqDescLabel.TextSize = 13
+	eqDescLabel.TextColor3 = M.Parchment
 	eqDescLabel.TextWrapped = true
 	eqDescLabel.TextXAlignment = Enum.TextXAlignment.Left
 	eqDescLabel.LayoutOrder = 3
@@ -857,54 +741,27 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	-- Left Arrow Button (< PREVIOUS)
 	local prevBtn = Instance.new("TextButton")
 	prevBtn.Name = "PrevButton"
-	prevBtn.Size = UDim2.new(0, 60, 0, 50)
+	prevBtn.Size = UDim2.new(0, 64, 0, 54)
 	prevBtn.AnchorPoint = Vector2.new(0.5, 0.5)
-	prevBtn.Position = UDim2.new(0.5, -230, 0.5, -8)
-	prevBtn.BackgroundColor3 = UITheme.Colors.Surface
-	prevBtn.AutoButtonColor = false
-	prevBtn.Text = "◀"
-	prevBtn.TextColor3 = UITheme.Colors.GoldLight
-	prevBtn.Font = UITheme.Fonts.Header
-	prevBtn.TextSize = 22
+	prevBtn.Position = UDim2.new(0.5, -250, 0.5, -8)
 	prevBtn.Parent = bottomControls
-
-	UITheme.AddCorner(prevBtn, 10)
-	local prevStroke = UITheme.AddStroke(prevBtn, UITheme.Colors.Border, 1.5, 0.4)
 
 	-- Right Arrow Button (NEXT >)
 	local nextBtn = Instance.new("TextButton")
 	nextBtn.Name = "NextButton"
-	nextBtn.Size = UDim2.new(0, 60, 0, 50)
+	nextBtn.Size = UDim2.new(0, 64, 0, 54)
 	nextBtn.AnchorPoint = Vector2.new(0.5, 0.5)
-	nextBtn.Position = UDim2.new(0.5, 230, 0.5, -8)
-	nextBtn.BackgroundColor3 = UITheme.Colors.Surface
-	nextBtn.AutoButtonColor = false
-	nextBtn.Text = "▶"
-	nextBtn.TextColor3 = UITheme.Colors.GoldLight
-	nextBtn.Font = UITheme.Fonts.Header
-	nextBtn.TextSize = 22
+	nextBtn.Position = UDim2.new(0.5, 250, 0.5, -8)
 	nextBtn.Parent = bottomControls
-
-	UITheme.AddCorner(nextBtn, 10)
-	local nextStroke = UITheme.AddStroke(nextBtn, UITheme.Colors.Border, 1.5, 0.4)
 
 	-- Center Confirm Button
 	local confirmBtn = Instance.new("TextButton")
 	confirmBtn.Name = "ConfirmButton"
-	confirmBtn.Size = UDim2.new(0, 320, 0, 50)
+	confirmBtn.Size = UDim2.new(0, 360, 0, 54)
 	confirmBtn.AnchorPoint = Vector2.new(0.5, 0.5)
 	confirmBtn.Position = UDim2.new(0.5, 0, 0.5, -8)
-	confirmBtn.BackgroundColor3 = UITheme.Colors.Gold
-	confirmBtn.AutoButtonColor = false
-	confirmBtn.Text = "CONFIRM & ENTER WORLD"
-	confirmBtn.TextColor3 = Color3.fromRGB(20, 15, 10)
-	confirmBtn.Font = UITheme.Fonts.Button
-	confirmBtn.TextSize = 16
 	confirmBtn.Parent = bottomControls
-
-	UITheme.AddCorner(confirmBtn, 8)
-	local confirmStroke = UITheme.AddStroke(confirmBtn, UITheme.Colors.GoldLight, 2, 0)
-	UITheme.AddGradient(confirmBtn, UITheme.Colors.GoldLight, UITheme.Colors.Gold, 90)
+	local confirmLabel: TextLabel = nil
 
 	-- Dots / Carousel Indicator Container
 	local dotsContainer = Instance.new("Frame")
@@ -928,10 +785,11 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		local dot = Instance.new("Frame")
 		dot.Name = "Dot_" .. i
 		dot.Size = UDim2.new(0, 10, 0, 10)
-		dot.BackgroundColor3 = UITheme.Colors.SurfaceSelected
+		dot.BackgroundColor3 = M.Plaque
 		dot.BorderSizePixel = 0
 		dot.Parent = dotsContainer
 		UITheme.AddCorner(dot, 5)
+		UITheme.AddStroke(dot, M.BrassDark, 1, 0.2)
 		dotFrames[i] = dot
 
 		local dotBtn = Instance.new("TextButton")
@@ -954,7 +812,8 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 
 		-- Hovering or selecting Heavy Knight immediately applies the requested
 		-- blond-gold hair tint; navigating away restores the original color.
-		tintKnightHair(player.Character, classId)
+		-- The blond knight hair comes with the knight's armor.
+		tintKnightHair(previewTarget(), if wearsArmor(classId) then classId else "")
 
 		local locked = not ClassData.IsPlayable(classId)
 		local accent = locked and Color3.fromRGB(90, 90, 95) or info.accentColor
@@ -962,9 +821,9 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 
 		-- Apply class-specific cosmetic armor preview on the character
 		applyClassCosmetics(classId)
-		setSilhouette(player.Character, false)
+		setSilhouette(previewTarget(), false)
 		if locked then
-			setSilhouette(player.Character, true)
+			setSilhouette(previewTarget(), true)
 		end
 
 		headerCounter.Text = `CLASS {index} OF {#ClassData.Order} • {info.name:upper()}`
@@ -977,18 +836,10 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		roleBadge.TextColor3 = accent
 		descLabel.Text = if locked then "This class is still being forged. Check back soon." else info.description
 		-- Confirm is disabled on locked classes.
-		confirmBtn.Text = if locked then "LOCKED" else "CONFIRM & ENTER WORLD"
-		confirmBtn.BackgroundColor3 = if locked then Color3.fromRGB(40, 40, 44) else UITheme.Colors.Gold
-		confirmBtn.TextColor3 = if locked then Color3.fromRGB(130, 130, 135) else Color3.fromRGB(20, 15, 10)
-		local grad = confirmBtn:FindFirstChildOfClass("UIGradient")
-		if grad then grad.Enabled = not locked end
-
-		-- Update Border Accents to match active Class Color
-		leftStroke.Color = accent
-		rightStroke.Color = accent
-		eqStroke.Color = accent
-		prevStroke.Color = accent
-		nextStroke.Color = accent
+		if confirmLabel then
+			confirmLabel.Text = if locked then "LOCKED" else "CONFIRM CLASS"
+			confirmLabel.TextColor3 = if locked then M.ParchmentMuted else M.Parchment
+		end
 
 		-- Update Stats Pips
 		for _, key in ipairs(statKeys) do
@@ -1012,46 +863,49 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		for i, ab in ipairs(info.abilities) do
 			local abCard = Instance.new("Frame")
 			abCard.Name = "Ability_" .. i
-			abCard.Size = UDim2.new(1, 0, 0, 48)
-			abCard.BackgroundColor3 = UITheme.Colors.SurfaceAlt
+			abCard.Size = UDim2.new(1, 0, 0, 58)
 			abCard.LayoutOrder = i
 			abCard.Parent = abilitiesContainer
-
-			UITheme.AddCorner(abCard, 6)
-			UITheme.AddStroke(abCard, UITheme.Colors.Border, 1, 0.6)
+			MenuStyle.Plaque(abCard, true)
 
 			local abTag = Instance.new("TextLabel")
 			abTag.Name = "Tag"
-			abTag.Size = UDim2.new(0, 90, 0, 16)
-			abTag.Position = UDim2.new(0, 8, 0, 5)
-			abTag.BackgroundColor3 = UITheme.Colors.Surface
-			abTag.Font = UITheme.Fonts.Tag
-			abTag.TextSize = 9
-			abTag.TextColor3 = accent
+			abTag.Size = UDim2.new(0, 96, 0, 18)
+			abTag.Position = UDim2.new(0, 10, 0, 8)
+			abTag.BackgroundColor3 = M.Crimson
+			abTag.BorderSizePixel = 0
+			abTag.Font = MenuStyle.Font
+			abTag.TextSize = 12
+			abTag.TextColor3 = M.Parchment
 			abTag.Text = ab.tag:upper()
+			abTag.ZIndex = 3
 			abTag.Parent = abCard
-			UITheme.AddCorner(abTag, 3)
+			UITheme.AddStroke(abTag, Color3.fromRGB(59, 16, 12), 1, 0.2)
 
 			local abName = Instance.new("TextLabel")
 			abName.Name = "Name"
-			abName.Size = UDim2.new(1, -110, 0, 16)
-			abName.Position = UDim2.new(0, 104, 0, 5)
+			abName.Size = UDim2.new(1, -124, 0, 18)
+			abName.Position = UDim2.new(0, 114, 0, 8)
 			abName.BackgroundTransparency = 1
-			abName.Font = UITheme.Fonts.Header
-			abName.TextSize = 12
-			abName.TextColor3 = UITheme.Colors.TextPrimary
+			abName.Font = MenuStyle.Font
+			abName.TextSize = 16
+			abName.TextColor3 = M.BrassLight
+			abName.ZIndex = 3
 			abName.TextXAlignment = Enum.TextXAlignment.Left
 			abName.Text = if locked then "???" else ab.name
 			abName.Parent = abCard
 
 			local abDesc = Instance.new("TextLabel")
 			abDesc.Name = "Desc"
-			abDesc.Size = UDim2.new(1, -16, 0, 22)
-			abDesc.Position = UDim2.new(0, 8, 0, 23)
+			abDesc.Size = UDim2.new(1, -20, 0, 24)
+			abDesc.Position = UDim2.new(0, 10, 0, 28)
 			abDesc.BackgroundTransparency = 1
-			abDesc.Font = UITheme.Fonts.Sub
-			abDesc.TextSize = 10
-			abDesc.TextColor3 = UITheme.Colors.TextMuted
+			abDesc.Font = MenuStyle.Font
+			abDesc.TextSize = 12
+			abDesc.TextColor3 = M.Parchment
+			abDesc.TextWrapped = true
+			abDesc.TextTruncate = Enum.TextTruncate.AtEnd
+			abDesc.ZIndex = 3
 			abDesc.TextXAlignment = Enum.TextXAlignment.Left
 			abDesc.Text = if locked then "" else ab.description
 			abDesc.Parent = abCard
@@ -1087,9 +941,9 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 				local lblKey = Instance.new("TextLabel")
 				lblKey.Size = UDim2.new(0.6, 0, 1, 0)
 				lblKey.BackgroundTransparency = 1
-				lblKey.Font = UITheme.Fonts.Sub
-				lblKey.TextSize = 10
-				lblKey.TextColor3 = UITheme.Colors.TextSecondary
+				lblKey.Font = MenuStyle.Font
+				lblKey.TextSize = 12
+				lblKey.TextColor3 = M.ParchmentMuted
 				lblKey.TextXAlignment = Enum.TextXAlignment.Left
 				lblKey.Text = `• {statName}:`
 				lblKey.Parent = row
@@ -1099,8 +953,8 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 				lblVal.AnchorPoint = Vector2.new(1, 0)
 				lblVal.Position = UDim2.new(1, 0, 0, 0)
 				lblVal.BackgroundTransparency = 1
-				lblVal.Font = UITheme.Fonts.Header
-				lblVal.TextSize = 10
+				lblVal.Font = MenuStyle.Font
+				lblVal.TextSize = 12
 				lblVal.TextColor3 = UITheme.Colors.Success
 				lblVal.TextXAlignment = Enum.TextXAlignment.Right
 				lblVal.Text = tostring(statVal)
@@ -1120,7 +974,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 				local dotLocked = not ClassData.IsPlayable(ClassData.Order[dIdx])
 				TweenService:Create(dot, UITheme.Tweens.Fast, {
 					Size = UDim2.new(0, 10, 0, 10),
-					BackgroundColor3 = if dotLocked then Color3.fromRGB(14, 14, 16) else UITheme.Colors.SurfaceSelected,
+					BackgroundColor3 = if dotLocked then M.PlaqueDark else M.Plaque,
 				}):Play()
 			end
 		end
@@ -1141,11 +995,11 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	end
 
 	-- Hook Navigation Buttons
-	UITheme.MakeButtonInteractive(prevBtn, prevStroke, UITheme.Colors.GoldLight, SoundManager.PlayHover, function()
+	MenuStyle.PlaqueButton(prevBtn, "<", { textSize = 26 }, function()
 		navigateCarousel(-1)
 	end)
 
-	UITheme.MakeButtonInteractive(nextBtn, nextStroke, UITheme.Colors.GoldLight, SoundManager.PlayHover, function()
+	MenuStyle.PlaqueButton(nextBtn, ">", { textSize = 26 }, function()
 		navigateCarousel(1)
 	end)
 
@@ -1171,7 +1025,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	end
 
 	-- Hook Confirm Button
-	UITheme.MakeButtonInteractive(confirmBtn, confirmStroke, UITheme.Colors.GoldLight, SoundManager.PlayHover, function()
+	confirmLabel = MenuStyle.PlaqueButton(confirmBtn, "CONFIRM CLASS", { rotation = -2, ribbon = true, ornament = true }, function()
 		local selectedClassId = ClassData.Order[currentIndex]
 		if not ClassData.IsPlayable(selectedClassId) then return end
 		SoundManager.PlayConfirm()
@@ -1231,14 +1085,6 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 			updateCarouselUI(currentIndex, false)
 		else
 			stopPreviewAnimation()
-			local char = player.Character
-			if char then
-				for _, instance in ipairs(char:GetChildren()) do
-					if instance:GetAttribute("PreviewWeapon") or instance.Name == "PreviewGreatsword" then
-						instance:Destroy()
-					end
-				end
-			end
 		end
 	end)
 

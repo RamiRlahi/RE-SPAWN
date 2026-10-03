@@ -51,18 +51,18 @@ function TalentConstellation.Create(parent: GuiObject)
 	local root = Instance.new("Frame")
 	root.Name = "TalentConstellation"
 	root.BackgroundTransparency = 1
-	root.Size = UDim2.new(0.42, 0, 1, -150)
-	root.Position = UDim2.new(0, 24, 0, 70)
+	root.Size = UDim2.new(0.42, 0, 1, -204)
+	root.Position = UDim2.new(0, 24, 0, 124) -- under the class screen's back button
 	root.Parent = parent
 
 	local soulsLabel = Instance.new("TextLabel")
 	soulsLabel.Name = "Souls"
 	soulsLabel.BackgroundTransparency = 1
 	soulsLabel.Size = UDim2.new(1, 0, 0, 26)
-	soulsLabel.Font = Enum.Font.GothamBold
-	soulsLabel.TextSize = 18
+	soulsLabel.Font = Enum.Font.Antique
+	soulsLabel.TextSize = 22
 	soulsLabel.TextXAlignment = Enum.TextXAlignment.Left
-	soulsLabel.TextColor3 = Color3.fromRGB(200, 225, 255)
+	soulsLabel.TextColor3 = Color3.fromRGB(255, 213, 128)
 	soulsLabel.TextStrokeTransparency = 0.5
 	soulsLabel.Parent = root
 
@@ -91,8 +91,8 @@ function TalentConstellation.Create(parent: GuiObject)
 	progress.Name = "Progress"
 	progress.Position = UDim2.new(0.5, 0, 1, 2)
 	progress.Size = UDim2.new(1, 0, 0, 18)
-	progress.Font = Enum.Font.GothamMedium
-	progress.TextSize = 14
+	progress.Font = Enum.Font.Antique
+	progress.TextSize = 16
 	progress.Parent = root
 
 	-- Tooltip.
@@ -100,8 +100,8 @@ function TalentConstellation.Create(parent: GuiObject)
 	tip.Name = "Tooltip"
 	tip.Visible = false
 	tip.Size = UDim2.fromOffset(220, 74)
-	tip.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
-	tip.BackgroundTransparency = 0.1
+	tip.BackgroundColor3 = Color3.fromRGB(17, 13, 13) -- guild-hall plaque
+	tip.BackgroundTransparency = 0.05
 	tip.ZIndex = 50
 	tip.Parent = root
 	Instance.new("UICorner", tip).CornerRadius = UDim.new(0, 6)
@@ -117,14 +117,14 @@ function TalentConstellation.Create(parent: GuiObject)
 		t.Font = font
 		t.TextSize = size
 		t.TextXAlignment = Enum.TextXAlignment.Left
-		t.TextColor3 = Color3.fromRGB(235, 235, 240)
+		t.TextColor3 = Color3.fromRGB(239, 213, 170)
 		t.ZIndex = 51
 		t.Parent = tip
 		return t
 	end
-	local tipName = tipText("Name", 6, 20, 16, Enum.Font.GothamBold)
-	local tipBuff = tipText("Buff", 27, 18, 14, Enum.Font.GothamMedium)
-	local tipStatus = tipText("Status", 48, 18, 12, Enum.Font.Gotham)
+	local tipName = tipText("Name", 6, 20, 18, Enum.Font.Antique)
+	local tipBuff = tipText("Buff", 27, 18, 15, Enum.Font.Antique)
+	local tipStatus = tipText("Status", 48, 18, 13, Enum.Font.Antique)
 
 	local pulsing: { UIStroke } = {}
 	local t0 = os.clock()

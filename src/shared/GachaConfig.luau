@@ -24,7 +24,6 @@ GachaConfig.Currencies = {
 	crystals = { name = "Crystal", glyph = "💎" },
 	soulShards = { name = "Soul Shard", glyph = "🔮" },
 	relicDust = { name = "Relic Dust", glyph = "✨" },
-	ascension = { name = "Ascension Sigil", glyph = "🌟" },
 }
 
 GachaConfig.Cost = {
@@ -41,8 +40,8 @@ GachaConfig.Rarities = {
 	Common    = { odds = 60.0, color = Color3.fromRGB(190, 195, 205) },
 	Rare      = { odds = 28.0, color = Color3.fromRGB(90, 170, 255) },
 	Epic      = { odds = 9.0,  color = Color3.fromRGB(190, 95, 255) },
-	Legendary = { odds = 2.6,  color = Color3.fromRGB(255, 200, 70) },
-	Mythic    = { odds = 0.4,  color = Color3.fromRGB(255, 70, 120) },
+	Legendary = { odds = 3.0,  color = Color3.fromRGB(255, 200, 70) },
+	Mythic    = { odds = 0.0,  color = Color3.fromRGB(255, 70, 120) }, -- no Mythic rewards yet
 }
 
 -- ── Pity (per banner, carried between sessions) ──────────────────────────────
@@ -60,8 +59,8 @@ GachaConfig.Pity = {
 GachaConfig.Banners = {
 	divine_summoning = {
 		name = "The Divine Summoning",
-		subtitle = "Featured: Divine Judgement",
-		featured = "divine_judgement",
+		subtitle = "Featured: Dark",
+		featured = "dark_variant",
 		featuredRate = 0.5,
 		pool = "standard",
 	},
@@ -74,9 +73,8 @@ GachaConfig.Duplicates = {
 	characterShards = { Common = 5, Rare = 10, Epic = 25, Legendary = 60, Mythic = 120 },
 	-- Soul Shards refine into Souls (talent points) at this ratio.
 	shardsPerSoul = 10,
-	-- Exclusive characters: copies raise Ascension up to the max, then give Sigils.
-	maxAscension = 5,
-	ascensionOverflow = { Epic = 2, Legendary = 5, Mythic = 10 },
+	-- VFX variants (cosmetic): every copy after the first becomes Soul Shards.
+	variantShards = { Epic = 30, Legendary = 80, Mythic = 160 },
 	-- Relics: copies raise the relic's level up to the max, then give Relic Dust.
 	maxRelicLevel = 5,
 	relicOverflowDust = { Common = 5, Rare = 12, Epic = 30, Legendary = 80 },
@@ -87,12 +85,18 @@ GachaConfig.Duplicates = {
 -- ── Equipment ────────────────────────────────────────────────────────────────
 GachaConfig.RelicSlots = 3
 GachaConfig.RelicLevelBonus = 0.25 -- each relic level above 1 adds +25% of its base effect
-GachaConfig.AscensionBonus = 0.2   -- each ascension adds +20% of the character's passive
 
 -- ── Earning tickets through gameplay ─────────────────────────────────────────
 GachaConfig.TicketRewards = {
 	bossKill = 1,
 	killsPerTicket = 60, -- every N kills
+}
+
+-- ── Shop: rewards bought directly (not random) ───────────────────────────────
+-- price: currency → amount; each listed currency is a way to pay. Items you
+-- already own can't be bought again.
+GachaConfig.ShopItems = {
+	{ id = "dark_variant", price = { crystals = 6000, relicDust = 1500 } },
 }
 
 -- ── Premium crystal products (Developer Products) ────────────────────────────

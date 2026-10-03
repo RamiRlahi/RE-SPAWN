@@ -289,6 +289,10 @@ end
 local drive: LinearVelocity? = nil
 local driveAtt: Attachment? = nil
 local velocity = Vector3.zero
+-- The floor reading blinks to Air for a frame over tile seams and small
+-- bumps; treating that as airborne cut the drive on and off (jitter).
+local AIR_GRACE = 0.15
+local lastGrounded = 0
 
 local function ensureDrive(root: BasePart)
 	if drive and drive.Parent and driveAtt and driveAtt.Parent == root then return end
@@ -315,7 +319,9 @@ local function updateLocalPhysics(s: SkaterState, dt: number): (boolean, boolean
 	local char, root, hum = s.char, s.root, s.humanoid
 	ensureDrive(root)
 	local lv = drive :: LinearVelocity
-	local grounded = hum.FloorMaterial ~= Enum.Material.Air
+	if hum.FloorMaterial ~= Enum.Material.Air then lastGrounded = os.clock() end
+	local grounded = os.clock() - lastGrounded < AIR_GRACE
+		and hum:GetState() ~= Enum.HumanoidStateType.Jumping and hum:GetState() ~= Enum.HumanoidStateType.Freefall
 	local paused = Workspace:GetAttribute("TomesPaused") == true or root.Anchored or hum.Health <= 0
 	if paused then
 		velocity = Vector3.zero

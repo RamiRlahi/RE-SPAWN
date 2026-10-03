@@ -1,0 +1,1998 @@
+--!strict
+--[[
+	BerserkerController.luau
+	Client side of the Berserker, the Crimson Ravager (server: BerserkerServer).
+	Crimson energy, black smoke, fractured ground and red afterimages; heavy
+	anticipation, explosive acceleration, impact pauses, camera kicks.
+
+	  • The greatsword chain: your own swings are predicted (two-handed pose,
+	    crimson trail, arc) on click; the server resolves hits and sends
+	    everyone else's over BerserkerFX.
+	  • E Rupture: crouch (the floor cracks red), leap, hang with the blade
+	    overhead (debris pulled up below), crash: crimson flash, crater,
+	    spreading fracture, shockwave, lingering dust and embers.
+	  • F Bloodstorm: lean and drag the blade (a red streak ignites), then
+	    dash enemy to enemy, each dash faster, red afterimages and crescents,
+	    an impact freeze per hit, and a spinning cleave with a big shockwave.
+	  • Q Bloodrage: Unchained: plant the sword, tremble, roar; a crimson pulse
+	    darkens the room and veins spread over the floor. While it lasts: eyes
+	    and armour cracks blaze, red lightning on the arms and blade, black
+	    smoke off the shoulders, glowing footsteps, a persistent blade
+	    afterimage. The NEXT skill is Empowered (bigger and more violent).
+	  • R Worldbreaker: kneel and gather (stones lift, red motes pulled in),
+	    launch in a crimson spiral, hang as time slows, dive dragging a giant
+	    blade: a white-red flash, a towering column, radial fissures, rings and
+	    flying rock; then a delayed second explosion, smoke and embers.
+	  • The Unchained gauge above the skill bar ("EMPOWERED" while the next
+	    skill is charged).
+--]]
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+local Debris = game:GetService("Debris")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local Network = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Network"))
+local CastPoses = require(script.Parent:WaitForChild("CastPoses"))
+local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
+local FireFX = require(script.Parent:WaitForChild("FireFX"))
+local UltimateCameraChoreography = require(script.Parent:WaitForChild("UltimateCameraChoreography"))
+local SwordFX = require(script.Parent:WaitForChild("SwordFX"))
+local SafeMove = require(script.Parent:WaitForChild("SafeMove"))
+
+local player = Players.LocalPlayer
+
+local BerserkerController = {}
+
+-- ── Tuning (mirrors BerserkerServer) ────────────────────────────────────────
+local SWING_INTERVAL = 0.48
+local COMBO_RESET = 1.2
+local UNCHAIN_SPEED = 0.35
+local UNCHAIN_WINDUP = 1.1
+local RUPTURE = { crouch = 0.32, rise = 0.3, hang = 0.18, fall = 0.14 }
+RUPTURE.impact = RUPTURE.crouch + RUPTURE.rise + RUPTURE.hang + RUPTURE.fall
+local RUPTURE_RANGE = 17 -- the furthest leap (to the cursor)
+local RUPTURE_HEIGHT = 9
+local WB = { gather = 1.4, ascend = 0.5, hang = 0.4, dive = 0.22, pull = 0.8 }
+WB.impact = WB.gather + WB.ascend + WB.hang + WB.dive
+WB.second = WB.impact + 0.6
+WB.total = WB.second + WB.pull
+local WB_RANGE = 34
+local WB_HEIGHT = 24
+
+local CRIMSON = Color3.fromRGB(205, 14, 30)
+local BLOOD = Color3.fromRGB(120, 6, 16)
+local BLACK = Color3.fromRGB(14, 8, 10)
+local HOT = Color3.fromRGB(255, 70, 80)
+local TEX_SMOKE = "rbxasset://textures/particles/smoke_main.dds"
+
+type Deps = {
+	shake: (number, number) -> (),
+	fovPunch: (number, number) -> (),
+	getAim: (BasePart) -> Vector3,
+}
+local deps: Deps
+
+local localStep = 0
+local lastSwing = 0
+local busyUntil = 0
+-- (Unchained keeps the blade's afterimage on)
+local persistTrail: { [Model]: boolean } = {}
+
+local function isBerserker(p: Player?): boolean
+	return (p or player):GetAttribute("SelectedClass") == "berserker"
+end
+
+local function unchainedLeft(p: Player): number
+	return (tonumber(p:GetAttribute("BR_UnchainedUntil")) or 0) - Workspace:GetServerTimeNow()
+end
+
+local function rootOf(char: Model?): BasePart?
+	return char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+end
+
+local function charOf(p: Player?): Model?
+	return p and p.Character or nil
+end
+
+local function flatDir(v: Vector3, fallback: Vector3): Vector3
+	local f = Vector3.new(v.X, 0, v.Z)
+	return if f.Magnitude > 0.01 then f.Unit else fallback
+end
+
+-- Players near enough to feel a blow (camera shake, flashes).
+local function near(pos: Vector3, dist: number): boolean
+	local r = rootOf(player.Character)
+	return r ~= nil and (r.Position - pos).Magnitude < dist
+end
+
+-- ── VFX pieces (after the Berserker concept sheet) ─────────────────────────
+-- Black and deep crimson only: glowing crimson ribbons with hot pink-white
+-- cores, tall jagged crimson and black shards, black rock debris, jagged red
+-- ground cracks, dark smoke and red sparks.
+local SHARD_BLACK = Color3.fromRGB(24, 14, 17)
+local ROCK = Color3.fromRGB(38, 30, 33)
+local TEX_FIRE = "rbxasset://textures/particles/fire_main.dds"
+
+local CORE = Color3.fromRGB(255, 120, 130) -- the hot pink-red heart of every ribbon
+
+local function arc(cf: CFrame, radius: number, span: number, color: Color3, width: number, life: number, sweep: number?, draw: number?)
+	SwordFX.Arc({ cf = cf, radius = radius, arc = span, sweep = sweep, width = width, color = color, life = life, draw = draw, core = CORE })
+end
+
+local function smoke(pos: Vector3, count: number, size: number)
+	ClassFX.Burst(pos, Color3.fromRGB(40, 6, 10), count, 5, TEX_SMOKE, size, 1.2)
+end
+
+local function sparks(pos: Vector3, count: number, speed: number)
+	ClassFX.Burst(pos, CRIMSON, count, speed, ClassFX.TEX_SPARK, 0.4, 0.55)
+end
+
+-- Flying bits flung out from `pos`: small black and crimson chips, or
+-- (rocks = true) chunks of black stone. Real physics, then they fade.
+local function fling(pos: Vector3, count: number, speed: number, lift: number, rocks: boolean?)
+	for i = 1, count do
+		local p: BasePart = if rocks then Instance.new("Part") else Instance.new("WedgePart")
+		p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = false, false, false, false, false
+		p.Massless = true
+		if rocks then
+			local s = 0.5 + math.random() * 1.1
+			p.Size = Vector3.new(s, s * (0.6 + math.random() * 0.5), s * (0.7 + math.random() * 0.4))
+			p.Material = Enum.Material.Slate
+			p.Color = ROCK
+		else
+			p.Size = Vector3.new(0.12, 0.4 + math.random() * 0.9, 0.3 + math.random() * 0.6)
+			local glow = i % 3 == 0
+			p.Material = if glow then Enum.Material.Neon else Enum.Material.SmoothPlastic
+			p.Color = if glow then CRIMSON else SHARD_BLACK
+		end
+		p.CFrame = CFrame.new(pos) * CFrame.Angles(math.random() * 6, math.random() * 6, math.random() * 6)
+		p.Parent = ClassFX.Folder()
+		local a = math.random() * math.pi * 2
+		p.AssemblyLinearVelocity = Vector3.new(math.cos(a), 0, math.sin(a)) * speed * (0.5 + math.random() * 0.7)
+			+ Vector3.new(0, lift * (0.5 + math.random() * 0.8), 0)
+		p.AssemblyAngularVelocity = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * 30
+		TweenService:Create(p, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0, false, if rocks then 0.8 else 0.35),
+			{ Transparency = 1 }):Play()
+		Debris:AddItem(p, if rocks then 1.4 else 0.95)
+	end
+end
+
+-- Jagged glowing red cracks running out across the ground from `pos`.
+local function cracks(pos: Vector3, radius: number, count: number, life: number)
+	local y = pos.Y + 0.08
+	for i = 1, count do
+		local a = (i / count) * math.pi * 2 + math.random() * 0.5
+		local at = Vector3.new(pos.X, y, pos.Z)
+		local len = radius * (0.5 + math.random() * 0.5)
+		local steps = 3 + math.random(0, 2)
+		for s = 1, steps do
+			a += (math.random() - 0.5) * 0.9
+			local l = len / steps
+			local nxt = at + Vector3.new(math.cos(a), 0, math.sin(a)) * l
+			local mid = (at + nxt) / 2
+			local w = 0.45 * (1 - (s - 1) / steps) + 0.1
+			local c = ClassFX.Neon({ Size = Vector3.new(w, 0.06, l + 0.2), CFrame = CFrame.lookAt(mid, nxt), Color = CRIMSON, Transparency = 0.05 })
+			TweenService:Create(c, TweenInfo.new(life, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Transparency = 1, Color = BLOOD }):Play()
+			Debris:AddItem(c, life + 0.05)
+			at = nxt
+		end
+	end
+end
+
+-- Tall jagged shards bursting out of the ground and leaning away from `pos`:
+-- glowing crimson crystals and black ones (the sheet's Bloodquake and final
+-- slam). They punch up fast, hold, then sink back.
+local function shards(pos: Vector3, radius: number, count: number, hMin: number, hMax: number, life: number?)
+	local L = life or 0.8
+	for i = 1, count do
+		local a = (i / count) * math.pi * 2 + math.random() * 0.6
+		local dir = Vector3.new(math.cos(a), 0, math.sin(a))
+		local base = pos + dir * radius * (0.3 + math.random() * 0.7)
+		local h = hMin + math.random() * (hMax - hMin)
+		local w = 0.7 + math.random() * h * 0.16
+		local glow = math.random() < 0.62
+		-- Top tipped outward 8–28°, a little twist.
+		local rot = CFrame.lookAt(base, base + dir) * CFrame.Angles(-math.rad(8 + math.random() * 20), 0, 0)
+			* CFrame.Angles(0, math.random() * 6, 0)
+		-- A corner wedge: one sheer face and a sharp tip, like a broken crystal.
+		local s = Instance.new("CornerWedgePart")
+		s.Anchored, s.CanCollide, s.CanQuery, s.CanTouch, s.CastShadow = true, false, false, false, false
+		s.Material = if glow then Enum.Material.Neon else Enum.Material.SmoothPlastic
+		s.Color = if glow then (if math.random() < 0.7 then CRIMSON else BLOOD) else SHARD_BLACK
+		local sunk = rot * CFrame.new(0, -h / 2, 0)
+		local up = rot * CFrame.new(0, h / 2 - 0.4, 0)
+		s.Size = Vector3.new(w, h, w)
+		s.CFrame = sunk
+		s.Parent = ClassFX.Folder()
+		TweenService:Create(s, TweenInfo.new(0.09 + math.random() * 0.06, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { CFrame = up }):Play()
+		-- (sink after a pause: a second CFrame tween played now would cancel
+		-- the rise straight away)
+		task.delay(L * 0.6, function()
+			if s.Parent then
+				TweenService:Create(s, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { CFrame = sunk, Transparency = 0.6 }):Play()
+			end
+		end)
+		Debris:AddItem(s, L * 0.6 + 0.45)
+	end
+end
+
+-- A faint, quick crimson pulse on the ground (the impact's glow; kept
+-- subtle so the cracks and shards stay the bright part, as on the sheet).
+local function groundFlash(pos: Vector3, radius: number)
+	local d = ClassFX.Neon({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.1, radius * 0.4, radius * 0.4),
+		CFrame = CFrame.new(pos + Vector3.new(0, 0.1, 0)) * CFrame.Angles(0, 0, math.rad(90)), Color = BLOOD, Transparency = 0.7 })
+	TweenService:Create(d, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+		{ Size = Vector3.new(0.1, radius * 1.4, radius * 1.4), Transparency = 1 }):Play()
+	Debris:AddItem(d, 0.25)
+end
+
+-- A shockwave: thin glowing rings racing outward along the ground (rings,
+-- not filled discs, so the ground stays dark between them).
+local function shockwave(pos: Vector3, radius: number, _char: Model?)
+	local cf = CFrame.new(pos + Vector3.new(0, 0.25, 0))
+	SwordFX.Arc({ cf = cf, radius = radius * 0.55, arc = 359, width = 1.1, color = CRIMSON, life = 0.35, draw = 0.001, grow = 0.85, core = CORE })
+	task.delay(0.08, function()
+		SwordFX.Arc({ cf = cf, radius = radius * 0.4, arc = 359, width = 0.6, color = BLOOD, life = 0.4, draw = 0.001, grow = 1.1, core = CRIMSON })
+	end)
+end
+
+-- A crimson blast: a short sphere flash (quick, so it doesn't bury the
+-- shards) with black smoke rolling out.
+local function blast(pos: Vector3, radius: number)
+	local b = ClassFX.Neon({ Shape = Enum.PartType.Ball, Size = Vector3.one * 1.5, CFrame = CFrame.new(pos + Vector3.new(0, 1, 0)),
+		Color = CRIMSON, Transparency = 0.35 })
+	TweenService:Create(b, TweenInfo.new(0.16, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+		{ Size = Vector3.one * radius * 0.9, Transparency = 1, Color = BLOOD }):Play()
+	Debris:AddItem(b, 0.18)
+	smoke(pos + Vector3.new(0, 1, 0), 18, 4)
+	sparks(pos + Vector3.new(0, 1, 0), 36, 34)
+end
+
+-- A vertical column of red light (the final slam).
+local function lightPillar(pos: Vector3, height: number, width: number, life: number)
+	for _, layer in ipairs({ { w = width, c = CRIMSON, t = 0.35 }, { w = width * 0.3, c = HOT, t = 0 } }) do
+		local p = ClassFX.Neon({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(height, layer.w, layer.w),
+			CFrame = CFrame.new(pos + Vector3.new(0, height / 2, 0)) * CFrame.Angles(0, 0, math.rad(90)), Color = layer.c, Transparency = layer.t })
+		TweenService:Create(p, TweenInfo.new(life, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+			{ Size = Vector3.new(height, 0.05, 0.05), Transparency = 1 }):Play()
+		Debris:AddItem(p, life + 0.05)
+	end
+end
+
+-- A jagged crimson lightning bolt from a to b, flickering out.
+local function bolt(a: Vector3, b: Vector3, width: number, life: number)
+	local steps = 6
+	local prev = a
+	local dir = b - a
+	local side = dir:Cross(Vector3.yAxis)
+	if side.Magnitude < 0.01 then side = Vector3.xAxis end
+	side = side.Unit
+	local side2 = dir.Unit:Cross(side)
+	for s = 1, steps do
+		local t = s / steps
+		local nxt = if s == steps then b else a + dir * t + (side * (math.random() - 0.5) + side2 * (math.random() - 0.5)) * dir.Magnitude * 0.18
+		local mid = (prev + nxt) / 2
+		local len = (nxt - prev).Magnitude
+		for _, layer in ipairs({ { w = width, c = CRIMSON, tr = 0.2 }, { w = width * 0.35, c = HOT, tr = 0 } }) do
+			local seg = ClassFX.Neon({ Size = Vector3.new(layer.w, layer.w, len + layer.w), CFrame = CFrame.lookAt(mid, nxt), Color = layer.c, Transparency = layer.tr })
+			TweenService:Create(seg, TweenInfo.new(life), { Transparency = 1 }):Play()
+			Debris:AddItem(seg, life + 0.05)
+		end
+		prev = nxt
+	end
+end
+
+-- The sheet's slash ring: several crimson ribbons with hot cores at slightly
+-- different radii, heights and tilts, swirling round in the swing's
+-- direction, plus black chips thrown off. `cf` is the centre and facing (the
+-- arc bulges toward cf's -Z).
+local function slashRing(cf: CFrame, radius: number, span: number, sweep: number?, heavy: boolean?)
+	local layers = if heavy then 4 else 3
+	for i = 1, layers do
+		local k = 0.86 + (i - 1) * 0.1
+		local tilt = CFrame.Angles(math.rad((i - 2) * 3.5), 0, math.rad(if i % 2 == 0 then 3 else -3))
+		task.delay((i - 1) * 0.03, arc, cf * CFrame.new(0, (i - 2) * 0.3, 0) * tilt, radius * k, span, CRIMSON,
+			if i == 2 then radius * 0.32 else radius * 0.14, 0.26 + i * 0.05, sweep, 0.1)
+	end
+	-- A faint red sheen swept across the ground under it.
+	SwordFX.Sweep({ cf = cf * CFrame.new(0, -2.4, 0), inner = radius * 0.25, outer = radius, arc = span, sweep = sweep,
+		color = BLOOD, life = 0.3, draw = 0.1, opacity = 0.45 })
+end
+
+-- Black and crimson chips thrown off the rim of a ring swing.
+local function rimChips(center: Vector3, radius: number, count: number)
+	for i = 1, count do
+		local a = math.random() * math.pi * 2
+		fling(center + Vector3.new(math.cos(a), 0, math.sin(a)) * radius * (0.8 + math.random() * 0.3), 1, 26, 8)
+	end
+end
+
+-- The greatsword's crimson trail (built on the Ragebringer's edge).
+local function ensureTrail(char: Model): Trail?
+	local tool = char:FindFirstChild("Ragebringer")
+	local a0 = tool and tool:FindFirstChild("RageBase", true)
+	local edge = a0 and a0.Parent
+	if not edge then return nil end
+	local t = edge:FindFirstChild("RageTrail") :: Trail?
+	if t then return t end
+	local a1 = edge:FindFirstChild("RageTip")
+	if not (a0 and a1 and a0:IsA("Attachment") and a1:IsA("Attachment")) then return nil end
+	local tr = Instance.new("Trail")
+	tr.Name = "RageTrail"
+	tr.Attachment0 = a0
+	tr.Attachment1 = a1
+	tr.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, HOT), ColorSequenceKeypoint.new(0.35, CRIMSON), ColorSequenceKeypoint.new(1, BLACK) })
+	tr.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.05), NumberSequenceKeypoint.new(1, 1) })
+	tr.Lifetime = 0.28
+	tr.MinLength = 0.05
+	tr.LightEmission = 0.8
+	tr.FaceCamera = false
+	tr.Enabled = false
+	tr.Parent = edge
+	return tr
+end
+
+local function trail(char: Model, seconds: number)
+	local t = ensureTrail(char)
+	if t then
+		t.Enabled = true
+		task.delay(seconds, function() if t.Parent and not persistTrail[char] then t.Enabled = false end end)
+	end
+end
+
+local function popWord(char: Model, text: string, size: number)
+	local root = rootOf(char)
+	if not root then return end
+	local bb = Instance.new("BillboardGui")
+	bb.Adornee = root
+	bb.Size = UDim2.fromOffset(240, 60)
+	bb.StudsOffset = Vector3.new(0, 4.4, 0)
+	bb.AlwaysOnTop = true
+	bb.LightInfluence = 0
+	bb.Parent = ClassFX.Folder()
+	local l = Instance.new("TextLabel")
+	l.BackgroundTransparency = 1
+	l.Size = UDim2.fromScale(1, 1)
+	l.Font = Enum.Font.GothamBlack
+	l.Text = text
+	l.TextSize = size
+	l.TextColor3 = CRIMSON
+	l.TextStrokeColor3 = Color3.new(0, 0, 0)
+	l.TextStrokeTransparency = 0
+	l.Parent = bb
+	local sc = Instance.new("UIScale")
+	sc.Scale = 1.8
+	sc.Parent = l
+	TweenService:Create(sc, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	TweenService:Create(l, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0, false, 0.6),
+		{ TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	Debris:AddItem(bb, 1.1)
+end
+
+-- ── Poses: two hands on the hilt (CastPoses: +rx raises an arm forward) ─────
+-- Both arms reach to the grip: the left arm crosses in (LS ry +) to meet the
+-- right. Heavy, grounded moves: wide stance, deep knees, the torso does the work.
+local SPIN = function(t0: number, delay: number, dur: number, turns: number)
+	return function()
+		local a = math.clamp((os.clock() - t0 - delay) / dur, 0, 1)
+		return { Root = { 0, -(1 - (1 - a) ^ 2) * 360 * turns, 0 } }
+	end
+end
+
+local function swingPose(char: Model, step: number)
+	if step == 1 then
+		-- Diagonal cleave: wound high over the right shoulder, then hacked down
+		-- and across to the left hip.
+		CastPoses.play(char, {
+			{ dur = 0.12, pose = { Root = { 0, 0, 0, 0, -0.4, 0.2 }, W = { 8, 50, 0 }, RS = { 150, 40, 0 }, LS = { 140, 60, 0 },
+				RH = { -18, 0, 8 }, LH = { 22, 0, -8 }, N = { 0, -25, 0 } } },
+			{ dur = 0.1, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -0.8, -0.6 }, W = { -22, -45, 0 }, RS = { 20, -60, 0 },
+				LS = { 25, -30, 0 }, RH = { 30, 0, 8 }, LH = { -30, 0, -8 }, N = { 10, 20, 0 } } },
+			{ dur = 0.22, pose = { Root = { 0, 0, 0, 0, -0.6, -0.4 }, W = { -15, -35, 0 }, RS = { 15, -50, 0 }, LS = { 20, -25, 0 },
+				RH = { 20, 0, 8 }, LH = { -20, 0, -8 } } },
+		}, 0.3)
+	elseif step == 2 then
+		-- Backhand: dragged low from the left and ripped up and across to the right.
+		CastPoses.play(char, {
+			{ dur = 0.1, pose = { Root = { 0, 0, 0, 0, -0.7, 0 }, W = { 15, -55, 0 }, RS = { 30, -80, 0 }, LS = { 35, -50, 0 },
+				RH = { 25, 0, 8 }, LH = { -25, 0, -8 } } },
+			{ dur = 0.1, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -0.2, -0.3 }, W = { -18, 60, 0 }, RS = { 80, 90, 0 },
+				LS = { 70, 100, 0 }, RH = { -20, 0, 8 }, LH = { 20, 0, -8 }, N = { -10, -20, 0 } } },
+			{ dur = 0.2, pose = { Root = { 0, 0, 0, 0, -0.3, -0.2 }, W = { -10, 45, 0 }, RS = { 65, 75, 0 }, LS = { 55, 85, 0 } } },
+		}, 0.3)
+	else
+		-- Overhead smash: heaved high behind the head, then brought straight down
+		-- into the ground.
+		CastPoses.play(char, {
+			{ dur = 0.18, pose = { Root = { 0, 0, 0, 0, -0.3, 0.3 }, W = { 22, 0, 0 }, RS = { 175, 10, 0 }, LS = { 170, -10, 0 },
+				RH = { -12, 0, 10 }, LH = { 12, 0, -10 }, N = { -20, 0, 0 } } },
+			{ dur = 0.08, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -1.2, -0.5 }, W = { -40, 0, 0 }, RS = { 35, 0, 0 },
+				LS = { 35, 0, 0 }, RH = { 35, 0, 12 }, LH = { -35, 0, -12 }, N = { 20, 0, 0 } } },
+			{ dur = 0.28, pose = { Root = { 0, 0, 0, 0, -1, -0.4 }, W = { -32, 0, 0 }, RS = { 30, 0, 0 }, LS = { 30, 0, 0 },
+				RH = { 30, 0, 12 }, LH = { -30, 0, -12 } } },
+		}, 0.35)
+	end
+end
+
+local function raisePose(char: Model, windup: number)
+	-- Bloodquake: both hands heave the greatsword straight up, back arched...
+	CastPoses.play(char, {
+		{ dur = windup * 0.85, pose = { Root = { 0, 0, 0, 0, 0.2, 0 }, W = { 18, 0, 0 }, RS = { 178, 0, 0 }, LS = { 175, 0, 0 },
+			RH = { -8, 0, 12 }, LH = { 8, 0, -12 }, N = { -25, 0, 0 } } },
+		-- ...and drives it down into the ground in a deep crouch.
+		{ dur = 0.08, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -1.4, -0.4 }, W = { -45, 0, 0 }, RS = { 20, 0, 0 },
+			LS = { 20, 0, 0 }, RH = { 45, 0, 14 }, LH = { -40, 0, -14 }, N = { 25, 0, 0 } } },
+		{ dur = 0.35, pose = { Root = { 0, 0, 0, 0, -1.2, -0.4 }, W = { -38, 0, 0 }, RS = { 18, 0, 0 }, LS = { 18, 0, 0 },
+			RH = { 40, 0, 14 }, LH = { -35, 0, -14 } } },
+	}, 0.35)
+end
+
+local function cleavePose(char: Model)
+	-- Crimson Cleave: a full turn with the blade held out wide in both hands.
+	local t0 = os.clock()
+	CastPoses.play(char, {
+		{ dur = 0.08, pose = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { 12, 70, 0 }, RS = { 30, 0, 80 }, LS = { 40, 60, 0 },
+			RH = { -20, 0, 10 }, LH = { 20, 0, -10 } } },
+		{ dur = 0.3, pose = { Root = { 0, 0, 0, 0, -0.5, 0 }, W = { -5, 0, 0 }, RS = { 25, 0, 88 }, LS = { 30, 50, 30 },
+			RH = { -15, 0, 12 }, LH = { 15, 0, -12 } }, wobble = SPIN(t0, 0.08, 0.3, 1) },
+		{ dur = 0.14, pose = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { 10, -30, 0 }, RS = { 20, -40, 0 }, LS = { 25, -20, 0 } } },
+	}, 0.3)
+end
+
+local function ruinPose(char: Model)
+	-- Ruinous Slash: a huge lunging swing from low right, flung forward.
+	CastPoses.play(char, {
+		{ dur = 0.1, pose = { Root = { 0, 0, 0, 0, -0.7, 0.3 }, W = { 20, 60, 0 }, RS = { 10, 90, 0 }, LS = { 20, 70, 0 },
+			RH = { -35, 0, 10 }, LH = { 40, 0, -10 } } },
+		{ dur = 0.08, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -0.9, -1.2 }, W = { -35, -40, 0 }, RS = { 95, -30, 0 },
+			LS = { 90, -10, 0 }, RH = { -55, 0, 10 }, LH = { 50, 0, -10 }, N = { 15, 15, 0 } } },
+		{ dur = 0.25, pose = { Root = { 0, 0, 0, 0, -0.8, -1 }, W = { -28, -35, 0 }, RS = { 85, -25, 0 }, LS = { 80, -10, 0 },
+			RH = { -45, 0, 10 }, LH = { 40, 0, -10 } } },
+	}, 0.3)
+end
+
+-- ── Crimson flipbooks (the VFX library's explosion / crack / shock
+-- textures, recoloured blood red) ───────────────────────────────────────────
+local function seq(a: Color3, b: Color3?): ColorSequence
+	return ColorSequence.new(a, b or a)
+end
+
+local function flipbook(kind: string, pos: Vector3, size: number, n: number, color: ColorSequence, brightness: number?)
+	return FireFX.Puff(kind, CFrame.new(pos), size, n, function(e)
+		e.Color = color
+		if brightness then e.Brightness = brightness end
+	end)
+end
+
+-- The crash: the fireball flash, the crater, the fractured floor and the
+-- shock ring, all crimson.
+local function crimsonImpact(g: Vector3, radius: number, big: boolean?)
+	local up = g + Vector3.new(0, 0.15, 0)
+	flipbook("crater", up, radius * 0.9, 1, seq(Color3.fromRGB(255, 60, 70)), 3)
+	flipbook("crack", up, radius * 2, 1, seq(CRIMSON), 3)
+	flipbook("shock", up + Vector3.new(0, 0.1, 0), radius * 2.4, 1, seq(Color3.fromRGB(255, 120, 120), CRIMSON), 3)
+end
+
+-- Dust and red embers that hang about a crater after the blow.
+local function linger(g: Vector3, radius: number, seconds: number)
+	local a = Instance.new("Part")
+	a.Anchored, a.CanCollide, a.CanQuery, a.CanTouch = true, false, false, false
+	a.Transparency = 1
+	a.Size = Vector3.new(radius * 1.4, 0.2, radius * 1.4)
+	a.CFrame = CFrame.new(g + Vector3.new(0, 0.3, 0))
+	a.Parent = ClassFX.Folder()
+	local dust = Instance.new("ParticleEmitter")
+	dust.Texture = TEX_SMOKE
+	dust.Color = seq(Color3.fromRGB(70, 46, 46), Color3.fromRGB(26, 16, 18))
+	dust.LightInfluence = 0.5
+	dust.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(1, 1) })
+	dust.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 2), NumberSequenceKeypoint.new(1, 5) })
+	dust.Lifetime = NumberRange.new(1.4, 2.2)
+	dust.Speed = NumberRange.new(0.5, 2)
+	dust.Acceleration = Vector3.new(0, 1.2, 0)
+	dust.Rate = radius * 1.5
+	dust.Parent = a
+	local ember = Instance.new("ParticleEmitter")
+	ember.Texture = ClassFX.TEX_SPARK
+	ember.Color = seq(HOT, CRIMSON)
+	ember.LightEmission = 1
+	ember.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.25), NumberSequenceKeypoint.new(1, 0) })
+	ember.Lifetime = NumberRange.new(1.2, 2.2)
+	ember.Speed = NumberRange.new(1, 3)
+	ember.Acceleration = Vector3.new(0, 3, 0)
+	ember.SpreadAngle = Vector2.new(30, 30)
+	ember.Rate = radius * 2
+	ember.Parent = a
+	task.delay(seconds, function()
+		dust.Enabled = false
+		ember.Enabled = false
+	end)
+	Debris:AddItem(a, seconds + 2.4)
+end
+
+-- Chunks of floor torn loose and pulled up around `g` (before a blow lands):
+-- they rise and spin in place; `release` flings them out (at the impact).
+local function liftDebris(g: Vector3, radius: number, count: number, height: number, rise: number): () -> ()
+	local rocks: { BasePart } = {}
+	for _ = 1, count do
+		local a = math.random() * math.pi * 2
+		local at = g + Vector3.new(math.cos(a), 0, math.sin(a)) * radius * (0.25 + math.random() * 0.75)
+		local s = 0.4 + math.random() * 0.9
+		local p = Instance.new("Part")
+		p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
+		p.Size = Vector3.new(s, s * 0.7, s * 0.9)
+		p.Material = Enum.Material.Slate
+		p.Color = Color3.fromRGB(46, 36, 38)
+		p.CFrame = CFrame.new(at) * CFrame.Angles(math.random() * 6, math.random() * 6, math.random() * 6)
+		p.Parent = ClassFX.Folder()
+		local top = at + Vector3.new(0, height * (0.4 + math.random() * 0.6), 0)
+		TweenService:Create(p, TweenInfo.new(rise * (0.7 + math.random() * 0.3), Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ CFrame = CFrame.new(top) * CFrame.Angles(math.random() * 6, math.random() * 6, math.random() * 6) }):Play()
+		Debris:AddItem(p, 6)
+		table.insert(rocks, p)
+	end
+	return function()
+		for _, p in ipairs(rocks) do
+			if p.Parent then
+				p.Anchored = false
+				p.Massless = true
+				local out = Vector3.new(p.Position.X - g.X, 0, p.Position.Z - g.Z)
+				out = if out.Magnitude > 0.1 then out.Unit else Vector3.xAxis
+				p.AssemblyLinearVelocity = out * (14 + math.random() * 14) + Vector3.new(0, 10 + math.random() * 22, 0)
+				p.AssemblyAngularVelocity = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * 24
+				TweenService:Create(p, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0, false, 1.1),
+					{ Transparency = 1 }):Play()
+				Debris:AddItem(p, 1.7)
+			end
+		end
+	end
+end
+
+-- Red motes drawn in from all round toward `getAt()` (the Worldbreaker's
+-- gathering).
+local function motesIn(getAt: () -> Vector3, radius: number, count: number, dur: number)
+	for i = 1, count do
+		task.delay((i / count) * dur * 0.6, function()
+			local c = getAt()
+			local a = math.random() * math.pi * 2
+			local from = c + Vector3.new(math.cos(a) * radius, math.random() * 3 - 1, math.sin(a) * radius)
+			local m = ClassFX.Neon({ Shape = Enum.PartType.Ball, Size = Vector3.one * (0.25 + math.random() * 0.3),
+				CFrame = CFrame.new(from), Color = if math.random() < 0.3 then HOT else CRIMSON, Transparency = 0.1 })
+			local t = dur * 0.4 + math.random() * 0.2
+			local t0 = os.clock()
+			local conn: RBXScriptConnection
+			conn = RunService.RenderStepped:Connect(function()
+				local k = math.clamp((os.clock() - t0) / t, 0, 1)
+				local to = getAt()
+				m.CFrame = CFrame.new(from:Lerp(to, k * k))
+				m.Size = Vector3.one * (0.5 * (1 - k) + 0.08)
+				if k >= 1 then
+					conn:Disconnect()
+					m:Destroy()
+				end
+			end)
+		end)
+	end
+end
+
+-- A crimson spiral wound round a rising body (call each frame with its
+-- position; it lays a ribbon that fades).
+local function spiralStep(at: Vector3, angle: number, radius: number, last: { Vector3 }?): { Vector3 }
+	local out = {}
+	for k = 0, 1 do
+		local a = angle + k * math.pi
+		local p = at + Vector3.new(math.cos(a) * radius, 0, math.sin(a) * radius)
+		local prev = last and last[k + 1]
+		if prev and (p - prev).Magnitude > 0.05 then
+			local len = (p - prev).Magnitude
+			for _, layer in ipairs({ { w = 0.9, c = CRIMSON, tr = 0.25 }, { w = 0.3, c = HOT, tr = 0 } }) do
+				local seg = ClassFX.Neon({ Size = Vector3.new(layer.w, layer.w, len + layer.w),
+					CFrame = CFrame.lookAt((p + prev) / 2, p), Color = layer.c, Transparency = layer.tr })
+				TweenService:Create(seg, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+					{ Transparency = 1, Size = Vector3.new(0.05, 0.05, len) }):Play()
+				Debris:AddItem(seg, 0.6)
+			end
+		end
+		out[k + 1] = p
+	end
+	return out
+end
+
+-- A gigantic blade of red energy dragged behind the diver; returns its
+-- updater (call with his body's CFrame) and a remover.
+local function energyBlade(scale: number): ((CFrame) -> (), () -> ())
+	local pieces: { { p: BasePart, off: CFrame } } = {}
+	local function piece(size: Vector3, off: CFrame, color: Color3, tr: number, class: string?)
+		local p = if class == "wedge" then Instance.new("WedgePart") else Instance.new("Part")
+		p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
+		p.Material = Enum.Material.Neon
+		p.Size = size
+		p.Color = color
+		p.Transparency = tr
+		p.Parent = ClassFX.Folder()
+		table.insert(pieces, { p = p, off = off })
+	end
+	-- (held over his right shoulder, trailing up and back)
+	local base = CFrame.new(1.2, 2, 1.5) * CFrame.Angles(math.rad(55), 0, math.rad(-10))
+	piece(Vector3.new(0.5 * scale, 2.6 * scale, 16 * scale), base * CFrame.new(0, 0, 8 * scale), CRIMSON, 0.35)
+	piece(Vector3.new(0.25 * scale, 1.1 * scale, 15 * scale), base * CFrame.new(0, 0, 7.6 * scale), HOT, 0.05)
+	piece(Vector3.new(0.4 * scale, 2.6 * scale, 3 * scale), base * CFrame.new(0, 0, 17.4 * scale) * CFrame.Angles(0, math.pi, 0), CRIMSON, 0.35, "wedge")
+	return function(cf: CFrame)
+		for _, q in ipairs(pieces) do q.p.CFrame = cf * q.off end
+	end, function()
+		for _, q in ipairs(pieces) do
+			TweenService:Create(q.p, TweenInfo.new(0.2), { Transparency = 1 }):Play()
+			Debris:AddItem(q.p, 0.25)
+		end
+	end
+end
+
+-- The screen flashes white, then red (the Worldbreaker's blow).
+local function screenFlash(strength: number)
+	local pg = player:FindFirstChildOfClass("PlayerGui")
+	if not pg then return end
+	local g = Instance.new("ScreenGui")
+	g.Name = "BerserkerFlash"
+	g.IgnoreGuiInset = true
+	g.DisplayOrder = 90
+	g.Parent = pg
+	local f = Instance.new("Frame")
+	f.Size = UDim2.fromScale(1, 1)
+	f.BorderSizePixel = 0
+	f.BackgroundColor3 = Color3.new(1, 0.92, 0.92)
+	f.BackgroundTransparency = 1 - strength
+	f.Parent = g
+	TweenService:Create(f, TweenInfo.new(0.08), { BackgroundColor3 = CRIMSON }):Play()
+	TweenService:Create(f, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, false, 0.08),
+		{ BackgroundTransparency = 1 }):Play()
+	Debris:AddItem(g, 0.6)
+end
+
+-- The room tinted dark and red for a moment (the roar's pulse, the dive's
+-- slowed time).
+local function tint(name: string, props: { [string]: any }, hold: number, fadeIn: number?, fadeOut: number?)
+	local cc = Instance.new("ColorCorrectionEffect")
+	cc.Name = name
+	cc.Parent = Lighting
+	TweenService:Create(cc, TweenInfo.new(fadeIn or 0.12), props):Play()
+	task.delay(hold, function()
+		TweenService:Create(cc, TweenInfo.new(fadeOut or 0.4),
+			{ Brightness = 0, Saturation = 0, Contrast = 0, TintColor = Color3.new(1, 1, 1) }):Play()
+		Debris:AddItem(cc, (fadeOut or 0.4) + 0.05)
+	end)
+end
+
+-- A red streak burning along the floor from a to b.
+local function groundStreak(a: Vector3, b: Vector3, width: number, life: number)
+	local ga, gb = Vector3.new(a.X, FireFX.GroundY(a) + 0.1, a.Z), Vector3.new(b.X, FireFX.GroundY(b) + 0.1, b.Z)
+	local len = (gb - ga).Magnitude
+	if len < 0.2 then return end
+	for _, layer in ipairs({ { w = width, c = CRIMSON, tr = 0.2 }, { w = width * 0.35, c = HOT, tr = 0 } }) do
+		local s = ClassFX.Neon({ Size = Vector3.new(layer.w, 0.06, len), CFrame = CFrame.lookAt((ga + gb) / 2, gb),
+			Color = layer.c, Transparency = layer.tr })
+		TweenService:Create(s, TweenInfo.new(life, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+			{ Transparency = 1, Size = Vector3.new(0.05, 0.06, len) }):Play()
+		Debris:AddItem(s, life + 0.05)
+	end
+end
+
+-- ── New poses ───────────────────────────────────────────────────────────────
+-- A random tremor (the Unchained build-up: shoulders shaking).
+local function TREMBLE(amp: number)
+	return function()
+		local j = function() return (math.random() - 0.5) * amp end
+		return { W = { j(), j(), j() }, RS = { j(), 0, j() }, LS = { j(), 0, j() }, N = { j(), j(), 0 } }
+	end
+end
+
+-- Rupture: sink low gripping the blade, spring up with it raised, hang with
+-- it overhead, smash it down into a deep crouch.
+local function rupturePose(char: Model)
+	CastPoses.play(char, {
+		{ dur = RUPTURE.crouch, pose = { Root = { 0, 0, 0, 0, -1.1, 0.2 }, W = { -22, 0, 0 }, RS = { 40, 0, 0 }, LS = { 45, 0, 0 },
+			RH = { 55, 0, 10 }, LH = { 50, 0, -10 }, N = { 15, 0, 0 } } },
+		{ dur = RUPTURE.rise, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0 }, W = { 15, 0, 0 }, RS = { 165, 0, 0 },
+			LS = { 160, 0, 0 }, RH = { -35, 0, 6 }, LH = { 20, 0, -6 }, N = { -15, 0, 0 } } },
+		{ dur = RUPTURE.hang, pose = { Root = { 0, 0, 0 }, W = { 25, 0, 0 }, RS = { 190, 0, 0 }, LS = { 185, 0, 0 },
+			RH = { -50, 0, 8 }, LH = { -20, 0, -8 }, N = { -25, 0, 0 } } },
+		{ dur = RUPTURE.fall, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -1.3, -0.4 }, W = { -45, 0, 0 },
+			RS = { 25, 0, 0 }, LS = { 25, 0, 0 }, RH = { 45, 0, 14 }, LH = { -40, 0, -14 }, N = { 25, 0, 0 } } },
+		{ dur = 0.3, pose = { Root = { 0, 0, 0, 0, -1.2, -0.4 }, W = { -40, 0, 0 }, RS = { 20, 0, 0 }, LS = { 20, 0, 0 },
+			RH = { 40, 0, 14 }, LH = { -35, 0, -14 } } },
+	}, 0.35)
+end
+
+-- Bloodstorm's lean: bent forward, the blade dragged low behind.
+local function stormLeanPose(char: Model, t: number)
+	CastPoses.play(char, {
+		{ dur = t, pose = { Root = { 0, 0, 0, 0, -0.8, 0 }, W = { -35, -20, 0 }, RS = { -25, -20, 30 }, LS = { -10, -40, 0 },
+			RH = { 40, 0, 10 }, LH = { -30, 0, -10 }, N = { 25, 15, 0 } } },
+	}, 0.1)
+end
+
+-- A Bloodstorm cut: alternately a flat sweep and a diagonal hack.
+local function stormCutPose(char: Model, i: number, dur: number)
+	local s = if i % 2 == 1 then 1 else -1
+	CastPoses.play(char, {
+		{ dur = dur * 0.45, pose = { Root = { 0, 0, 0, 0, -0.7, 0 }, W = { -15, s * 55, 0 }, RS = { 70, s * 85, 0 }, LS = { 65, s * 95, 0 },
+			RH = { 30, 0, 8 }, LH = { -30, 0, -8 } } },
+		{ dur = dur * 0.55, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -0.9, -0.3 },
+			W = { if i % 2 == 0 then -30 else -10, -s * 55, 0 }, RS = { if i % 2 == 0 then 30 else 70, -s * 70, 0 },
+			LS = { if i % 2 == 0 then 30 else 65, -s * 50, 0 }, RH = { 35, 0, 8 }, LH = { -35, 0, -8 } } },
+	}, 0.15)
+end
+
+-- Unchained: the sword gripped in his right hand, raised out to the side,
+-- the free fist clenched, chest thrown out, head back, yelling (two-handed
+-- grip released meanwhile: BR_OneHand).
+local function unchainPose(char: Model, windup: number)
+	char:SetAttribute("BR_OneHand", true)
+	CastPoses.play(char, {
+		{ dur = 0.22, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -0.5, 0 }, W = { -20, 0, 0 }, RS = { 60, 0, 40 },
+			LS = { 30, 0, -30 }, RH = { 20, 0, 12 }, LH = { -15, 0, -12 }, N = { 20, 0, 0 } } },
+		{ dur = windup * 0.45, pose = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { -30, 0, 0 }, RS = { 70, 0, 50 }, LS = { 45, 0, -50 },
+			RH = { 25, 0, 14 }, LH = { -18, 0, -14 }, N = { 25, 0, 0 } }, wobble = TREMBLE(7) },
+		{ dur = windup * 0.33, style = Enum.EasingStyle.Back, pose = { Root = { 0, 0, 0, 0, -0.3, 0 }, W = { 20, 0, 0 },
+			RS = { 150, 0, 45 }, LS = { 60, 0, -75 }, RH = { 15, 0, 16 }, LH = { -10, 0, -16 }, N = { -45, 0, 0 } }, wobble = TREMBLE(4) },
+		{ dur = 0.5, pose = { Root = { 0, 0, 0, 0, -0.3, 0 }, W = { 18, 0, 0 }, RS = { 150, 0, 45 }, LS = { 60, 0, -75 },
+			RH = { 15, 0, 16 }, LH = { -10, 0, -16 }, N = { -42, 0, 0 } }, wobble = TREMBLE(3) },
+	}, 0.35)
+	task.delay(windup + 0.85, function() char:SetAttribute("BR_OneHand", nil) end)
+end
+
+-- Worldbreaker: down on one knee gripping the blade; the launch with it
+-- raised; the hang high overhead; the dive; then pulling it free.
+local function wbPose(char: Model)
+	CastPoses.play(char, {
+		-- (the red-moon shot: planted wide, the greatsword heaved straight up
+		-- in both hands, head tipped back toward it)
+		{ dur = 0.25, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { 6, 0, 0 }, RS = { 112, 0, 0 },
+			LS = { 112, 0, 0 }, RH = { 0, 0, 24 }, LH = { 0, 0, -24 }, N = { -25, 0, 0 } } },
+		{ dur = WB.gather - 0.25, pose = { Root = { 0, 0, 0, 0, -0.7, 0 }, W = { 8, 0, 0 }, RS = { 116, 0, 0 }, LS = { 116, 0, 0 },
+			RH = { 0, 0, 26 }, LH = { 0, 0, -26 }, N = { -30, 0, 0 } }, wobble = TREMBLE(2.5) },
+		{ dur = WB.ascend, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0 }, W = { 18, 0, 0 }, RS = { 175, 0, 0 },
+			LS = { 170, 0, 0 }, RH = { -55, 0, 6 }, LH = { -30, 0, -6 }, N = { -30, 0, 0 } } },
+		{ dur = WB.hang, pose = { Root = { 0, 0, 0 }, W = { 30, 0, 0 }, RS = { 200, 0, 0 }, LS = { 195, 0, 0 },
+			RH = { -40, 0, 8 }, LH = { -10, 0, -8 }, N = { -20, 0, 0 } } },
+		{ dur = WB.dive, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -1.4, -0.5 }, W = { -50, 0, 0 },
+			RS = { 20, 0, 0 }, LS = { 20, 0, 0 }, RH = { 50, 0, 14 }, LH = { -45, 0, -14 }, N = { 25, 0, 0 } } },
+		{ dur = WB.second - WB.impact + 0.2, pose = { Root = { 0, 0, 0, 0, -1.4, -0.5 }, W = { -45, 0, 0 }, RS = { 18, 0, 0 },
+			LS = { 18, 0, 0 }, RH = { 45, 0, 14 }, LH = { -40, 0, -14 } } },
+		-- (slowly hauling the blade free)
+		{ dur = WB.pull, style = Enum.EasingStyle.Quad, pose = { Root = { 0, 0, 0, 0, -0.5, 0 }, W = { 5, 0, 0 }, RS = { 70, 0, 0 },
+			LS = { 70, 0, 0 }, RH = { 15, 0, 8 }, LH = { -10, 0, -8 }, N = { -5, 0, 0 } } },
+	}, 0.4)
+end
+
+
+-- ── The Unchained look (every Berserker, every client) ──────────────────────
+-- Unchained: an outline and a red aura flowing off him, black smoke off the
+-- shoulders, eyes and armour cracks blazing, red lightning on the arms and
+-- blade, glowing fractures under his feet, a persistent blade afterimage.
+-- Empowered (the charged next skill): the blade's edge smoulders.
+type Look = {
+	char: Model,
+	hl: Highlight,
+	aura: ParticleEmitter,
+	energy: ParticleEmitter,
+	smokes: { ParticleEmitter },
+	edge: ParticleEmitter?,
+	eyeLight: PointLight?,
+	glows: { [BasePart]: Color3 },
+	level: number,
+	nextBolt: number,
+	nextStep: number,
+	stepSide: number,
+}
+local looks: { [Player]: Look } = {}
+
+local function emitter(parent: Instance, props: { [string]: any }): ParticleEmitter
+	local e = Instance.new("ParticleEmitter")
+	e.LightInfluence = 0
+	e.Rate = 0
+	for k, v in pairs(props) do (e :: any)[k] = v end
+	e.Parent = parent
+	return e
+end
+
+local function buildLook(char: Model): Look?
+	local torso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
+	if not (torso and torso:IsA("BasePart")) then return nil end
+	local hl = Instance.new("Highlight")
+	hl.Name = "UnchainedAura"
+	hl.FillColor = CRIMSON
+	hl.OutlineColor = CRIMSON
+	hl.FillTransparency = 1
+	hl.OutlineTransparency = 1
+	hl.DepthMode = Enum.HighlightDepthMode.Occluded
+	hl.Parent = char
+	-- the aura: crimson flame flowing up off the whole body
+	local aura = emitter(torso, { Name = "UnchainedFlow", Texture = "rbxasset://textures/particles/fire_main.dds", LightEmission = 1,
+		Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, HOT), ColorSequenceKeypoint.new(0.35, CRIMSON), ColorSequenceKeypoint.new(1, BLOOD) }),
+		Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.45), NumberSequenceKeypoint.new(0.7, 0.65), NumberSequenceKeypoint.new(1, 1) }),
+		Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.6), NumberSequenceKeypoint.new(1, 0.3) }),
+		Lifetime = NumberRange.new(0.4, 0.7), Speed = NumberRange.new(2, 4), Acceleration = Vector3.new(0, 8, 0),
+		SpreadAngle = Vector2.new(15, 15), EmissionDirection = Enum.NormalId.Top, Rotation = NumberRange.new(0, 360),
+		RotSpeed = NumberRange.new(-90, 90), Shape = Enum.ParticleEmitterShape.Box, ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume })
+	-- red energy leaking out of the armour
+	local en = emitter(torso, { Name = "UnchainedEnergy", Texture = ClassFX.TEX_SPARK, LightEmission = 1,
+		Color = ColorSequence.new(HOT, CRIMSON), Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 0) }),
+		Lifetime = NumberRange.new(0.3, 0.6), Speed = NumberRange.new(3, 8), SpreadAngle = Vector2.new(180, 180),
+		Shape = Enum.ParticleEmitterShape.Box, ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume })
+	-- black smoke trailing off each shoulder
+	local smokes = {}
+	for _, sx in ipairs({ -1, 1 }) do
+		local a = Instance.new("Attachment")
+		a.Name = "UnchainedShoulder"
+		a.Position = Vector3.new(sx * 1.1, 1.1, 0.2)
+		a.Parent = torso
+		table.insert(smokes, emitter(a, { Name = "UnchainedSmoke", Texture = TEX_SMOKE,
+			Color = ColorSequence.new(Color3.fromRGB(40, 6, 10), Color3.fromRGB(8, 4, 5)),
+			Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 1) }),
+			Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.9), NumberSequenceKeypoint.new(1, 2.8) }),
+			Lifetime = NumberRange.new(0.8, 1.3), Speed = NumberRange.new(1, 2.5), Acceleration = Vector3.new(0, 3.5, 0),
+			Drag = 1, SpreadAngle = Vector2.new(25, 25), EmissionDirection = Enum.NormalId.Top, RotSpeed = NumberRange.new(-40, 40) }))
+	end
+	-- (the armour's glowing parts: the visor slit, chest cracks, gauntlet rims)
+	local glows = {}
+	for _, d in ipairs(char:GetDescendants()) do
+		if d:IsA("BasePart") and d.Material == Enum.Material.Neon and (d.Name == "Visor" or d.Name == "Crack" or d.Name == "GauntletRim") then
+			glows[d] = d.Color
+		end
+	end
+	local head = char:FindFirstChild("Head")
+	local eyeLight: PointLight? = nil
+	if head then
+		local l = Instance.new("PointLight")
+		l.Name = "UnchainedEyes"
+		l.Color = CRIMSON
+		l.Range = 7
+		l.Brightness = 0
+		l.Shadows = false
+		l.Parent = head
+		eyeLight = l
+	end
+	-- the Empowered blade: a smoulder along its edge
+	local edge: ParticleEmitter? = nil
+	local tool = char:FindFirstChild("Ragebringer")
+	local tip = tool and tool:FindFirstChild("RageTip", true)
+	if tip and tip:IsA("Attachment") and tip.Parent then
+		edge = emitter(tip.Parent, { Name = "EmpoweredEdge", Texture = ClassFX.TEX_SPARK, LightEmission = 1,
+			Color = ColorSequence.new(HOT, CRIMSON), Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.45), NumberSequenceKeypoint.new(1, 0) }),
+			Lifetime = NumberRange.new(0.3, 0.6), Speed = NumberRange.new(0.5, 2), Acceleration = Vector3.new(0, 4, 0),
+			SpreadAngle = Vector2.new(180, 180), Shape = Enum.ParticleEmitterShape.Box, ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume })
+	end
+	return { char = char, hl = hl, aura = aura, energy = en, smokes = smokes, edge = edge, eyeLight = eyeLight,
+		glows = glows, level = -1, nextBolt = 0, nextStep = 0, stepSide = 1 }
+end
+
+local function dropLook(L: Look)
+	L.hl:Destroy()
+	L.aura:Destroy()
+	L.energy:Destroy()
+	for _, s in ipairs(L.smokes) do
+		if s.Parent then s.Parent:Destroy() end
+	end
+	if L.edge then L.edge:Destroy() end
+	if L.eyeLight then L.eyeLight:Destroy() end
+	for part, c in pairs(L.glows) do
+		if part.Parent then part.Color = c end
+	end
+	persistTrail[L.char] = nil
+end
+
+-- (forward: ensureTrail is defined with the helpers)
+local function setPersistentTrail(char: Model, on: boolean)
+	persistTrail[char] = if on then true else nil
+	local t = ensureTrail(char)
+	if t then
+		t.Lifetime = if on then 0.55 else 0.28
+		t.Enabled = on
+	end
+end
+
+local function refreshLook(p: Player)
+	local char = p.Character
+	local want = char ~= nil and isBerserker(p) and p:GetAttribute("InLobby") == false
+	local L = looks[p]
+	if L and (not want or L.char ~= char or not L.hl.Parent) then
+		dropLook(L)
+		looks[p] = nil
+		L = nil
+	end
+	if not want or not char then return end
+	if not L then
+		local built = buildLook(char)
+		if not built then return end
+		looks[p] = built
+		L = built
+	end
+	local level = if unchainedLeft(p) > 0 then 2 elseif p:GetAttribute("BR_Empowered") == true then 1 else 0
+	if level == L.level then return end
+	L.level = level
+	local on = level == 2
+	L.hl.OutlineTransparency = if on then 0.1 else 1
+	L.hl.FillTransparency = if on then 0.82 else 1
+	L.aura.Rate = if on then 30 else 0
+	L.energy.Rate = if on then 22 else 0
+	for _, s in ipairs(L.smokes) do s.Rate = if on then 16 else 0 end
+	if L.edge then L.edge.Rate = if level >= 1 then 26 else 0 end
+	if L.eyeLight then L.eyeLight.Brightness = if on then 3 else 0 end
+	if not on then
+		for part, c in pairs(L.glows) do
+			if part.Parent then part.Color = c end
+		end
+	end
+	setPersistentTrail(char, on)
+end
+
+-- Every frame while Unchained: the blazing cracks pulse, red lightning arcs
+-- round the arms and blade, and each step cracks the floor.
+local function unchainedStep(now: number)
+	for _, L in pairs(looks) do
+		if L.level ~= 2 or not L.char.Parent then continue end
+		local pulse = 0.5 + 0.5 * math.sin(now * 14)
+		for part in pairs(L.glows) do
+			if part.Parent then part.Color = CRIMSON:Lerp(HOT, pulse) end
+		end
+		if now >= L.nextBolt then
+			L.nextBolt = now + 0.1 + math.random() * 0.12
+			local arm = L.char:FindFirstChild(if math.random() < 0.5 then "Right Arm" else "Left Arm")
+			local tool = L.char:FindFirstChild("Ragebringer")
+			local tip = tool and tool:FindFirstChild("RageTip", true)
+			if arm and arm:IsA("BasePart") then
+				local from = arm.Position + Vector3.new((math.random() - 0.5) * 1.2, (math.random() - 0.5) * 1.6, (math.random() - 0.5) * 1.2)
+				local to = if tip and tip:IsA("Attachment") and math.random() < 0.6
+					then tip.WorldPosition:Lerp(from, math.random() * 0.5)
+					else from + Vector3.new((math.random() - 0.5) * 3, (math.random() - 0.5) * 2.5, (math.random() - 0.5) * 3)
+				bolt(from, to, 0.12, 0.1)
+			end
+		end
+		local root = rootOf(L.char)
+		if root and now >= L.nextStep then
+			local v = root.AssemblyLinearVelocity
+			if Vector3.new(v.X, 0, v.Z).Magnitude > 4 then
+				L.nextStep = now + 0.3
+				L.stepSide = -L.stepSide
+				local side = root.CFrame.RightVector * 0.5 * L.stepSide
+				local g = Vector3.new(root.Position.X, FireFX.GroundY(root.Position), root.Position.Z) + side
+				cracks(g, 2.2, 4, 0.9)
+			end
+		end
+	end
+end
+
+-- ── The Unchained gauge ─────────────────────────────────────────────────────
+local hud: ScreenGui? = nil
+local gaugeBack: Frame? = nil
+local fill: Frame? = nil
+local label: TextLabel? = nil
+local unchainedFor = 8
+
+local function buildHud()
+	local g = Instance.new("ScreenGui")
+	g.Name = "BerserkerUnchained"
+	g.ResetOnSpawn = false
+	g.IgnoreGuiInset = true
+	g.DisplayOrder = 55
+	g.Enabled = false
+	g.Parent = player:WaitForChild("PlayerGui")
+	hud = g
+	local back = Instance.new("Frame")
+	back.AnchorPoint = Vector2.new(0.5, 1)
+	back.Position = UDim2.new(0.5, 0, 1, -132)
+	back.Size = UDim2.fromOffset(300, 10)
+	back.BackgroundColor3 = Color3.fromRGB(12, 6, 8)
+	back.BorderSizePixel = 0
+	back.Parent = g
+	gaugeBack = back
+	local s = Instance.new("UIStroke")
+	s.Color = Color3.fromRGB(110, 14, 22)
+	s.Thickness = 1.5
+	s.Parent = back
+	local f = Instance.new("Frame")
+	f.Size = UDim2.fromScale(0, 1)
+	f.BackgroundColor3 = CRIMSON
+	f.BorderSizePixel = 0
+	f.Parent = back
+	fill = f
+	local l = Instance.new("TextLabel")
+	l.AnchorPoint = Vector2.new(0.5, 1)
+	l.Position = UDim2.new(0.5, 0, 0, -3)
+	l.Size = UDim2.fromOffset(300, 18)
+	l.BackgroundTransparency = 1
+	l.Font = Enum.Font.GothamBlack
+	l.TextSize = 14
+	l.TextColor3 = CRIMSON
+	l.TextStrokeTransparency = 0.2
+	l.Text = ""
+	l.Parent = back
+	label = l
+end
+
+local function refreshHud()
+	if not hud then return end
+	local left = unchainedLeft(player)
+	local empowered = player:GetAttribute("BR_Empowered") == true
+	hud.Enabled = isBerserker() and player:GetAttribute("InLobby") == false and player:GetAttribute("SettingsOpen") ~= true
+		and (left > 0 or empowered)
+	if fill then
+		fill.Size = UDim2.fromScale(math.clamp(left / unchainedFor, 0, 1), 1)
+		fill.BackgroundColor3 = if empowered then HOT else CRIMSON
+	end
+	if gaugeBack then gaugeBack.BackgroundTransparency = if left > 0 then 0 else 1 end
+	if label then
+		label.Text = if left > 0 and empowered then "UNCHAINED  ·  NEXT SKILL EMPOWERED"
+			elseif left > 0 then "UNCHAINED"
+			else "NEXT SKILL EMPOWERED"
+	end
+end
+
+
+-- ── The two-handed hold (every Berserker, every client) ──────────────────────
+-- Out of attacks, both hands stay on the greatsword's hilt: the blade held out
+-- in front and up, the torso turned a little so the left hand reaches the
+-- grip. Arms replace the walk / idle animation; the torso turn is added on top
+-- (the hips turn back so the feet keep walking straight). Attack poses
+-- (CastPoses) take over while they play; the hold eases back in after.
+local HOLD_ARMS = { RS = { 40, -10, -50 }, LS = { 130, -50, 130 } }
+local HOLD_TURN = { W = { 0, 15, 0 }, RH = { 0, -15, 0 }, LH = { 0, -15, 0 } }
+local holdWeight: { [Model]: number } = {}
+
+local function holdStep(dt: number)
+	for _, p in ipairs(Players:GetPlayers()) do
+		local char = p.Character
+		if not (char and isBerserker(p) and char:FindFirstChild("Ragebringer")) or (char and char:GetAttribute("BR_OneHand")) then
+			if char then holdWeight[char] = nil end
+			continue
+		end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not hum or hum.Health <= 0 then continue end
+		local playing = CastPoses.isPlaying(char)
+		local w = holdWeight[char] or 0
+		w = if playing then 0 else math.min(1, w + dt * 7)
+		holdWeight[char] = w
+		if w <= 0 then continue end
+		local motors = CastPoses.resolveMotors(char)
+		for key, v in pairs(HOLD_ARMS) do
+			local m = motors[key]
+			if m then m.motor.Transform = m.motor.Transform:Lerp(m.basis:Inverse() * CastPoses.poseCF(v) * m.basis, w) end
+		end
+		for key, v in pairs(HOLD_TURN) do
+			local m = motors[key]
+			if m then
+				local add = m.basis:Inverse() * CastPoses.poseCF({ v[1] * w, v[2] * w, v[3] * w }) * m.basis
+				m.motor.Transform = m.motor.Transform * add
+			end
+		end
+	end
+	for char in pairs(holdWeight) do
+		if not char.Parent then holdWeight[char] = nil end
+	end
+end
+
+-- ── Both hands on the hilt, always ──────────────────────────────────────────
+-- Runs after every pose (idle hold, walk, every attack): wherever the pose
+-- put the right hand, the grip is drawn to the nearest point BOTH arms can
+-- reach (R6 arms are short, so that's in front of / above the chest's
+-- middle), the right arm re-aims there, and the left arm reaches for the
+-- hilt just behind it (toward the pommel). So every swing, slam and spin is
+-- two-handed.
+local REACH_SLACK = 0.97
+local LEFT_BEHIND = 0.55 -- studs from the right hand toward the pommel
+local bladeAxis: { [Tool]: Vector3 } = {}
+
+-- A point pulled inside the sphere (center c, radius r).
+local function inside(p: Vector3, c: Vector3, r: number): Vector3
+	local d = p - c
+	return if d.Magnitude > r then c + d.Unit * r else p
+end
+
+-- The smallest rotation turning direction a into b.
+local function turnBetween(a: Vector3, b: Vector3): CFrame
+	local axis = a:Cross(b)
+	local dot = math.clamp(a:Dot(b), -1, 1)
+	if axis.Magnitude < 1e-5 then return CFrame.identity end
+	return CFrame.fromAxisAngle(axis.Unit, math.acos(dot))
+end
+
+-- Arm (Part1) CFrame in torso space from its motor.
+local function armIn(m: Motor6D): CFrame
+	return m.C0 * m.Transform * m.C1:Inverse()
+end
+
+-- Re-aim an arm (torso-space CFrame `a`) about its shoulder pivot so the point
+-- `handLocal` (arm space) lands as close as it can to `target`.
+local function aim(m: Motor6D, a: CFrame, handLocal: Vector3, target: Vector3): CFrame
+	local pivot = m.C0.Position
+	local from = (a * handLocal - pivot)
+	local to = target - pivot
+	if from.Magnitude < 1e-3 or to.Magnitude < 1e-3 then return a end
+	local r = turnBetween(from.Unit, to.Unit)
+	return CFrame.new(pivot) * r * CFrame.new(-pivot) * a
+end
+
+local function bladeOf(tool: Tool, handle: BasePart): Vector3
+	local cached = bladeAxis[tool]
+	if cached then return cached end
+	local a0, a1 = tool:FindFirstChild("RageBase", true), tool:FindFirstChild("RageTip", true)
+	local v = if a0 and a1 and a0:IsA("Attachment") and a1:IsA("Attachment")
+		then handle.CFrame:VectorToObjectSpace(a1.WorldPosition - a0.WorldPosition)
+		else Vector3.new(0, 0, -1)
+	v = if v.Magnitude > 1e-3 then v.Unit else Vector3.new(0, 0, -1)
+	bladeAxis[tool] = v
+	return v
+end
+
+local function twoHandStep()
+	for _, p in ipairs(Players:GetPlayers()) do
+		local char = p.Character
+		if not (char and isBerserker(p)) or char:GetAttribute("BR_OneHand") then continue end
+		local tool = char:FindFirstChild("Ragebringer")
+		local torso = char:FindFirstChild("Torso")
+		local rArm, lArm = char:FindFirstChild("Right Arm"), char:FindFirstChild("Left Arm")
+		if not (tool and tool:IsA("Tool") and torso and rArm and lArm) then continue end
+		local rs, ls = torso:FindFirstChild("Right Shoulder"), torso:FindFirstChild("Left Shoulder")
+		local grip = rArm:FindFirstChild("RightGrip")
+		local handle = tool:FindFirstChild("Handle")
+		-- (RightGrip is a Weld, not a Motor6D)
+		if not (rs and ls and grip and handle and rs:IsA("Motor6D") and ls:IsA("Motor6D") and grip:IsA("JointInstance") and handle:IsA("BasePart")) then continue end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not hum or hum.Health <= 0 then continue end
+
+		local handR = grip.C0.Position                 -- where the right hand holds
+		local handL = Vector3.new(0, -1, 0)            -- the left hand's palm
+		local reachR = (handR - rs.C1.Position).Magnitude * REACH_SLACK
+		local reachL = (handL - ls.C1.Position).Magnitude * REACH_SLACK
+		local pR, pL = rs.C0.Position, ls.C0.Position
+
+		-- The grip: where the pose put the right hand, pulled into reach of both.
+		local aR = armIn(rs)
+		local g = aR * handR
+		for _ = 1, 4 do
+			g = inside(g, pL, reachL)
+			g = inside(g, pR, reachR)
+		end
+		aR = aim(rs, aR, handR, g)
+		rs.Transform = rs.C0:Inverse() * aR * rs.C1
+
+		-- The left hand on the hilt, just behind the right toward the pommel.
+		local handleCF = aR * grip.C0 * grip.C1:Inverse()
+		local blade = handleCF:VectorToWorldSpace(bladeOf(tool, handle))
+		local gl = inside(g - blade * LEFT_BEHIND, pL, reachL)
+		local aL = aim(ls, armIn(ls), handL, gl)
+		ls.Transform = ls.C0:Inverse() * aL * ls.C1
+	end
+end
+
+-- ── The ground, the eruption, the combo ─────────────────────────────────────
+-- The floor under a point (ground effects sit on it, not at waist height).
+local function ground(pos: Vector3): Vector3
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local ignore: { Instance } = { ClassFX.Folder() }
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.Character then table.insert(ignore, p.Character) end
+	end
+	local mobs = workspace:FindFirstChild("Mobs")
+	if mobs then table.insert(ignore, mobs) end
+	params.FilterDescendantsInstances = ignore
+	local hit = workspace:Raycast(pos + Vector3.new(0, 2, 0), Vector3.new(0, -14, 0), params)
+	return if hit then hit.Position else pos - Vector3.new(0, 3, 0)
+end
+
+-- The ground eruption shared by the Bloodquake, the smash and the final slam:
+-- a red flash, tall shards leaning outward, black rock flying, jagged cracks,
+-- a shockwave, dark smoke and red sparks.
+local function eruption(at: Vector3, radius: number, size: number, char: Model?)
+	local g = ground(at)
+	groundFlash(g, radius)
+	shards(g, radius * 0.85, math.floor(8 + 10 * size), 2 + 2.5 * size, 4 + 5 * size, 0.7 + 0.25 * size)
+	fling(g + Vector3.new(0, 0.5, 0), math.floor(6 + 12 * size), 24, 26, true)
+	fling(g + Vector3.new(0, 1, 0), math.floor(8 + 10 * size), 30, 18)
+	cracks(g, radius * 1.05, math.floor(6 + 6 * size), 1 + 0.4 * size)
+	shockwave(g, radius, char)
+	smoke(g + Vector3.new(0, 1, 0), math.floor(6 + 10 * size), 2.5 + size)
+	sparks(g + Vector3.new(0, 1, 0), math.floor(16 + 20 * size), 20 + 12 * size)
+end
+
+-- ── The greatsword chain ────────────────────────────────────────────────────
+local function comboVFX(char: Model, step: number, dir: Vector3)
+	local root = rootOf(char)
+	if not root then return end
+	local look = CFrame.lookAt(root.Position, root.Position + dir)
+	trail(char, 0.4)
+	if step == 1 then
+		-- a diagonal crimson crescent, high right to low left
+		task.delay(0.13, function()
+			slashRing(look * CFrame.new(0, 0.4, 0) * CFrame.Angles(0, 0, math.rad(-32)), 7, 160, 1)
+		end)
+	elseif step == 2 then
+		task.delay(0.11, function()
+			slashRing(look * CFrame.new(0, 0.3, 0) * CFrame.Angles(0, 0, math.rad(24)), 7, 160, -1)
+		end)
+	end
+end
+
+function BerserkerController.Basic(char: Model, root: BasePart): boolean
+	local now = os.clock()
+	if now < busyUntil or char:GetAttribute("IsSkillCasting") == true then return true end
+	local speed = math.max(tonumber(player:GetAttribute("Stat_basicAttackSpeed")) or 1, 0.1)
+		* (if unchainedLeft(player) > 0 then 1 + UNCHAIN_SPEED else 1)
+	if now - lastSwing < SWING_INTERVAL / speed then return true end
+	localStep = if now - lastSwing > COMBO_RESET then 1 else (localStep % 3) + 1
+	lastSwing = now
+	local dir = flatDir(deps.getAim(root), root.CFrame.LookVector)
+	root.CFrame = CFrame.lookAt(root.Position, root.Position + dir)
+	swingPose(char, localStep)
+	comboVFX(char, localStep, dir)
+	ClassFX.Sound("whoosh", root, 0.7, if localStep == 3 then 0.7 else 0.85)
+	Network.GetRemoteEvent(Network.Remotes.PerformAttack):FireServer({ direction = dir })
+	return true
+end
+
+-- ── Moving the body (your own character: its movement replicates) ──────────
+-- Held by movers along a scripted path (an anchored root wouldn't replicate).
+type Mover = { set: (Vector3) -> (), face: (Vector3) -> (), stop: (snap: boolean?) -> (), stand: number, alive: () -> boolean }
+
+local function holdBody(char: Model, root: BasePart): Mover?
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if not hum then return nil end
+	local stand = SafeMove.StandHeight(root)
+	local att = Instance.new("Attachment")
+	att.Name = "BerserkerMove"
+	att.Parent = root
+	local ap = Instance.new("AlignPosition")
+	ap.Mode = Enum.PositionAlignmentMode.OneAttachment
+	ap.Attachment0 = att
+	ap.RigidityEnabled = true
+	ap.Position = root.Position
+	ap.Parent = root
+	local ao = Instance.new("AlignOrientation")
+	ao.Mode = Enum.OrientationAlignmentMode.OneAttachment
+	ao.Attachment0 = att
+	ao.RigidityEnabled = true
+	ao.CFrame = root.CFrame.Rotation
+	ao.Parent = root
+	hum.AutoRotate = false
+	hum.PlatformStand = true
+	local stopped = false
+	return {
+		stand = stand,
+		set = function(p: Vector3) if not stopped then ap.Position = p end end,
+		face = function(d: Vector3)
+			local f = Vector3.new(d.X, 0, d.Z)
+			if f.Magnitude > 0.05 and not stopped then ao.CFrame = CFrame.lookAt(Vector3.zero, f.Unit) end
+		end,
+		alive = function() return not stopped and root.Parent ~= nil and hum.Health > 0 end,
+		stop = function(snap: boolean?)
+			if stopped then return end
+			stopped = true
+			ap:Destroy()
+			ao:Destroy()
+			att:Destroy()
+			if hum.Parent then
+				hum.PlatformStand = false
+				hum.AutoRotate = true
+			end
+			if root.Parent then
+				root.AssemblyLinearVelocity = Vector3.zero
+				if snap then SafeMove.SnapToFloor(root, stand) end
+			end
+		end,
+	}
+end
+
+-- Run `step(t)` every frame for `duration` seconds, then `done()`.
+local function timeline(duration: number, step: (number) -> (), done: () -> ())
+	local t0 = os.clock()
+	local conn: RBXScriptConnection
+	conn = RunService.RenderStepped:Connect(function()
+		local t = os.clock() - t0
+		local ok, err = pcall(step, math.min(t, duration))
+		if not ok then warn("[BerserkerController] move", err) end
+		if t >= duration or not ok then
+			conn:Disconnect()
+			done()
+		end
+	end)
+end
+
+local function easeOut(a: number): number return 1 - (1 - a) ^ 2 end
+local function easeIn(a: number): number return a * a end
+
+-- A standing spot over the floor at `p`.
+local function standAt(p: Vector3, stand: number): Vector3
+	return Vector3.new(p.X, FireFX.GroundY(p) + stand, p.Z)
+end
+
+local function releaseAfter(char: Model, t: number)
+	task.delay(t, function()
+		if char.Parent then
+			char:SetAttribute("IsSkillCasting", false)
+			char:SetAttribute("AllowSkillMovement", false)
+		end
+	end)
+end
+
+-- ── E: Rupture (caster) ─────────────────────────────────────────────────────
+local ruptureLanding: Vector3? = nil -- (where our own leap lands: the crash is drawn there)
+
+local function ruptureLeap(char: Model, root: BasePart, dir: Vector3, cursor: Vector3?): Vector3?
+	local mv = holdBody(char, root)
+	if not mv then return end
+	local m = mv :: Mover
+	local origin = root.Position
+	-- to the cursor, no further than RUPTURE_RANGE (and not through walls)
+	local want = 8
+	if cursor then
+		local d = Vector3.new(cursor.X - root.Position.X, 0, cursor.Z - root.Position.Z)
+		want = math.min(d.Magnitude, RUPTURE_RANGE)
+	end
+	local dist = SafeMove.ClampDash(root, dir, want)
+	local land = standAt(origin + dir * dist, m.stand)
+	local apex = origin:Lerp(land, 0.55) + Vector3.new(0, RUPTURE_HEIGHT, 0)
+	-- (a longer leap arcs higher)
+	apex = Vector3.new(apex.X, math.max(origin.Y, land.Y) + RUPTURE_HEIGHT + dist * 0.18, apex.Z)
+	local apex2 = origin:Lerp(land, 0.72) + Vector3.new(0, 0, 0)
+	apex2 = Vector3.new(apex2.X, apex.Y + 0.6, apex2.Z)
+	m.face(dir)
+	local T = RUPTURE
+	timeline(T.impact, function(t)
+		if not m.alive() then return end
+		if t < T.crouch then
+			m.set(origin)
+		elseif t < T.crouch + T.rise then
+			m.set(origin:Lerp(apex, easeOut((t - T.crouch) / T.rise)))
+		elseif t < T.crouch + T.rise + T.hang then
+			m.set(apex:Lerp(apex2, (t - T.crouch - T.rise) / T.hang))
+		else
+			m.set(apex2:Lerp(land, easeIn((t - T.crouch - T.rise - T.hang) / T.fall)))
+		end
+	end, function()
+		m.set(land)
+		m.stop(true)
+	end)
+	ruptureLanding = land
+	return land
+end
+
+-- ── F: Bloodstorm (caster) ──────────────────────────────────────────────────
+-- Held still through the lean until the server's route arrives.
+local stormMover: Mover? = nil
+local stormToken = 0
+
+-- ── R: Worldbreaker (caster) ────────────────────────────────────────────────
+local function wbLand(origin: Vector3, dir: Vector3, cursor: Vector3?): Vector3
+	if cursor then
+		local d = Vector3.new(cursor.X - origin.X, 0, cursor.Z - origin.Z)
+		return origin + (if d.Magnitude > WB_RANGE then d.Unit * WB_RANGE else d)
+	end
+	return origin + dir * 14
+end
+
+local IsometricCamera: any = nil
+pcall(function() IsometricCamera = require(script.Parent:WaitForChild("IsometricCamera")) end)
+
+local wbLanding: Vector3? = nil -- (where our own dive lands: the blow is drawn there)
+
+local function worldbreakerFlight(char: Model, root: BasePart, landAt: Vector3)
+	local mv = holdBody(char, root)
+	if not mv then return end
+	local m = mv :: Mover
+	local origin = root.Position
+	local top = origin + Vector3.new(0, WB_HEIGHT, 0)
+	local top2 = top + Vector3.new(0, 1.2, 0)
+	-- (the floor under the landing spot, probed from well above it)
+	local land = Vector3.new(landAt.X, FireFX.GroundY(Vector3.new(landAt.X, origin.Y + 20, landAt.Z)) + m.stand, landAt.Z)
+	wbLanding = land
+	m.face(Vector3.new(land.X - origin.X, 0, land.Z - origin.Z))
+	-- (the camera keeps the floor in view while he's up there)
+	if IsometricCamera then pcall(IsometricCamera.SetFocusYLock, origin.Y + 7) end
+	timeline(WB.impact, function(t)
+		if not m.alive() then return end
+		if t < WB.gather then
+			m.set(origin)
+		elseif t < WB.gather + WB.ascend then
+			m.set(origin:Lerp(top, easeOut((t - WB.gather) / WB.ascend)))
+		elseif t < WB.gather + WB.ascend + WB.hang then
+			m.set(top:Lerp(top2, (t - WB.gather - WB.ascend) / WB.hang))
+		else
+			m.set(top2:Lerp(land, easeIn((t - WB.gather - WB.ascend - WB.hang) / WB.dive)))
+		end
+	end, function()
+		m.set(land)
+		if root.Parent then root.CFrame = CFrame.new(land) * root.CFrame.Rotation end
+		m.stop(true)
+		if IsometricCamera then pcall(IsometricCamera.SetFocusYLock, nil) end
+	end)
+end
+
+-- ── Public: skills ──────────────────────────────────────────────────────────
+function BerserkerController.CanCast(_skillIndex: number): boolean
+	return os.clock() >= busyUntil
+end
+
+function BerserkerController.OnCast(skillIndex: number, char: Model, root: BasePart, aimDir: Vector3, _config: any, cursor: Vector3?): Vector3?
+	local dir = flatDir(aimDir, root.CFrame.LookVector)
+	root.CFrame = CFrame.lookAt(root.Position, root.Position + dir)
+	char:SetAttribute("AllowSkillMovement", false)
+	if skillIndex == 1 then
+		busyUntil = os.clock() + RUPTURE.impact + 0.3
+		rupturePose(char)
+		local land = ruptureLeap(char, root, dir, cursor)
+		releaseAfter(char, RUPTURE.impact + 0.3)
+		return land
+	elseif skillIndex == 2 then
+		-- (the real length comes with the route; this is the fallback)
+		busyUntil = os.clock() + 1.4
+		stormLeanPose(char, 0.3)
+		stormToken += 1
+		local my = stormToken
+		if stormMover then stormMover.stop(false) end
+		stormMover = holdBody(char, root)
+		task.delay(1.2, function()
+			-- the server never answered: let go
+			if stormToken == my and stormMover then
+				stormMover.stop(true)
+				stormMover = nil
+				releaseAfter(char, 0)
+			end
+		end)
+	elseif skillIndex == 3 then
+		busyUntil = os.clock() + UNCHAIN_WINDUP + 0.2
+		unchainPose(char, UNCHAIN_WINDUP)
+		local mv = holdBody(char, root)
+		task.delay(UNCHAIN_WINDUP, function() if mv then mv.stop(true) end end)
+		releaseAfter(char, UNCHAIN_WINDUP + 0.15)
+	elseif skillIndex == 4 then
+		busyUntil = os.clock() + WB.total
+		wbPose(char)
+		local land = wbLand(root.Position, dir, cursor)
+		worldbreakerFlight(char, root, land)
+		releaseAfter(char, WB.total)
+		return land
+	end
+	return nil
+end
+
+-- The gathering, seen close (the caster and everyone watching).
+-- The red-moon shot: low behind him, looking up past the raised blade at a
+-- vast red moon, the sky stained red.
+function BerserkerController.PlayUltCutscene(char: Model, dir: Vector3)
+	local root = rootOf(char)
+	if not root then return end
+	local START = { -11.5, -3.8, -1.1 }   -- { forward, right, up } from him (wide enough for the whole blade and the moon)
+	local FOCUS = 7
+	UltimateCameraChoreography.PlayCloseUp(char, dir, WB.gather, nil, nil, {
+		startOffset = START,
+		endOffset = { -10, -3.3, -1.3 },
+		focusHeight = FOCUS,
+		fovStart = 66,
+		fovEnd = 62,
+	})
+	local f = flatDir(dir, root.CFrame.LookVector)
+	local right = f:Cross(Vector3.yAxis)
+	local cam = root.Position + f * START[1] + right * START[2] + Vector3.new(0, START[3], 0)
+	local look = ((root.Position + Vector3.new(0, FOCUS + 3, 0)) - cam).Unit
+	local at = cam + look * 140
+	local moon = ClassFX.Neon({ Shape = Enum.PartType.Ball, Size = Vector3.one * 70, CFrame = CFrame.new(at),
+		Color = Color3.fromRGB(150, 8, 18), Transparency = 1 })
+	local halo = ClassFX.Neon({ Shape = Enum.PartType.Ball, Size = Vector3.one * 84, CFrame = CFrame.new(at + look * 4),
+		Color = Color3.fromRGB(230, 30, 40), Transparency = 1 })
+	TweenService:Create(moon, TweenInfo.new(0.35), { Transparency = 0.05 }):Play()
+	TweenService:Create(halo, TweenInfo.new(0.35), { Transparency = 0.82 }):Play()
+	task.delay(WB.gather, function()
+		for _, p in ipairs({ moon, halo }) do
+			TweenService:Create(p, TweenInfo.new(0.3), { Transparency = 1 }):Play()
+			Debris:AddItem(p, 0.35)
+		end
+	end)
+	tint("BerserkerBloodMoon", { Brightness = -0.06, Saturation = 0.25, Contrast = 0.25, TintColor = Color3.fromRGB(255, 120, 120) },
+		WB.gather, 0.25, 0.35)
+end
+
+-- ── Server moments (BerserkerFX) ────────────────────────────────────────────
+local function onCombo(msg: any)
+	if msg.attacker == player then return end -- ours was predicted on click
+	local char = charOf(msg.attacker)
+	if not char then return end
+	swingPose(char, msg.step)
+	comboVFX(char, msg.step, msg.dir)
+end
+
+local function onSmash(msg: any)
+	eruption(msg.pos, msg.radius * 0.7, 0.3, charOf(msg.attacker))
+	ClassFX.Sound("rockHit", msg.pos, 0.8, 0.85)
+	if msg.attacker == player then deps.shake(0.5, 0.15) end
+end
+
+-- E · Rupture: the crouch (red cracks under him), the leap (crimson
+-- trails), the hang (debris torn up under him).
+local function onRupture(msg: any)
+	local char = charOf(msg.attacker)
+	local root = rootOf(char)
+	if not char or not root then return end
+	if msg.attacker ~= player then rupturePose(char) end
+	local T = msg.t
+	local r = msg.radius :: number
+	local origin = root.Position
+	local dir = msg.dir :: Vector3
+	trail(char, T.crouch + T.rise + T.hang + T.fall + 0.3)
+	-- crouch: the floor splits red under his feet, rage gathers in the blade
+	local g0 = Vector3.new(origin.X, FireFX.GroundY(origin), origin.Z)
+	cracks(g0, 3.5, 7, 1.1)
+	groundFlash(g0, 5)
+	ClassFX.Sound("charge", root, 0.5, 1.4)
+	-- the leap: a burst off the floor and red streaks rising with him
+	task.delay(T.crouch, function()
+		if not root.Parent then return end
+		smoke(g0 + Vector3.new(0, 0.5, 0), 8, 2.2)
+		shockwave(g0, 5, char)
+		fling(g0 + Vector3.new(0, 0.3, 0), 6, 16, 10, true)
+		for i = 1, 4 do
+			local off = Vector3.new(math.cos(i * 1.6), 0, math.sin(i * 1.6)) * 0.9
+			SwordFX.Streak(origin + off - Vector3.new(0, 2, 0), origin + off + Vector3.new(0, RUPTURE_HEIGHT, 0), 0.35, CRIMSON, 0.35, nil, CORE)
+		end
+		ClassFX.Sound("whoosh", root, 0.9, 0.6)
+		if msg.attacker == player then deps.fovPunch(6, 0.25) end
+	end)
+	-- the hang: chunks of floor torn up where he'll land
+	task.delay(T.crouch + T.rise * 0.6, function()
+		if not root.Parent then return end
+		local landG = (msg.land :: Vector3?) or origin + dir * 8
+		landG = Vector3.new(landG.X, FireFX.GroundY(landG), landG.Z)
+		local release = liftDebris(landG, r * 0.7, if msg.empowered then 14 else 9, 0.8, T.rise * 0.4 + T.hang + T.fall)
+		task.delay(T.rise * 0.4 + T.hang + T.fall, release)
+	end)
+end
+
+-- The crash: a crimson flash, the crater, the fracture racing outward, the
+-- shockwave, and dust and embers settling (Empowered: shards too).
+local function onRuptureImpact(msg: any)
+	local pos = if msg.attacker == player and ruptureLanding then ruptureLanding else msg.pos :: Vector3
+	local r = msg.radius :: number
+	local g = Vector3.new(pos.X, FireFX.GroundY(pos), pos.Z)
+	crimsonImpact(g, r, msg.empowered)
+	groundFlash(g, r)
+	shockwave(g, r, charOf(msg.attacker))
+	cracks(g, r * 1.25, if msg.empowered then 16 else 11, 1.8)
+	linger(g, r * 0.6, 1.6)
+	ClassFX.Sound("quake", pos, 0.9, 1.1, 1.5)
+	ClassFX.Sound("boom", pos, 0.8, 0.95)
+	if msg.attacker == player then
+		deps.shake(1.3, 0.3)
+		deps.fovPunch(8, 0.3)
+	elseif near(pos, 60) then
+		deps.shake(0.5, 0.25)
+	end
+end
+
+-- Empowered Rupture's second burst: a wider ring of crimson spikes.
+local function onRuptureEcho(msg: any)
+	local pos = msg.pos :: Vector3
+	local g = Vector3.new(pos.X, FireFX.GroundY(pos), pos.Z)
+	shards(g, msg.radius, 24, 2, 4, 1)
+	shockwave(g, msg.radius, charOf(msg.attacker))
+	flipbook("shock", g + Vector3.new(0, 0.25, 0), msg.radius * 2.6, 1, seq(Color3.fromRGB(255, 120, 120), CRIMSON), 3)
+	ClassFX.Sound("boom", pos, 0.8, 0.8)
+	if msg.attacker == player then deps.shake(0.8, 0.25) end
+end
+
+-- F · Bloodstorm: the lean (a red streak ignites under him), then each
+-- dash: red afterimages behind, a crimson crescent at every stop, faster
+-- every time.
+local function onStorm(msg: any)
+	local char = charOf(msg.attacker)
+	local root = rootOf(char)
+	if not char or not root then return end
+	local mine = msg.attacker == player
+	local stops = msg.stops :: { any }
+	local dir = msg.dir :: Vector3
+	local start = root.Position
+	if not mine then stormLeanPose(char, 0.3) end
+	-- the drag: a streak igniting under him, sparks off the dragged blade
+	groundStreak(start - dir * 3, start + dir * 1, 0.8, 0.6)
+	sparks(start - dir * 2 - Vector3.new(0, 2, 0), 14, 10)
+	ClassFX.Sound("charge", root, 0.5, 1.6)
+	trail(char, (msg.finalAt :: number) + 0.3)
+
+	local prev = start
+	for i, s in ipairs(stops) do
+		local from = prev
+		local to = s.pos :: Vector3
+		prev = to
+		local dur = (s.arrive :: number) - (s.leave :: number)
+		task.delay(s.leave, function()
+			if not char.Parent then return end
+			stormCutPose(char, i, dur + 0.08)
+			ClassFX.Afterimages(char, CRIMSON, 3, dur / 3)
+			SwordFX.Streak(from, to, 0.5 + i * 0.08, CRIMSON, 0.25, nil, CORE)
+			groundStreak(from, to, 0.5, 0.45)
+			ClassFX.Sound("whoosh", root, 0.7, 0.8 + i * 0.07)
+		end)
+	end
+
+	if not mine then return end
+	-- Our own body follows the route.
+	stormToken += 1
+	local m = stormMover
+	stormMover = nil
+	if not m then return end
+	local mv = m :: Mover
+	busyUntil = os.clock() + (msg.finalAt :: number) + 0.35
+	releaseAfter(char, (msg.finalAt :: number) + 0.3)
+	local route = {}
+	local p0 = start
+	for _, s in ipairs(stops) do
+		local to = standAt(s.pos, mv.stand)
+		table.insert(route, { from = p0, to = to, leave = s.leave, arrive = s.arrive })
+		p0 = to
+	end
+	timeline(msg.finalAt, function(t)
+		if not mv.alive() then return end
+		local at = start
+		for _, seg in ipairs(route) do
+			if t >= seg.arrive then
+				at = seg.to
+			elseif t >= seg.leave then
+				local a = (t - seg.leave) / (seg.arrive - seg.leave)
+				at = seg.from:Lerp(seg.to, easeOut(a))
+				mv.face(seg.to - seg.from)
+				break
+			else
+				break
+			end
+		end
+		mv.set(at)
+	end, function()
+		mv.stop(true)
+	end)
+end
+
+-- Each Bloodstorm hit: the crescent, red sparks and a short impact freeze.
+local function onStormHit(msg: any)
+	local char = charOf(msg.attacker)
+	local root = rootOf(char)
+	local pos = msg.pos :: Vector3
+	local i = msg.i :: number
+	local look = if root then CFrame.lookAt(pos, pos + root.CFrame.LookVector) else CFrame.new(pos)
+	local tilt = if i % 2 == 1 then CFrame.Angles(0, 0, 0) else CFrame.Angles(0, 0, math.rad(if i % 4 == 0 then 35 else -35))
+	slashRing(look * CFrame.new(0, 0.3, 0) * tilt, 6 + i * 0.5, 170, if i % 2 == 1 then 1 else -1, i >= 4)
+	if msg.hit then
+		sparks(pos, 22, 26)
+		fling(pos, 5, 18, 8)
+		ClassFX.Sound("swordHit", pos, 0.8, 0.85 + i * 0.05)
+		if msg.attacker == player then deps.shake(0.35, 0.06) end
+	end
+end
+
+-- The spinning cleave that ends it: rings all the way round, a big
+-- shockwave, enemies thrown out.
+local function onStormFinal(msg: any)
+	local char = charOf(msg.attacker)
+	local root = rootOf(char)
+	if not char or not root then return end
+	local r = msg.radius :: number
+	cleavePose(char)
+	local cf = CFrame.new(root.Position - Vector3.new(0, 0.6, 0)) * root.CFrame.Rotation
+	slashRing(cf, r, 355, 1, true)
+	rimChips(root.Position, r, if msg.empowered then 24 else 16)
+	local g = Vector3.new(root.Position.X, FireFX.GroundY(root.Position), root.Position.Z)
+	shockwave(g, r * 1.3, char)
+	flipbook("shock", g + Vector3.new(0, 0.2, 0), r * 2.8, 1, seq(Color3.fromRGB(255, 120, 120), CRIMSON), 3)
+	smoke(g + Vector3.new(0, 1, 0), 12, 3)
+	sparks(root.Position, 30, 30)
+	ClassFX.Sound("swordHit", root, 1, 0.7)
+	ClassFX.Sound("whoosh", root, 1, 0.55)
+	if msg.attacker == player then
+		deps.shake(0.9, 0.25)
+		deps.fovPunch(6, 0.25)
+	end
+end
+
+-- Q · Unchained: the planted blade cracks the floor, red energy leaks off
+-- his trembling shoulders, then the roar.
+local function onUnchainWindup(msg: any)
+	local char = charOf(msg.attacker)
+	local root = rootOf(char)
+	if not char or not root then return end
+	local w = msg.windup :: number
+	if msg.attacker ~= player then unchainPose(char, w) end
+	local g = Vector3.new(root.Position.X, FireFX.GroundY(root.Position), root.Position.Z) + (msg.dir :: Vector3) * 2
+	task.delay(w * 0.68, function()
+		cracks(g - (msg.dir :: Vector3) * 2, 3, 6, 1.2)
+	end)
+	-- energy leaking out as he trembles
+	for k = 1, 6 do
+		task.delay(0.2 + k * (w * 0.6 / 6), function()
+			if not root.Parent then return end
+			sparks(root.Position + Vector3.new(0, 1, 0), 8 + k * 2, 6 + k)
+			if k % 2 == 0 then
+				local a = math.random() * math.pi * 2
+				bolt(root.Position + Vector3.new(0, 1.2, 0), root.Position + Vector3.new(math.cos(a) * 2.5, 1 + math.random() * 2, math.sin(a) * 2.5), 0.12, 0.1)
+			end
+		end)
+	end
+	task.delay(w * 0.68, function()
+		if root.Parent then ClassFX.Sound("charge", root, 0.9, 0.55) end
+	end)
+end
+
+-- The pulse: a crimson ring bursts out, the room darkens, veins spread
+-- across the floor; then he's Unchained (the look takes over).
+local function onUnchained(msg: any)
+	local char = charOf(msg.attacker)
+	local pos = msg.pos :: Vector3
+	local r = msg.radius :: number
+	unchainedFor = msg.duration or unchainedFor
+	local g = Vector3.new(pos.X, FireFX.GroundY(pos), pos.Z)
+	shockwave(g, r, char)
+	flipbook("shock", g + Vector3.new(0, 0.2, 0), r * 2.6, 1, seq(Color3.fromRGB(255, 110, 110), CRIMSON), 3)
+	blast(g, r * 0.5)
+	-- crimson veins creeping out over the floor
+	cracks(g, r * 1.4, 14, 2.6)
+	task.delay(0.15, function() cracks(g, r * 0.9, 10, 2.2) end)
+	for i = 1, 6 do
+		local a = i / 6 * math.pi * 2 + math.random() * 0.4
+		bolt(pos + Vector3.new(0, 1.5, 0), g + Vector3.new(math.cos(a) * r * 0.5, 0.3, math.sin(a) * r * 0.5), 0.2, 0.2)
+	end
+	ClassFX.Sound("boom", pos, 0.8, 0.7)
+	if near(pos, 70) then
+		tint("BerserkerPulse", { Brightness = -0.22, Saturation = -0.4, Contrast = 0.3, TintColor = Color3.fromRGB(255, 170, 170) }, 0.25, 0.06, 0.6)
+	end
+	if msg.attacker == player then
+		deps.shake(0.9, 0.3)
+		deps.fovPunch(8, 0.3)
+		if char then popWord(char, "UNCHAINED", 30) end
+	end
+	-- (refresh now rather than on the next look tick)
+	task.defer(function()
+		local p = msg.attacker :: Player
+		if p and p.Parent then pcall(refreshLook, p) end
+		refreshHud()
+	end)
+end
+
+-- R · Worldbreaker: kneeling, the floor's fragments lift and red motes
+-- pour in; the launch in a crimson spiral; the hang (time slows); the dive
+-- with a giant blade of red energy dragged behind.
+local function onWorldbreaker(msg: any)
+	local char = charOf(msg.attacker)
+	local root = rootOf(char)
+	if not char or not root then return end
+	local mine = msg.attacker == player
+	local T = msg.t
+	local from = msg.from :: Vector3
+	local land = msg.land :: Vector3
+	local big = if msg.empowered then 1.3 else 1
+	if not mine then wbPose(char) end
+	trail(char, T.impact + 0.3)
+	local g0 = Vector3.new(from.X, FireFX.GroundY(from), from.Z)
+	-- Phase 1 · the gathering
+	local releaseStones = liftDebris(g0, 13, 22, 5, T.gather * 0.9)
+	cracks(g0, 14, 16, T.gather + 0.8)
+	-- the red spiral winding up round the raised blade
+	do
+		local last: { Vector3 }? = nil
+		local angle = 0
+		local t0 = os.clock()
+		local conn: RBXScriptConnection
+		conn = RunService.RenderStepped:Connect(function(dt)
+			local k = os.clock() - t0
+			if not root.Parent or k > T.gather then
+				conn:Disconnect()
+				return
+			end
+			angle += dt * 9
+			local h = 2.5 + (k * 9) % 9
+			-- (back to the bottom: start a fresh coil, no streak down)
+			if last and h < last[1].Y - root.Position.Y - 1 then last = nil end
+			last = spiralStep(root.Position + Vector3.new(0, h, 0) + root.CFrame.LookVector * 1.2, angle, 1.6, last)
+		end)
+	end
+	motesIn(function() return if root.Parent then root.Position else from end, 14, 40, T.gather)
+	cracks(g0, 5, 8, T.gather + 0.6)
+	groundFlash(g0, 7)
+	ClassFX.Sound("charge", root, 0.9, 0.6)
+	-- Phase 2 · ascension: a burst off the floor, then the spiral
+	task.delay(T.gather, function()
+		if not root.Parent then return end
+		releaseStones()
+		blast(g0, 6)
+		shockwave(g0, 10, char)
+		flipbook("shock", g0 + Vector3.new(0, 0.2, 0), 22, 1, seq(Color3.fromRGB(255, 120, 120), CRIMSON), 3)
+		smoke(g0 + Vector3.new(0, 1, 0), 14, 3.5)
+		ClassFX.Sound("boom", g0, 0.8, 1.1)
+		ClassFX.Sound("whoosh", root, 1, 0.45)
+		if mine then
+			deps.fovPunch(12, 0.4)
+			deps.shake(0.7, 0.2)
+		end
+		local last: { Vector3 }? = nil
+		local angle = 0
+		local t0 = os.clock()
+		local conn: RBXScriptConnection
+		conn = RunService.RenderStepped:Connect(function(dt)
+			local k = os.clock() - t0
+			if not root.Parent or k > T.ascend + 0.1 then
+				conn:Disconnect()
+				return
+			end
+			angle += dt * 22
+			last = spiralStep(root.Position - Vector3.new(0, 1.5, 0), angle, 2.2 * big, last)
+		end)
+	end)
+	-- Phase 3 · the hang: time slows, the blade raised overhead
+	task.delay(T.gather + T.ascend, function()
+		if not root.Parent then return end
+		if mine or near(root.Position, 90) then
+			tint("BerserkerSlow", { Brightness = -0.08, Saturation = -0.55, Contrast = 0.2, TintColor = Color3.fromRGB(255, 205, 205) },
+				T.hang, 0.08, 0.15)
+		end
+		sparks(root.Position + Vector3.new(0, 3, 0), 20, 8)
+		ClassFX.Sound("charge", root, 0.7, 1.2)
+	end)
+	-- the dive, dragging the giant blade
+	task.delay(T.gather + T.ascend + T.hang - 0.05, function()
+		if not root.Parent then return end
+		local update, remove = energyBlade(1.1 * big)
+		local t0 = os.clock()
+		local conn: RBXScriptConnection
+		conn = RunService.RenderStepped:Connect(function()
+			if not root.Parent or os.clock() - t0 > T.dive + 0.08 then
+				conn:Disconnect()
+				remove()
+				return
+			end
+			update(root.CFrame)
+		end)
+		SwordFX.Streak(root.Position, land, 1.6, CRIMSON, 0.35, 10, CORE)
+		ClassFX.Afterimages(char, CRIMSON, 4, 0.04)
+		ClassFX.Sound("whoosh", root, 1, 0.4)
+	end)
+end
+
+-- The blow: a white-red flash, a towering crimson column, the crater and
+-- radial fissures, several rings racing out, rock flung at every height.
+local function onWbImpact(msg: any)
+	local pos = if msg.attacker == player and wbLanding then wbLanding else msg.pos :: Vector3
+	local r = msg.radius :: number
+	local char = charOf(msg.attacker)
+	local g = Vector3.new(pos.X, FireFX.GroundY(pos), pos.Z)
+	if msg.attacker == player or near(pos, 70) then screenFlash(if msg.attacker == player then 0.85 else 0.5) end
+	crimsonImpact(g, r, true)
+	groundFlash(g, r)
+	shards(g, r * 0.85, if msg.empowered then 26 else 20, 2, 4.5, 1.2)
+	cracks(g, r * 1.5, 18, 3)
+	for i = 0, 2 do
+		task.delay(i * 0.12, function()
+			shockwave(g, r * (1 + i * 0.35), char)
+			flipbook("shock", g + Vector3.new(0, 0.2 + i * 0.05, 0), r * (2.2 + i * 0.8), 1,
+				seq(Color3.fromRGB(255, 120, 120), CRIMSON), 3)
+		end)
+	end
+	linger(g, r * 0.8, 3)
+	ClassFX.Sound("quake", pos, 1, 0.85, 2.2)
+	ClassFX.Sound("boom", pos, 1, 0.65)
+	if msg.attacker == player then
+		deps.shake(2, 0.5)
+		deps.fovPunch(14, 0.45)
+	elseif near(pos, 90) then
+		deps.shake(0.9, 0.4)
+	end
+end
+
+-- The delayed second explosion: the crater bursts again, wider; smoke and
+-- embers rise, and he hauls the blade free.
+local function onWbSecond(msg: any)
+	local pos = if msg.attacker == player and wbLanding then wbLanding else msg.pos :: Vector3
+	local r = msg.radius :: number
+	local g = Vector3.new(pos.X, FireFX.GroundY(pos), pos.Z)
+	groundFlash(g, r * 1.2)
+	cracks(g, r * 1.3, 14, 2.4)
+	shards(g, r * 0.9, 26, 2, 4.5, 1.1)
+	shockwave(g, r * 1.2, charOf(msg.attacker))
+	flipbook("shock", g + Vector3.new(0, 0.3, 0), r * 3, 1, seq(Color3.fromRGB(255, 120, 120), CRIMSON), 3)
+	linger(g, r * 0.9, 3.5)
+	ClassFX.Sound("boom", pos, 1, 0.55)
+	if msg.attacker == player then
+		deps.shake(1.2, 0.35)
+	elseif near(pos, 80) then
+		deps.shake(0.6, 0.3)
+	end
+end
+
+-- The Unchained charge spent on a skill: a burst off his body.
+local function onEmpowered(msg: any)
+	local char = charOf(msg.attacker)
+	local root = rootOf(char)
+	if not char or not root then return end
+	local g = Vector3.new(root.Position.X, FireFX.GroundY(root.Position), root.Position.Z)
+	shockwave(g, 8, char)
+	sparks(root.Position + Vector3.new(0, 1, 0), 30, 20)
+	smoke(root.Position, 12, 2.5)
+	for _ = 1, 3 do
+		local a = math.random() * math.pi * 2
+		bolt(root.Position + Vector3.new(0, 1.5, 0), root.Position + Vector3.new(math.cos(a) * 3.5, math.random() * 3, math.sin(a) * 3.5), 0.18, 0.15)
+	end
+end
+
+local HANDLERS: { [string]: (any) -> () } = {
+	combo = onCombo,
+	smash = onSmash,
+	rupture = onRupture,
+	ruptureImpact = onRuptureImpact,
+	ruptureEcho = onRuptureEcho,
+	storm = onStorm,
+	stormHit = onStormHit,
+	stormFinal = onStormFinal,
+	unchainWindup = onUnchainWindup,
+	unchained = onUnchained,
+	worldbreaker = onWorldbreaker,
+	wbImpact = onWbImpact,
+	wbSecond = onWbSecond,
+	empowered = onEmpowered,
+}
+
+function BerserkerController.Init(d: Deps)
+	deps = d
+	buildHud()
+	refreshHud()
+	for _, a in ipairs({ "BR_UnchainedUntil", "BR_Empowered", "SelectedClass", "InLobby", "SettingsOpen" }) do
+		player:GetAttributeChangedSignal(a):Connect(refreshHud)
+	end
+	player.CharacterAdded:Connect(function()
+		busyUntil = 0
+		localStep = 0
+		if stormMover then
+			stormMover.stop(false)
+			stormMover = nil
+		end
+	end)
+	RunService.Heartbeat:Connect(function()
+		local now = os.clock()
+		unchainedStep(now)
+		-- (the gauge drains while Unchained)
+		if hud and hud.Enabled and unchainedLeft(player) > 0 and fill then
+			fill.Size = UDim2.fromScale(math.clamp(unchainedLeft(player) / unchainedFor, 0, 1), 1)
+		end
+	end)
+	-- Both hands on the greatsword: the idle hold, then the two-handed grip
+	-- enforced on whatever pose is playing (after every attack pose).
+	CastPoses.addPostHook(function(dt)
+		holdStep(dt)
+		twoHandStep()
+	end)
+	task.spawn(function()
+		while true do
+			task.wait(0.25)
+			for _, p in ipairs(Players:GetPlayers()) do
+				local ok, err = pcall(refreshLook, p)
+				if not ok then warn("[BerserkerController] look", err) end
+			end
+			for p, L in pairs(looks) do
+				if not p.Parent then
+					dropLook(L)
+					looks[p] = nil
+				end
+			end
+			-- (Unchained running out: the gauge hides)
+			if hud and hud.Enabled and unchainedLeft(player) <= 0 then refreshHud() end
+		end
+	end)
+	Network.GetRemoteEvent(Network.Remotes.BerserkerFX).OnClientEvent:Connect(function(msg: any)
+		if typeof(msg) ~= "table" then return end
+		local h = HANDLERS[msg.kind]
+		if h then
+			local ok, err = pcall(h, msg)
+			if not ok then warn("[BerserkerController]", msg.kind, err) end
+		end
+	end)
+end
+
+return BerserkerController

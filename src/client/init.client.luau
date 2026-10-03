@@ -5,13 +5,21 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local ClassData = require(Shared:WaitForChild("ClassData"))
 local TomeController = require(script:WaitForChild("TomeController"))
+local VariantFX = require(script:WaitForChild("VariantFX"))
 
 local player = Players.LocalPlayer
 local StarterGui = game:GetService("StarterGui")
 
 print("[Client] Initializing SoloProject Client...")
 
+-- The loading screen first: it covers the start-up, loads the sky-kingdom
+-- menu scene, and keeps it loaded (rebuilding it if it ever goes missing).
+pcall(function()
+	require(script:WaitForChild("MenuLoader")).Init()
+end)
+
 TomeController.Init()
+VariantFX.Init() -- recolours ability VFX with each player's equipped VFX variant
 
 -- Disable default Roblox Backpack UI
 task.spawn(function()
@@ -88,6 +96,34 @@ else
 end
 
 -- Safely require RoomFX (special-room motion, reward pop-ups, gold counter)
+
+-- Pops the character back onto the floor if it ever gets stuck in geometry.
+pcall(function()
+	require(script:WaitForChild("SafeMove")).Init()
+end)
+
+-- Hades-style "boon acquired" sparkle when anyone picks a tome.
+pcall(function()
+	require(script:WaitForChild("BoonSparkle")).Init()
+end)
+
+-- The dragon boss: its animation, fire, health bar and the shield minigame.
+pcall(function()
+	require(script:WaitForChild("DragonBossFX")).Init()
+end)
+
+-- Cloth capes on every Sword Master and armored Fire Knight in the world.
+pcall(function()
+	require(script:WaitForChild("ClassCapes")).Init()
+	require(script:WaitForChild("EnemyProjectiles")).Init()
+	require(script:WaitForChild("VfxDetail")).Init()
+end)
+
+-- "Left click to interact" bubble + prompt near a ready room reward.
+pcall(function()
+	require(script:WaitForChild("UI"):WaitForChild("EmblemPrompt")).Init()
+end)
+
 local successRoomFX, RoomFX = pcall(function()
 	return require(script:WaitForChild("RoomFX"))
 end)
@@ -111,6 +147,21 @@ if successUI and UIManager then
 
 	if not successInit then
 		warn("[Client ERROR] UIManager.Init failed:", err)
+	end
+
+	-- Death screen: respawn / main menu, or spectate / leave in co-op.
+	local okDeath, DeathScreen = pcall(function()
+		return require(script:WaitForChild("UI"):WaitForChild("DeathScreen"))
+	end)
+	if okDeath and DeathScreen then
+		DeathScreen.Init({
+			onMenu = function()
+				if successIso and IsometricCamera then IsometricCamera.Stop() end
+				UIManager.ReturnToMenu()
+			end,
+		})
+	else
+		warn("[Client ERROR] Failed to load DeathScreen:", DeathScreen)
 	end
 
 	local classConfirmedRemote = Network.GetRemoteEvent(Network.Remotes.ClassConfirmed)

@@ -20,6 +20,8 @@ local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace         = game:GetService("Workspace")
 local SpecialRooms      = require(script.Parent:WaitForChild("SpecialRooms"))
+local Hazards           = require(script.Parent:WaitForChild("Hazards"))
+local AtmosphereManager = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("AtmosphereManager"))
 
 local DungeonGenerator = {}
 
@@ -27,6 +29,7 @@ local DungeonGenerator = {}
 
 local FLOOR_SIZE        = 12    -- Floor tile grid unit (12x12 studs)
 local WALL_PIECE_LEN    = 17    -- Wall piece standard dimension (17x17 studs)
+local FLOOR_COOL        = Color3.fromRGB(122, 132, 160) -- the cool stone some floor tiles lean toward
 local CORRIDOR_WIDTH    = 2     -- 2 tiles wide = 24 studs for great action combat
 local FLOOR_Y_OFFSET    = 4     -- Tier 0 floor tile elevation (4 studs)
 local WALL_Y_OFFSET     = 11    -- Tier 0 wall elevation (11 studs)
@@ -46,6 +49,7 @@ export type DungeonConfig = {
 	minRoomTiles: number?,    -- in 12-stud floor tiles (e.g. 9 = 108 studs)
 	maxRoomTiles: number?,    -- in 12-stud floor tiles (e.g. 13 = 156 studs)
 	branchProbability: number?,
+	level: number?,           -- which level of the run this is (1 = a fresh run; picks the boss)
 }
 
 type DoorwayData = {
@@ -87,6 +91,7 @@ local cachedBossCFrame: CFrame = CFrame.identity
 local cachedExitCFrame: CFrame = CFrame.identity
 local cachedMapPayload: any = nil
 local activeSeed: number = 0
+local floorTransitioning = false -- one level change at a time
 
 -- Asset Cache
 local assets = {
@@ -226,6 +231,8 @@ local function spawnInstance(template: Instance, cf: CFrame, parent: Instance): 
 	clone.Parent = parent
 	return clone
 end
+
+local wallFeature: (string, Instance, CFrame, number, Vector3, Vector3, Instance, Random) -> ()
 
 local function pickRandom(list: { Instance }, rng: Random): Instance?
 	if #list == 0 then return nil end
@@ -676,6 +683,116 @@ end
 
 -- ── 2. Seamless Wall, Pure Gate & Pillar Placement ────────────────────────────
 
+-- ── Wall features: arched alcoves and broken stretches ───────────────────────
+local WALL_STONE = Color3.fromRGB(70, 68, 74)
+
+local function stoneBlock(folder: Instance, size: Vector3, cf: CFrame, rng: Random, wedge: boolean?): BasePart
+	local p: BasePart = if wedge then Instance.new("WedgePart") else Instance.new("Part")
+	p.Anchored = true
+	p.Material = Enum.Material.Slate
+	p.Color = WALL_STONE:Lerp(Color3.fromRGB(40, 44, 58), rng:NextNumber(0, 0.5))
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Size = size
+	p.CFrame = cf
+	p.Parent = folder
+	return p
+end
+
+-- One wall piece's place along a perimeter wall, built as an `alcove` (the
+-- piece set back, side walls, pillars and an arch over the opening) or as a
+-- `broken` stretch (the piece crumbled low with jagged stones along its top,
+-- the deeper wall standing behind it, fallen blocks on the floor). `normal`
+-- points out of the room.
+wallFeature = function(kind: string, template: Instance, wallCF: CFrame, step: number, normal: Vector3, tangent: Vector3, folder: Instance, rng: Random)
+	local clone = spawnInstance(template, wallCF, folder)
+	local bcf: CFrame, bsize: Vector3
+	if clone:IsA("Model") then
+		bcf, bsize = clone:GetBoundingBox()
+	else
+		bcf, bsize = (clone :: BasePart).CFrame, (clone :: BasePart).Size
+	end
+	local H = bsize.Y
+	local T = math.max(math.min(bsize.X, bsize.Z), 1)
+	local baseY = bcf.Position.Y - H / 2
+	local topY = baseY + H
+	local floorY = wallCF.Position.Y - (WALL_Y_OFFSET - FLOOR_Y_OFFSET) + 0.5
+	local c = Vector3.new(wallCF.Position.X, 0, wallCF.Position.Z)
+	local function at(along: number, out: number, y: number): Vector3
+		return c + tangent * along + normal * out + Vector3.new(0, y, 0)
+	end
+	local function flat(pos: Vector3): CFrame
+		return CFrame.fromMatrix(pos, tangent, Vector3.yAxis)
+	end
+	local function move(by: Vector3)
+		if clone:IsA("Model") then
+			clone:PivotTo(clone:GetPivot() + by)
+		else
+			(clone :: BasePart).CFrame += by
+		end
+	end
+	-- the recess's side walls, from the wall line back to `depth`
+	local function sides(depth: number, height: number)
+		for _, sgn in ipairs({ -1, 1 }) do
+			stoneBlock(folder, Vector3.new(1.4, height, depth + T),
+				flat(at(sgn * (step / 2 - 0.7), depth / 2, baseY + height / 2)), rng)
+		end
+	end
+	local function pillarsAt(out: number)
+		if #assets.pillars == 0 then return end
+		for _, sgn in ipairs({ -1, 1 }) do
+			local t = pickRandom(assets.pillars, rng)
+			if t then
+				spawnInstance(t, CFrame.new(at(sgn * step / 2, out, wallCF.Position.Y)) * wallCF.Rotation, folder)
+			end
+		end
+	end
+
+	if kind == "alcove" then
+		local depth = 4.5
+		move(normal * depth)
+		sides(depth, H)
+		pillarsAt(-0.4)
+		-- the arch: a lintel across the top and a curved springer in each corner
+		local archH = H * 0.3
+		local lintel = archH * 0.4
+		stoneBlock(folder, Vector3.new(step, lintel, T + 0.8), flat(at(0, 0, topY - lintel / 2)), rng)
+		for _, sgn in ipairs({ -1, 1 }) do
+			local z = tangent * sgn
+			local x = Vector3.yAxis:Cross(z)
+			local len = step * 0.32
+			local pos = at(sgn * (step / 2 - 1.4 - len / 2), 0, topY - lintel - (archH - lintel) / 2)
+			stoneBlock(folder, Vector3.new(T + 0.6, archH - lintel, len),
+				CFrame.fromMatrix(pos, x, Vector3.yAxis, z) * CFrame.Angles(0, 0, math.pi), rng, true)
+		end
+	else
+		-- crumbled low...
+		local sink = H * rng:NextNumber(0.45, 0.6)
+		move(Vector3.new(0, -sink, 0))
+		local brokenTop = topY - sink
+		-- ...jagged stones left standing along the break
+		local n = 6
+		for k = 1, n do
+			local along = -step / 2 + (k - 0.5) * step / n + rng:NextNumber(-0.4, 0.4)
+			local h = rng:NextNumber(0.4, 3.2)
+			stoneBlock(folder, Vector3.new(step / n + 0.5, h, T * rng:NextNumber(0.7, 1)),
+				flat(at(along, 0, brokenTop + h / 2 - 0.4)) * CFrame.Angles(rng:NextNumber(-0.1, 0.1), 0, rng:NextNumber(-0.18, 0.18)), rng)
+		end
+		-- ...the deeper wall standing behind it
+		local back = 7
+		spawnInstance(template, wallCF + normal * back, folder)
+		sides(back, H)
+		pillarsAt(-0.4)
+		-- ...and fallen blocks scattered on the floor in front
+		for _ = 1, rng:NextInteger(3, 5) do
+			local sz = rng:NextNumber(1, 2.4)
+			stoneBlock(folder, Vector3.new(sz * rng:NextNumber(1, 1.6), sz * 0.7, sz),
+				CFrame.new(at(rng:NextNumber(-step / 2 + 2, step / 2 - 2), -rng:NextNumber(1.2, 4), floorY + sz * 0.3))
+					* CFrame.Angles(rng:NextNumber(-0.4, 0.4), rng:NextNumber(0, 6.28), rng:NextNumber(-0.4, 0.4)), rng)
+		end
+	end
+end
+
 local function constructPerimeterWallsAndPillars(
 	rooms: { RoomData },
 	floorGrid: { [string]: CellData },
@@ -901,6 +1018,7 @@ local function constructPerimeterWallsAndPillars(
 	end
 
 	-- 5. Tile 17-stud Wall Pieces end-to-end along each segment with zero gaps (filtering out walls across stair openings)
+	local windowWalls: { { cf: CFrame, openings: any } } = {}
 	for _, seg in ipairs(segments) do
 		local vec = seg.p2 - seg.p1
 		local length = vec.Magnitude
@@ -909,13 +1027,40 @@ local function constructPerimeterWallsAndPillars(
 		local numWalls = math.max(1, math.ceil(length / WALL_PIECE_LEN))
 		local step = length / numWalls
 
+		local lastVaried = -10
 		for i = 1, numWalls do
 			local wallCenter = seg.p1 + tangent * ((i - 0.5) * step)
 			if not isNearGate(wallCenter, 12) and not isBlockingStairOpening(wallCenter, seg.normal) then
 				local wallCF = CFrame.new(wallCenter) * CFrame.Angles(0, math.rad(seg.rotY), 0)
 				local wallPiece = pickRandom(assets.walls, rng)
-				if wallPiece then
+				-- Architectural variation instead of one long flat wall: an
+				-- arched alcove set back into it, or a broken stretch with the
+				-- deeper wall behind showing, and pilasters at the joints.
+				local plain = wallPiece ~= nil and AtmosphereManager.WindowOpenings(wallPiece.Name) == nil
+					and numWalls >= 3 and i > 1 and i < numWalls and i - lastVaried > 1
+					and not isNearGate(wallCenter, 22) and not isNearStair(wallCenter, 26)
+				local roll = rng:NextNumber()
+				if wallPiece and plain and roll < 0.2 then
+					lastVaried = i
+					wallFeature("alcove", wallPiece, wallCF, step, seg.normal, tangent, wallsFolder, rng)
+				elseif wallPiece and plain and roll < 0.34 then
+					lastVaried = i
+					wallFeature("broken", wallPiece, wallCF, step, seg.normal, tangent, wallsFolder, rng)
+				elseif wallPiece then
 					spawnInstance(wallPiece, wallCF, wallsFolder)
+					-- a pilaster at every other joint along a long wall
+					if i < numWalls and i % 2 == 0 and i - lastVaried > 1 and #assets.pillars > 0
+						and not isNearGate(wallCenter + tangent * step * 0.5, 16) and not isNearStair(wallCenter, 22) then
+						local at = wallCenter + tangent * (step * 0.5) - seg.normal * 0.6
+						spawnInstance(pickRandom(assets.pillars, rng) :: Instance, CFrame.new(at) * CFrame.Angles(0, math.rad(seg.rotY), 0), wallsFolder)
+					end
+				end
+				if wallPiece then
+					-- Window walls let the daylight in (local +Z faces out of the room).
+					local openings = AtmosphereManager.WindowOpenings(wallPiece.Name)
+					if openings then
+						table.insert(windowWalls, { cf = wallCF, openings = openings })
+					end
 				else
 					local p = Instance.new("Part")
 					p.Size = Vector3.new(step + 1, 14, 2)
@@ -927,6 +1072,12 @@ local function constructPerimeterWallsAndPillars(
 				end
 			end
 		end
+	end
+
+	-- 6. Daylight through every window, once all the walls are up (each shaft
+	-- is measured to where it lands on the floor).
+	for _, w in ipairs(windowWalls) do
+		AtmosphereManager.PlaceWindowLight(w.cf, w.openings, wallsFolder)
 	end
 end
 
@@ -985,18 +1136,10 @@ local function constructPitchBlackExit(stairCF: CFrame, parentFolder: Folder)
 		local char = hit.Parent
 		if char and char:FindFirstChild("Humanoid") then
 			local player = game:GetService("Players"):GetPlayerFromCharacter(char)
-			if player and not player:GetAttribute("TransitioningFloor") then
-				player:SetAttribute("TransitioningFloor", true)
+			if player and not floorTransitioning then
+				floorTransitioning = true
 				print(`[Roguelite] {player.Name} entered the Abyss Staircase! Generating Next Level...`)
-				task.delay(1.2, function()
-					player:SetAttribute("TransitioningFloor", nil)
-					local newSeed = os.time() + math.random(1, 100000)
-					DungeonGenerator.Generate({ seed = newSeed })
-					local newSpawn = DungeonGenerator.GetSpawnCFrame()
-					if char:FindFirstChild("HumanoidRootPart") then
-						char:PivotTo(newSpawn + Vector3.new(0, 5, 0))
-					end
-				end)
+				task.delay(1.2, DungeonGenerator.NextLevel)
 			end
 		end
 	end)
@@ -1017,6 +1160,14 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 		local minZ, maxZ = room.gz, room.gz + room.d - 1
 
 		buildSpecialRoom(room, propsFolder, rng)
+
+		-- Hazards: the boss arena gets lava, flame vents and cover pillars;
+		-- about a third of the combat rooms get spike traps.
+		if room.roomType == "Boss" then
+			Hazards.BuildBossArena(room :: any, propsFolder, rng)
+		elseif room.roomType == "Combat" and room.id ~= 1 and rng:NextNumber() < 0.35 then
+			Hazards.BuildTraps(room :: any, propsFolder, rng)
+		end
 
 		-- 1. Rubble: Generously placed along wall perimeters and in all room corners (raised +3 studs)
 		if #assets.rubble > 0 then
@@ -1084,6 +1235,71 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 				spawnInstance(cosTemplate, cf, propsFolder)
 			end
 		end
+
+		-- 3b. Hades set dressing: a gold-inlaid floor medallion under the room
+		-- reward (combat rooms) and green-fire braziers in the corners.
+		if room.roomType == "Combat" or room.roomType == "Elite" or room.roomType == "Boss" then
+			local center = Vector3.new((room.gx + room.w / 2) * FLOOR_SIZE, room.floorY, (room.gz + room.d / 2) * FLOOR_SIZE)
+			AtmosphereManager.PlaceFloorMedallion(center, 7, propsFolder)
+		end
+		if room.w >= 3 and room.d >= 3 then
+			local inset = 5
+			local corners = {
+				Vector3.new(minX * FLOOR_SIZE - FLOOR_SIZE / 2 + inset, room.floorY, minZ * FLOOR_SIZE - FLOOR_SIZE / 2 + inset),
+				Vector3.new(maxX * FLOOR_SIZE + FLOOR_SIZE / 2 - inset, room.floorY, minZ * FLOOR_SIZE - FLOOR_SIZE / 2 + inset),
+				Vector3.new(minX * FLOOR_SIZE - FLOOR_SIZE / 2 + inset, room.floorY, maxZ * FLOOR_SIZE + FLOOR_SIZE / 2 - inset),
+				Vector3.new(maxX * FLOOR_SIZE + FLOOR_SIZE / 2 - inset, room.floorY, maxZ * FLOOR_SIZE + FLOOR_SIZE / 2 - inset),
+			}
+			local cornerParams = RaycastParams.new()
+			cornerParams.FilterType = Enum.RaycastFilterType.Exclude
+			cornerParams.FilterDescendantsInstances = { propsFolder }
+			for _, p in ipairs(corners) do
+				-- Only on open floor (not inside a wall or doorway prop).
+				local hit = Workspace:Raycast(p + Vector3.new(0, 12, 0), Vector3.new(0, -24, 0), cornerParams)
+				if hit and math.abs(hit.Position.Y - room.floorY) < 4 then
+					AtmosphereManager.PlaceBrazier(CFrame.new(hit.Position), propsFolder, rng)
+				end
+			end
+		end
+
+		-- 3c. Hanging fire bowls on chains that rise out of view, over the
+		-- open floor either side of the room's centre (clear of the reward).
+		if room.w >= 3 and room.d >= 3 then
+			local cx = (room.gx + room.w / 2) * FLOOR_SIZE
+			local cz = (room.gz + room.d / 2) * FLOOR_SIZE
+			local spreadX = room.w * FLOOR_SIZE * 0.26
+			local spreadZ = room.d * FLOOR_SIZE * 0.26
+			local spots = if rng:NextInteger(0, 1) == 0
+				then { Vector3.new(cx - spreadX, 0, cz - spreadZ), Vector3.new(cx + spreadX, 0, cz + spreadZ) }
+				else { Vector3.new(cx + spreadX, 0, cz - spreadZ), Vector3.new(cx - spreadX, 0, cz + spreadZ) }
+			for _, s in ipairs(spots) do
+				AtmosphereManager.PlaceHangingBrazier(Vector3.new(s.X, room.floorY + 12, s.Z), propsFolder, rng)
+			end
+		end
+
+		-- 4. Candle clusters: warm pools of light hugging the walls.
+		local rayParams = RaycastParams.new()
+		rayParams.FilterType = Enum.RaycastFilterType.Exclude
+		rayParams.FilterDescendantsInstances = { propsFolder }
+		for _ = 1, AtmosphereManager.Config.CandlesPerRoom do
+			local side = rng:NextInteger(1, 4)
+			local inset = 3.2
+			local x, z
+			if side == 1 then
+				x, z = rng:NextInteger(minX, maxX) * FLOOR_SIZE, minZ * FLOOR_SIZE - FLOOR_SIZE / 2 + inset
+			elseif side == 2 then
+				x, z = rng:NextInteger(minX, maxX) * FLOOR_SIZE, maxZ * FLOOR_SIZE + FLOOR_SIZE / 2 - inset
+			elseif side == 3 then
+				x, z = minX * FLOOR_SIZE - FLOOR_SIZE / 2 + inset, rng:NextInteger(minZ, maxZ) * FLOOR_SIZE
+			else
+				x, z = maxX * FLOOR_SIZE + FLOOR_SIZE / 2 - inset, rng:NextInteger(minZ, maxZ) * FLOOR_SIZE
+			end
+			-- Sit on the actual floor surface; skip spots covered by walls or props.
+			local hit = Workspace:Raycast(Vector3.new(x, room.floorY + 12, z), Vector3.new(0, -24, 0), rayParams)
+			if hit and math.abs(hit.Position.Y - room.floorY) < 4 then
+				AtmosphereManager.PlaceCandleCluster(CFrame.new(hit.Position), propsFolder, rng)
+			end
+		end
 	end
 end
 
@@ -1093,6 +1309,7 @@ function DungeonGenerator.Generate(config: DungeonConfig?): (CFrame, CFrame, CFr
 	loadAssets()
 
 	local cfg = config or {}
+	Workspace:SetAttribute("RunLevel", cfg.level or 1)
 	local seed = cfg.seed or os.time()
 	activeSeed = seed
 	local rng = Random.new(seed)
@@ -1187,7 +1404,18 @@ function DungeonGenerator.Generate(config: DungeonConfig?): (CFrame, CFrame, CFr
 		if floorTemplate then
 			local rotY = rng:NextInteger(0, 3) * 90
 			local cf = CFrame.new(pos) * CFrame.Angles(0, math.rad(rotY), 0)
-			spawnInstance(floorTemplate, cf, floorsFolder)
+			local tile = spawnInstance(floorTemplate, cf, floorsFolder)
+			-- No two tiles quite alike: a little lighter or darker, some
+			-- leaning cool (the stone reads less uniformly orange).
+			local shade = rng:NextNumber(0.8, 1.06)
+			local cool = rng:NextNumber(0, 0.4)
+			local parts = if tile:IsA("BasePart") then { tile } else tile:GetDescendants()
+			for _, d in ipairs(parts) do
+				if d:IsA("BasePart") then
+					local c = d.Color:Lerp(FLOOR_COOL, cool)
+					d.Color = Color3.new(math.min(c.R * shade, 1), math.min(c.G * shade, 1), math.min(c.B * shade, 1))
+				end
+			end
 		else
 			local p = Instance.new("Part")
 			p.Size = Vector3.new(FLOOR_SIZE, 1, FLOOR_SIZE)
@@ -1331,6 +1559,7 @@ end)
 -- ── Public API ───────────────────────────────────────────────────────────────
 
 function DungeonGenerator.Clear()
+	Hazards.Clear()
 	pcall(function()
 		local MobManager = require(script.Parent:WaitForChild("MobManager"))
 		MobManager.Clear()
@@ -1359,6 +1588,67 @@ end
 
 function DungeonGenerator.GetActiveSeed(): number
 	return activeSeed
+end
+
+-- The whole run moves to a fresh level together. Everyone in the dungeon is
+-- held in place while the old level is torn down and the new one is built
+-- (so nobody falls into the void), then set down on the new spawn's floor,
+-- side by side. Fallen teammates come back there too.
+function DungeonGenerator.NextLevel()
+	local runners: { { player: Player, root: BasePart } } = {}
+	for _, p in ipairs(Players:GetPlayers()) do
+		local root = p.Character and p.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if p:GetAttribute("InLobby") == false and root then
+			root.Anchored = true
+			root.AssemblyLinearVelocity = Vector3.zero
+			table.insert(runners, { player = p, root = root })
+		end
+	end
+
+	local ok, err = pcall(function()
+		DungeonGenerator.Generate({
+			seed = os.time() + math.random(1, 100000),
+			level = (Workspace:GetAttribute("RunLevel") or 1) + 1,
+		})
+	end)
+	if not ok then warn("[DungeonGenerator] Next level failed:", err) end
+
+	local spawnCF = DungeonGenerator.GetSpawnCFrame()
+	-- Stand on the actual floor under the spawn point.
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local chars = {}
+	for _, r in ipairs(runners) do
+		if r.player.Character then table.insert(chars, r.player.Character) end
+	end
+	params.FilterDescendantsInstances = chars
+	for i, r in ipairs(runners) do
+		local offset = Vector3.new(((i - 1) % 3 - 1) * 4, 0, math.floor((i - 1) / 3) * 4)
+		local base = spawnCF.Position + offset
+		local hit = Workspace:Raycast(base + Vector3.new(0, 20, 0), Vector3.new(0, -60, 0), params)
+		local y = if hit then hit.Position.Y + 3.5 else spawnCF.Position.Y + 5
+		if r.root.Parent then
+			r.root.CFrame = CFrame.new(base.X, y, base.Z) * spawnCF.Rotation
+			r.root.AssemblyLinearVelocity = Vector3.zero
+		end
+	end
+	-- Hold everyone on the new floor a moment longer, so their game has
+	-- received the new level before they can fall (or they'd drop straight
+	-- through a floor that hasn't arrived yet).
+	task.delay(1.5, function()
+		for _, r in ipairs(runners) do
+			if r.root.Parent then
+				r.root.AssemblyLinearVelocity = Vector3.zero
+				r.root.Anchored = false
+			end
+		end
+	end)
+	-- Anyone who was dead joins the party on the new level.
+	pcall(function()
+		local DeathManager = require(script.Parent:WaitForChild("DeathManager"))
+		DeathManager.ReviveAllAt(spawnCF.Position + Vector3.new(0, 3, 0))
+	end)
+	floorTransitioning = false
 end
 
 function DungeonGenerator.GetMapPayload(): any

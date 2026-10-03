@@ -15,6 +15,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local Workspace = game:GetService("Workspace")
+local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
 
 local HOLY_WHITE = Color3.fromRGB(255, 253, 240)
 local HOLY_IVORY = Color3.fromRGB(255, 244, 210)
@@ -32,7 +33,7 @@ local ClericFlair = {}
 local function folder(name: string): Folder
 	local f = Instance.new("Folder")
 	f.Name = name
-	f.Parent = Workspace.Terrain
+	f.Parent = VariantFX.Root()
 	return f
 end
 
@@ -75,7 +76,7 @@ end
 
 local function att(pos: Vector3, parent: Instance?): Attachment
 	local a = Instance.new("Attachment")
-	a.Parent = parent or Workspace.Terrain
+	a.Parent = parent or VariantFX.Root()
 	a.WorldPosition = pos
 	return a
 end

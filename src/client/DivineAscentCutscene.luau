@@ -25,8 +25,8 @@ local DivineAscentCutscene = {}
 
 -- Shot timings (seconds from cast). ClericFlair, CastPoses and the server's
 -- reviveTime follow the same beats.
-DivineAscentCutscene.LIGHT_AT = 1.9
-DivineAscentCutscene.REVIVE_AT = 3.7
+DivineAscentCutscene.LIGHT_AT = 0.55
+DivineAscentCutscene.REVIVE_AT = 1.2
 
 local token = 0
 
@@ -125,12 +125,13 @@ local function smooth(x: number): number
 	return x * x * (3 - 2 * x)
 end
 
-function DivineAscentCutscene.Play(duration: number, aimDir: Vector3?)
-	duration = math.max(duration or 5.5, 4)
+-- `who` defaults to your own character (others' casts play it on theirs).
+function DivineAscentCutscene.Play(duration: number, aimDir: Vector3?, who: Model?)
+	duration = math.max(duration or 2, 1.5)
 	token += 1
 	local my = token
 
-	local char = player.Character
+	local char = who or player.Character
 	if not char then return end
 	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not root then return end

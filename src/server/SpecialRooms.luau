@@ -150,6 +150,8 @@ local function prompt(parent: Instance, action: string, object: string, hold: nu
 	p.MaxActivationDistance = 11
 	p.RequiresLineOfSight = false
 	p.Style = Enum.ProximityPromptStyle.Default
+	-- Only the nearest prompt shows, so neighbouring ones never stack.
+	p.Exclusivity = Enum.ProximityPromptExclusivity.OneGlobally
 	p.Parent = parent
 	return p
 end
@@ -179,6 +181,30 @@ local function playerHumanoid(player: Player): (Humanoid?, BasePart?)
 end
 
 -- A floating tome book (cover, pages, spine glow) the client bobs and spins.
+-- ── Luck (Luck Tomes, +7% each) ───────────────────────────────────────────────
+-- Luck tilts every gamble in the player's favour and raises chest loot ranks.
+local function luckOf(player: Player): number
+	return math.clamp(PlayerStats.GetStat(player, "luck"), 0, 1)
+end
+
+-- Vault chest loot ranks. Luck multiplies the weight of the higher ranks.
+local CHEST_RANKS = {
+	{ name = "COMMON", weight = 55, luckScale = 0, gold = 1, tomes = 1, color = Color3.fromRGB(230, 225, 210) },
+	{ name = "RARE", weight = 30, luckScale = 4, gold = 1.5, tomes = 1, color = Color3.fromRGB(90, 170, 255) },
+	{ name = "EPIC", weight = 12, luckScale = 8, gold = 2, tomes = 2, color = Color3.fromRGB(190, 95, 255) },
+	{ name = "LEGENDARY", weight = 3, luckScale = 12, gold = 3, tomes = 3, color = Color3.fromRGB(255, 200, 70) },
+}
+local function rollChestRank(rng: Random, luck: number)
+	local total = 0
+	for _, r in ipairs(CHEST_RANKS) do total += r.weight * (1 + luck * r.luckScale) end
+	local x = rng:NextNumber() * total
+	for _, r in ipairs(CHEST_RANKS) do
+		x -= r.weight * (1 + luck * r.luckScale)
+		if x <= 0 then return r end
+	end
+	return CHEST_RANKS[1]
+end
+
 local function buildBook(parent: Instance, pos: Vector3, color: Color3): BasePart
 	local hub = part(parent, { Name = "FloatItem", Size = Vector3.new(2.2, 0.55, 1.7), CFrame = CFrame.new(pos), Color = color, Material = Enum.Material.Fabric, CanCollide = false })
 	hub:SetAttribute("Float", true)
@@ -309,7 +335,8 @@ local function buildRest(room: Room, folder: Folder, rng: Random)
 		coins(orb.Position + Vector3.new(0, 1, 0), 3)
 		task.wait(0.6)
 		local hum = playerHumanoid(player)
-		local roll = rng:NextNumber()
+		-- Luck shrinks the roll toward the best outcome (a tome).
+		local roll = rng:NextNumber() * (1 - math.min(luckOf(player) * 2, 0.6))
 		if roll < 0.3 then
 			local tome = PlayerStats.GrantTome(player)
 			burst(orb.Position, MOON, 1.6)
@@ -436,10 +463,14 @@ local function buildTreasure(room: Room, folder: Folder, rng: Random)
 
 		task.wait(0.35)
 		local top = base + Vector3.new(0, 4, 0)
-		local gold = PlayerStats.AwardGold(player, rng:NextInteger(40, 70) + room.tier * 15)
-		coins(top, 18)
-		burst(top, GOLD_BRIGHT, 1.8)
-		if rng:NextNumber() < TRAP_CHANCE then
+		local luck = luckOf(player)
+		local rank = rollChestRank(rng, luck)
+		local gold = PlayerStats.AwardGold(player, math.floor((rng:NextInteger(40, 70) + room.tier * 15) * rank.gold))
+		coins(top, 18 * rank.tomes)
+		burst(top, rank.color, 1.4 + rank.tomes * 0.4)
+		seam.Color = rank.color
+		seamLight.Color = rank.color
+		if rng:NextNumber() < TRAP_CHANCE * (1 - math.min(luck * 3, 0.9)) then
 			local hum = playerHumanoid(player)
 			if hum then hum:TakeDamage(hum.MaxHealth * 0.25) end
 			pop(top, `CURSED HOARD — +{gold} Gold, but it bites`, BAD)
@@ -447,9 +478,14 @@ local function buildTreasure(room: Room, folder: Folder, rng: Random)
 			seam.Color = CRIMSON
 			seamLight.Color = CRIMSON
 		else
-			local tome = PlayerStats.GrantTome(player)
-			pop(top, tome and `+{gold} Gold · {tome.name}` or `+{gold} Gold`, GOLD_BRIGHT)
-			status.Text = tome and `Claimed: {tome.name}` or "Claimed"
+			local names = {}
+			for _ = 1, rank.tomes do
+				local tome = PlayerStats.GrantTome(player)
+				if tome then table.insert(names, tome.name) end
+			end
+			local list = table.concat(names, " · ")
+			pop(top, `{rank.name} HOARD — +{gold} Gold{if #names > 0 then " · " .. list else ""}`, rank.color)
+			status.Text = if #names > 0 then `{rank.name}: {list}` else `{rank.name} hoard claimed`
 		end
 		title.Text = "THE VAULT — EMPTIED"
 		task.delay(3, function()
@@ -638,6 +674,9 @@ local WHEEL: { { label: string, kind: string, color: Color3 } } = {
 }
 local SPIN_TIME = 4.2
 local WHEEL_RADIUS = 7
+-- The den is laid out facing the isometric camera (IsometricCamera's
+-- CAMERA_OFFSET sits at -X/+Z), so the wheel's face is always in view.
+local VIEW_FACING = Vector3.new(-1, 0, 1).Unit
 
 local function buildWheel(model: Model, center: Vector3, facing: Vector3, rng: Random)
 	-- `facing` is the direction the wheel face looks (toward the players).
@@ -658,13 +697,28 @@ local function buildWheel(model: Model, center: Vector3, facing: Vector3, rng: R
 	model:SetAttribute("WheelFaceCF", faceCF)
 	local n = #WHEEL
 	local sliceAngle = math.pi * 2 / n
+	-- Each slice is a true pie wedge: two right-triangle WedgeParts meeting on
+	-- the slice's centre line, apex at the hub. Neighbours share edges instead
+	-- of overlapping, so their colours can't flicker over each other.
+	local halfWidth = WHEEL_RADIUS * math.sin(sliceAngle / 2)
+	local depth = WHEEL_RADIUS * math.cos(sliceAngle / 2)
 	for i, slice in ipairs(WHEEL) do
 		local a = (i - 1) * sliceAngle
-		-- Each slice: a wedge-ish plate (rectangle pointing outward from the hub).
-		local mid = WHEEL_RADIUS * 0.55
-		local chord = 2 * WHEEL_RADIUS * math.sin(sliceAngle / 2)
-		local plate = part(model, { Name = "Slice", Size = Vector3.new(chord * 0.98, WHEEL_RADIUS * 0.92, 0.3),
-			CFrame = faceCF * CFrame.Angles(0, 0, -a) * CFrame.new(0, mid, 0), Color = slice.color, Material = Enum.Material.SmoothPlastic })
+		local sliceCF = faceCF * CFrame.Angles(0, 0, -a) -- +Y points out along the slice
+		for _, side in ipairs({ 1, -1 }) do
+			-- A WedgePart's triangle lies in its local YZ plane with the right
+			-- angle at bottom-back: local +Y runs along the chord, +Z out to it.
+			local centre = sliceCF * Vector3.new(side * halfWidth / 2, depth / 2, 0)
+			local half = part(model, { ClassName = "WedgePart", Name = "Slice",
+				Size = Vector3.new(0.3, halfWidth, depth),
+				CFrame = CFrame.fromMatrix(centre, sliceCF.ZVector * side, sliceCF.RightVector * side, sliceCF.UpVector),
+				Color = slice.color, Material = Enum.Material.SmoothPlastic })
+			half:SetAttribute("WheelRotor", true)
+		end
+		-- Label on its own invisible plate just in front of the wedges.
+		local chord = 2 * halfWidth
+		local plate = part(model, { Name = "SliceLabel", Size = Vector3.new(chord * 0.75, 1.8, 0.05), Transparency = 1, CanCollide = false,
+			CFrame = sliceCF * CFrame.new(0, WHEEL_RADIUS * 0.7, -0.2) })
 		plate:SetAttribute("WheelRotor", true)
 		local gui = Instance.new("SurfaceGui")
 		gui.Face = Enum.NormalId.Front -- faceCF looks toward the players
@@ -672,8 +726,7 @@ local function buildWheel(model: Model, center: Vector3, facing: Vector3, rng: R
 		gui.PixelsPerStud = 40
 		gui.Parent = plate
 		local t = Instance.new("TextLabel")
-		t.Size = UDim2.fromScale(1, 0.4)
-		t.Position = UDim2.fromScale(0, 0.12)
+		t.Size = UDim2.fromScale(1, 1)
 		t.BackgroundTransparency = 1
 		t.Font = Enum.Font.GothamBlack
 		t.TextScaled = true
@@ -707,31 +760,37 @@ local function buildGamble(room: Room, folder: Folder, rng: Random)
 	model:SetAttribute("RoomFX", "Wheel")
 	model.Parent = folder
 	local c = Vector3.new(room.centerWorld.X, room.floorY, room.centerWorld.Z)
+	-- Laid out in a frame whose front (-Z) faces the camera; `at` places a
+	-- local offset in the world.
+	local R = CFrame.lookAt(Vector3.zero, VIEW_FACING)
+	local function at(offset: Vector3): Vector3
+		return c + R * offset
+	end
 
 	-- Velvet carpet with a gold border, card-suit lanterns, piles of chips.
-	part(model, { Name = "Carpet", Size = Vector3.new(30, 0.1, 24), CFrame = CFrame.new(c + Vector3.new(0, 0.05, 0)), Color = VELVET, Material = Enum.Material.Fabric, CanCollide = false })
-	part(model, { Name = "CarpetBorder", Size = Vector3.new(30.8, 0.08, 24.8), CFrame = CFrame.new(c + Vector3.new(0, 0.03, 0)), Color = GOLD, Material = Enum.Material.Fabric, CanCollide = false })
+	part(model, { Name = "Carpet", Size = Vector3.new(30, 0.1, 24), CFrame = CFrame.new(c + Vector3.new(0, 0.05, 0)) * R, Color = VELVET, Material = Enum.Material.Fabric, CanCollide = false })
+	part(model, { Name = "CarpetBorder", Size = Vector3.new(30.8, 0.08, 24.8), CFrame = CFrame.new(c + Vector3.new(0, 0.03, 0)) * R, Color = GOLD, Material = Enum.Material.Fabric, CanCollide = false })
 	for i = 1, 6 do
 		local a = (i / 6) * math.pi * 2
-		local p = c + Vector3.new(math.cos(a) * 16, 0, math.sin(a) * 13)
+		local p = at(Vector3.new(math.cos(a) * 16, 0, math.sin(a) * 13))
 		cyl(model, "LanternPost", p + Vector3.new(0, 3, 0), 6, 0.5, WOOD_DARK, Enum.Material.Wood)
 		local lamp = part(model, { Name = "DenLantern", Size = Vector3.new(1.1, 1.4, 1.1), CFrame = CFrame.new(p + Vector3.new(0, 6.5, 0)) * CFrame.Angles(0, math.rad(45), 0), Color = i % 2 == 0 and ROYAL or CRIMSON, Material = Enum.Material.Neon, CanCollide = false })
 		pointLight(lamp, lamp.Color, 2.2, 20)
 	end
 
-	-- ── The Wheel of Fate, at the back of the room facing -Z ──
-	local wheelCenter = c + Vector3.new(0, WHEEL_RADIUS + 2.2, 7)
-	buildWheel(model, wheelCenter, Vector3.new(0, 0, -1), rng)
+	-- ── The Wheel of Fate, at the back of the room facing the camera ──
+	local wheelCenter = at(Vector3.new(0, WHEEL_RADIUS + 2.2, 7))
+	buildWheel(model, wheelCenter, VIEW_FACING, rng)
 	local wheelSign = part(model, { Name = "WheelSign", Size = Vector3.new(0.2, 0.2, 0.2), Transparency = 1, CanCollide = false, CFrame = CFrame.new(wheelCenter + Vector3.new(0, WHEEL_RADIUS + 1, 0)) })
 	local wheelTitle, wheelStatus = billboard(model, wheelSign, "WHEEL OF FATE", GOLD_BRIGHT, 2.5)
 	wheelStatus.Text = "Bet · spin · pray"
 
 	-- Betting podium in front of the wheel with three stakes.
-	local podium = part(model, { Name = "BetPodium", Size = Vector3.new(9, 3, 2.4), CFrame = CFrame.new(c + Vector3.new(0, 1.5, 1.5)), Color = WOOD, Material = Enum.Material.WoodPlanks })
-	part(model, { Name = "PodiumTop", Size = Vector3.new(9.4, 0.25, 2.8), CFrame = CFrame.new(c + Vector3.new(0, 3.1, 1.5)), Color = Color3.fromRGB(20, 80, 45), Material = Enum.Material.Fabric })
+	local podium = part(model, { Name = "BetPodium", Size = Vector3.new(9, 3, 2.4), CFrame = CFrame.new(at(Vector3.new(0, 1.5, 1.5))) * R, Color = WOOD, Material = Enum.Material.WoodPlanks })
+	part(model, { Name = "PodiumTop", Size = Vector3.new(9.4, 0.25, 2.8), CFrame = CFrame.new(at(Vector3.new(0, 3.1, 1.5))) * R, Color = Color3.fromRGB(20, 80, 45), Material = Enum.Material.Fabric })
 	local spinning = false
 	for i, stake in ipairs({ 25, 50, 100 }) do
-		local chipPos = c + Vector3.new(-3 + (i - 1) * 3, 3.5, 1.5)
+		local chipPos = at(Vector3.new(-3 + (i - 1) * 3, 3.5, 1.5))
 		local chip = cyl(model, "Chip", chipPos, 0.4, 1.4, ({ Color3.fromRGB(230, 230, 230), CRIMSON, Color3.fromRGB(30, 30, 30) })[i], Enum.Material.SmoothPlastic)
 		cyl(model, "ChipRim", chipPos + Vector3.new(0, 0.01, 0), 0.42, 1.0, GOLD, Enum.Material.Metal, { CanCollide = false })
 		local p = prompt(chip, `Bet {stake} Gold`, "Wheel of Fate", 0.4)
@@ -746,6 +805,11 @@ local function buildGamble(room: Room, folder: Folder, rng: Random)
 			wheelStatus.Text = `{player.DisplayName} bets {stake}…`
 			-- Pick the result, then aim the wheel so that slice lands under the pointer.
 			local index = rng:NextInteger(1, #WHEEL)
+			-- Luck: a chance (3× luck, max 75%) to dodge a BUST / CURSE once.
+			local kind = WHEEL[index].kind
+			if (kind == "bust" or kind == "curse") and rng:NextNumber() < math.min(luckOf(player) * 3, 0.75) then
+				index = rng:NextInteger(1, #WHEEL)
+			end
 			local slice = WHEEL[index]
 			local sliceAngle = math.pi * 2 / #WHEEL
 			local from = model:GetAttribute("WheelAngle") or 0
@@ -760,7 +824,7 @@ local function buildGamble(room: Room, folder: Folder, rng: Random)
 			model:SetAttribute("WheelAngle", to)
 
 			local hum = playerHumanoid(player)
-			local at = wheelCenter + Vector3.new(0, 0, -1.5)
+			local at = wheelCenter + VIEW_FACING * 1.5
 			if slice.kind == "bust" then
 				pop(at, "BUST", Color3.fromRGB(190, 190, 200))
 				wheelStatus.Text = "The house thanks you."
@@ -796,8 +860,9 @@ local function buildGamble(room: Room, folder: Folder, rng: Random)
 	local podiumTitle, podiumStatus = billboard(model, podium, "PLACE YOUR BET", GOLD_BRIGHT, 3.2)
 	podiumStatus.Text = "×2 · ×3 · TOME · JACKPOT ×5 — or BUST / CURSE"
 
-	-- ── Double-or-Nothing altar, off to the side ──
-	local altarPos = c + Vector3.new(-10, 0, -5)
+	-- ── Double-or-Nothing altar, well off to the podium's left (level with
+	-- it, so its sign and prompt never sit over the betting chips) ──
+	local altarPos = at(Vector3.new(-12.5, 0, 1.5))
 	cyl(model, "AltarBase", altarPos + Vector3.new(0, 0.5, 0), 1, 5, STONE_DARK, Enum.Material.Slate)
 	cyl(model, "AltarColumn", altarPos + Vector3.new(0, 2, 0), 2.4, 2.6, Color3.fromRGB(30, 26, 36), Enum.Material.Basalt)
 	local coin = cyl(model, "FateCoin", altarPos + Vector3.new(0, 4.4, 0), 0.25, 1.8, GOLD_BRIGHT, Enum.Material.Metal, { CanCollide = false })
@@ -808,6 +873,7 @@ local function buildGamble(room: Room, folder: Folder, rng: Random)
 	altarStatus.Text = "Stake half your gold on a single toss"
 	local tossing = false
 	local altarPrompt = prompt(coin, "Toss the coin", "Half your gold", 0.8)
+	altarPrompt.MaxActivationDistance = 7
 	altarPrompt.Triggered:Connect(function(player)
 		if tossing then return end
 		local gold = player:GetAttribute("Gold") or 0
@@ -820,7 +886,8 @@ local function buildGamble(room: Room, folder: Folder, rng: Random)
 		player:SetAttribute("Gold", gold - stake)
 		roomEvent({ kind = "CoinToss", part = coin })
 		task.wait(1.6)
-		if rng:NextNumber() < 0.48 then
+		-- 48% base; each point of luck adds a point of win chance (max 75%).
+		if rng:NextNumber() < math.min(0.48 + luckOf(player), 0.75) then
 			player:SetAttribute("Gold", (player:GetAttribute("Gold") or 0) + stake * 2)
 			coins(coin.Position, 24)
 			burst(coin.Position, GOLD_BRIGHT, 1.6)

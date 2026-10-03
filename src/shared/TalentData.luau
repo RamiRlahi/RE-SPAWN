@@ -215,6 +215,82 @@ local TalentData: { [string]: Constellation } = {
 	},
 }
 
+-- Gunslinger: a revolver in profile — barrel, cylinder and raked grip.
+TalentData.gunslinger = {
+	name = "The Last Word",
+	lines = (function()
+		local out = {
+			{ 0.12, 0.36, 0.62, 0.36 }, -- barrel top
+			{ 0.12, 0.44, 0.62, 0.44 }, -- barrel bottom
+			{ 0.12, 0.36, 0.12, 0.44 }, -- muzzle
+			{ 0.62, 0.3, 0.8, 0.3 },    -- frame top
+			{ 0.8, 0.3, 0.84, 0.46 },   -- hammer back
+			{ 0.84, 0.46, 0.9, 0.82 },  -- grip back
+			{ 0.9, 0.82, 0.74, 0.86 },  -- grip butt
+			{ 0.74, 0.86, 0.68, 0.52 }, -- grip front
+			{ 0.68, 0.52, 0.6, 0.6 },   -- trigger guard
+			{ 0.6, 0.6, 0.54, 0.52 },
+			{ 0.8, 0.3, 0.86, 0.24 },   -- hammer spur
+		}
+		-- cylinder: a hexagon around (0.62, 0.44)
+		local cx, cy, r = 0.62, 0.44, 0.1
+		for i = 0, 5 do
+			local a1, a2 = math.rad(i * 60), math.rad(i * 60 + 60)
+			table.insert(out, { cx + math.cos(a1) * r, cy + math.sin(a1) * r, cx + math.cos(a2) * r, cy + math.sin(a2) * r })
+		end
+		return out
+	end)(),
+	nodes = {
+		{ id = "steady_hand", name = "Steady Hand", glyph = "✋", x = 0.62, y = 0.44, cost = 1,
+			description = "+5% Crit Chance", effect = { stat = "critChance", operation = "percent", value = 0.05 } },
+		{ id = "hot_barrel", name = "Hot Barrel", glyph = "🔥", x = 0.4, y = 0.4, cost = 2, requires = "steady_hand",
+			description = "+0.06× Damage", effect = { stat = "damage", operation = "multiplier", value = 0.06 } },
+		{ id = "quick_draw", name = "Quick Draw", glyph = "⚡", x = 0.84, y = 0.24, cost = 2, requires = "steady_hand",
+			description = "+12% Attack Speed", effect = { stat = "basicAttackSpeed", operation = "percent", value = 0.12 } },
+		{ id = "high_velocity", name = "High Velocity", glyph = "💨", x = 0.12, y = 0.4, cost = 3, requires = "hot_barrel",
+			description = "+15% Projectile Speed", effect = { stat = "projectileSpeed", operation = "percent", value = 0.15 } },
+		{ id = "light_boots", name = "Light Boots", glyph = "👢", x = 0.6, y = 0.6, cost = 3, requires = "steady_hand",
+			description = "+10% Move Speed", effect = { stat = "movementSpeed", operation = "percent", value = 0.1 } },
+		{ id = "trick_shooter", name = "Trick Shooter", glyph = "🪙", x = 0.9, y = 0.82, cost = 4, requires = "quick_draw",
+			description = "−10% Ability Cooldowns", effect = { stat = "abilityCooldown", operation = "percent", value = 0.1 } },
+		{ id = "tough_hide", name = "Tough Hide", glyph = "🛡️", x = 0.74, y = 0.86, cost = 4, requires = "light_boots",
+			description = "+40 Max HP", effect = { stat = "maxHealth", operation = "add", value = 40 } },
+		{ id = "deadeye_legend", name = "Deadeye Legend", glyph = "🎯", x = 0.12, y = 0.36, cost = 6, requires = "high_velocity",
+			description = "+0.1× Damage", effect = { stat = "damage", operation = "multiplier", value = 0.1 } },
+	},
+}
+
+-- Swordsman: a longsword pointing up — blade, crossguard, grip and pommel.
+TalentData.swordsman = {
+	name = "Dawnsteel",
+	lines = {
+		{ 0.5, 0.06, 0.44, 0.14 }, { 0.5, 0.06, 0.56, 0.14 }, -- tip
+		{ 0.44, 0.14, 0.44, 0.64 }, { 0.56, 0.14, 0.56, 0.64 }, -- blade edges
+		{ 0.5, 0.18, 0.5, 0.6 },                                 -- fuller
+		{ 0.24, 0.64, 0.76, 0.64 }, { 0.24, 0.64, 0.2, 0.6 }, { 0.76, 0.64, 0.8, 0.6 }, -- crossguard
+		{ 0.46, 0.64, 0.46, 0.84 }, { 0.54, 0.64, 0.54, 0.84 }, -- grip
+		{ 0.46, 0.84, 0.5, 0.9 }, { 0.54, 0.84, 0.5, 0.9 },     -- pommel
+	},
+	nodes = {
+		{ id = "keen_edge", name = "Keen Edge", glyph = "⚔️", x = 0.5, y = 0.64, cost = 1,
+			description = "+0.06× Damage", effect = { stat = "damage", operation = "multiplier", value = 0.06 } },
+		{ id = "flowing_form", name = "Flowing Form", glyph = "⚡", x = 0.5, y = 0.4, cost = 2, requires = "keen_edge",
+			description = "+12% Attack Speed", effect = { stat = "basicAttackSpeed", operation = "percent", value = 0.12 } },
+		{ id = "duelist_step", name = "Duelist's Step", glyph = "💨", x = 0.24, y = 0.64, cost = 2, requires = "keen_edge",
+			description = "+10% Move Speed", effect = { stat = "movementSpeed", operation = "percent", value = 0.1 } },
+		{ id = "iron_grip", name = "Iron Grip", glyph = "✊", x = 0.5, y = 0.84, cost = 2, requires = "keen_edge",
+			description = "+40 Max HP", effect = { stat = "maxHealth", operation = "add", value = 40 } },
+		{ id = "precise_cuts", name = "Precise Cuts", glyph = "🎯", x = 0.76, y = 0.64, cost = 3, requires = "keen_edge",
+			description = "+5% Crit Chance", effect = { stat = "critChance", operation = "percent", value = 0.05 } },
+		{ id = "blood_price", name = "Blood Price", glyph = "🩸", x = 0.5, y = 0.9, cost = 4, requires = "iron_grip",
+			description = "+4% Lifesteal", effect = { stat = "lifesteal", operation = "percent", value = 0.04 } },
+		{ id = "tempo", name = "Tempo", glyph = "⏳", x = 0.5, y = 0.18, cost = 4, requires = "flowing_form",
+			description = "−10% Ability Cooldowns", effect = { stat = "abilityCooldown", operation = "percent", value = 0.1 } },
+		{ id = "blade_saint", name = "Blade Saint", glyph = "✦", x = 0.5, y = 0.06, cost = 6, requires = "tempo",
+			description = "+0.1× Damage", effect = { stat = "damage", operation = "multiplier", value = 0.1 } },
+	},
+}
+
 local TalentModule = {}
 
 function TalentModule.Get(classId: string): Constellation?

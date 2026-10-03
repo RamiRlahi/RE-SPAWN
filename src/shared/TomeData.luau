@@ -5,7 +5,7 @@
 	the `effects` values rather than parsing the display text.
 --]]
 
-export type TomeCategory = "Base" | "Unlockable"
+export type TomeCategory = "Base" | "Unlockable" | "Gunslinger"
 export type TomeEffect = {
 	stat: string,
 	operation: "add" | "percent" | "multiplier" | "random",
@@ -19,6 +19,7 @@ export type TomeDefinition = {
 	category: TomeCategory,
 	description: string,
 	effects: { TomeEffect },
+	classId: string?, -- class-only upgrade (offered only to that class)
 }
 
 local TomeData: { [string]: TomeDefinition } = {
@@ -27,12 +28,12 @@ local TomeData: { [string]: TomeDefinition } = {
 		effects = { { stat = "movementSpeed", operation = "percent", value = 0.15, description = "+15% Movement Speed" } },
 	},
 	attack_speed = {
-		id = "attack_speed", name = "Attack Speed Tome", category = "Base", description = "+30% Basic Attack Speed",
-		effects = { { stat = "basicAttackSpeed", operation = "percent", value = 0.30, description = "+30% Basic Attack Speed" } },
+		id = "attack_speed", name = "Attack Speed Tome", category = "Base", description = "+15% Basic Attack Speed (max 2×)",
+		effects = { { stat = "basicAttackSpeed", operation = "percent", value = 0.15, description = "+15% Basic Attack Speed" } },
 	},
 	cooldown = {
-		id = "cooldown", name = "Cooldown Tome", category = "Base", description = "Decreases Ability Cooldowns",
-		effects = { { stat = "abilityCooldown", operation = "percent", value = 0.10, description = "-10% Ability Cooldowns" } },
+		id = "cooldown", name = "Cooldown Tome", category = "Base", description = "-8% Ability Cooldowns (max -50%)",
+		effects = { { stat = "abilityCooldown", operation = "percent", value = 0.08, description = "-8% Ability Cooldowns" } },
 	},
 	damage = {
 		id = "damage", name = "Damage Tome", category = "Base", description = "+0.08× Damage",
@@ -67,16 +68,21 @@ local TomeData: { [string]: TomeDefinition } = {
 		effects = { { stat = "healthRegenPerMinute", operation = "add", value = 40, description = "+40 HP Regen/min" } },
 	},
 	shield = {
-		id = "shield", name = "Shield Tome", category = "Base", description = "+25 Shield",
-		effects = { { stat = "shield", operation = "add", value = 25, description = "+25 Shield" } },
+		-- Extra HP on top of max HP, drawn white in the health bar (lost first).
+		id = "shield", name = "Shield Tome", category = "Base", description = "+25 Shield HP",
+		effects = { { stat = "shield", operation = "add", value = 25, description = "+25 Shield HP" } },
 	},
 	silver = {
 		id = "silver", name = "Silver Tome", category = "Base", description = "+12% Silver Gain",
 		effects = { { stat = "silverGain", operation = "percent", value = 0.12, description = "+12% Silver Gain" } },
 	},
+	ricochet = {
+		id = "ricochet", name = "Ricochet Tome", category = "Base", description = "+1 Ricochet",
+		effects = { { stat = "ricochet", operation = "add", value = 1, description = "Projectiles bounce to +1 nearby enemy" } },
+	},
 	size = {
-		id = "size", name = "Size Tome", category = "Base", description = "Doubles Size",
-		effects = { { stat = "size", operation = "percent", value = 1.0, description = "Doubles Size" } },
+		id = "size", name = "Size Tome", category = "Base", description = "+30% Ability Size (max +75%)",
+		effects = { { stat = "size", operation = "percent", value = 0.30, description = "+30% Ability Size" } },
 	},
 	armor = {
 		id = "armor", name = "Armor Tome", category = "Unlockable", description = "+12% Armor",
@@ -95,15 +101,21 @@ local TomeData: { [string]: TomeDefinition } = {
 		effects = { { stat = "randomStat", operation = "random", description = "Random Stat Boost" } },
 	},
 	cursed = {
-		id = "cursed", name = "Cursed Tome", category = "Unlockable", description = "+3.5% Difficulty",
-		effects = { { stat = "difficulty", operation = "percent", value = 0.035, description = "+3.5% Difficulty" } },
+		-- Risk for reward: mobs hit you harder, you earn that much more gold.
+		id = "cursed", name = "Cursed Tome", category = "Unlockable", description = "+15% Damage Taken, +15% Gold",
+		effects = {
+			{ stat = "difficulty", operation = "percent", value = 0.15, description = "+15% Damage Taken" },
+			{ stat = "goldGain", operation = "percent", value = 0.15, description = "+15% Gold Gain" },
+		},
 	},
 	duration = {
 		id = "duration", name = "Duration Tome", category = "Unlockable", description = "+15% Duration",
 		effects = { { stat = "abilityDuration", operation = "percent", value = 0.15, description = "+15% Duration" } },
 	},
 	luck = {
-		id = "luck", name = "Luck Tome", category = "Unlockable", description = "+7% Luck",
+		-- Read by SpecialRooms: better odds at the wheel, coin and well, fewer
+		-- chest traps, and higher-rank Vault chest loot.
+		id = "luck", name = "Luck Tome", category = "Unlockable", description = "+7% Luck: better gambles & chest loot",
 		effects = { { stat = "luck", operation = "percent", value = 0.07, description = "+7% Luck" } },
 	},
 	quantity = {
@@ -114,23 +126,29 @@ local TomeData: { [string]: TomeDefinition } = {
 		id = "thorns", name = "Thorns Tome", category = "Unlockable", description = "+15 Thorns Damage",
 		effects = { { stat = "thornsDamage", operation = "add", value = 15, description = "+15 Thorns Damage" } },
 	},
-	xp = {
-		id = "xp", name = "XP Tome", category = "Unlockable", description = "+7% XP Gain",
-		effects = { { stat = "xpGain", operation = "percent", value = 0.07, description = "+7% XP Gain" } },
-	},
+
 }
 
+-- Tomes that can be offered, granted or rolled (level-ups, the Wheel of Fate,
+-- the Chaos Tome all draw from this list). Disabled: armor, attraction and
+-- thorns (their stats aren't used in-game yet) and silver (no silver currency).
 local TomeOrder = {
 	"agility", "attack_speed", "cooldown", "damage", "evasion", "gold", "health",
-	"knockback", "precision", "projectile_speed", "regen", "shield", "silver", "size",
-	"armor", "attraction", "bloody", "chaos", "cursed", "duration", "luck", "quantity",
-	"thorns", "xp",
+	"knockback", "precision", "projectile_speed", "regen", "ricochet", "shield", "size",
+	"bloody", "chaos", "cursed", "duration", "luck", "quantity",
 }
 
 local TomeModule = {}
 
 function TomeModule.GetTome(id: string): TomeDefinition?
 	return TomeData[id]
+end
+
+-- Whether a tome can be offered to someone playing `classId` (class-only
+-- upgrades only go to their class).
+function TomeModule.IsForClass(id: string, classId: any): boolean
+	local tome = TomeData[id]
+	return tome ~= nil and (tome.classId == nil or tome.classId == classId)
 end
 
 function TomeModule.GetAll(includeUnlockable: boolean?): { TomeDefinition }
@@ -142,6 +160,58 @@ function TomeModule.GetAll(includeUnlockable: boolean?): { TomeDefinition }
 		end
 	end
 	return tomes
+end
+
+-- Distinct accent colour per buff (keyed by tome id).
+local BUFF_COLORS: { [string]: Color3 } = {
+	agility = Color3.fromRGB(120, 230, 140),
+	attack_speed = Color3.fromRGB(255, 160, 90),
+	cooldown = Color3.fromRGB(120, 190, 255),
+	damage = Color3.fromRGB(255, 100, 100),
+	evasion = Color3.fromRGB(185, 160, 255),
+	gold = Color3.fromRGB(255, 205, 80),
+	health = Color3.fromRGB(255, 120, 150),
+	knockback = Color3.fromRGB(205, 170, 120),
+	precision = Color3.fromRGB(255, 230, 120),
+	projectile_speed = Color3.fromRGB(130, 230, 230),
+	ricochet = Color3.fromRGB(255, 190, 90),
+	regen = Color3.fromRGB(120, 245, 180),
+	shield = Color3.fromRGB(150, 200, 255),
+	silver = Color3.fromRGB(210, 215, 230),
+	size = Color3.fromRGB(230, 170, 255),
+	armor = Color3.fromRGB(170, 190, 210),
+	attraction = Color3.fromRGB(255, 140, 220),
+	bloody = Color3.fromRGB(205, 45, 55),
+	chaos = Color3.fromRGB(200, 120, 255),
+	cursed = Color3.fromRGB(150, 85, 190),
+	duration = Color3.fromRGB(255, 180, 80),
+	luck = Color3.fromRGB(130, 230, 120),
+	quantity = Color3.fromRGB(255, 210, 140),
+	thorns = Color3.fromRGB(120, 180, 90),
+}
+
+function TomeModule.AccentFor(id: string?): Color3
+	if id and BUFF_COLORS[id] then return BUFF_COLORS[id] end
+	-- Gunslinger upgrades share a gunmetal-brass accent.
+	if id and string.sub(id, 1, 3) == "gs_" then return Color3.fromRGB(255, 176, 70) end
+	return Color3.fromRGB(255, 213, 128)
+end
+
+
+-- The blended colour of several tomes (e.g. a room reward offering them).
+function TomeModule.BlendColor(ids: { string }): Color3
+	if #ids == 0 then return Color3.fromRGB(255, 213, 128) end
+	local r, g, b = 0, 0, 0
+	for _, id in ipairs(ids) do
+		local c = TomeModule.AccentFor(id)
+		r += c.R
+		g += c.G
+		b += c.B
+	end
+	local c = Color3.new(r / #ids, g / #ids, b / #ids)
+	-- Averaging dulls colours; push saturation back up.
+	local h, sat, v = c:ToHSV()
+	return Color3.fromHSV(h, math.min(1, sat * 1.4 + 0.1), math.max(v, 0.85))
 end
 
 TomeModule.Tomes = TomeData

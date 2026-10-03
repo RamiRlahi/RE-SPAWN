@@ -144,6 +144,69 @@ AURAS.heavy_knight = function(c)
 	end)
 end
 
+AURAS.gunslinger = function(c)
+	local GOLD = Color3.fromRGB(255, 200, 96)
+	-- A revolver cylinder at the feet: a slow golden ring with six chambers.
+	local ring = groundRing(c.folder, c.ground, 3.6, 28, GOLD, 0.35, 0.18)
+	local chambers = {}
+	for i = 1, 6 do
+		chambers[i] = part(c.folder, { Shape = Enum.PartType.Ball, Size = Vector3.one * 0.55, Color = GOLD, Transparency = 0.15 })
+	end
+	-- A coin spinning over the off hand.
+	local coin = part(c.folder, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.12, 0.9, 0.9), Color = Color3.fromRGB(255, 205, 90),
+		Material = Enum.Material.Metal })
+	light(coin, GOLD, 1.2, 7)
+	-- Gunpowder haze drifting at knee height.
+	local haze = anchorAt(c.folder, CFrame.new(c.ground + Vector3.new(0, 0.8, 0)))
+	emitter(haze, { Texture = TEX_SPARKLE, Color = ColorSequence.new(Color3.fromRGB(255, 240, 200), GOLD), LightEmission = 1,
+		Size = seq(0, 0.2, 1, 0), Lifetime = NumberRange.new(1.2, 2), Speed = NumberRange.new(0.5, 1.5), Rate = 8 })
+	c.onStep(function(t)
+		ring(t * 0.35)
+		for i, ch in ipairs(chambers) do
+			local a = (i / 6) * math.pi * 2 + t * 0.35
+			ch.CFrame = CFrame.new(c.ground + Vector3.new(math.cos(a) * 3.6, 0.2, math.sin(a) * 3.6))
+		end
+		local hand = c.root.Position - c.right * 1.4 + c.fwd * 0.8 + Vector3.new(0, 1.2 + math.sin(t * 2) * 0.25, 0)
+		coin.CFrame = CFrame.new(hand) * CFrame.Angles(0, t * 4, 0) * CFrame.Angles(t * 7, 0, 0) * CFrame.Angles(0, 0, math.rad(90))
+	end)
+end
+
+AURAS.swordsman = function(c)
+	local GOLD = Color3.fromRGB(255, 214, 120)
+	local WHITE = Color3.fromRGB(255, 250, 235)
+	-- Two counter-turning rings at the feet, and six spectral blades orbiting
+	-- point-down around the Swordsman (the storm about to break). No lights.
+	local ringA = groundRing(c.folder, c.ground, 3.6, 28, GOLD, 0.45, 0.12)
+	local ringB = groundRing(c.folder, c.ground, 2.4, 20, WHITE, 0.6, 0.08)
+	-- Four small, faint spectral swords hanging point-down, drifting round:
+	-- a thin blade, a gold guard and a short grip each.
+	local swords = {}
+	for i = 1, 4 do
+		swords[i] = {
+			blade = part(c.folder, { Size = Vector3.new(0.2, 1.7, 0.05), Color = WHITE, Transparency = 0.4 }),
+			guard = part(c.folder, { Size = Vector3.new(0.62, 0.07, 0.06), Color = GOLD, Transparency = 0.3 }),
+			grip = part(c.folder, { Size = Vector3.new(0.07, 0.42, 0.07), Color = GOLD, Transparency = 0.45 }),
+		}
+	end
+	local motes = anchorAt(c.folder, CFrame.new(c.ground + Vector3.new(0, 0.6, 0)))
+	emitter(motes, { Texture = TEX_SPARKLE, Color = ColorSequence.new(WHITE, GOLD), LightEmission = 1,
+		Size = seq(0, 0.16, 1, 0), Lifetime = NumberRange.new(1.2, 2), Speed = NumberRange.new(0.5, 1.2),
+		EmissionDirection = Enum.NormalId.Top, SpreadAngle = Vector2.new(40, 40), Rate = 6 })
+	c.onStep(function(t)
+		ringA(t * 0.4)
+		ringB(-t * 0.7)
+		for i, s in ipairs(swords) do
+			local a = (i / 4) * math.pi * 2 + t * 0.45
+			local base = c.ground + Vector3.new(math.cos(a) * 3.9, 1.9 + math.sin(t * 1.6 + i * 1.7) * 0.2, math.sin(a) * 3.9)
+			-- Face outward so the flat of the blade reads from the front.
+			local cf = CFrame.lookAt(base, Vector3.new(c.ground.X, base.Y, c.ground.Z)) * CFrame.Angles(0, 0, math.rad(math.sin(t + i) * 6))
+			s.blade.CFrame = cf
+			s.guard.CFrame = cf * CFrame.new(0, 0.88, 0)
+			s.grip.CFrame = cf * CFrame.new(0, 1.12, 0)
+		end
+	end)
+end
+
 AURAS.ranger = function(c)
 	local LEAF = Color3.fromRGB(155, 245, 75)
 	local BARK = Color3.fromRGB(60, 92, 42)

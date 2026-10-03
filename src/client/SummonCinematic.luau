@@ -128,7 +128,7 @@ local function findStage(): CFrame?
 	return nil
 end
 
--- Hide the real character on this client while the stand-in performs.
+-- Hide the real character on this client during the summon.
 local function setCharacterHidden(char: Model, hidden: boolean)
 	for _, d in ipairs(char:GetDescendants()) do
 		if d:IsA("BasePart") or d:IsA("Decal") then
@@ -211,41 +211,17 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 	local world = Instance.new("Folder")
 	world.Name = "SummonCinematic"
 	world.Parent = Workspace.Terrain
-	-- Isolated stage in the church; a stand-in of the character summons there.
+	-- Isolated stage in the church; no summoner rig, just the reveal.
 	local stageCF = findStage() or CFrame.lookAt(root.Position - Vector3.new(0, 3, 0), root.Position - Vector3.new(0, 3, 0) + root.CFrame.LookVector)
 	local base = stageCF.Position + Vector3.new(0, 3, 0)
 	local fwd = Vector3.new(stageCF.LookVector.X, 0, stageCF.LookVector.Z).Unit
 	setCharacterHidden(char, true)
-	local summoner = Instance.new("Model")
-	do
-		local was = char.Archivable
-		char.Archivable = true
-		local copy = char:Clone()
-		char.Archivable = was
-		if copy then
-			for _, d in ipairs(copy:GetDescendants()) do
-				if d:IsA("BaseScript") or d:IsA("Sound") then d:Destroy() end
-				if d:IsA("BasePart") then
-					d.CanCollide = false
-					d.Anchored = d.Name == "HumanoidRootPart"
-					d.LocalTransparencyModifier = 0
-				elseif d:IsA("Decal") then
-					d.LocalTransparencyModifier = 0
-				end
-			end
-			local h = copy:FindFirstChildOfClass("Humanoid")
-			if h then h.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None end
-			summoner = copy
-			summoner.Parent = world
-			summoner:PivotTo(CFrame.lookAt(base, base + fwd))
-		end
-	end
 	local right = fwd:Cross(Vector3.yAxis).Unit
 	local ground = base - Vector3.new(0, 3, 0)
 	do
 		local rp = RaycastParams.new()
 		rp.FilterType = Enum.RaycastFilterType.Exclude
-		rp.FilterDescendantsInstances = { char, world, summoner }
+		rp.FilterDescendantsInstances = { char, world }
 		local hit = Workspace:Raycast(base, Vector3.new(0, -12, 0), rp)
 		if hit then ground = hit.Position end
 	end
@@ -528,7 +504,7 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 		reveal(stagger)
 	end
 	local function nameCard(hidden: boolean?)
-		nameLabel.Text = if hidden then "???" else `✦ {string.upper(reward.name)} ✦`
+		nameLabel.Text = if hidden then "???" else string.upper(reward.name)
 		nameLabel.TextColor3 = if hidden then Color3.new(1, 1, 1) else accent
 		rarityLabel.Text = if hidden then "" else string.upper(rarity)
 		rarityLabel.TextColor3 = rarityColor
@@ -549,13 +525,8 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 				CFrame = CFrame.new(revealAt + right * k * 3 + Vector3.new(0, 45, 0)) * CFrame.Angles(0, 0, math.rad(90 + k * 8)) })
 			tween(b, 0.6, { Transparency = 1 }, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 		end
-		local spinT0 = os.clock()
-		while os.clock() - spinT0 < 0.8 do
-			local a = (os.clock() - spinT0) / 0.8
-			placeFigure(revealAt, (1 - a) ^ 2 * math.pi * 6)
-			RunService.RenderStepped:Wait()
-		end
 		placeFigure(revealAt, 0)
+		task.wait(0.8)
 		flashWhite(0.04)
 		revealColors(0.25)
 		nameCard()
@@ -673,16 +644,15 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?)
 			layRing(sigilRings[1], sigilCF * CFrame.Angles(math.rad(90), 0, 0) * CFrame.Angles(0, t * 0.4, 0), 11 * grow, 0.5)
 			layRing(sigilRings[2], sigilCF * CFrame.Angles(math.rad(90), 0, 0) * CFrame.Angles(0, -t * 0.6, 0), 7.5 * grow, 0.3, true)
 		end)
-		-- The figure walks (or descends) forward through the light; camera circles.
+		-- The figure walks (or descends) forward through the light; camera holds in front.
 		local startPos = if rarity == "Mythic" then revealAt + Vector3.new(0, 26, 0) else revealAt - fwd * 6
 		local walkT0 = os.clock()
 		local WALK = if rarity == "Mythic" then 3.4 else 3
 		task.spawn(function()
 			while os.clock() - walkT0 < WALK do
 				local a = (os.clock() - walkT0) / WALK
-				local orbit = math.rad(-60 + 120 * a)
-				local offset = (CFrame.Angles(0, orbit, 0) * (fwd * 10)) + Vector3.new(0, 2.5 - a, 0)
-				camPos = revealAt + offset
+				-- Fixed front view (no orbit), easing in slightly.
+				camPos = revealAt + fwd * (11 - a) + Vector3.new(0, 2.5 - a, 0)
 				camLook = revealAt + Vector3.new(0, 1.3, 0)
 				camFov = 48
 				RunService.RenderStepped:Wait()
@@ -773,7 +743,7 @@ function SummonCinematic.Showcase(reward: any, onDone: (() -> ())?)
 		t.Text = str
 		t.Parent = gui
 	end
-	label(`✦ {string.upper(reward.name)} ✦`, 44, 0.8, accent, Enum.Font.Antique)
+	label(string.upper(reward.name), 44, 0.8, accent, Enum.Font.Antique)
 	label(string.upper(reward.rarity), 22, 0.87, rarityColor, Enum.Font.GothamBold)
 	label(reward.description or "", 16, 0.92, Color3.fromRGB(220, 220, 230), Enum.Font.GothamMedium)
 	label("Click to continue", 14, 0.97, Color3.fromRGB(150, 150, 160), Enum.Font.Gotham)
@@ -782,8 +752,7 @@ function SummonCinematic.Showcase(reward: any, onDone: (() -> ())?)
 	local t0 = os.clock()
 	local done = false
 	local conn = RunService.RenderStepped:Connect(function()
-		local t = os.clock() - t0
-		local orbit = CFrame.Angles(0, math.rad(-35) + t * 0.45, 0) * (fwd * 8.5)
+		local orbit = fwd * 8.5 -- fixed front view, like the class-select screen
 		camera.CFrame = CFrame.lookAt(base + orbit + Vector3.new(0, 1.6, 0), base + Vector3.new(0, 0.9, 0))
 		camera.FieldOfView = 50
 	end)

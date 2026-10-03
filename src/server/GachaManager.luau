@@ -12,8 +12,8 @@
 	     losing that guarantees the featured one on the next Legendary.
 	  5. A 10-pull always contains at least one Rare-or-better.
 
-	Duplicates never waste: characters → Soul Shards, exclusives → Ascension
-	(then Sigils), relics → levels (then Relic Dust), cosmetics → Relic Dust.
+	Duplicates never waste: characters, VFX variants and armor → Soul Shards,
+	relics → levels (then Relic Dust), cosmetics → Relic Dust.
 
 	Premium: crystal Developer Products are granted idempotently in
 	ProcessReceipt. Crystal (paid) summons are blocked for players whose
@@ -29,6 +29,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local GachaConfig = require(Shared:WaitForChild("GachaConfig"))
 local GachaRewards = require(Shared:WaitForChild("GachaRewards"))
+local ClassData = require(Shared:WaitForChild("ClassData"))
 local PlayerData = require(script.Parent:WaitForChild("PlayerData"))
 local TalentManager = require(script.Parent:WaitForChild("TalentManager"))
 
@@ -48,9 +49,30 @@ local function pityFor(p: any, bannerId: string)
 	return pity
 end
 
+-- Clients recolour a player's ability VFX from this attribute (VariantFX).
+local function refreshVariantAttribute(player: Player)
+	local classId = player:GetAttribute("SelectedClass")
+	local id = if typeof(classId) == "string" then GachaManager.GetVariant(player, classId) else nil
+	player:SetAttribute("Variant", id)
+end
+
+-- Armor_<classId> = true while that class's armor is owned and equipped; the
+-- server dresses characters from it and the class-select preview reads it.
+local function refreshArmorAttributes(player: Player, p: any)
+	for _, classId in ipairs(ClassData.Order) do
+		local id = p.equipped.armor[classId]
+		local r = id and GachaRewards.Get(id)
+		local worn = GachaRewards.BuiltInArmor[classId] == true
+			or (r ~= nil and r.type == "armor" and p.collection.cosmetics[id] == true)
+		player:SetAttribute(`Armor_{classId}`, if worn then true else nil)
+	end
+end
+
 local function sync(player: Player)
 	local p = PlayerData.Get(player)
 	if not p then return end
+	refreshVariantAttribute(player)
+	refreshArmorAttributes(player, p)
 	player:SetAttribute("Tickets", p.currencies.tickets or 0)
 	player:SetAttribute("Crystals", p.currencies.crystals or 0)
 	local products = {}
@@ -142,20 +164,27 @@ local function grant(p: any, reward: any): (boolean, string)
 		local shards = D.characterShards[reward.rarity] or 5
 		addCurrency(p, "soulShards", shards)
 		return false, `+{shards} Soul Shards`
-	elseif reward.type == "exclusive" then
+	elseif reward.type == "variant" then
+		-- Stored with the characters (older saves keep working).
 		local c = p.collection.characters[reward.id]
 		if not c then
 			p.collection.characters[reward.id] = { copies = 1, ascension = 0 }
-			return true, "NEW CHARACTER"
+			return true, "NEW VFX VARIANT"
 		end
 		c.copies += 1
-		if c.ascension < D.maxAscension then
-			c.ascension += 1
-			return false, `Ascension {c.ascension}/{D.maxAscension}`
+		local shards = D.variantShards[reward.rarity] or 30
+		addCurrency(p, "soulShards", shards)
+		return false, `+{shards} Soul Shards`
+	elseif reward.type == "armor" then
+		-- Stored with the titles; the first copy is put on straight away.
+		if not p.collection.cosmetics[reward.id] then
+			p.collection.cosmetics[reward.id] = true
+			if reward.classId then p.equipped.armor[reward.classId] = reward.id end
+			return true, "NEW ARMOR"
 		end
-		local sigils = D.ascensionOverflow[reward.rarity] or 2
-		addCurrency(p, "ascension", sigils)
-		return false, `+{sigils} Ascension Sigils`
+		local shards = D.characterShards[reward.rarity] or 25
+		addCurrency(p, "soulShards", shards)
+		return false, `+{shards} Soul Shards`
 	elseif reward.type == "relic" then
 		local r = p.collection.relics[reward.id]
 		if not r then
@@ -261,10 +290,21 @@ local function action(player: Player, payload: any)
 		local id = payload.id
 		if id == nil then
 			p.equipped.variants[payload.classId] = nil
+		elseif typeof(id) == "string" and ClassData.GetClass(payload.classId) then
+			local r = GachaRewards.Get(id)
+			-- Class-bound variants fit their class; universal ones (no classId) fit any.
+			if r and r.type == "variant" and (r.classId == nil or r.classId == payload.classId) and p.collection.characters[id] then
+				p.equipped.variants[payload.classId] = id
+			end
+		end
+	elseif kind == "equipArmor" and typeof(payload.classId) == "string" and ClassData.GetClass(payload.classId) then
+		local id = payload.id
+		if id == nil then
+			p.equipped.armor[payload.classId] = nil
 		elseif typeof(id) == "string" then
 			local r = GachaRewards.Get(id)
-			if r and r.type == "exclusive" and r.classId == payload.classId and p.collection.characters[id] then
-				p.equipped.variants[payload.classId] = id
+			if r and r.type == "armor" and r.classId == payload.classId and p.collection.cosmetics[id] then
+				p.equipped.armor[payload.classId] = id
 			end
 		end
 	elseif kind == "refineShards" then
@@ -274,6 +314,25 @@ local function action(player: Player, payload: any)
 			p.currencies.soulShards -= souls * per
 			TalentManager.AwardSouls(player, souls)
 		end
+	elseif kind == "buyShopItem" and typeof(payload.id) == "string" and typeof(payload.pay) == "string" then
+		local item
+		for _, it in ipairs(GachaConfig.ShopItems) do
+			if it.id == payload.id then item = it end
+		end
+		local reward = item and GachaRewards.Get(item.id)
+		local price = item and item.price[payload.pay]
+		if not (reward and price) then return end
+		local function fail(message: string)
+			Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { error = message })
+		end
+		if p.collection.characters[reward.id] or p.collection.relics[reward.id] or p.collection.cosmetics[reward.id] then
+			return fail(`You already own {reward.name}.`)
+		end
+		if (p.currencies[payload.pay] or 0) < price then
+			return fail(`Not enough {GachaConfig.Currencies[payload.pay].name}`)
+		end
+		p.currencies[payload.pay] -= price
+		grant(p, reward)
 	elseif kind == "buyCrystals" and typeof(payload.id) == "string" then
 		for _, prod in ipairs(GachaConfig.CrystalProducts) do
 			if prod.id == payload.id and prod.productId > 0 then
@@ -301,13 +360,6 @@ function GachaManager.GetEffects(player: Player, classId: string): { any }
 		local r = GachaRewards.Get(id)
 		if r and r.type == "character" and r.classId == classId then addScaled(r.effects, 1) end
 	end
-	-- Equipped exclusive variant, scaled by ascension.
-	local variantId = p.equipped.variants[classId]
-	local variant = variantId and GachaRewards.Get(variantId)
-	local owned = variantId and p.collection.characters[variantId]
-	if variant and owned then
-		addScaled(variant.effects, 1 + owned.ascension * GachaConfig.AscensionBonus)
-	end
 	-- Equipped relics, scaled by level.
 	for _, relicId in ipairs(p.equipped.relics) do
 		local relic = GachaRewards.Get(relicId)
@@ -319,10 +371,13 @@ function GachaManager.GetEffects(player: Player, classId: string): { any }
 	return out
 end
 
--- Active exclusive variant (for titles / colours in-game).
+-- Equipped VFX variant for a class (nil if none, or no longer owned).
 function GachaManager.GetVariant(player: Player, classId: string): string?
 	local p = PlayerData.Get(player)
-	return p and p.equipped.variants[classId] or nil
+	local id = p and p.equipped.variants[classId]
+	if not id or not p.collection.characters[id] then return nil end
+	local r = GachaRewards.Get(id)
+	return if r and r.type == "variant" then id else nil
 end
 
 -- ─── Earning tickets through gameplay ───────────────────────────────────────
@@ -386,8 +441,28 @@ function GachaManager.Init()
 			for k, v in pairs(GachaConfig.StartingCurrencies) do addCurrency(p, k, v) end
 			PlayerData.MarkDirty(player)
 		end
+		-- Drop anything whose reward no longer exists (removed rewards, and the
+		-- old Ascension Sigil currency) so saves only hold live items.
+		local cleaned = false
+		for id in pairs(p.collection.characters) do
+			if not GachaRewards.Get(id) then p.collection.characters[id] = nil; cleaned = true end
+		end
+		for classId, id in pairs(p.equipped.variants) do
+			if not p.collection.characters[id] then p.equipped.variants[classId] = nil; cleaned = true end
+		end
+		for id in pairs(p.collection.relics) do
+			if not GachaRewards.Get(id) then p.collection.relics[id] = nil; cleaned = true end
+		end
+		for i = #p.equipped.relics, 1, -1 do
+			if not GachaRewards.Get(p.equipped.relics[i]) then table.remove(p.equipped.relics, i); cleaned = true end
+		end
+		if p.currencies.ascension then p.currencies.ascension = nil; cleaned = true end
+		if cleaned then PlayerData.MarkDirty(player) end
 		local ok, info = pcall(function() return PolicyService:GetPolicyInfoForPlayerAsync(player) end)
 		restricted[player] = ok and info and info.ArePaidRandomItemsRestricted == true or false
+		player:GetAttributeChangedSignal("SelectedClass"):Connect(function()
+			refreshVariantAttribute(player)
+		end)
 		sync(player)
 	end)
 	Players.PlayerRemoving:Connect(function(player)

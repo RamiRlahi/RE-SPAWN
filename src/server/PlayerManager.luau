@@ -11,11 +11,18 @@ local ClassManager = require(script.Parent:WaitForChild("ClassManager"))
 local AnimationManager = require(script.Parent:WaitForChild("AnimationManager"))
 local PlayerStats = require(script.Parent:WaitForChild("PlayerStats"))
 local ClassArmor = require(Shared:WaitForChild("ClassArmor"))
-
-local function equipClassArmor(character: Model, classId: string)
-	ClassArmor.Equip(character, classId)
-end
 local IceCape = require(Shared:WaitForChild("IceCape"))
+
+-- Class armor (the Ice Mage's is its cape) is a summon reward: without it the
+-- character keeps its own avatar (the weapon is equipped by WeaponManager).
+local function equipClassArmor(character: Model, classId: string)
+	local player = Players:GetPlayerFromCharacter(character)
+	if not player or player:GetAttribute(`Armor_{classId}`) ~= true then return end
+	ClassArmor.Equip(character, classId)
+	if classId == "ice_mage" then
+		IceCape.Attach(character)
+	end
+end
 
 
 local PlayerManager = {}
@@ -45,7 +52,6 @@ local function setupCharacter(player: Player, character: Model)
 
 	-- Attach player torch light & embers, and visual outline
 	AtmosphereManager.AttachTorchLight(character)
-	AtmosphereManager.AttachCharacterOutline(character)
 
 	local inLobby = player:GetAttribute("InLobby")
 	if inLobby == nil or inLobby == true then
@@ -68,9 +74,6 @@ local function setupCharacter(player: Player, character: Model)
 			humanoid.MaxHealth = maxHp
 			humanoid.Health = maxHp
 			task.spawn(equipClassArmor, character, selectedClass)
-			if selectedClass == "ice_mage" then
-				task.spawn(IceCape.Attach, character)
-			end
 		end
 		rootPart.Anchored = false
 		humanoid.WalkSpeed = 16
@@ -164,9 +167,6 @@ function PlayerManager.Init()
 
 			-- Equip permanent server-side armor
 			equipClassArmor(character, classId)
-			if classId == "ice_mage" then
-				IceCape.Attach(character)
-			end
 		end
 		PlayerStats.StartRun(player)
 

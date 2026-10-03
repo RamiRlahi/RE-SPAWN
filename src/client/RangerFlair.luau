@@ -14,6 +14,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local Workspace = game:GetService("Workspace")
+local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
 
 local BARK_DARK = Color3.fromRGB(46, 72, 32)
 local BARK = Color3.fromRGB(64, 98, 44)
@@ -65,7 +66,7 @@ end
 
 local function att(pos: Vector3): Attachment
 	local a = Instance.new("Attachment")
-	a.Parent = Workspace.Terrain
+	a.Parent = VariantFX.Root()
 	a.WorldPosition = pos
 	return a
 end
@@ -302,7 +303,7 @@ function RangerFlair.playUltWindup(char: Model)
 	if not root then return end
 	local folder = Instance.new("Folder")
 	folder.Name = "RangerUltWindup"
-	folder.Parent = Workspace.Terrain
+	folder.Parent = VariantFX.Root()
 	local center = groundAt(root.Position)
 
 	-- Gathering: green motes spiral into the bow before the slam.

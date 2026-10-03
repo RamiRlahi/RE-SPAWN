@@ -70,6 +70,20 @@ CastPoses.resolveMotors = resolveMotors
 local active: { [Model]: any } = {}
 local conn: RBXScriptConnection? = nil
 
+-- Whether a pose sequence is running on `char` (continuous pose layers, like
+-- the Berserker's two-handed hold, step aside for it).
+function CastPoses.isPlaying(char: Model): boolean
+	return active[char] ~= nil
+end
+
+-- Layers that run every frame right after the sequences have posed the body
+-- (e.g. the Berserker keeping both hands on his greatsword in every attack).
+local postHooks: { (number) -> () } = {}
+local lastStep = os.clock()
+
+-- Stage easing. Beyond the defaults:
+--   Quad  smooth in-out (weight shifts, wind-ups, recoveries)
+--   Quart accelerating in (a strike: slow start, fastest at the hit)
 local function ease(style: Enum.EasingStyle, a: number): number
 	if style == Enum.EasingStyle.Back then
 		local c1, c3 = 1.70158, 2.70158
@@ -78,6 +92,10 @@ local function ease(style: Enum.EasingStyle, a: number): number
 		return a
 	elseif style == Enum.EasingStyle.Sine then
 		return -(math.cos(math.pi * a) - 1) / 2
+	elseif style == Enum.EasingStyle.Quad then
+		return if a < 0.5 then 2 * a * a else 1 - (-2 * a + 2) ^ 2 / 2
+	elseif style == Enum.EasingStyle.Quart then
+		return a ^ 3
 	end
 	return 1 - (1 - a) ^ 3 -- Cubic out: snappy attack, soft settle
 end
@@ -122,25 +140,59 @@ local function step()
 			combined[m.motor] = (combined[m.motor] or CFrame.identity) * local_
 		end
 		seqState.current = current
-		for motor, cf in pairs(combined) do
-			motor.Transform = motor.Transform * cf
+		if seqState.absolute then
+			-- Absolute: the pose replaces the animation, blended in over the
+			-- first stage and back out to the animation over the recovery.
+			local w = 1
+			if idx == 1 then
+				w = seqState.w0 + (1 - seqState.w0) * e
+			elseif idx == #stages then
+				w = 1 - e
+			end
+			seqState.weight = w
+			for motor, cf in pairs(combined) do
+				motor.Transform = motor.Transform:Lerp(cf, w)
+			end
+		else
+			for motor, cf in pairs(combined) do
+				motor.Transform = motor.Transform * cf
+			end
 		end
 
 		if elapsed >= seqState.total then
 			active[char] = nil
 		end
 	end
-	if next(active) == nil and conn then
+	local dt = math.min(now - lastStep, 0.1)
+	lastStep = now
+	for _, hook in ipairs(postHooks) do
+		local ok, err = pcall(hook, dt)
+		if not ok then warn("[CastPoses] post hook:", err) end
+	end
+	if next(active) == nil and #postHooks == 0 and conn then
 		conn:Disconnect()
 		conn = nil
 	end
 end
 
-function CastPoses.play(char: Model?, stages: { Stage })
+function CastPoses.addPostHook(fn: (number) -> ())
+	table.insert(postHooks, fn)
+	if not conn then
+		conn = RunService.Stepped:Connect(step)
+	end
+end
+
+-- `recover`: seconds to ease back to neutral afterwards (default 0.22; heavy
+-- weapons settle slower).
+-- `absolute`: the pose REPLACES the playing animation on every joint (blended
+-- in over the first stage, back out over the recovery) instead of being added
+-- on top of it: for full-body moves on characters whose own animations hold
+-- the limbs far from neutral (e.g. the Fire Knight carrying his greatsword).
+function CastPoses.play(char: Model?, stages: { Stage }, recover: number?, absolute: boolean?)
 	if not char then return end
 	local prev = active[char]
 	local seqStages = table.clone(stages)
-	table.insert(seqStages, { dur = 0.22, pose = {}, style = Enum.EasingStyle.Sine })
+	table.insert(seqStages, { dur = recover or 0.22, pose = {}, style = Enum.EasingStyle.Sine })
 	local total = 0
 	for _, st in ipairs(seqStages) do total += st.dur end
 	active[char] = {
@@ -149,6 +201,10 @@ function CastPoses.play(char: Model?, stages: { Stage })
 		total = total,
 		fromPose = prev and prev.current or {},
 		motors = prev and prev.motors or resolveMotors(char),
+		absolute = absolute == true,
+		-- An absolute move interrupting another carries on from its weight.
+		w0 = if prev and prev.absolute then (prev.weight or 0) else 0,
+		weight = 0,
 	}
 	if not conn then
 		-- Stepped runs after the Animator has applied this frame's tracks.
@@ -408,6 +464,15 @@ local ULT_PREVIEW_POSES: { [string]: Pose } = {
 	end)(),
 	-- Blizzard: standing still and menacing, staring ahead.
 	ice_mage = MENACE,
+	-- High Noon: revolver arm straight out, off hand hovering over the hammer,
+	-- chin down under the hat brim, feet planted wide.
+	gunslinger = { RS = { 90, 0, 0 }, LS = { 42, 0, 28 }, LE = { 30, 0, 0 },
+		W = { 0, -18, 0 }, N = { -10, 16, 0 }, RH = { 6, 0, 10 }, LH = { -6, 0, -10 } },
+	-- Blade Storm: the sword planted point-down in front (ClassSelectionScreen
+	-- stands it there), both hands folded on the hilt, looking straight ahead, feet
+	-- together. The arms are aimed so the hands meet at the grip.
+	swordsman = { RS = { 67.9, -4, -42.8 }, LS = { 67.9, 4, 42.8 },
+		W = { -4, 0, 0 }, N = { 4, 0, 0 } },
 }
 
 function CastPoses.holdUltPreview(char: Model?, classId: string): boolean
