@@ -29,6 +29,7 @@ Network.Remotes = {
 	SummonResult        = "SummonResult",    -- server → client: { results = { {id, rarity, isNew, note} }, best } | { error }
 	GachaAction         = "GachaAction",     -- client → server: equipRelic / unequipRelic / equipVariant / refineShards / buyCrystals
 	RequestGacha        = "RequestGacha",    -- client → server: ask for a GachaState sync
+	SummonAnnounce      = "SummonAnnounce",  -- server → all clients: { userId, name, id, rarity } someone wished a Legendary or better
 	TalentState         = "TalentState",     -- server → client: { souls, unlocked = { [classId] = { [nodeId] = true } } }
 	UnlockTalent        = "UnlockTalent",    -- client → server: { classId, nodeId }
 	RequestTalents      = "RequestTalents",  -- client → server: ask for a TalentState sync

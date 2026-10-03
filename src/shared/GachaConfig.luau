@@ -82,6 +82,16 @@ GachaConfig.Duplicates = {
 	cosmeticDust = { Rare = 15, Epic = 40, Legendary = 100 },
 }
 
+-- ── Daily wish: one free single summon per day (resets at 00:00 UTC) ───────
+GachaConfig.DailyFree = { enabled = true, pulls = 1 }
+
+-- ── Starlight (spark): every summon on a banner earns Starlight there; spend
+-- it on any Epic-or-better reward of that banner you don't own yet. ───────────
+GachaConfig.Spark = { perPull = 1, cost = 90, minRarity = "Epic" }
+
+-- ── Lobby flex: summons of this rarity or better are announced server-wide ──
+GachaConfig.AnnounceRarity = "Legendary"
+
 -- ── Equipment ────────────────────────────────────────────────────────────────
 GachaConfig.RelicSlots = 3
 GachaConfig.RelicLevelBonus = 0.25 -- each relic level above 1 adds +25% of its base effect

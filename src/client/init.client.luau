@@ -20,6 +20,9 @@ end)
 
 TomeController.Init()
 VariantFX.Init() -- recolours ability VFX with each player's equipped VFX variant
+pcall(function()
+	require(script:WaitForChild("SummonAnnouncer")).Init() -- others' Legendary wishes: a banner + a beam on them
+end)
 
 -- Disable default Roblox Backpack UI
 task.spawn(function()
