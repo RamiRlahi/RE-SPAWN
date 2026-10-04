@@ -10,10 +10,12 @@
 	              onto the island, where its card appears. A star's colour
 	              hints its rarity, but never above Epic: grab a Legendary and
 	              it bursts gold in your hand (and fights you on the way down)
-	  3 SKY       a Rare or better draws its constellation across the sky as
-	              it lands: Rare a small one, Epic a crown, Legendary a hero
-	              raising a sword (everything goes quiet, line by line, then
-	              the sky turns gold), Mythic a dragon and an aurora
+	  3 SKY       a landing star draws its rarity's constellation across the
+	              sky: Common the Wolf, (Uncommon the Dragon), Rare the Kraken,
+	              Epic the Leviathan, Legendary the Celestial Dragon (everything
+	              goes quiet, line by line, then the sky turns gold), Mythic
+	              the Galaxy. Each shows once a wish, all in one place: a rarer
+	              one draws itself over the one shown, which fades beneath it
 	  4 REVEAL    once every star is down, an Epic or better comes down as a
 	              figure in a column of starlight; name, a row of stars, and
 	              it waits for a click
@@ -48,40 +50,105 @@ local STARLIGHT = Color3.fromRGB(235, 240, 255)
 local ORIGIN = Vector3.new(0, 4200, 0) -- the island, far above the map
 local ORDER = GachaConfig.RarityOrder
 
--- Constellations: points (x right, y up, about -1..1) and the lines between them.
+-- Constellations, one per rarity: drawn as polylines (x right, y up, about
+-- -1..1), turned into stars (points) and the lines between them. A wish shows
+-- each at most once; a rarer one drawn later outshines the one before it.
 type Shape = { points: { Vector2 }, edges: { { number } }, scale: number }
+local function shapeOf(lines: { { { number } } }, scale: number): Shape
+	local points: { Vector2 } = {}
+	local edges: { { number } } = {}
+	local function idx(p: { number }): number
+		for i, q in ipairs(points) do
+			if math.abs(q.X - p[1]) < 1e-3 and math.abs(q.Y - p[2]) < 1e-3 then return i end
+		end
+		table.insert(points, Vector2.new(p[1], p[2]))
+		return #points
+	end
+	for _, line in ipairs(lines) do
+		local prev: number? = nil
+		for _, p in ipairs(line) do
+			local i = idx(p)
+			if prev and prev ~= i then table.insert(edges, { prev, i }) end
+			prev = i
+		end
+	end
+	return { points = points, edges = edges, scale = scale }
+end
+
+local function spiralArms(): { { { number } } }
+	local arms = {}
+	for arm = 0, 1 do
+		local line = { { 0, 0 } }
+		for k = 1, 12 do
+			local a = k * 0.52 + arm * math.pi
+			local r = 0.05 + k * 0.07
+			table.insert(line, { math.cos(a) * r * 1.3, math.sin(a) * r })
+		end
+		table.insert(arms, line)
+	end
+	-- the outer haze ring
+	local ring = {}
+	for k = 0, 14 do
+		local a = k / 14 * math.pi * 2
+		table.insert(ring, { math.cos(a) * 1.35, math.sin(a) * 1.0 })
+	end
+	table.insert(arms, ring)
+	-- the bright core
+	table.insert(arms, { { 0.09, 0 }, { 0, 0.07 }, { -0.09, 0 }, { 0, -0.07 }, { 0.09, 0 } })
+	return arms
+end
+
 local SHAPES: { [string]: Shape } = {
-	Rare = { -- the Arrow
-		points = { Vector2.new(-1, -0.3), Vector2.new(-0.2, 0.2), Vector2.new(0.6, 0.5), Vector2.new(1, 0), Vector2.new(0.4, -0.5) },
-		edges = { { 1, 2 }, { 2, 3 }, { 3, 4 }, { 4, 5 }, { 5, 2 } },
-		scale = 22,
-	},
-	Epic = { -- the Crown
-		points = { Vector2.new(-1, -0.5), Vector2.new(-0.85, 0.55), Vector2.new(-0.4, 0.05), Vector2.new(0, 0.8),
-			Vector2.new(0.4, 0.05), Vector2.new(0.85, 0.55), Vector2.new(1, -0.5) },
-		edges = { { 1, 2 }, { 2, 3 }, { 3, 4 }, { 4, 5 }, { 5, 6 }, { 6, 7 }, { 7, 1 } },
-		scale = 34,
-	},
-	Legendary = { -- the Hero, sword raised
-		points = { Vector2.new(0, 1.0), Vector2.new(0, 0.75), Vector2.new(-0.35, 0.62), Vector2.new(0.35, 0.65),
-			Vector2.new(-0.72, 0.2), Vector2.new(0.62, 0.98), Vector2.new(0.92, 1.62), Vector2.new(0, 0.02),
-			Vector2.new(-0.28, -0.5), Vector2.new(0.26, -0.5), Vector2.new(-0.36, -1.05), Vector2.new(0.38, -1.05) },
-		edges = { { 1, 2 }, { 2, 3 }, { 2, 4 }, { 3, 5 }, { 4, 6 }, { 6, 7 }, { 2, 8 }, { 8, 9 }, { 8, 10 }, { 9, 11 }, { 10, 12 } },
-		scale = 52,
-	},
-	Mythic = { -- the Dragon
-		points = (function()
-			local pts = {}
-			for i = 0, 9 do table.insert(pts, Vector2.new(-1.2 + i * 0.27, 0.3 * math.sin(i * 0.9))) end
-			table.insert(pts, Vector2.new(-0.25, 1.0))
-			table.insert(pts, Vector2.new(0.35, 1.25))
-			table.insert(pts, Vector2.new(0.05, 0.55))
-			return pts
-		end)(),
-		edges = { { 1, 2 }, { 2, 3 }, { 3, 4 }, { 4, 5 }, { 5, 6 }, { 6, 7 }, { 7, 8 }, { 8, 9 }, { 9, 10 }, { 5, 11 }, { 11, 12 }, { 12, 13 }, { 13, 6 } },
-		scale = 70,
-	},
+	Common = shapeOf({ -- The Wolf
+		{ { -0.6, 0.9 }, { -0.45, 0.45 }, { -0.2, 0.85 }, { 0, 0.4 }, { 0.45, 0.25 }, { 0.95, 0.05 }, { 0.75, -0.15 },
+			{ 0.3, -0.2 }, { 0.1, -0.5 }, { -0.3, -0.8 }, { -0.75, -0.6 }, { -0.9, 0 }, { -0.6, 0.9 } },
+		{ { 0, 0.4 }, { 0.15, 0.2 }, { 0.45, 0.25 } },
+		{ { 0.75, -0.15 }, { 0.5, -0.35 }, { 0.1, -0.5 } },
+	}, 26),
+	Uncommon = shapeOf({ -- The Dragon
+		{ { 0.95, 0.75 }, { 0.6, 0.7 }, { 0.5, 0.95 } },
+		{ { 0.95, 0.75 }, { 0.8, 0.55 }, { 0.55, 0.5 }, { 0.6, 0.7 } },
+		{ { 0.55, 0.5 }, { 0.4, 0.45 }, { 0, 0.5 }, { -0.4, 0.35 }, { -0.5, 0 }, { -0.2, -0.2 }, { 0.3, -0.25 },
+			{ 0.5, -0.55 }, { 0.2, -0.85 }, { -0.3, -0.8 }, { -0.7, -0.6 } },
+		{ { 0, 0.5 }, { 0.05, 0.2 } },
+		{ { 0.3, -0.25 }, { 0.45, -0.05 } },
+	}, 30),
+	Rare = shapeOf({ -- The Kraken
+		{ { 0, 1 }, { -0.2, 0.85 }, { -0.28, 0.6 }, { -0.22, 0.38 }, { 0, 0.32 }, { 0.22, 0.38 }, { 0.28, 0.6 }, { 0.2, 0.85 }, { 0, 1 } },
+		{ { -0.12, 0.55 }, { -0.07, 0.55 } }, { { 0.07, 0.55 }, { 0.12, 0.55 } },
+		{ { -0.22, 0.38 }, { -0.45, 0.3 }, { -0.7, 0.4 }, { -0.9, 0.3 }, { -0.95, 0.1 }, { -0.85, 0 }, { -0.75, 0.08 } },
+		{ { -0.15, 0.33 }, { -0.35, 0.05 }, { -0.6, -0.1 }, { -0.75, -0.35 }, { -0.65, -0.5 }, { -0.52, -0.42 } },
+		{ { -0.05, 0.32 }, { -0.15, -0.1 }, { -0.25, -0.5 }, { -0.15, -0.8 }, { 0, -0.85 }, { 0.05, -0.72 } },
+		{ { 0.05, 0.32 }, { 0.15, -0.05 }, { 0.3, -0.45 }, { 0.45, -0.7 }, { 0.6, -0.65 }, { 0.6, -0.52 } },
+		{ { 0.15, 0.33 }, { 0.4, 0.1 }, { 0.65, -0.05 }, { 0.85, -0.25 }, { 0.95, -0.1 }, { 0.88, 0.02 } },
+		{ { 0.22, 0.38 }, { 0.45, 0.38 }, { 0.7, 0.55 }, { 0.9, 0.5 }, { 0.95, 0.7 }, { 0.82, 0.78 } },
+	}, 36),
+	Epic = shapeOf({ -- The Leviathan
+		{ { -0.95, 0.75 }, { -0.6, 0.9 }, { -0.4, 0.85 } },
+		{ { -0.95, 0.55 }, { -0.6, 0.6 }, { -0.45, 0.65 } },
+		{ { -0.4, 0.85 }, { -0.3, 0.7 }, { -0.45, 0.65 } },
+		{ { -0.55, 0.88 }, { -0.5, 1.05 }, { -0.4, 0.85 } }, { { -0.4, 0.85 }, { -0.25, 1 }, { -0.3, 0.7 } },
+		{ { -0.62, 0.78 }, { -0.56, 0.78 } },
+		{ { -0.3, 0.7 }, { -0.25, 0.4 }, { -0.4, 0.1 }, { -0.55, -0.2 }, { -0.4, -0.5 }, { -0.05, -0.6 }, { 0.25, -0.4 },
+			{ 0.3, -0.05 }, { 0.15, 0.25 }, { 0.3, 0.5 }, { 0.6, 0.55 }, { 0.8, 0.35 }, { 0.85, 0.05 } },
+		{ { 0.85, 0.05 }, { 1, -0.1 } }, { { 0.85, 0.05 }, { 0.7, -0.12 } },
+		{ { -0.4, 0.1 }, { -0.2, 0.15 } }, { { -0.05, -0.6 }, { 0, -0.8 } }, { { 0.3, -0.05 }, { 0.45, 0.05 } }, { { 0.6, 0.55 }, { 0.65, 0.75 } },
+	}, 46),
+	Legendary = shapeOf({ -- The Celestial Dragon
+		{ { 0.65, 0.55 }, { 0.85, 0.62 }, { 1, 0.55 }, { 0.9, 0.45 }, { 0.7, 0.42 }, { 0.65, 0.55 } },
+		{ { 0.7, 0.58 }, { 0.6, 0.8 } }, { { 0.78, 0.6 }, { 0.74, 0.84 } },
+		{ { 0.68, 0.45 }, { 0.5, 0.35 }, { 0.4, 0.15 }, { 0.15, 0.05 }, { -0.15, 0 }, { -0.35, -0.05 } },
+		{ { 0.4, 0.15 }, { 0.35, 0 }, { 0.1, -0.15 }, { -0.2, -0.18 }, { -0.35, -0.05 } },
+		{ { 0.25, -0.08 }, { 0.3, -0.35 }, { 0.4, -0.45 } }, { { 0.3, -0.35 }, { 0.22, -0.47 } },
+		{ { -0.2, -0.18 }, { -0.15, -0.42 }, { -0.05, -0.5 } }, { { -0.15, -0.42 }, { -0.25, -0.52 } },
+		{ { -0.35, -0.05 }, { -0.6, 0 }, { -0.85, -0.15 }, { -0.9, -0.4 }, { -0.75, -0.6 }, { -0.5, -0.62 }, { -0.4, -0.5 } },
+		{ { 0.25, 0.1 }, { 0.2, 0.55 }, { 0.05, 0.95 }, { -0.15, 0.7 }, { -0.3, 0.95 }, { -0.4, 0.6 }, { -0.65, 0.75 }, { -0.5, 0.35 }, { -0.15, 0.02 } },
+		{ { 0.05, 0.95 }, { 0.05, 0.08 } }, { { -0.3, 0.95 }, { -0.2, 0.05 } },
+	}, 58),
+	Mythic = shapeOf(spiralArms(), 64), -- The Galaxy
 }
+local SHAPE_NAMES = { Common = "THE WOLF", Uncommon = "THE DRAGON", Rare = "THE KRAKEN", Epic = "THE LEVIATHAN",
+	Legendary = "THE CELESTIAL DRAGON", Mythic = "THE GALAXY" }
 
 -- ─── Helpers ────────────────────────────────────────────────────────────────
 local function part(parent: Instance, props: { [string]: any }): BasePart
@@ -373,33 +440,64 @@ function ConstellationWish.Play(best: any, all: { any }?, onDone: (() -> ())?)
 	end)
 
 	-- ── Constellations ──
-	local function drawConstellation(rarity: string, at: Vector3, slow: boolean)
+	-- One spot in the sky for all of them: a rarer one draws itself over the
+	-- one shown and the old one fades out beneath it.
+	local shownRank = 0
+	local shownParts: { BasePart } = {}
+	local skyName = text("", 26, 0.12)
+	local function drawConstellation(rarity: string, slow: boolean): number
 		local shape = SHAPES[rarity]
-		if not shape then return end
+		if not shape then return 0 end
 		local col = colorOf(rarity)
-		local center = camPos + (at - camPos).Unit * 230 + up * (if rarity == "Legendary" or rarity == "Mythic" then 30 else 50)
+		local star = Color3.new(1, 1, 1):Lerp(col, 0.35)
+		local center = camPos + fwd * 230 + up * 48
+		-- the old one is outshone
+		for _, old in ipairs(shownParts) do
+			tween(old, 1.4, { Transparency = 1 })
+			Debris:AddItem(old, 1.5)
+		end
+		shownParts = {}
 		local pts = {}
 		for i, pnt in ipairs(shape.points) do
 			pts[i] = center + right * pnt.X * shape.scale + up * pnt.Y * shape.scale
 		end
 		local nodes = {}
 		for i, pp in ipairs(pts) do
-			nodes[i] = part(sky, { Shape = Enum.PartType.Ball, Size = Vector3.one * 0.1, CFrame = CFrame.new(pp), Color = col })
+			nodes[i] = part(sky, { Shape = Enum.PartType.Ball, Size = Vector3.one * 0.1, CFrame = CFrame.new(pp), Color = star })
+			table.insert(shownParts, nodes[i])
 		end
-		local step = if slow then 0.22 else 0.06
+		local step = if slow then math.min(0.2, 3.2 / #shape.edges) else math.min(0.05, 1.2 / #shape.edges)
+		local nodeSize = if slow then 3.4 else 2.4
 		for k, e in ipairs(shape.edges) do
 			local a, b = pts[e[1]], pts[e[2]]
+			local line = part(sky, { Size = Vector3.new(0.6, 0.6, 0.1), CFrame = CFrame.lookAt(a, b), Color = col, Transparency = 1 })
+			table.insert(shownParts, line)
 			task.delay((k - 1) * step, function()
-				local na, nb = nodes[e[1]], nodes[e[2]]
-				for _, node in ipairs({ na, nb }) do
-					if node.Size.X < 1 then tween(node, 0.25, { Size = Vector3.one * (if slow then 5 else 3.2) }, Enum.EasingStyle.Back) end
+				for _, node in ipairs({ nodes[e[1]], nodes[e[2]] }) do
+					if node.Size.X < 1 then tween(node, 0.25, { Size = Vector3.one * nodeSize }, Enum.EasingStyle.Back) end
 				end
-				local line = part(sky, { Size = Vector3.new(0.7, 0.7, 0.1), CFrame = CFrame.lookAt(a, b), Color = col, Transparency = 0.2 })
-				tween(line, step * 1.6 + 0.05, { Size = Vector3.new(0.7, 0.7, (b - a).Magnitude), CFrame = CFrame.lookAt((a + b) / 2, b) })
-				if slow then sfx("ding", 0.35, 0.8 + k * 0.06) end
+				line.Transparency = 0.25
+				tween(line, step * 1.6 + 0.05, { Size = Vector3.new(0.6, 0.6, (b - a).Magnitude), CFrame = CFrame.lookAt((a + b) / 2, b) })
+				if slow and k % 2 == 1 then sfx("ding", 0.3, 0.8 + k * 0.03) end
 			end)
 		end
+		-- its name, in the sky's colour
+		skyName.Text = SHAPE_NAMES[rarity] or ""
+		skyName.TextColor3 = star
+		skyName.TextTransparency = 1
+		task.delay(#shape.edges * step, function()
+			tween(skyName, 0.5, { TextTransparency = 0.1 })
+			task.delay(2.5, function() tween(skyName, 0.8, { TextTransparency = 1 }) end)
+		end)
 		return #shape.edges * step + 0.3
+	end
+	-- Whether landing a `rarity` star outshines the constellation shown (and
+	-- claims the sky at once, so stars landing together don't both draw).
+	local function claimSky(rarity: string): boolean
+		local rank = ({ Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5, Mythic = 6 })[rarity] or 0
+		if rank <= shownRank then return false end
+		shownRank = rank
+		return true
 	end
 
 	-- Aurora: wide translucent bands of colour waving over the sky.
@@ -529,14 +627,16 @@ function ConstellationWish.Play(best: any, all: { any }?, onDone: (() -> ())?)
 			if w.index >= 2 then sfx("magicBurst", 0.3 + w.index * 0.08, 1) end
 			shake = math.max(shake, 0.15 + w.index * 0.12)
 			card(to, w.reward)
-			-- its constellation
-			if w.index >= 4 and not fast then
+			-- its constellation, if it outshines the one in the sky
+			local rarity = w.reward.rarity
+			local claims = claimSky(rarity)
+			if claims and w.index >= 4 and not fast then
 				-- Everything goes quiet; the hero draws itself; the sky turns gold.
 				quietUntil = os.clock() + 99
 				tween(black, 0.4, { BackgroundTransparency = 0.45 })
 				task.wait(0.6)
 				sfx("chime", 0.4, 0.7)
-				local dur2 = drawConstellation(w.reward.rarity, w.home, true) or 2
+				local dur2 = drawConstellation(rarity, true)
 				tween(black, dur2, { BackgroundTransparency = 0.7 })
 				task.wait(dur2)
 				white.BackgroundTransparency = 0.2
@@ -551,8 +651,8 @@ function ConstellationWish.Play(best: any, all: { any }?, onDone: (() -> ())?)
 				aurora(w.actual)
 				task.wait(0.6)
 				quietUntil = 0
-			elseif w.index >= 2 then
-				drawConstellation(w.reward.rarity, w.home, false)
+			elseif claims then
+				drawConstellation(rarity, false)
 				if w.index >= 3 then sfx("chime", 0.35, 1.1) end
 			end
 			pendingLandings -= 1
