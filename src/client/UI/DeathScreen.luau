@@ -74,6 +74,8 @@ local function applySpectate()
 	if IsometricCamera and IsometricCamera.SetFocus then
 		IsometricCamera.SetFocus(if target then target.Character else nil)
 	end
+	-- (the server streams the map round them to us: they may be far off)
+	if target then Network.GetRemoteEvent(Network.Remotes.DeathAction):FireServer("watch", target.UserId) end
 	spectateName.Text = if target then `SPECTATING  {string.upper(target.DisplayName)}` else "NO ONE LEFT STANDING"
 end
 

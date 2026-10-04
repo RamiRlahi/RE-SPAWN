@@ -1644,6 +1644,9 @@ local function eliteChanceFor(tier: number): number
 	return math.min(ELITE_BASE_CHANCE + tier * ELITE_CHANCE_PER_TIER, ELITE_MAX_CHANCE)
 end
 
+local DRAGON_FIRST_FLOOR = 3
+local DRAGON_EVERY = 3
+
 local function planRoom(group: RoomMobGroup)
 	if group.planned then return end
 	group.planned = true
@@ -1657,9 +1660,11 @@ local function planRoom(group: RoomMobGroup)
 	local maxZ = (room.gz + room.d - 1) * FLOOR_SIZE - 4
 	local remaining = mobCountFor(tier)
 
-	-- The dragon rules its map's first level (and turns up now and then later).
+	-- The dragon is floor 3's boss (the first floor you can extract from), and
+	-- comes back every third floor after it for the greedy who keep going down
+	-- (6, 9, 12...).
 	local level = RunScope.Get(group.runId, "RunLevel") or 1
-	local dragonHere = map ~= nil and ((map.dragonFirst and level <= 1) or math.random() < map.dragonChance)
+	local dragonHere = level >= DRAGON_FIRST_FLOOR and level % DRAGON_EVERY == 0
 	if room.roomType == "Boss" and DragonBoss.Available() and dragonHere then
 		table.insert(group.mobs, {
 			template = nil,

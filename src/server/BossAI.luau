@@ -23,6 +23,21 @@ local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
+local PhysicsService = game:GetService("PhysicsService")
+
+-- A swallowed player is held (anchored) inside the slime: their body must
+-- not collide with it, or the physics shoves the slime out of the way, down
+-- through the floor.
+local SWALLOWED = "Swallowed"
+pcall(function()
+	PhysicsService:RegisterCollisionGroup(SWALLOWED)
+	PhysicsService:CollisionGroupSetCollidable(SWALLOWED, "Default", false)
+end)
+local function setGroup(char: Model, group: string)
+	for _, d in ipairs(char:GetDescendants()) do
+		if d:IsA("BasePart") then d.CollisionGroup = group end
+	end
+end
 
 local DifficultyManager = require(script.Parent:WaitForChild("DifficultyManager"))
 
@@ -627,6 +642,7 @@ MOVES.swallow = function(b, target)
 	if not victim then hold(b, 0.25) return end
 	local v = victim :: Victim
 	v.char:SetAttribute("Swallowed", true)
+	setGroup(v.char, SWALLOWED)
 	v.root.Anchored = true
 	scaleBoss(b, 1.25)
 	local held = if b.enraged then 2.2 else 1.6
@@ -649,6 +665,7 @@ MOVES.swallow = function(b, target)
 		v.char:SetAttribute("InvulnerableUntil", os.clock() + 1)
 	end
 	v.char:SetAttribute("Swallowed", nil)
+	setGroup(v.char, "Default")
 	puddle(b, out, 4, 3)
 	hold(b, 0.3)
 end
@@ -767,6 +784,30 @@ function BossAI.Attach(model: Model, kindId: string)
 		enraged = false, minions = {},
 	}
 	addAura(b)
+	if kindId == "slime" then
+		-- Solid, not see-through (the model's goo parts are partly transparent).
+		for _, d in ipairs(model:GetDescendants()) do
+			if d:IsA("BasePart") and d ~= root and d.Transparency > 0 and d.Transparency < 0.95 then
+				d.Transparency = 0
+			end
+		end
+	end
+	-- Never lost under the map: if the boss drops through the floor (a bad
+	-- landing, a shove), it's put back where it last stood on it.
+	task.spawn(function()
+		local lastGood = root.Position
+		while alive(b) do
+			local y = root.Position.Y
+			if y >= b.floorY - 1 and y <= b.floorY + 40 then
+				lastGood = root.Position
+			elseif y < b.floorY - 4 then
+				local lift = root.Size.Y / 2 + hum.HipHeight + 0.5
+				root.AssemblyLinearVelocity = Vector3.zero
+				root.CFrame = CFrame.new(lastGood.X, b.floorY + lift, lastGood.Z) * root.CFrame.Rotation
+			end
+			task.wait(0.25)
+		end
+	end)
 	hum.HealthChanged:Connect(function(h)
 		if not b.enraged and h > 0 and h <= hum.MaxHealth * 0.5 then enrage(b) end
 	end)

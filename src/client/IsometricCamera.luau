@@ -586,6 +586,21 @@ function IsometricCamera.Start(transitionDuration: number?)
 		if classic then
 			-- (the aim reticle is the top-down camera's; others re-enable it)
 			if cursorGui and cursorGui.Enabled then cursorGui.Enabled = false end
+			-- Following someone else (spectating) or a part (your falling body):
+			-- the normal camera follows them too.
+			do
+				local subject: Instance? = nil
+				if focusPart and focusPart.Parent then
+					subject = focusPart
+				elseif focusOverride and focusOverride.Parent then
+					subject = focusOverride:FindFirstChildOfClass("Humanoid")
+				end
+				if not subject then
+					local char = player.Character
+					subject = char and char:FindFirstChildOfClass("Humanoid")
+				end
+				if subject and cam.CameraSubject ~= subject then cam.CameraSubject = subject :: any end
+			end
 			if choosingBuff() or player:GetAttribute("DeathMenuOpen") == true then
 				-- a free arrow to pick with (a tome, or REVIVE / GIVE UP when
 				-- you've fallen); locked again once it's gone

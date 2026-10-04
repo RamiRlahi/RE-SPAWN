@@ -26,8 +26,6 @@ export type Map = {
 	color: Color3,          -- the gate's glow, its card's accent
 	stone: Color3,          -- multiplies the floor and wall colours
 	packs: { number },      -- MobKinds PACKS indices its rooms draw from
-	dragonChance: number,   -- chance a level's boss is the dragon (level 1 always is, where allowed)
-	dragonFirst: boolean,   -- the dragon guards the first level
 	bosses: { string },     -- BossAI kinds for the other boss rooms
 	lighting: Lighting,
 	endless: boolean?,      -- the Endless Abyss: no collapse, its leaderboard (Leaderboard.luau)
@@ -46,8 +44,6 @@ MapData.Maps = {
 		color = Color3.fromRGB(110, 220, 170),
 		stone = Color3.fromRGB(200, 214, 210),
 		packs = { 1, 3, 4 },
-		dragonChance = 0,
-		dragonFirst = false,
 		bosses = { "colossus", "witch" },
 		lighting = {
 			tint = Color3.fromRGB(228, 248, 240),
@@ -63,8 +59,6 @@ MapData.Maps = {
 		color = Color3.fromRGB(255, 120, 50),
 		stone = Color3.fromRGB(230, 200, 190),
 		packs = { 2, 5, 3 },
-		dragonChance = 0.35,
-		dragonFirst = true,
 		bosses = { "warlord", "slime" },
 		lighting = {
 			tint = Color3.fromRGB(255, 238, 228),
@@ -80,8 +74,6 @@ MapData.Maps = {
 		color = Color3.fromRGB(130, 190, 255),
 		stone = Color3.fromRGB(205, 220, 245),
 		packs = { 4, 3, 1 },
-		dragonChance = 0,
-		dragonFirst = false,
 		bosses = { "witch", "colossus", "warlord" },
 		lighting = {
 			tint = Color3.fromRGB(232, 242, 255),
@@ -97,8 +89,6 @@ MapData.Maps = {
 		color = Color3.fromRGB(180, 90, 255),
 		stone = Color3.fromRGB(190, 180, 215),
 		packs = { 1, 2, 3, 4, 5 },
-		dragonChance = 0.25,
-		dragonFirst = false,
 		bosses = { "colossus", "witch", "warlord", "slime" },
 		endless = true,
 		unlockFloor = 6,
