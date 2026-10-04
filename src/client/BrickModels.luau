@@ -182,7 +182,7 @@ local function hidden(g: Group, v: Voxel): boolean
 		and solid(g, v.x, v.y, v.z + 1) and solid(g, v.x, v.y, v.z - 1)
 end
 
-local function render(name: string, groups: { Group }): Model
+local function render(name: string, groups: { Group }, pivotAtOrigin: boolean?): Model
 	local model = Instance.new("Model")
 	model.Name = name
 	for _, g in ipairs(groups) do
@@ -221,7 +221,7 @@ local function render(name: string, groups: { Group }): Model
 	root.Transparency = 1
 	root.CanCollide = false
 	root.Size = Vector3.one * 0.1
-	root.CFrame = CFrame.new(bb.Position)
+	root.CFrame = if pivotAtOrigin then CFrame.new() else CFrame.new(bb.Position)
 	root.Parent = model
 	model.PrimaryPart = root
 	return model
@@ -705,5 +705,11 @@ function BrickModels.Pedestal(theme: Color3): Model
 	end
 	return render("Pedestal", { g })
 end
+
+-- The brick toolkit, for other model builders (WingsMounts).
+BrickModels.Kit = {
+	group = group, set = set, has = has, sprite = sprite, lathe = lathe, disc = disc, sphere = sphere, box = box,
+	diag = diag, render = render, c = c, n = n, t = t,
+}
 
 return BrickModels
