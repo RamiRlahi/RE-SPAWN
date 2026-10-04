@@ -39,6 +39,7 @@ export type Profile = {
 	codex: { [string]: boolean },                     -- evolutions discovered (the Build Codex)
 	gear: { owned: { [string]: number }, equipped: { [string]: string } }, -- the Armory (LootManager)
 	records: { [string]: number },                    -- bests and totals (deepest floor, runs, kills…)
+	settings: { [string]: any },                      -- the player's settings (SettingsConfig; empty: never saved)
 }
 
 local function newProfile(): Profile
@@ -56,6 +57,7 @@ local function newProfile(): Profile
 		codex = {},
 		records = {},
 		gear = { owned = {}, equipped = {} },
+		settings = {},
 	}
 end
 

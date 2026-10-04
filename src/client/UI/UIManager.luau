@@ -302,6 +302,20 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 	end
 	applySettingsToRuntime(currentSettings)
 
+	-- The settings saved on this account (PlayerData, via the server): they
+	-- replace the defaults as soon as they arrive.
+	local syncRemote = Network.GetRemoteEvent(Network.Remotes.SettingsSync)
+	syncRemote.OnClientEvent:Connect(function(saved: any)
+		if typeof(saved) ~= "table" then return end
+		currentSettings = SettingsConfig.Sanitize(saved)
+		applySettingsToRuntime(currentSettings)
+		if GameHUD then pcall(GameHUD.SetKeybinds, currentSettings.keybinds) end
+		if SettingsModal and settingsModalGroup then pcall(SettingsModal.Reload, settingsModalGroup, currentSettings) end
+		-- (the title screen's window holds its own copy: rebuilt)
+		pcall(buildMenuSettings)
+	end)
+	syncRemote:FireServer()
+
 	-- Start on Title Screen
 	if titleScreenGroup then
 		titleScreenGroup.Visible = true

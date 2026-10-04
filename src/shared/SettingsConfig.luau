@@ -82,4 +82,33 @@ function SettingsConfig.CloneDefaultSettings(): PlayerSettings
 	return clone
 end
 
+-- A settings table from anywhere (the client, an old save) made safe: only
+-- the known settings, each of the right type (volumes kept to 0..1), keybinds
+-- only for known actions and plain key names; anything missing or wrong is
+-- the default.
+function SettingsConfig.Sanitize(input: any): PlayerSettings
+	local out = SettingsConfig.CloneDefaultSettings()
+	if typeof(input) ~= "table" then return out end
+	for k, def in pairs(DefaultSettings :: any) do
+		if k == "keybinds" then continue end
+		local v = input[k]
+		if typeof(v) == typeof(def) then
+			if typeof(v) == "number" then
+				if v ~= v then continue end -- (NaN)
+				v = math.clamp(v, 0, 1)
+			end
+			(out :: any)[k] = v
+		end
+	end
+	if typeof(input.keybinds) == "table" then
+		for action in pairs(DefaultSettings.keybinds) do
+			local key = input.keybinds[action]
+			if typeof(key) == "string" and #key <= 40 and string.match(key, "^[%w]+$") then
+				out.keybinds[action] = key
+			end
+		end
+	end
+	return out
+end
+
 return SettingsConfig
