@@ -263,8 +263,9 @@ function RewardPreview.Build(reward: any): (Model, () -> ())
 			if rig then
 				rig.model.Parent = model
 				local isWings = reward.type == "wings"
-				local ride = RideData.RideHeight(reward.look)
 				local hum = model:FindFirstChildOfClass("Humanoid")
+				local legLen = if hum and hum.RigType == Enum.HumanoidRigType.R6 then 2 else math.max(hum and hum.HipHeight or 2, 1)
+				local ride = RideData.SeatLift(reward.look, legLen)
 				local liftedAt: Vector3? = nil
 				table.insert(conns, RunService.RenderStepped:Connect(function()
 					if not root.Parent or not model:IsDescendantOf(workspace) then return end
@@ -287,6 +288,7 @@ function RewardPreview.Build(reward: any): (Model, () -> ())
 						local look = root.CFrame.LookVector
 						WingsMounts.Pose(rig, CFrame.new(root.Position.X, ground, root.Position.Z)
 							* CFrame.lookAt(Vector3.zero, Vector3.new(look.X, 0, look.Z)), t, 0.6)
+						WingsMounts.Seat(model)
 					end
 				end))
 			end
