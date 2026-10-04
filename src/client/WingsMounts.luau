@@ -29,6 +29,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GachaRewards = require(Shared:WaitForChild("GachaRewards"))
 local BrickModels = require(script.Parent:WaitForChild("BrickModels"))
+local RideData = require(Shared:WaitForChild("RideData"))
 
 local Kit = BrickModels.Kit
 local WingsMounts = {}
@@ -144,6 +145,132 @@ local function fx(anchor: BasePart, kind: string, color: Color3)
 	e.Parent = anchor
 end
 
+-- ─── Showpieces (Epic and up) ───────────────────────────────────────────────
+-- An empty moving piece, for lights and emitters to ride on.
+local function addAnchorPiece(rig: Rig, home: CFrame, anim: ((number, number) -> CFrame)?): Piece
+	local piece: Piece = { parts = {}, offsets = {}, home = home, anim = anim }
+	table.insert(rig.pieces, piece)
+	return piece
+end
+
+-- A ribbon of light streaming off a point of a piece as it moves.
+local function addTrail(rig: Rig, piece: Piece, at: Vector3, width: number, color: Color3, life: number?): Trail
+	local p = addEmitterAnchor(rig, piece, at, Vector3.one * 0.1)
+	local a0 = Instance.new("Attachment")
+	a0.Position = Vector3.new(0, width / 2, 0)
+	a0.Parent = p
+	local a1 = Instance.new("Attachment")
+	a1.Position = Vector3.new(0, -width / 2, 0)
+	a1.Parent = p
+	local tr = Instance.new("Trail")
+	tr.Attachment0, tr.Attachment1 = a0, a1
+	tr.Color = ColorSequence.new(Color3.new(1, 1, 1), color)
+	tr.Transparency = seq(0.1, 1)
+	tr.Lifetime = life or 0.5
+	tr.LightEmission = 1
+	tr.LightInfluence = 0
+	tr.FaceCamera = true
+	tr.WidthScale = seq(1, 0)
+	tr.MinLength = 0.02
+	tr.Parent = p
+	return tr
+end
+
+local function addLight(rig: Rig, piece: Piece, at: Vector3, color: Color3, range: number, brightness: number)
+	local p = addEmitterAnchor(rig, piece, at, Vector3.one * 0.1)
+	local l = Instance.new("PointLight")
+	l.Color, l.Range, l.Brightness, l.Shadows = color, range, brightness, false
+	l.Parent = p
+end
+
+-- A ring of glowing bricks turning flat (dashed: every other block missing).
+local function spinRing(rig: Rig, home: CFrame, radius: number, paint: Paint, speed: number, scale: number, dashed: boolean?): Piece
+	local g = Kit.group()
+	Kit.lathe(g, { { 0, radius, radius - 0.7 } }, function(x, _, z)
+		if dashed and math.floor((math.atan2(z, x) + math.pi) / (math.pi * 2) * 28) % 2 == 0 then return nil end
+		return paint
+	end)
+	return addPiece(rig, { g }, scale, home, function(t: number): CFrame
+		return CFrame.Angles(0, t * speed, 0)
+	end)
+end
+
+-- `n` things circling a point, bobbing and tumbling.
+local function orbit(rig: Rig, home: CFrame, n: number, radius: number, speed: number, scale: number, make: (number) -> any, tilt: number?, bob: number?): { Piece }
+	local out = {}
+	for i = 1, n do
+		local k = i
+		table.insert(out, addPiece(rig, { make(i) }, scale, home, function(t: number): CFrame
+			local a = t * speed + k / n * math.pi * 2
+			return CFrame.Angles(tilt or 0, 0, 0) * CFrame.new(math.cos(a) * radius, math.sin(t * 2 + k) * (bob or 0), math.sin(a) * radius)
+				* CFrame.Angles(t * 1.3, -a, 0)
+		end))
+	end
+	return out
+end
+
+local function ball(r: number, paint: Paint): any
+	local g = Kit.group()
+	Kit.sphere(g, r, function() return paint end)
+	return g
+end
+
+local function shard(paint: Paint, tip: Paint): any
+	local g = Kit.group()
+	Kit.box(g, 0, -1, 0, 0, 1, 0, paint)
+	Kit.set(g, 0, 2, 0, tip.color, tip.neon)
+	Kit.set(g, 0, -2, 0, tip.color, tip.neon)
+	return g
+end
+
+-- Rays fanning out round a centre, turning (an eclipse's corona).
+local function corona(rig: Rig, home: CFrame, n: number, inner: number, len: number, paint: Paint, speed: number, scale: number): Piece
+	local g = Kit.group()
+	for i = 1, n do
+		local a = i / n * math.pi * 2
+		local l = if i % 2 == 0 then len else math.floor(len * 0.6)
+		for r = inner, inner + l do
+			Kit.set(g, math.floor(math.cos(a) * r + 0.5), math.floor(math.sin(a) * r + 0.5), 0, paint.color, paint.neon)
+		end
+	end
+	return addPiece(rig, { g }, scale, home, function(t: number): CFrame
+		return CFrame.Angles(0, 0, t * speed)
+	end)
+end
+
+-- Fire (or anything) breathed forward in bursts: on for `on` seconds every `period`.
+local function breath(rig: Rig, home: CFrame, color: Color3, period: number, on: number, size: number): ParticleEmitter
+	local e = Instance.new("ParticleEmitter")
+	local piece = addAnchorPiece(rig, home, function(t: number): CFrame
+		e.Enabled = (t % period) < on
+		return CFrame.new()
+	end)
+	local anchor = addEmitterAnchor(rig, piece, Vector3.zero, Vector3.one * 0.4)
+	e.Texture = FIRE
+	e.Color = ColorSequence.new(Color3.fromRGB(255, 245, 200), color)
+	e.LightEmission, e.LightInfluence = 1, 0
+	e.Size = seq(0.4 * size, 2.6 * size)
+	e.Transparency = seq(0.05, 1)
+	e.Lifetime = NumberRange.new(0.45, 0.75)
+	e.Speed = NumberRange.new(14 * size, 20 * size)
+	e.SpreadAngle = Vector2.new(12, 12)
+	e.EmissionDirection = Enum.NormalId.Front
+	e.Acceleration = Vector3.new(0, 3, 0)
+	e.Rate = 80
+	e.Enabled = false
+	e.Parent = anchor
+	return e
+end
+
+-- Rarity of a wings / mount look: 1 Common .. 5 Mythic.
+local ORDER = { "Common", "Rare", "Epic", "Legendary", "Mythic" }
+local function tierOf(kind: string, look: string): number
+	for _, r in ipairs(GachaRewards.All) do
+		if r.type == kind and r.look == look then return table.find(ORDER, r.rarity) or 1 end
+	end
+	return 1
+end
+
 local function mirror(g: any): any
 	local m = Kit.group()
 	for _, v in pairs(g.vox) do
@@ -238,10 +365,15 @@ local function wingGroup(spec: WingSpec, palette: { [string]: Paint }): any
 end
 
 -- Two wings on `rig` hinged at `at` (studs, rig space), angled back, flapping.
-local function addWings(rig: Rig, spec: WingSpec, scale: number, at: Vector3, spread: number, speed: number, amp: number)
-	local palette = { A = spec.A, B = spec.B, G = spec.G } :: { [string]: Paint }
+-- Returns each wing's piece, side and wingtip (in the piece's space).
+type WingInfo = { piece: Piece, side: number, tip: Vector3, mid: Vector3 }
+local function addWings(rig: Rig, spec: WingSpec, scale: number, at: Vector3, spread: number, speed: number, amp: number, palette0: { [string]: Paint }?): { WingInfo }
+	local palette = palette0 or ({ A = spec.A, B = spec.B, G = spec.G } :: { [string]: Paint })
 	local right = wingGroup(spec, palette)
 	local left = mirror(wingGroup(spec, if spec.left then spec.left :: any else palette))
+	local rows = SHAPES[spec.shape]
+	local w, h = #rows[1], #rows
+	local out = {}
 	for side = -1, 1, 2 do
 		local g = if side == 1 then right else left
 		local home = CFrame.new(at + Vector3.new(side * 0.15, 0, 0)) * CFrame.Angles(0, -side * math.rad(spread), 0)
@@ -251,34 +383,109 @@ local function addWings(rig: Rig, spec: WingSpec, scale: number, at: Vector3, sp
 			return CFrame.Angles(0, -side * a * 0.35, side * a)
 		end)
 		if spec.fx then
-			local w = #SHAPES[spec.shape][1]
-			local anchor = addEmitterAnchor(rig, piece, Vector3.new(side * w * scale * 0.5, 0, 0), Vector3.new(w * scale * 0.8, #SHAPES[spec.shape] * scale * 0.6, 0.2))
+			local anchor = addEmitterAnchor(rig, piece, Vector3.new(side * w * scale * 0.5, 0, 0), Vector3.new(w * scale * 0.8, h * scale * 0.6, 0.2))
 			fx(anchor, spec.fx, spec.fxColor or Color3.new(1, 1, 1))
 		end
+		table.insert(out, { piece = piece, side = side, tip = Vector3.new(side * (w - 1) * scale, (h - 1 - math.floor(h / 2)) * scale, 0),
+			mid = Vector3.new(side * w * scale * 0.5, 0, 0) })
 	end
+	return out
 end
 
 local function buildWings(look: string): Rig
 	local spec = WINGS[look] or WINGS.raven
 	local rig = newRig("Wings_" .. look, "wings")
-	local s = VOX_WING * (spec.size or 1)
-	addWings(rig, spec, s, Vector3.zero, 28, 3.6, 14)
-	if spec.extra == "moon" then
+	local tier = tierOf("wings", look)
+	local grand = if tier >= 5 then 1.6 elseif tier == 4 then 1.5 elseif tier == 3 then 1.3 else 1
+	local s = VOX_WING * (spec.size or 1) * grand
+	local col = spec.fxColor or (spec.B and spec.B.color) or (spec.G and spec.G.color) or Color3.new(1, 1, 1)
+	local palette = { A = spec.A, B = spec.B, G = spec.G } :: { [string]: Paint }
+	if look == "dragon" then palette.B = glow(255, 110, 40) end -- (veins of fire)
+	local main = addWings(rig, spec, s, Vector3.zero, 28, 3.6, 14, palette)
+	if tier >= 3 then
+		-- ribbons of light off the wingtips, and the wings light you up
+		for _, wi in ipairs(main) do addTrail(rig, wi.piece, wi.tip, 0.35 * grand, col, 0.6) end
+		addLight(rig, main[1].piece, Vector3.zero, col, 10, 1.4)
+	end
+	if tier >= 4 then
+		-- a second, smaller pair beneath
+		local lower = addWings(rig, spec, s * 0.62, Vector3.new(0, -0.55, 0.05), 46, 3.1, 18, palette)
+		for _, wi in ipairs(lower) do addTrail(rig, wi.piece, wi.tip, 0.25 * grand, col, 0.45) end
+	end
+	if look == "dragon" then
+		for _, wi in ipairs(main) do
+			fx(addEmitterAnchor(rig, wi.piece, wi.tip, Vector3.one * 0.4), "fire", Color3.fromRGB(255, 110, 30))
+		end
+	end
+
+	local V = VOX_WING
+	if look == "venom" then
+		-- toxic spores circling, a sickly mist
+		orbit(rig, CFrame.new(0, 0.2, 0.4), 4, 1.9 * grand, 1.4, V, function() return ball(1, glow(150, 255, 60)) end, 0.2, 0.25)
+		fx(addEmitterAnchor(rig, main[1].piece, Vector3.zero, Vector3.new(2, 2, 0.5)), "smoke", Color3.fromRGB(90, 200, 40))
+	elseif look == "void" then
+		-- a rift torn open behind you, shards of void circling it
+		local rift = Kit.group()
+		Kit.disc(rift, 6, 1, function(_, _, d)
+			if d > 5.2 then return glow(190, 90, 255) end
+			if d > 4.2 then return rgb(60, 20, 110) end
+			return rgb(5, 0, 12)
+		end)
+		local riftPiece = addPiece(rig, { rift }, V, CFrame.new(0, 0.25, 0.55), function(t: number): CFrame
+			return CFrame.Angles(0, 0, t * 0.9) * CFrame.new(0, 0, 0)
+		end)
+		fx(addEmitterAnchor(rig, riftPiece, Vector3.zero, Vector3.new(2, 2, 0.3)), "sparks", Color3.fromRGB(200, 120, 255))
+		orbit(rig, CFrame.new(0, 0.25, 0.55), 3, 2.6, 0.9, V, function() return shard(rgb(40, 10, 70), glow(190, 90, 255)) end, 1.2, 0.1)
+	elseif look == "celestial" then
+		-- a golden halo, feathers of light circling
+		spinRing(rig, CFrame.new(0, 2.25, -0.35) * CFrame.Angles(math.rad(14), 0, 0), 4, glow(255, 225, 130), 0.8, V)
+		orbit(rig, CFrame.new(0, 0.6, 0.2), 6, 2.8, 0.6, V, function()
+			local g = Kit.group()
+			Kit.sprite(g, { ".#", "##", "##", "#." }, { ["#"] = glow(255, 235, 170) }, 1, 0, 0, -2)
+			return g
+		end, 0.25, 0.3)
+	elseif look == "eclipse" then
+		-- a great eclipse with a turning corona; a sun and a moon circling
+		local disc = Kit.group()
+		Kit.disc(disc, 6, 1, function(_, _, d)
+			if d > 5.1 then return glow(255, 150, 90) end
+			return rgb(8, 4, 12)
+		end)
+		addPiece(rig, { disc }, V, CFrame.new(0, 1, 0.45))
+		corona(rig, CFrame.new(0, 1, 0.5), 16, 7, 5, glow(255, 200, 110), 0.35, V)
+		local orb = orbit(rig, CFrame.new(0, 1, 0.45), 2, 3.4, 0.5, V, function(i)
+			return if i == 1 then ball(1.6, glow(255, 210, 90)) else ball(1.4, glow(220, 225, 255))
+		end, 1.35, 0)
+		addLight(rig, orb[1], Vector3.zero, Color3.fromRGB(255, 190, 90), 12, 1.6)
+	elseif look == "cosmic" then
+		-- a turning galaxy behind, planets circling, the wings full of stars
+		local gal = Kit.group()
+		for arm = 0, 1 do
+			for k = 0, 26 do
+				local a = k * 0.32 + arm * math.pi
+				local r = 1 + k * 0.32
+				local paint = if k % 4 == 0 then glow(255, 255, 255) elseif arm == 0 then glow(170, 120, 255) else glow(255, 120, 220)
+				Kit.set(gal, math.floor(math.cos(a) * r + 0.5), math.floor(math.sin(a) * r + 0.5), 0, paint.color, true)
+			end
+		end
+		Kit.set(gal, 0, 0, 0, Color3.new(1, 1, 1), true)
+		addPiece(rig, { gal }, V, CFrame.new(0, 0.8, 0.5), function(t: number): CFrame
+			return CFrame.Angles(0, 0, t * 0.5)
+		end)
+		orbit(rig, CFrame.new(0, 0.6, 0.3), 3, 3.2, 0.4, V, function(i)
+			local colors = { glow(120, 200, 255), glow(255, 160, 80), glow(200, 120, 255) }
+			local g = ball(if i == 2 then 1.6 else 1.1, colors[i])
+			if i == 2 then
+				Kit.lathe(g, { { 0, 3, 2.2 } }, function() return rgb(230, 210, 255) end) -- a ringed planet
+			end
+			return g
+		end, 0.35, 0.2)
+	elseif spec.extra == "moon" then
 		-- a crescent moon floating over the back
 		local g = Kit.group()
 		Kit.sprite(g, { ".##..", "##...", "#....", "##...", ".##.." }, { ["#"] = glow(235, 240, 255) }, 1, 0, 2, -2)
 		addPiece(rig, { g }, VOX_WING, CFrame.new(0, 1.3, 0.3), function(t: number): CFrame
 			return CFrame.new(0, math.sin(t * 1.5) * 0.08, 0)
-		end)
-	elseif spec.extra == "eclipse" then
-		-- an eclipse behind: a black disc in a ring of fire
-		local g = Kit.group()
-		Kit.disc(g, 4, 1, function(_, _, d)
-			if d > 3.2 then return glow(255, 120, 80) end
-			return rgb(10, 5, 15)
-		end)
-		addPiece(rig, { g }, VOX_WING, CFrame.new(0, 0.9, 0.35), function(t: number): CFrame
-			return CFrame.Angles(0, 0, t * 0.4)
 		end)
 	end
 	return rig
@@ -293,13 +500,17 @@ type Quad = {
 	main: Paint, belly: Paint?, dark: Paint, eye: Paint, hornC: Paint?, mane: Paint?, saddle: boolean?,
 	pattern: ((x: number, y: number, z: number) -> Paint?)?, -- override the body's bricks (or leave holes: { color = nil })
 	wings: string?, wingScale: number?, fx: { { any } }?, gait: number?, armor: Paint?, extra: string?, spikes: Paint?,
+	glowC: Color3?,                                   -- Epic+: the colour of its trails, rings and light
+	showy: ((rig: Rig, ctx: any) -> ())?,             -- Epic+: its own set-piece
 }
 
 local SADDLE, CLOTH = rgb(110, 60, 30), rgb(150, 30, 35)
 
 local function buildQuad(look: string, q: Quad): Rig
 	local rig = newRig("Mount_" .. look, "mount")
-	local V = VOX_MOUNT
+	local V = VOX_MOUNT * RideData.ScaleOf(look)
+	local tier = tierOf("mount", look)
+	local legPieces: { Piece } = {}
 	local hw = math.floor(q.W / 2)
 	local x0, x1 = -hw, q.W - 1 - hw
 	local zF, zB = -math.floor(q.L / 2), q.L - 1 - math.floor(q.L / 2)
@@ -431,7 +642,7 @@ local function buildQuad(look: string, q: Quad): Rig
 			end
 		end
 		local phase = spot[3]
-		addPiece(rig, { leg }, V, CFrame.new(spot[1] * V, q.legLen * V, spot[2] * V), function(t: number, move: number): CFrame
+		legPieces[#legPieces + 1] = addPiece(rig, { leg }, V, CFrame.new(spot[1] * V, q.legLen * V, spot[2] * V), function(t: number, move: number): CFrame
 			return CFrame.Angles(math.sin(t * gait + phase) * 0.55 * math.min(move, 1.2), 0, 0)
 		end)
 	end
@@ -451,14 +662,37 @@ local function buildQuad(look: string, q: Quad): Rig
 	if q.mane and q.tailLen > 0 then
 		Kit.set(tail, 0, math.floor((q.tailLen - 1) * (q.tailUp or 0.3)) - 1, q.tailLen - 1, q.mane.color, q.mane.neon)
 	end
-	addPiece(rig, { tail }, V, CFrame.new(0, (y1 - 1) * V, (zB + 1) * V), function(t: number, move: number): CFrame
+	local tailPiece = addPiece(rig, { tail }, V, CFrame.new(0, (y1 - 1) * V, (zB + 1) * V), function(t: number, move: number): CFrame
 		return CFrame.Angles(math.sin(t * 2.2) * 0.08, math.sin(t * (2 + move * 3)) * 0.35, 0)
 	end)
+	local glowC = q.glowC or q.eye.color
 
 	-- Wings
 	if q.wings then
 		local ws = WINGS[q.wings]
-		addWings(rig, ws, V * (q.wingScale or 1), Vector3.new(0, (y1 + 1) * V, -1 * V), 18, 2.4, 22)
+		local infos = addWings(rig, ws, V * (q.wingScale or 1), Vector3.new(0, (y1 + 1) * V, -1 * V), 18, 2.4, 22)
+		if tier >= 3 then
+			for _, wi in ipairs(infos) do addTrail(rig, wi.piece, wi.tip, 0.5 * V / VOX_MOUNT, glowC, 0.7) end
+		end
+	end
+
+	-- Epic and up: glowing eyes that light the way, a trail off the tail,
+	-- turning rune rings underfoot; Legendary+ trail light off every foot.
+	local ctx = { V = V, y0 = y0, y1 = y1, zF = zF, zB = zB, W = q.W, H = q.H, L = q.L, tier = tier, glow = glowC,
+		head = headPiece, body = bodyPiece, tail = tailPiece, legs = legPieces,
+		snout = Vector3.new(0, (hy0 + 1) * V, (hz0 - q.snoutL) * V), headTop = Vector3.new(0, (hy1 + 2) * V, (hz1 - 1) * V),
+		tailTip = Vector3.new(0, math.floor((q.tailLen - 1) * (q.tailUp or 0.3)) * V, (q.tailLen - 1) * V),
+		foot = Vector3.new(0, -q.legLen * V, 0) }
+	if tier >= 3 then
+		addLight(rig, headPiece, ctx.snout, q.eye.color, 12, 1.6)
+		if q.tailLen > 1 then addTrail(rig, tailPiece, ctx.tailTip, 0.45 * V / VOX_MOUNT, glowC, 0.6) end
+		local r = math.max(q.W, math.floor(q.L * 0.55)) + 2
+		spinRing(rig, CFrame.new(0, 0.12, 0), r, { color = glowC, neon = true }, 0.6, V, tier == 3)
+		if tier >= 4 then
+			spinRing(rig, CFrame.new(0, 0.14, 0), r - 2, { color = glowC:Lerp(Color3.new(1, 1, 1), 0.4), neon = true }, -0.9, V, true)
+			for _, lp in ipairs(legPieces) do addTrail(rig, lp, ctx.foot, 0.35 * V / VOX_MOUNT, glowC, 0.4) end
+		end
+		if q.showy then q.showy(rig, ctx) end
 	end
 	-- Effects
 	for _, f in ipairs(q.fx or {}) do
@@ -472,19 +706,22 @@ local function buildQuad(look: string, q: Quad): Rig
 	end
 	if q.extra == "eclipse" then
 		local g = Kit.group()
-		Kit.disc(g, 5, 1, function(_, _, d)
-			if d > 4.1 then return glow(255, 200, 80) end
+		Kit.disc(g, 7, 1, function(_, _, d)
+			if d > 6.1 then return glow(255, 200, 80) end
 			return rgb(8, 4, 12)
 		end)
-		addPiece(rig, { g }, V, CFrame.new(0, (y1 + 9) * V, (zB - 1) * V), function(t: number): CFrame
-			return CFrame.new(0, math.sin(t * 1.2) * 0.15, 0) * CFrame.Angles(0, 0, t * 0.3)
+		local eh = CFrame.new(0, (y1 + 13) * V, (zB - 1) * V)
+		addPiece(rig, { g }, V, eh, function(t: number): CFrame
+			return CFrame.new(0, math.sin(t * 1.2) * 0.15, 0)
 		end)
+		corona(rig, eh * CFrame.new(0, 0, 0.05), 18, 8, 6, glow(255, 210, 120), 0.3, V)
 	end
 	return rig
 end
 
 -- Eight (or six) jointed legs splayed round a body: spiders and scorpions.
-local function addCrawlerLegs(rig: Rig, pairsN: number, hipY: number, zs: { number }, reach: number, drop: number, color: Paint, dark: Paint)
+local function addCrawlerLegs(rig: Rig, pairsN: number, hipY: number, zs: { number }, reach: number, drop: number, color: Paint, dark: Paint, scale: number?)
+	local VOX_MOUNT = scale or VOX_MOUNT
 	for i = 1, pairsN do
 		for _, side in ipairs({ -1, 1 }) do
 			local g = Kit.group()
@@ -525,11 +762,12 @@ end
 
 local function buildScorpion(look: string): Rig
 	local rig = newRig("Mount_" .. look, "mount")
+	local V = VOX_MOUNT * RideData.ScaleOf(look)
 	local main, dark, venom = rgb(45, 90, 35), rgb(25, 45, 20), glow(150, 255, 60)
 	local body = Kit.group()
 	Kit.box(body, -2, 3, -4, 2, 5, 4, main)
 	for z = -4, 4, 2 do Kit.set(body, 0, 6, z, venom.color, true) end
-	local bodyPiece = addPiece(rig, { body }, VOX_MOUNT, CFrame.new(), function(t: number, move: number): CFrame
+	local bodyPiece = addPiece(rig, { body }, V, CFrame.new(), function(t: number, move: number): CFrame
 		return CFrame.new(0, math.sin(t * 9) * 0.03 * move, 0)
 	end)
 	-- claws
@@ -538,7 +776,7 @@ local function buildScorpion(look: string): Rig
 		for k = 0, 3 do Kit.set(claw, side * math.floor(k / 2), 0, -k, main.color) end
 		Kit.box(claw, math.min(side, side * 2), 0, -6, math.max(side, side * 2), 1, -4, { color = main.color })
 		Kit.set(claw, side * 1, 1, -7, dark.color)
-		addPiece(rig, { claw }, VOX_MOUNT, CFrame.new(side * 2 * VOX_MOUNT, 4 * VOX_MOUNT, -4 * VOX_MOUNT), function(t: number): CFrame
+		addPiece(rig, { claw }, V, CFrame.new(side * 2 * V, 4 * V, -4 * V), function(t: number): CFrame
 			return CFrame.Angles(0, side * math.sin(t * 2 + side) * 0.15, 0)
 		end)
 	end
@@ -552,43 +790,110 @@ local function buildScorpion(look: string): Rig
 		Kit.set(tail, 0, y + 1, z, main.color)
 	end
 	Kit.set(tail, 0, 9, -1, venom.color, true)
-	local tailPiece = addPiece(rig, { tail }, VOX_MOUNT, CFrame.new(0, 5 * VOX_MOUNT, 4 * VOX_MOUNT), function(t: number): CFrame
+	local tailPiece = addPiece(rig, { tail }, V, CFrame.new(0, 5 * V, 4 * V), function(t: number): CFrame
 		return CFrame.Angles(math.sin(t * 1.8) * 0.12, math.sin(t * 1.1) * 0.1, 0)
 	end)
-	fx(addEmitterAnchor(rig, tailPiece, Vector3.new(0, 9 * VOX_MOUNT, -1 * VOX_MOUNT), Vector3.one * 0.3), "drip", Color3.fromRGB(150, 255, 60))
-	addCrawlerLegs(rig, 3, 4, { -2, 0, 2 }, 3, 4, main, dark)
+	fx(addEmitterAnchor(rig, tailPiece, Vector3.new(0, 9 * V, -1 * V), Vector3.one * 0.3), "drip", Color3.fromRGB(150, 255, 60))
+	addCrawlerLegs(rig, 3, 4, { -2, 0, 2 }, 3, 4, main, dark, V)
+	-- Epic: the sting trails venom light; spores circle; a toxic ring turns below
+	addTrail(rig, tailPiece, Vector3.new(0, 9 * V, -1 * V), 0.6, Color3.fromRGB(150, 255, 60), 0.7)
+	addLight(rig, tailPiece, Vector3.new(0, 9 * V, -1 * V), Color3.fromRGB(150, 255, 60), 12, 1.8)
+	orbit(rig, CFrame.new(0, 7 * V, 0), 4, 4 * V, 1.1, V, function() return ball(1, glow(150, 255, 60)) end, 0.15, 0.3)
+	spinRing(rig, CFrame.new(0, 0.12, 0), 7, glow(150, 255, 60), 0.7, V, true)
+	fx(addEmitterAnchor(rig, bodyPiece, Vector3.new(0, 0.3, 0), Vector3.new(4 * V, 0.2, 6 * V)), "smoke", Color3.fromRGB(90, 200, 40))
 	fx(addEmitterAnchor(rig, bodyPiece, Vector3.new(0, 1.6, 0), Vector3.new(2, 1, 3)), "stars", Color3.fromRGB(150, 255, 60))
 	return rig
 end
 
+-- The Void Serpent: an eastern dragon. You sit on its neck behind the horned
+-- head; its long body twirls in a living spiral behind you, clawed legs
+-- grasping, glowing fins along its spine, its tail fin trailing light.
 local function buildSerpent(look: string): Rig
 	local rig = newRig("Mount_" .. look, "mount")
-	local base = 7 * VOX_MOUNT
-	local n = 10
-	for i = 1, n do
+	local V = VOX_MOUNT * RideData.ScaleOf(look)
+	local BODY, BELLY, FIN = rgb(70, 25, 130), rgb(150, 110, 210), glow(200, 110, 255)
+	local GOLD, EYE = glow(255, 215, 110), glow(255, 240, 150)
+	local seatY = math.floor(RideData.BackHeight(look) / V + 0.5) -- (bricks: the neck sits at the back's height)
+
+	-- the neck under the rider
+	local neck = Kit.group()
+	Kit.box(neck, -2, -3, -2, 2, -1, 2, BODY)
+	for z = -2, 2 do Kit.set(neck, 0, 0, z, FIN.color, true) end
+	Kit.box(neck, -2, -4, -2, 2, -4, 2, BELLY)
+	local neckPiece = addPiece(rig, { neck }, V, CFrame.new(0, seatY * V, 0), function(t: number, move: number): CFrame
+		return CFrame.new(0, math.sin(t * 1.6) * 0.12, 0) * CFrame.Angles(0, 0, math.sin(t * 1.1) * 0.04)
+	end)
+
+	-- the head, out in front
+	local head = Kit.group()
+	Kit.box(head, -2, -2, -4, 2, 1, 0, BODY)          -- skull
+	Kit.box(head, -1, -2, -8, 1, 0, -5, BODY)         -- snout
+	Kit.box(head, -1, -3, -7, 1, -3, -3, BELLY)       -- jaw
+	Kit.set(head, -1, 0, -8, Color3.fromRGB(20, 0, 30)); Kit.set(head, 1, 0, -8, Color3.fromRGB(20, 0, 30)) -- nostrils
+	for _, side in ipairs({ -1, 1 }) do
+		Kit.set(head, side * 2, 0, -3, EYE.color, true)
+		-- golden horns sweeping back
+		for i = 0, 5 do Kit.set(head, side * (1 + math.floor(i / 3)), 2 + math.floor(i * 0.6), -1 + i, GOLD.color, true) end
+		-- long glowing whiskers drooping from the snout
+		for i = 0, 6 do Kit.set(head, side * (2 + math.floor(i / 2)), -1 - math.floor(i / 3), -7 + i, FIN.color, true) end
+		-- the mane
+		for z = -3, 0 do Kit.set(head, side * 2, 1, z, FIN.color, true) end
+	end
+	for z = -4, 0 do Kit.set(head, 0, 2, z, FIN.color, true) end
+	local headPiece = addPiece(rig, { head }, V, CFrame.new(0, (seatY - 1) * V, -2.5 * V), function(t: number, move: number): CFrame
+		return CFrame.new(0, math.sin(t * 1.6 + 0.4) * 0.15, 0) * CFrame.Angles(math.sin(t * 1.2) * 0.08, math.sin(t * 0.7) * 0.15, 0)
+	end)
+	addLight(rig, headPiece, Vector3.new(0, 0, -4 * V), Color3.fromRGB(200, 120, 255), 16, 2)
+	fx(addEmitterAnchor(rig, headPiece, Vector3.new(0, -1 * V, -8 * V), Vector3.one * 0.6), "smoke", Color3.fromRGB(170, 70, 255))
+	breath(rig, CFrame.new(0, (seatY - 2) * V, -11 * V), Color3.fromRGB(170, 60, 255), 5, 1.2, 1.2)
+
+	-- the body: segments spiralling behind
+	local N = 16
+	local spacing = 3.1 * V
+	local function at(i: number, t: number, move: number): Vector3
+		local back = i * spacing
+		local r = 3.6 * V * math.min(1, i / 4)                     -- (calm under the rider, coiling further back)
+		local phi = t * (2 + move * 1.6) - i * 0.55
+		local sway = math.sin(t * 0.8 + i * 0.25) * 0.8 * V
+		return Vector3.new(math.cos(phi) * r + sway, (seatY - 2) * V + math.sin(phi) * r - i * 0.12 * V, back)
+	end
+	for i = 1, N do
+		local k = i
+		local size = math.max(1, math.floor(2.4 - i * 0.09))
 		local g = Kit.group()
-		local isHead = i == 1
-		local r = if isHead then 2 else 1
-		Kit.box(g, -r, -r, -1, r, r, 1, rgb(80, 30, 140))
-		for x = -r, r do Kit.set(g, x, r, 0, Color3.fromRGB(200, 120, 255), true) end -- glowing ridge
-		Kit.set(g, 0, r + 1, 0, Color3.fromRGB(230, 170, 255), true)
-		if isHead then
-			Kit.box(g, -1, -1, -4, 1, 1, -2, rgb(80, 30, 140))
-			Kit.set(g, -2, 1, -2, Color3.fromRGB(255, 230, 120), true)
-			Kit.set(g, 2, 1, -2, Color3.fromRGB(255, 230, 120), true)
-			for k = 0, 2 do
-				Kit.set(g, -2, 2 + k, 1 + k, Color3.fromRGB(230, 210, 255))
-				Kit.set(g, 2, 2 + k, 1 + k, Color3.fromRGB(230, 210, 255))
+		Kit.box(g, -size, -size, -1, size, size, 1, BODY)
+		for x = -size, size do Kit.set(g, x, -size, 0, BELLY.color) end
+		-- a glowing fin along the spine
+		Kit.set(g, 0, size + 1, 0, FIN.color, true)
+		if i % 2 == 0 then Kit.set(g, 0, size + 2, 1, FIN.color, true) end
+		-- clawed legs on two segments
+		if i == 3 or i == 9 then
+			for _, side in ipairs({ -1, 1 }) do
+				for d = 0, 3 do Kit.set(g, side * (size + 1 + math.floor(d / 2)), -size - d, -1, BODY.color) end
+				Kit.set(g, side * (size + 3), -size - 4, -2, GOLD.color, true)
+				Kit.set(g, side * (size + 2), -size - 4, -2, GOLD.color, true)
 			end
 		end
-		local z = (i - 4) * 3.4 * VOX_MOUNT
-		local k = i
-		local piece = addPiece(rig, { g }, VOX_MOUNT, CFrame.new(0, base, z), function(t: number, move: number): CFrame
-			local w = 2.2 + move * 2
-			return CFrame.new(math.sin(t * w * 0.6 - k * 0.5) * 0.35, math.sin(t * w - k * 0.6) * 0.45, 0)
+		-- the tail fin
+		if i == N then
+			for y = -3, 3 do
+				for z = 1, 3 - math.floor(math.abs(y) / 2) do Kit.set(g, 0, y, z, FIN.color, true) end
+			end
+		end
+		local piece = addPiece(rig, { g }, V, CFrame.new(), function(t: number, move: number): CFrame
+			local p = at(k, t, move)
+			local prev = if k == 1 then Vector3.new(0, (seatY - 2) * V, 0) else at(k - 1, t, move)
+			return CFrame.lookAt(p, prev)
 		end)
-		if i % 3 == 0 then fx(addEmitterAnchor(rig, piece, Vector3.zero, Vector3.one), "smoke", Color3.fromRGB(150, 60, 255)) end
+		if i % 4 == 0 then fx(addEmitterAnchor(rig, piece, Vector3.zero, Vector3.one * (size * V)), "smoke", Color3.fromRGB(150, 60, 255)) end
+		if i % 5 == 0 then fx(addEmitterAnchor(rig, piece, Vector3.zero, Vector3.one * (size * V)), "sparks", Color3.fromRGB(210, 150, 255)) end
+		if i == N then addTrail(rig, piece, Vector3.new(0, 0, 2 * V), 1.4 * V / VOX_MOUNT, Color3.fromRGB(190, 90, 255), 0.9) end
+		if i == math.floor(N / 2) then addLight(rig, piece, Vector3.zero, Color3.fromRGB(170, 70, 255), 14, 1.4) end
 	end
+	-- void runes circling, rune rings below
+	orbit(rig, CFrame.new(0, seatY * V, 2 * V), 5, 5 * V, 0.6, V, function() return shard(rgb(40, 10, 70), glow(220, 150, 255)) end, 0.3, 0.4)
+	spinRing(rig, CFrame.new(0, 0.12, 2 * V), 9, glow(190, 90, 255), 0.5, V)
+	spinRing(rig, CFrame.new(0, 0.14, 2 * V), 6, glow(240, 200, 255), -0.8, V, true)
 	return rig
 end
 
@@ -616,33 +921,95 @@ local MOUNTS: { [string]: () -> Rig } = {
 	venom_scorpion = function() return buildScorpion("venom_scorpion") end,
 	shadow_panther = function() return buildQuad("shadow_panther", { L = 12, H = 4, W = 4, legLen = 4, headL = 3, headH = 3, headW = 4, snoutL = 1, neckUp = 1,
 		ears = "point", tailLen = 9, tailUp = 0.25, main = rgb(48, 32, 78), belly = rgb(30, 20, 50), dark = rgb(18, 12, 30), eye = glow(200, 120, 255), gait = 8, spikes = glow(170, 90, 255),
-		fx = { { "smoke", "body", Color3.fromRGB(140, 70, 255) } } }) end,
+		fx = { { "smoke", "body", Color3.fromRGB(140, 70, 255) } } ,
+		glowC = Color3.fromRGB(170, 90, 255),
+		showy = function(rig, ctx)
+			-- an afterimage ribbon off its body, shadow pouring from its paws
+			addTrail(rig, ctx.body, Vector3.new(0, (ctx.y0 + ctx.H / 2) * ctx.V, 0), ctx.H * ctx.V, Color3.fromRGB(110, 50, 200), 0.35)
+			for _, lp in ipairs(ctx.legs) do fx(addEmitterAnchor(rig, lp, ctx.foot, Vector3.one * 0.5), "smoke", Color3.fromRGB(120, 60, 220)) end
+		end }) end,
 	crystal_stag = function() return buildQuad("crystal_stag", { L = 10, H = 4, W = 3, legLen = 6, legT = 1, headL = 3, headH = 2, headW = 3, snoutL = 2, neckUp = 4,
 		ears = "point", horns = "antler", hornC = rgb(170, 225, 255), tailLen = 1, main = rgb(150, 190, 235), belly = rgb(225, 240, 255), dark = rgb(70, 100, 150),
-		eye = glow(170, 230, 255), spikes = glow(190, 235, 255), fx = { { "stars", "body", Color3.fromRGB(170, 225, 255) } } }) end,
+		eye = glow(170, 230, 255), spikes = glow(190, 235, 255), fx = { { "stars", "body", Color3.fromRGB(170, 225, 255) } } ,
+		glowC = Color3.fromRGB(170, 230, 255),
+		showy = function(rig, ctx)
+			-- crystal shards circling its antlers; frost where it steps
+			orbit(rig, CFrame.new(0, (ctx.y1 + 9) * ctx.V, ctx.zF * ctx.V), 6, 3.2 * ctx.V, 0.8, ctx.V, function()
+				return shard(glass(170, 225, 255, 0.2), glow(220, 245, 255))
+			end, 0.2, 0.3)
+			for _, lp in ipairs(ctx.legs) do fx(addEmitterAnchor(rig, lp, ctx.foot, Vector3.one * 0.5), "frost", Color3.fromRGB(190, 240, 255)) end
+		end }) end,
 	magma_lizard = function() return buildQuad("magma_lizard", { L = 12, H = 3, W = 5, legLen = 2, legT = 2, headL = 3, headH = 2, headW = 4, snoutL = 2, neckUp = 0,
 		tailLen = 8, tailUp = 0, tailT = 2, main = rgb(45, 35, 35), dark = rgb(25, 18, 18), eye = glow(255, 200, 60), gait = 9,
 		pattern = function(x, y, z) if (x * 3 + z) % 5 == 0 then return glow(255, 100, 20) end return nil end,
-		fx = { { "embers", "body", Color3.fromRGB(255, 110, 30) } } }) end,
+		fx = { { "embers", "body", Color3.fromRGB(255, 110, 30) } } ,
+		glowC = Color3.fromRGB(255, 120, 30),
+		showy = function(rig, ctx)
+			-- lava bubbling up where it walks
+			for _, lp in ipairs(ctx.legs) do fx(addEmitterAnchor(rig, lp, ctx.foot, Vector3.one * 0.6), "fire", Color3.fromRGB(255, 90, 20)) end
+		end }) end,
 	infernal_dragon = function() return buildQuad("infernal_dragon", { L = 12, H = 6, W = 5, legLen = 4, headL = 4, headH = 3, headW = 4, snoutL = 3, neckUp = 4,
 		horns = "dragon", hornC = rgb(40, 20, 15), tailLen = 10, tailUp = 0.1, tailT = 2, main = rgb(175, 45, 25), belly = rgb(240, 160, 60),
 		dark = rgb(50, 15, 10), eye = glow(255, 220, 80), spikes = rgb(60, 20, 15), wings = "dragon", wingScale = 1.4,
-		fx = { { "fire", "head", Color3.fromRGB(255, 120, 30) }, { "embers", "body", Color3.fromRGB(255, 120, 30) } } }) end,
+		fx = { { "fire", "head", Color3.fromRGB(255, 120, 30) }, { "embers", "body", Color3.fromRGB(255, 120, 30) } } ,
+		glowC = Color3.fromRGB(255, 130, 40),
+		showy = function(rig, ctx)
+			-- fire breathed in great bursts; flames licking up from its feet
+			breath(rig, CFrame.new(0, (ctx.y1 + 3) * ctx.V, (ctx.zF - 8) * ctx.V), Color3.fromRGB(255, 90, 20), 4, 1.1, 1.2)
+			for _, lp in ipairs(ctx.legs) do fx(addEmitterAnchor(rig, lp, ctx.foot, Vector3.one * 0.6), "fire", Color3.fromRGB(255, 110, 30)) end
+		end }) end,
 	storm_wyvern = function() return buildQuad("storm_wyvern", { L = 11, H = 5, W = 4, legLen = 5, legs = 2, headL = 4, headH = 3, headW = 3, snoutL = 2, neckUp = 4,
 		horns = "dragon", hornC = rgb(200, 230, 255), tailLen = 9, tailUp = 0.15, main = rgb(45, 90, 170), belly = rgb(150, 200, 255), dark = rgb(20, 40, 80),
 		eye = glow(170, 230, 255), spikes = glow(140, 210, 255), wings = "storm", wingScale = 1.5,
-		fx = { { "sparks", "body", Color3.fromRGB(140, 210, 255) } } }) end,
+		fx = { { "sparks", "body", Color3.fromRGB(140, 210, 255) } } ,
+		glowC = Color3.fromRGB(130, 200, 255),
+		showy = function(rig, ctx)
+			-- a storm cloud riding over it, crackling; orbs of lightning circling
+			local cloud = addAnchorPiece(rig, CFrame.new(0, (ctx.y1 + 14) * ctx.V, 0), function(t: number): CFrame
+				return CFrame.new(math.sin(t * 0.6) * 0.3, math.sin(t * 0.9) * 0.2, 0)
+			end)
+			local c = addEmitterAnchor(rig, cloud, Vector3.zero, Vector3.new(6, 1.2, 6))
+			fx(c, "smoke", Color3.fromRGB(60, 70, 100))
+			fx(c, "sparks", Color3.fromRGB(150, 210, 255))
+			addLight(rig, cloud, Vector3.zero, Color3.fromRGB(140, 200, 255), 18, 1.8)
+			orbit(rig, CFrame.new(0, (ctx.y1 + 2) * ctx.V, 0), 3, 7 * ctx.V, 1.3, ctx.V, function() return ball(1.2, glow(170, 225, 255)) end, 0.25, 0.4)
+		end }) end,
 	death_knight_horse = function() return buildQuad("death_knight_horse", { L = 11, H = 5, W = 4, legLen = 5, headL = 4, headH = 2, headW = 3, snoutL = 2, neckUp = 4,
 		ears = "point", tailLen = 5, tailUp = -0.3, main = rgb(25, 25, 32), dark = rgb(10, 10, 14), eye = glow(90, 170, 255), mane = glow(90, 170, 255),
-		armor = rgb(80, 85, 100), saddle = true, fx = { { "fire", "head", Color3.fromRGB(80, 160, 255) }, { "smoke", "feet", Color3.fromRGB(40, 80, 160) } } }) end,
+		armor = rgb(80, 85, 100), saddle = true, fx = { { "fire", "head", Color3.fromRGB(80, 160, 255) }, { "smoke", "feet", Color3.fromRGB(40, 80, 160) } } ,
+		glowC = Color3.fromRGB(90, 170, 255),
+		showy = function(rig, ctx)
+			-- ghost-fire hooves; spirit wisps circling the rider
+			for _, lp in ipairs(ctx.legs) do fx(addEmitterAnchor(rig, lp, ctx.foot, Vector3.one * 0.6), "fire", Color3.fromRGB(70, 150, 255)) end
+			local wisps = orbit(rig, CFrame.new(0, (ctx.y1 + 4) * ctx.V, 0), 3, 5 * ctx.V, 0.9, ctx.V, function() return ball(1, glow(140, 200, 255)) end, 0.3, 0.5)
+			for _, w in ipairs(wisps) do addTrail(rig, w, Vector3.zero, 0.4, Color3.fromRGB(110, 180, 255), 0.6) end
+		end }) end,
 	void_serpent = function() return buildSerpent("void_serpent") end,
 	celestial_lion = function() return buildQuad("celestial_lion", { L = 11, H = 5, W = 5, legLen = 5, headL = 3, headH = 4, headW = 4, snoutL = 1, neckUp = 1,
 		ears = "round", tailLen = 6, tailUp = 0.3, main = rgb(240, 200, 110), dark = rgb(150, 100, 40), eye = glow(255, 255, 220), mane = rgb(255, 170, 60),
-		extra = "lion_mane", wings = "celestial", wingScale = 1.4, fx = { { "stars", "body", Color3.fromRGB(255, 225, 140) } } }) end,
+		extra = "lion_mane", wings = "celestial", wingScale = 1.4, fx = { { "stars", "body", Color3.fromRGB(255, 225, 140) } } ,
+		glowC = Color3.fromRGB(255, 220, 130),
+		showy = function(rig, ctx)
+			-- a halo over its mane; orbs of light circling
+			local halo = spinRing(rig, CFrame.new(0, (ctx.y1 + 8) * ctx.V, (ctx.zF - 1) * ctx.V) * CFrame.Angles(math.rad(10), 0, 0), 4, glow(255, 230, 140), 0.8, ctx.V)
+			addLight(rig, halo, Vector3.zero, Color3.fromRGB(255, 220, 140), 14, 1.6)
+			local orbs = orbit(rig, CFrame.new(0, (ctx.y1 + 3) * ctx.V, 0), 5, 6 * ctx.V, 0.6, ctx.V, function() return ball(1, glow(255, 240, 190)) end, 0.2, 0.4)
+			for _, o in ipairs(orbs) do addTrail(rig, o, Vector3.zero, 0.3, Color3.fromRGB(255, 220, 130), 0.5) end
+		end }) end,
 	eclipse_dragon = function() return buildQuad("eclipse_dragon", { L = 12, H = 6, W = 5, legLen = 5, headL = 4, headH = 3, headW = 4, snoutL = 3, neckUp = 4,
 		horns = "dragon", hornC = glow(255, 200, 80), tailLen = 10, tailUp = 0.1, tailT = 2, main = rgb(25, 20, 30), belly = rgb(60, 45, 30),
 		dark = rgb(10, 8, 12), eye = glow(255, 200, 80), spikes = glow(255, 190, 70), wings = "eclipse", wingScale = 1.4, extra = "eclipse",
-		fx = { { "embers", "body", Color3.fromRGB(255, 190, 70) } } }) end,
+		fx = { { "embers", "body", Color3.fromRGB(255, 190, 70) } } ,
+		glowC = Color3.fromRGB(255, 190, 80),
+		showy = function(rig, ctx)
+			-- dark fire breathed in bursts; a sun and a moon circling its eclipse
+			breath(rig, CFrame.new(0, (ctx.y1 + 3) * ctx.V, (ctx.zF - 8) * ctx.V), Color3.fromRGB(150, 40, 200), 4.5, 1.2, 1.25)
+			local orbs = orbit(rig, CFrame.new(0, (ctx.y1 + 13) * ctx.V, (ctx.zB - 1) * ctx.V), 2, 11 * ctx.V, 0.5, ctx.V, function(i)
+				return if i == 1 then ball(1.8, glow(255, 210, 90)) else ball(1.6, glow(220, 225, 255))
+			end, 1.4, 0)
+			for _, o in ipairs(orbs) do addTrail(rig, o, Vector3.zero, 0.6, Color3.fromRGB(255, 200, 110), 0.8) end
+			for _, lp in ipairs(ctx.legs) do fx(addEmitterAnchor(rig, lp, ctx.foot, Vector3.one * 0.6), "embers", Color3.fromRGB(255, 190, 70)) end
+		end }) end,
 }
 
 -- ─── Public ────────────────────────────────────────────────────────────────
@@ -669,6 +1036,42 @@ function WingsMounts.Pose(rig: Rig, cf: CFrame, t: number, move: number)
 	end
 	local world = rig.world or Workspace
 	world:BulkMoveTo(rig.allParts, rig.cfs, Enum.BulkMoveMode.FireCFrameChanged)
+end
+
+-- ─── The riding pose ───────────────────────────────────────────────────────
+-- Seated astride: thighs forward and spread round the mount, knees bent so
+-- the shins hang down its sides, arms forward on the reins. Written over the
+-- walk / idle animation each frame (after the Animator has posed the joints).
+local R15_POSE = {
+	LeftHip = CFrame.Angles(1.35, 0, 0) * CFrame.Angles(0, 0, -0.35),
+	RightHip = CFrame.Angles(1.35, 0, 0) * CFrame.Angles(0, 0, 0.35),
+	LeftKnee = CFrame.Angles(-1.45, 0, 0), RightKnee = CFrame.Angles(-1.45, 0, 0),
+	LeftAnkle = CFrame.Angles(0.35, 0, 0), RightAnkle = CFrame.Angles(0.35, 0, 0),
+	LeftShoulder = CFrame.Angles(0.75, 0, 0.12), RightShoulder = CFrame.Angles(0.75, 0, -0.12),
+	LeftElbow = CFrame.Angles(0.55, 0, 0), RightElbow = CFrame.Angles(0.55, 0, 0),
+}
+-- (R6's hip and shoulder joints are turned a quarter: forward is about their Z)
+local R6_POSE = {
+	["Left Hip"] = CFrame.Angles(0, 0, -1.4), ["Right Hip"] = CFrame.Angles(0, 0, 1.4),
+	["Left Shoulder"] = CFrame.Angles(0, 0, -0.8), ["Right Shoulder"] = CFrame.Angles(0, 0, 0.8),
+}
+local motorCache: { [Model]: { { any } } } = setmetatable({}, { __mode = "k" }) :: any
+
+function WingsMounts.Seat(character: Model)
+	local list = motorCache[character]
+	if not list then
+		list = {}
+		for _, d in ipairs(character:GetDescendants()) do
+			if d:IsA("Motor6D") then
+				local pose = R15_POSE[d.Name] or R6_POSE[d.Name]
+				if pose then table.insert(list, { d, pose }) end
+			end
+		end
+		motorCache[character] = list
+	end
+	for _, m in ipairs(list) do
+		if m[1].Parent then (m[1] :: Motor6D).Transform = m[2] end
+	end
 end
 
 -- ─── On every player ───────────────────────────────────────────────────────
@@ -747,6 +1150,7 @@ local function step()
 			local look = root.CFrame.LookVector
 			local yaw = CFrame.lookAt(Vector3.zero, Vector3.new(look.X, 0, look.Z))
 			WingsMounts.Pose(e.mount, CFrame.new(root.Position.X, ground, root.Position.Z) * yaw, t, move)
+			WingsMounts.Seat(char)
 		end
 	end
 	for player, e in pairs(entries) do

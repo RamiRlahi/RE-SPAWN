@@ -145,7 +145,7 @@ local R: { Reward } = {
 	{ id = "mount_death_knight_horse", type = "mount", look = "death_knight_horse", rarity = "Legendary", glyph = "DK", name = "Death Knight Horse",
 		accent = Color3.fromRGB(60, 140, 255), description = "An armoured black steed with a blue-fire mane. Ride it in the lobby to move faster." },
 	{ id = "mount_void_serpent", type = "mount", look = "void_serpent", rarity = "Mythic", glyph = "VS", name = "Void Serpent",
-		accent = Color3.fromRGB(170, 70, 255), description = "A serpent that swims through the air. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(170, 70, 255), description = "A void dragon whose long body coils and twirls through the air. You ride on its neck, behind the horns. Ride it in the lobby to move faster." },
 	{ id = "mount_celestial_lion", type = "mount", look = "celestial_lion", rarity = "Mythic", glyph = "CL", name = "Celestial Lion",
 		accent = Color3.fromRGB(255, 220, 120), description = "A winged golden lion. Ride it in the lobby to move faster." },
 	{ id = "mount_eclipse_dragon", type = "mount", look = "eclipse_dragon", rarity = "Mythic", glyph = "ED", name = "Eclipse Dragon",

@@ -36,7 +36,9 @@ local function update(player: Player)
 				base = hum.HipHeight
 				char:SetAttribute("BaseHipHeight", base)
 			end
-			hum.HipHeight = base + RideData.RideHeight(reward.look)
+			-- (seated astride: hips on the mount's back, legs bent round it)
+			local legLen = if hum.RigType == Enum.HumanoidRigType.R6 then 2 else math.max(base, 1)
+			hum.HipHeight = base + RideData.SeatLift(reward.look, legLen)
 			char:SetAttribute("Riding", reward.id)
 		end
 		-- (only while they can walk: a frozen player stays frozen)
