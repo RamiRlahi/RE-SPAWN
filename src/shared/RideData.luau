@@ -5,8 +5,9 @@
 	WingsMounts / RewardPreview on the clients): its size, how high its back
 	is, and how much faster its rider walks in the lobby.
 
-	The rider sits ON the back (WingsMounts.Seat bends their legs astride),
-	so they're lifted until their hips are at the back's height.
+	The rider sits ON the back (WingsMounts.Seat bends their legs astride, or
+	out in front on a flat platform), so they're lifted until their hips are
+	at the back's height.
 --]]
 
 local RideData = {}
@@ -19,6 +20,7 @@ RideData.Scale = {
 	venom_scorpion = 1.15, shadow_panther = 1.15, crystal_stag = 1.15, magma_lizard = 1.15,
 	infernal_dragon = 1.3, storm_wyvern = 1.3, death_knight_horse = 1.3,
 	void_serpent = 1.4, celestial_lion = 1.4, eclipse_dragon = 1.4,
+	magic_carpet = 1.15, void_disc = 1.3, wishing_star = 1.4,
 }
 
 -- Height of the back (where the rider sits) above the ground, in studs.
@@ -27,10 +29,18 @@ RideData.Back = {
 	dire_bear = 4.2, flame_ram = 3.4, venom_scorpion = 2.9, shadow_panther = 3.9, crystal_stag = 4.8,
 	magma_lizard = 2.4, infernal_dragon = 5.5, storm_wyvern = 5.5, death_knight_horse = 6,
 	void_serpent = 5.3, celestial_lion = 5.9, eclipse_dragon = 6.5,
+	magic_carpet = 2.6, void_disc = 3.4, wishing_star = 3.2,
 }
+
+-- Floating platforms: sat on with the legs out in front, not straddled.
+RideData.Flat = { magic_carpet = true, void_disc = true, wishing_star = true }
 
 function RideData.ScaleOf(look: string?): number
 	return (look and RideData.Scale[look]) or 1
+end
+
+function RideData.IsFlat(look: string?): boolean
+	return look ~= nil and RideData.Flat[look] == true
 end
 
 function RideData.BackHeight(look: string?): number
