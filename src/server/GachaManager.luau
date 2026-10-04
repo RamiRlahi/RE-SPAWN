@@ -15,6 +15,16 @@
 	Duplicates never waste: characters, VFX variants and armor → Soul Shards,
 	relics → levels (then Relic Dust), cosmetics → Relic Dust.
 
+	Around the pulls:
+	  • Daily wish: one free single summon per UTC day ({ free = true }).
+	  • Starlight: every summon on a banner adds GachaConfig.Spark.perPull to
+	    that banner's pity.starlight; at Spark.cost it buys any unowned
+	    Epic-or-better reward of the banner ({ kind = "spark", id }). The
+	    exchange is sent back like a summon, so it gets the wish reveal.
+	  • Sets (GachaRewards.Sets): completing one pays its bonus once.
+	  • Summons of GachaConfig.AnnounceRarity or better are announced to
+	    everyone in the server (SummonAnnounce).
+
 	Premium: crystal Developer Products are granted idempotently in
 	ProcessReceipt. Crystal (paid) summons are blocked for players whose
 	PolicyService marks paid random items as restricted; tickets still work.
@@ -36,6 +46,7 @@ local TalentManager = require(script.Parent:WaitForChild("TalentManager"))
 local GachaManager = {}
 
 local rng = Random.new()
+local announce: (Player, { any }) -> ()
 local restricted: { [Player]: boolean } = {}
 local busy: { [Player]: boolean } = {}
 
@@ -43,10 +54,52 @@ local busy: { [Player]: boolean } = {}
 local function pityFor(p: any, bannerId: string)
 	local pity = p.pity[bannerId]
 	if not pity then
-		pity = { sinceEpic = 0, sinceLegendary = 0, guaranteedFeatured = false }
+		pity = { sinceEpic = 0, sinceLegendary = 0, guaranteedFeatured = false, starlight = 0 }
 		p.pity[bannerId] = pity
 	end
+	pity.starlight = pity.starlight or 0
 	return pity
+end
+
+-- ─── Daily wish ──────────────────────────────────────────────────────────────
+local function today(): number
+	return math.floor(os.time() / 86400)
+end
+local function freeAvailable(p: any): boolean
+	return GachaConfig.DailyFree.enabled and (p.stats.lastFreeDay or -1) < today()
+end
+
+-- ─── Ownership & sets ────────────────────────────────────────────────────────
+local function owns(p: any, r: any): boolean
+	if r.type == "character" or r.type == "variant" then return p.collection.characters[r.id] ~= nil end
+	if r.type == "relic" then return p.collection.relics[r.id] ~= nil end
+	if r.type == "cosmetic" or r.type == "armor" then return p.collection.cosmetics[r.id] == true end
+	return false
+end
+
+-- Sets newly completed by what the player now owns: their bonus is paid once.
+local function checkSets(p: any): { string }
+	local done = {}
+	for _, set in ipairs(GachaRewards.Sets) do
+		if not p.stats[`set:{set.id}`] and #set.items > 0 then
+			local all = true
+			for _, id in ipairs(set.items) do
+				local r = GachaRewards.Get(id)
+				if not r or not owns(p, r) then
+					all = false
+					break
+				end
+			end
+			if all then
+				p.stats[`set:{set.id}`] = 1
+				for currency, amount in pairs(set.bonus) do
+					p.currencies[currency] = (p.currencies[currency] or 0) + amount
+				end
+				table.insert(done, set.id)
+			end
+		end
+	end
+	return done
 end
 
 -- Clients recolour a player's ability VFX from this attribute (VariantFX).
@@ -75,6 +128,10 @@ local function sync(player: Player)
 	refreshArmorAttributes(player, p)
 	player:SetAttribute("Tickets", p.currencies.tickets or 0)
 	player:SetAttribute("Crystals", p.currencies.crystals or 0)
+	local setsDone = {}
+	for _, set in ipairs(GachaRewards.Sets) do
+		if p.stats[`set:{set.id}`] then setsDone[set.id] = true end
+	end
 	local products = {}
 	for _, prod in ipairs(GachaConfig.CrystalProducts) do
 		if prod.productId and prod.productId > 0 then
@@ -86,6 +143,9 @@ local function sync(player: Player)
 		collection = p.collection,
 		equipped = p.equipped,
 		pity = pityFor(p, GachaConfig.DefaultBanner),
+		freeAvailable = freeAvailable(p),
+		nextFreeIn = (today() + 1) * 86400 - os.time(),
+		setsDone = setsDone,
 		paidRestricted = restricted[player] == true,
 		products = products,
 	})
@@ -213,6 +273,21 @@ local function grant(p: any, reward: any): (boolean, string)
 	return false, ""
 end
 
+-- ─── Lobby flex: everyone hears about a Legendary ──────────────────────────
+announce = function(player: Player, results: { any })
+	local top
+	for _, res in ipairs(results) do
+		if rarityIndex(res.rarity) >= rarityIndex(GachaConfig.AnnounceRarity)
+			and (not top or rarityIndex(res.rarity) > rarityIndex(top.rarity)) then
+			top = res
+		end
+	end
+	if not top then return end
+	Network.GetRemoteEvent(Network.Remotes.SummonAnnounce):FireAllClients({
+		userId = player.UserId, name = player.DisplayName, id = top.id, rarity = top.rarity,
+	})
+end
+
 -- ─── Summon ─────────────────────────────────────────────────────────────────
 local function summon(player: Player, payload: any)
 	if busy[player] then return end
@@ -221,12 +296,20 @@ local function summon(player: Player, payload: any)
 	local bannerId = typeof(payload.banner) == "string" and payload.banner or GachaConfig.DefaultBanner
 	local banner = GachaConfig.Banners[bannerId]
 	if not banner then return end
-	local multi = payload.count == 10
+	local free = payload.free == true
+	local multi = payload.count == 10 and not free
 	local count = multi and GachaConfig.Cost.multi.count or 1
 	local cost = multi and GachaConfig.Cost.multi or GachaConfig.Cost.single
 
-	-- Payment (skipped entirely while FREE_SUMMONS is on).
-	if not GachaConfig.FREE_SUMMONS then
+	if free then
+		-- The daily wish: one free single summon a day.
+		if not freeAvailable(p) then
+			Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { error = "Your daily wish is spent. A new one rises at midnight (UTC)." })
+			return
+		end
+		p.stats.lastFreeDay = today()
+	elseif not GachaConfig.FREE_SUMMONS then
+		-- Payment (skipped entirely while FREE_SUMMONS is on).
 		local pay = payload.pay == "crystals" and "crystals" or "tickets"
 		if pay == "crystals" and restricted[player] then
 			Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { error = "Crystal summons aren't available in your region. Tickets still work." })
@@ -247,6 +330,7 @@ local function summon(player: Player, payload: any)
 	for i = 1, count do
 		pity.sinceEpic += 1
 		pity.sinceLegendary += 1
+		pity.starlight += GachaConfig.Spark.perPull
 		local rarity = rollRarity(pity)
 		-- 10-pull guarantee: the last pull is at least the configured rarity.
 		if multi and i == count then
@@ -266,10 +350,12 @@ local function summon(player: Player, payload: any)
 		table.insert(results, { id = reward.id, rarity = reward.rarity, isNew = isNew, note = note })
 	end
 	p.stats.pulls = (p.stats.pulls or 0) + count
+	local sets = checkSets(p)
 	PlayerData.MarkDirty(player)
 	sync(player)
-	Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { results = results, best = best })
+	Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { results = results, best = best, sets = sets })
 	busy[player] = false
+	announce(player, results)
 end
 
 -- ─── Collection actions ─────────────────────────────────────────────────────
@@ -333,6 +419,34 @@ local function action(player: Player, payload: any)
 		end
 		p.currencies[payload.pay] -= price
 		grant(p, reward)
+		checkSets(p)
+	elseif kind == "spark" and typeof(payload.id) == "string" then
+		-- Starlight exchange: the reward you choose, sent back like a summon.
+		local bannerId = typeof(payload.banner) == "string" and payload.banner or GachaConfig.DefaultBanner
+		local banner = GachaConfig.Banners[bannerId]
+		local reward = GachaRewards.Get(payload.id)
+		local function fail(message: string)
+			Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { error = message })
+		end
+		if not banner or not reward or busy[player] then return end
+		if not table.find(GachaRewards.Pool(banner.pool), reward.id) or reward.type == "material"
+			or rarityIndex(reward.rarity) < rarityIndex(GachaConfig.Spark.minRarity) then
+			return fail("That can't be bought with Starlight.")
+		end
+		if owns(p, reward) then return fail(`You already own {reward.name}.`) end
+		local pity = pityFor(p, bannerId)
+		if pity.starlight < GachaConfig.Spark.cost then
+			return fail(`Not enough Starlight ({pity.starlight}/{GachaConfig.Spark.cost}).`)
+		end
+		pity.starlight -= GachaConfig.Spark.cost
+		local isNew, note = grant(p, reward)
+		local sets = checkSets(p)
+		PlayerData.MarkDirty(player)
+		sync(player)
+		local results = { { id = reward.id, rarity = reward.rarity, isNew = isNew, note = note } }
+		Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { results = results, best = reward.rarity, sets = sets, spark = true })
+		announce(player, results)
+		return
 	elseif kind == "buyCrystals" and typeof(payload.id) == "string" then
 		for _, prod in ipairs(GachaConfig.CrystalProducts) do
 			if prod.id == payload.id and prod.productId > 0 then
@@ -460,6 +574,8 @@ function GachaManager.Init()
 			if not GachaRewards.Get(p.equipped.relics[i]) then table.remove(p.equipped.relics, i); cleaned = true end
 		end
 		if p.currencies.ascension then p.currencies.ascension = nil; cleaned = true end
+		-- (sets already complete from before sets existed pay out now)
+		if #checkSets(p) > 0 then cleaned = true end
 		if cleaned then PlayerData.MarkDirty(player) end
 		local ok, info = pcall(function() return PolicyService:GetPolicyInfoForPlayerAsync(player) end)
 		restricted[player] = ok and info and info.ArePaidRandomItemsRestricted == true or false

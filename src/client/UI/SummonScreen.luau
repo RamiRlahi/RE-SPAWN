@@ -7,7 +7,13 @@
 	  left     featured banner panel + Rates & Pity (odds disclosure generated
 	           from GachaConfig, so it always matches the server)
 	  right    Collection / Shop panel
-	  bottom   pity status + SUMMON ×1 / ×10
+	  bottom   the daily wish + SUMMON ×1 / ×10
+
+	The banner panel shows pity as meters (the Legendary guarantee, with the
+	point where its odds start rising) and the banner's Starlight, which the
+	EXCHANGE panel spends on a reward of your choice. Collection lists the
+	sets (GachaRewards.Sets) and their progress. Summons play
+	ConstellationWish.
 
 	Opening hides the class-selection screen and HUD so nothing overlaps.
 	Results: click a card to preview that item on its character at the statue.
@@ -28,6 +34,7 @@ local ClassData = require(Shared:WaitForChild("ClassData"))
 local SoundManager = require(script.Parent:WaitForChild("SoundManager"))
 local MenuStyle = require(script.Parent:WaitForChild("MenuStyle"))
 local SummonCinematic = require(script.Parent.Parent:WaitForChild("SummonCinematic"))
+local ConstellationWish = require(script.Parent.Parent:WaitForChild("ConstellationWish"))
 local LobbyCamera = require(script.Parent.Parent:WaitForChild("LobbyCamera"))
 
 local player = Players.LocalPlayer
@@ -56,6 +63,7 @@ local gui: ScreenGui? = nil
 local refreshers: { () -> () } = {}
 local payWith = "tickets"
 local pulling = false
+local setComplete: (string) -> () = function(_setId: string) end
 
 -- ─── Menu-style building blocks ─────────────────────────────────────────────
 -- A wood plaque (no inner rail: most panels lay out their children in lists).
@@ -228,7 +236,7 @@ local function build(): ScreenGui
 	ll.Parent = left
 	sectionTag(left, "Featured", { LayoutOrder = 1 })
 	if featured then
-		label(left, { Text = featured.glyph, TextSize = 64, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 80), LayoutOrder = 2 })
+		label(left, { Text = featured.glyph, TextSize = 48, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 56), LayoutOrder = 2 })
 		label(left, { Text = string.upper(featured.name), Font = F.Title, TextSize = 24, TextColor3 = fColor, Size = UDim2.new(1, 0, 0, 30), LayoutOrder = 3 })
 		label(left, { Text = `[{string.upper(featured.rarity)}]`, Font = F.Tag, TextSize = 12, TextColor3 = rarityColor(featured.rarity), Size = UDim2.new(1, 0, 0, 16), LayoutOrder = 4 })
 		label(left, { Text = featured.description, TextSize = 13, TextColor3 = C.TextSecondary, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 5 })
@@ -236,12 +244,55 @@ local function build(): ScreenGui
 		label(left, { Text = `When you summon a Legendary it is {featured.name} {math.floor(banner.featuredRate * 100)}% of the time. If it isn't, your next Legendary is guaranteed to be.`,
 			TextSize = 12, TextColor3 = C.TextMuted, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 7 })
 	end
-	sectionTag(left, "Pity", { LayoutOrder = 8 })
-	local pityText = label(left, { TextSize = 12, TextColor3 = C.TextSecondary, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 9 })
-	local ratesBtn = secondaryButton(left, "RATES & PITY", { Size = UDim2.new(1, 0, 0, 38), LayoutOrder = 10 }, function() end)
+	-- A progress meter: a trough, a fill, its count on top, and an optional
+	-- tick (where the Legendary odds start to rise).
+	local function meter(order: number, color: Color3, tickAt: number?): (Frame, TextLabel)
+		local trough = Instance.new("Frame")
+		trough.Size = UDim2.new(1, 0, 0, 20)
+		trough.BackgroundColor3 = Color3.fromRGB(16, 11, 9)
+		trough.BorderSizePixel = 0
+		trough.LayoutOrder = order
+		trough.Parent = left
+		UITheme.AddStroke(trough, C.Border, 1, 0.2)
+		local fill = Instance.new("Frame")
+		fill.Name = "Fill"
+		fill.Size = UDim2.fromScale(0, 1)
+		fill.BackgroundColor3 = color
+		fill.BorderSizePixel = 0
+		fill.Parent = trough
+		UITheme.AddGradient(fill, color:Lerp(Color3.new(1, 1, 1), 0.35), color, 90)
+		if tickAt then
+			local tick = Instance.new("Frame")
+			tick.AnchorPoint = Vector2.new(0.5, 0)
+			tick.Position = UDim2.fromScale(tickAt, 0)
+			tick.Size = UDim2.new(0, 2, 1, 0)
+			tick.BackgroundColor3 = C.GoldLight
+			tick.BorderSizePixel = 0
+			tick.ZIndex = 3
+			tick.Parent = trough
+		end
+		local t = label(trough, { Font = F.Tag, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), ZIndex = 4 })
+		return fill, t
+	end
+	local P = GachaConfig.Pity
+	sectionTag(left, "Legendary Guarantee", { LayoutOrder = 8 })
+	local legFill, legText = meter(9, rarityColor("Legendary"), P.legendarySoftStart / P.legendaryHard)
+	local pityText = label(left, { TextSize = 11, TextColor3 = C.TextMuted, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 10 })
+	sectionTag(left, "✦ Starlight", { LayoutOrder = 11 })
+	local sparkFill, sparkText = meter(12, Color3.fromRGB(150, 170, 255))
+	local sparkBtn = secondaryButton(left, "EXCHANGE STARLIGHT", { Size = UDim2.new(1, 0, 0, 34), LayoutOrder = 13 }, function() end)
+	local ratesBtn = secondaryButton(left, "RATES & PITY", { Size = UDim2.new(1, 0, 0, 34), LayoutOrder = 14 }, function() end)
 	table.insert(refreshers, function()
 		local pity = state.pity or {}
-		pityText.Text = `Epic or better within {math.max(0, GachaConfig.Pity.epicEvery - (pity.sinceEpic or 0))} summons.\nLegendary guaranteed within {math.max(0, GachaConfig.Pity.legendaryHard - (pity.sinceLegendary or 0))} summons.{if pity.guaranteedFeatured then "\nYour next Legendary is the featured one." else ""}`
+		local since = pity.sinceLegendary or 0
+		TweenService:Create(legFill, TweenInfo.new(0.4), { Size = UDim2.fromScale(math.clamp(since / P.legendaryHard, 0, 1), 1) }):Play()
+		legText.Text = `{since} / {P.legendaryHard}{if since >= P.legendarySoftStart then "  ·  ODDS RISING" else ""}`
+		pityText.Text = `Epic or better within {math.max(0, P.epicEvery - (pity.sinceEpic or 0))} summons.{if pity.guaranteedFeatured then "\nYour next Legendary is the featured one." else ""}`
+		local sl = pity.starlight or 0
+		local cost = GachaConfig.Spark.cost
+		TweenService:Create(sparkFill, TweenInfo.new(0.4), { Size = UDim2.fromScale(math.clamp(sl / cost, 0, 1), 1) }):Play()
+		sparkText.Text = `{sl} / {cost}  ·  +{GachaConfig.Spark.perPull} PER SUMMON`
+		sparkBtn.TextColor3 = if sl >= cost then C.GoldLight else C.TextMuted
 	end)
 
 	-- ── Right: collection / shop ──
@@ -305,6 +356,22 @@ local function build(): ScreenGui
 		local function tag(text: string)
 			order += 1
 			sectionTag(pg, text, { LayoutOrder = order, Size = UDim2.new(1, 0, 0, 22) })
+		end
+		tag("Sets")
+		for _, set in ipairs(GachaRewards.Sets) do
+			local have = 0
+			for _, id in ipairs(set.items) do
+				if owned(id) then have += 1 end
+			end
+			local done = (state.setsDone or {})[set.id] == true
+			local bonus = {}
+			for currency, amount in pairs(set.bonus) do
+				table.insert(bonus, `{amount} {GachaConfig.Currencies[currency] and GachaConfig.Currencies[currency].glyph or currency}`)
+			end
+			order += 1
+			itemRow(pg, order, { glyph = set.glyph, name = set.name, rarity = if done then "Legendary" else "Rare",
+				description = `{set.description} Bonus: {table.concat(bonus, " ")}` },
+				if done then "COMPLETE" else `{have} / {#set.items} OWNED`, nil, nil, done)
 		end
 		tag("VFX Variants")
 		local any = false
@@ -478,6 +545,123 @@ local function build(): ScreenGui
 		msg.Text = if state.paidRestricted then "Crystal summons are unavailable in your region — Summon Tickets still work." else msg.Text
 	end)
 
+	-- ── The daily wish ──
+	local dailyBtn = primaryButton(sg, "", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -124), Size = UDim2.fromOffset(320, 44) }, function()
+		if pulling or not state.freeAvailable then return end
+		pulling = true
+		msg.Text = ""
+		SoundManager.PlayConfirm()
+		Network.GetRemoteEvent(Network.Remotes.Summon):FireServer({ banner = GachaConfig.DefaultBanner, count = 1, free = true })
+		task.delay(8, function() pulling = false end)
+	end)
+	local syncedAt = os.clock()
+	table.insert(refreshers, function()
+		syncedAt = os.clock()
+		dailyBtn.Visible = GachaConfig.DailyFree.enabled
+	end)
+	task.spawn(function()
+		while sg.Parent do
+			if state.freeAvailable then
+				dailyBtn.Text = "✦ DAILY WISH  ·  FREE"
+				dailyBtn.TextColor3 = C.GoldLight
+			else
+				local left2 = math.max(0, (state.nextFreeIn or 0) - (os.clock() - syncedAt))
+				dailyBtn.Text = string.format("NEXT DAILY WISH IN %dh %02dm", math.floor(left2 / 3600), math.floor(left2 % 3600 / 60))
+				dailyBtn.TextColor3 = C.TextMuted
+				if left2 <= 0 and sg.Enabled then Network.GetRemoteEvent(Network.Remotes.RequestGacha):FireServer() end
+			end
+			task.wait(1)
+		end
+	end)
+
+	-- ── Starlight exchange ──
+	local spark = panel(sg, { Visible = false, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0, 520, 0.72, 0),
+		BackgroundTransparency = 0.02, ZIndex = 20 })
+	label(spark, { Text = "✦ STARLIGHT EXCHANGE", Font = F.Title, TextSize = 22, TextColor3 = C.Gold, TextXAlignment = Enum.TextXAlignment.Center,
+		Size = UDim2.new(1, 0, 0, 30), Position = UDim2.fromOffset(0, 14), ZIndex = 21 })
+	local sparkSub = label(spark, { TextSize = 12, TextColor3 = C.TextMuted, TextXAlignment = Enum.TextXAlignment.Center,
+		Size = UDim2.new(1, -40, 0, 32), Position = UDim2.fromOffset(20, 44), ZIndex = 21 })
+	local sparkList = Instance.new("ScrollingFrame")
+	sparkList.BackgroundTransparency = 1
+	sparkList.BorderSizePixel = 0
+	sparkList.Position = UDim2.fromOffset(18, 82)
+	sparkList.Size = UDim2.new(1, -36, 1, -150)
+	sparkList.ScrollBarThickness = 4
+	sparkList.ScrollBarImageColor3 = C.Border
+	sparkList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	sparkList.CanvasSize = UDim2.new()
+	sparkList.ZIndex = 21
+	sparkList.Parent = spark
+	local sll = Instance.new("UIListLayout")
+	sll.Padding = UDim.new(0, 6)
+	sll.SortOrder = Enum.SortOrder.LayoutOrder
+	sll.Parent = sparkList
+	primaryButton(spark, "CLOSE", { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14), Size = UDim2.fromOffset(180, 44), ZIndex = 21 }, function()
+		spark.Visible = false
+	end)
+	local function buildSpark()
+		for _, c in ipairs(sparkList:GetChildren()) do
+			if c:IsA("GuiObject") then c:Destroy() end
+		end
+		local have = (state.pity or {}).starlight or 0
+		local cost = GachaConfig.Spark.cost
+		sparkSub.Text = `You have ✦ {have}. Every summon on this banner adds {GachaConfig.Spark.perPull}; spend {cost} on any {GachaConfig.Spark.minRarity}-or-better reward you don't own yet.`
+		local minIdx = table.find(GachaConfig.RarityOrder, GachaConfig.Spark.minRarity) or 3
+		local order = 0
+		for _, id in ipairs(GachaRewards.Pool(banner.pool)) do
+			local r = GachaRewards.Get(id)
+			if r and r.type ~= "material" and (table.find(GachaConfig.RarityOrder, r.rarity) or 1) >= minIdx then
+				order += 1
+				local mine = owned(r.id)
+				local row = Instance.new("Frame")
+				row.BackgroundTransparency = 1
+				row.Size = UDim2.new(1, -6, 0, 54)
+				row.LayoutOrder = order
+				row.ZIndex = 22
+				row.Parent = sparkList
+				itemRow(row, 0, r, `{string.upper(r.rarity)}{if mine then "  ·  OWNED" else ""}`,
+					if mine then nil else `✦ {cost}`, if mine then nil else function()
+						if have < cost then return end
+						spark.Visible = false
+						pulling = true
+						act({ kind = "spark", id = r.id, banner = GachaConfig.DefaultBanner })
+						task.delay(8, function() pulling = false end)
+					end)
+				for _, d in ipairs(row:GetDescendants()) do
+					if d:IsA("GuiObject") then d.ZIndex = 23 end
+				end
+			end
+		end
+	end
+	sparkBtn.MouseButton1Click:Connect(function()
+		buildSpark()
+		spark.Visible = true
+	end)
+
+	-- ── "SET COMPLETE" banner ──
+	setComplete = function(setId: string)
+		local set
+		for _, s2 in ipairs(GachaRewards.Sets) do
+			if s2.id == setId then set = s2 end
+		end
+		if not set then return end
+		local toast = panel(sg, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, -90), Size = UDim2.fromOffset(460, 76), ZIndex = 40 })
+		label(toast, { Text = `{set.glyph}  SET COMPLETE`, Font = F.Tag, TextSize = 13, TextColor3 = C.GoldLight, TextXAlignment = Enum.TextXAlignment.Center,
+			Size = UDim2.new(1, 0, 0, 22), Position = UDim2.fromOffset(0, 10), ZIndex = 41 })
+		local bonus = {}
+		for currency, amount in pairs(set.bonus) do
+			table.insert(bonus, `+{amount} {GachaConfig.Currencies[currency] and GachaConfig.Currencies[currency].glyph or currency}`)
+		end
+		label(toast, { Text = `{string.upper(set.name)}   {table.concat(bonus, "  ")}`, Font = F.Title, TextSize = 18, TextColor3 = C.Gold,
+			TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 30), Position = UDim2.fromOffset(0, 34), ZIndex = 41 })
+		SoundManager.PlayConfirm()
+		TweenService:Create(toast, TweenInfo.new(0.45, Enum.EasingStyle.Back), { Position = UDim2.new(0.5, 0, 0, 90) }):Play()
+		task.delay(4, function()
+			TweenService:Create(toast, TweenInfo.new(0.4), { Position = UDim2.new(0.5, 0, 0, -90) }):Play()
+			task.delay(0.45, function() toast:Destroy() end)
+		end)
+	end
+
 	-- ── Rates & Pity (odds disclosure) ──
 	local rates = panel(sg, { Visible = false, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0, 560, 0.78, 0),
 		BackgroundTransparency = 0.02, ZIndex = 20 })
@@ -525,6 +709,10 @@ local function build(): ScreenGui
 			rline(`• A Legendary is {featured.name} {math.floor(banner.featuredRate * 100)}% of the time; if not, the next Legendary is guaranteed to be {featured.name}.`)
 		end
 		rline("• Pity is tracked per banner and carries over between sessions.")
+		rline(`• Starlight: every summon adds {GachaConfig.Spark.perPull}; {GachaConfig.Spark.cost} buys any {GachaConfig.Spark.minRarity}-or-better reward of this banner you don't own.`)
+		if GachaConfig.DailyFree.enabled then
+			rline("• Daily wish: one free single summon per day (resets at 00:00 UTC). It counts towards pity and Starlight.")
+		end
 		rline("DUPLICATES", C.Gold, F.Tag, 12)
 		local D = GachaConfig.Duplicates
 		rline(`• Characters: the first copy Awakens them; further copies become Soul Shards ({D.shardsPerSoul} Shards = 1 Soul).`)
@@ -653,12 +841,13 @@ local function build(): ScreenGui
 		end
 		sg.Enabled = false
 		LobbyCamera.StopImmediate()
-		SummonCinematic.Play(best, function()
+		ConstellationWish.Play(best, pulled, function()
 			sg.Enabled = true
 			LobbyCamera.SetClassSelectView()
 			showResults(list)
 			pulling = false
-		end, pulled)
+			for _, setId in ipairs(payload.sets or {}) do setComplete(setId) end
+		end)
 	end)
 
 	showRight("Collection")

@@ -117,9 +117,31 @@ local Pools: { [string]: { string } } = {
 	end)(),
 }
 
+-- ── Collection sets ──────────────────────────────────────────────────────────
+-- Owning every item of a set completes it: a one-time bonus and a badge in the
+-- Collection. `items` lists reward ids; sets built from a type pick up new
+-- rewards of that type automatically.
+export type Set = { id: string, name: string, glyph: string, description: string, items: { string }, bonus: { [string]: number } }
+local function idsWhere(pred: (Reward) -> boolean): { string }
+	local out = {}
+	for _, r in ipairs(R) do
+		if pred(r) then table.insert(out, r.id) end
+	end
+	return out
+end
+local Sets: { Set } = {
+	{ id = "set_heroes", name = "Heroes Awakened", glyph = "⚔️", description = "Awaken every class.",
+		items = idsWhere(function(r) return r.type == "character" end), bonus = { tickets = 10 } },
+	{ id = "set_vanguard", name = "Armored Vanguard", glyph = "🛡️", description = "Every class armor from the summons.",
+		items = idsWhere(function(r) return r.type == "armor" and not (r.classId and BUILT_IN_ARMOR[r.classId]) end), bonus = { tickets = 10 } },
+	{ id = "set_night_sky", name = "Child of the Night Sky", glyph = "🌌", description = "The Dark variant and both star-touched titles.",
+		items = { "dark_variant", "title_wanderer", "title_starborn" }, bonus = { tickets = 5, relicDust = 200 } },
+}
+
 local GachaRewards = {}
 GachaRewards.All = R
 GachaRewards.BuiltInArmor = BUILT_IN_ARMOR
+GachaRewards.Sets = Sets
 
 function GachaRewards.Get(id: string): Reward?
 	return byId[id]
