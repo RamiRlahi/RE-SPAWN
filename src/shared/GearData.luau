@@ -30,6 +30,7 @@ export type Item = {
 	material: Enum.Material?,
 	glow: Color3?,           -- its glowing parts (and the swing trail)
 	sparkle: boolean?,       -- motes drifting off the weapon
+	fx: string?,             -- Epic and up: its own effects on the blade (GearLook)
 	-- auras
 	aura: string?,           -- the aura's look (GearLook)
 	auraColor: Color3?,
@@ -69,19 +70,19 @@ local ITEMS: { Item } = {
 		material = Enum.Material.Basalt, glow = Color3.fromRGB(255, 120, 40) },
 	{ id = "w_bloodsteel", slot = "weapon", name = "Bloodsteel", rarity = "Epic", glyph = "BL",
 		description = "Crimson steel that drinks the light.", color = Color3.fromRGB(130, 18, 26), trim = Color3.fromRGB(40, 10, 14),
-		material = Enum.Material.Metal, glow = Color3.fromRGB(255, 40, 60), sparkle = true },
+		material = Enum.Material.Metal, glow = Color3.fromRGB(255, 40, 60), sparkle = true, fx = "blood" },
 	{ id = "w_runebound", slot = "weapon", name = "Runebound", rarity = "Epic", glyph = "RU",
 		description = "Etched with runes that hum when they're near the dead.", color = Color3.fromRGB(60, 64, 90), trim = Color3.fromRGB(30, 30, 48),
-		material = Enum.Material.Slate, glow = Color3.fromRGB(120, 160, 255), sparkle = true },
+		material = Enum.Material.Slate, glow = Color3.fromRGB(120, 160, 255), sparkle = true, fx = "runes" },
 	{ id = "w_sunforged", slot = "weapon", name = "Sunforged", rarity = "Legendary", glyph = "SU",
 		description = "Gold forged at the top of the light. It burns with dawn.", color = Color3.fromRGB(240, 200, 100), trim = Color3.fromRGB(255, 240, 200),
-		material = Enum.Material.Foil, glow = Color3.fromRGB(255, 220, 120), sparkle = true },
+		material = Enum.Material.Foil, glow = Color3.fromRGB(255, 220, 120), sparkle = true, fx = "sun" },
 	{ id = "w_abyssal", slot = "weapon", name = "Abyssal", rarity = "Legendary", glyph = "AB",
 		description = "Brought up from beneath the lowest floor. Deep teal, cold light.", color = Color3.fromRGB(20, 60, 70), trim = Color3.fromRGB(10, 25, 30),
-		material = Enum.Material.Metal, glow = Color3.fromRGB(60, 255, 220), sparkle = true },
+		material = Enum.Material.Metal, glow = Color3.fromRGB(60, 255, 220), sparkle = true, fx = "abyss" },
 	{ id = "w_voidtouched", slot = "weapon", name = "Voidtouched", rarity = "Mythic", glyph = "VO",
 		description = "The dark between the stars, held in a hilt. It hungers.", color = Color3.fromRGB(14, 8, 22), trim = Color3.fromRGB(60, 20, 90),
-		material = Enum.Material.Glass, glow = Color3.fromRGB(190, 80, 255), sparkle = true },
+		material = Enum.Material.Glass, glow = Color3.fromRGB(190, 80, 255), sparkle = true, fx = "void" },
 
 	-- ── Auras ────────────────────────────────────────────────────────────────
 	{ id = "a_dust", slot = "aura", name = "Grave Dust", rarity = "Uncommon", glyph = "GD",

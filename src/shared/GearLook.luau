@@ -14,12 +14,20 @@ local GearData = require(script.Parent:WaitForChild("GearData"))
 
 local GearLook = {}
 
+-- (defined with the aura helpers below)
+local weaponFx: (container: Instance, blade: BasePart, item: any) -> ()
+local SHOWY_NAMES = { GearGlow = true, GearSparkle = true, GearFx = true, GearHighlight = true }
+
 -- ── Weapon finishes ───────────────────────────────────────────────────────
 -- The biggest pieces take the finish's metal and colour, the small ones its
 -- trim; anything that glows (neon, a swing trail) takes its glow.
 function GearLook.Weapon(container: Instance, itemId: string?)
 	local item = GearData.Get(itemId)
 	if not item or item.slot ~= "weapon" then return end
+	-- (a finish put on again, or swapped: its old effects go first)
+	for _, d in ipairs(container:GetDescendants()) do
+		if SHOWY_NAMES[d.Name] then d:Destroy() end
+	end
 	local parts: { BasePart } = {}
 	local biggest = 0
 	for _, d in ipairs(container:GetDescendants()) do
@@ -77,6 +85,10 @@ function GearLook.Weapon(container: Instance, itemId: string?)
 				e.Rate = 6
 				e.Parent = blade
 			end
+			if item.fx then
+				l.Range, l.Brightness = 10, 1.8
+				weaponFx(container, blade, item)
+			end
 		end
 	end
 end
@@ -97,6 +109,74 @@ local function seq(...: number): NumberSequence
 	local pts = {}
 	for i, x in ipairs(v) do table.insert(pts, NumberSequenceKeypoint.new((i - 1) / math.max(1, #v - 1), x)) end
 	return NumberSequence.new(pts)
+end
+
+-- ── Showy finishes (Epic and up) ────────────────────────────────────────────
+-- Particles fill the blade's whole volume (an emitter on a part emits from
+-- its shape); Legendary and up also get a glowing outline.
+local FIRE_TEX = "rbxasset://textures/particles/fire_main.dds"
+local FIRE_SPARK_TEX = "rbxasset://textures/particles/fire_sparks_main.dds"
+weaponFx = function(container: Instance, blade: BasePart, item: any)
+	local g: Color3 = item.glow or Color3.new(1, 1, 1)
+	local white = Color3.new(1, 1, 1)
+	local BOX = Enum.ParticleEmitterShape.Box
+	local VOL = Enum.ParticleEmitterShapeStyle.Volume
+	local function fx(props: { [string]: any })
+		props.Shape, props.ShapeStyle = BOX, VOL
+		emitter(blade, props).Name = "GearFx"
+	end
+	local kind = item.fx
+	if kind == "blood" then
+		-- blood running off the edge, crimson smoke, embers
+		fx({ Texture = SPARK, Color = ColorSequence.new(Color3.fromRGB(200, 10, 25)), LightEmission = 0.3, Size = seq(0.16, 0.1),
+			Lifetime = NumberRange.new(0.6, 1), Speed = NumberRange.new(0, 0.1), Acceleration = Vector3.new(0, -14, 0), Rate = 9 })
+		fx({ Texture = SMOKE, Color = ColorSequence.new(Color3.fromRGB(140, 0, 15), Color3.fromRGB(30, 0, 5)), Transparency = seq(0.5, 1),
+			Size = seq(0.4, 1.4), Lifetime = NumberRange.new(0.8, 1.4), Speed = NumberRange.new(0.3, 0.8), RotSpeed = NumberRange.new(-60, 60), Rate = 10 })
+		fx({ Texture = FIRE_SPARK_TEX, Color = ColorSequence.new(white, g), LightEmission = 1, Size = seq(0.22, 0),
+			Lifetime = NumberRange.new(0.5, 0.9), Speed = NumberRange.new(1, 2.5), Acceleration = Vector3.new(0, 2, 0), Rate = 10 })
+	elseif kind == "runes" then
+		-- runes lifting off the blade, lightning crackling along it
+		fx({ Texture = SPARK, Color = ColorSequence.new(white, g), LightEmission = 1, Size = seq(0, 0.45, 0),
+			Lifetime = NumberRange.new(1, 1.6), Speed = NumberRange.new(0.3, 0.8), RotSpeed = NumberRange.new(-120, 120),
+			Acceleration = Vector3.new(0, 1.2, 0), Rate = 12 })
+		fx({ Texture = SPARK, Color = ColorSequence.new(white, g), LightEmission = 1, Size = seq(0.35, 0),
+			Lifetime = NumberRange.new(0.06, 0.14), Speed = NumberRange.new(6, 12), SpreadAngle = Vector2.new(180, 180), Rate = 22 })
+	elseif kind == "sun" then
+		-- golden flames licking up the blade, flares, dawn light
+		fx({ Texture = FIRE_TEX, Color = ColorSequence.new(Color3.fromRGB(255, 250, 210), g), LightEmission = 1, Size = seq(0.7, 0.2),
+			Transparency = seq(0.15, 1), Lifetime = NumberRange.new(0.35, 0.6), Speed = NumberRange.new(1, 2.4), Acceleration = Vector3.new(0, 4, 0), Rate = 30 })
+		fx({ Texture = SPARK, Color = ColorSequence.new(white, g), LightEmission = 1, Size = seq(0, 0.9, 0),
+			Lifetime = NumberRange.new(0.4, 0.7), Speed = NumberRange.new(0, 0.2), RotSpeed = NumberRange.new(-200, 200), Rate = 8 })
+		fx({ Texture = FIRE_SPARK_TEX, Color = ColorSequence.new(white, g), LightEmission = 1, Size = seq(0.25, 0),
+			Lifetime = NumberRange.new(0.8, 1.4), Speed = NumberRange.new(2, 4), SpreadAngle = Vector2.new(60, 60), Acceleration = Vector3.new(0, 3, 0), Rate = 14 })
+	elseif kind == "abyss" then
+		-- bubbles rising, deep-sea mist, shimmering light
+		fx({ Texture = SPARK, Color = ColorSequence.new(Color3.fromRGB(210, 255, 250), g), LightEmission = 0.8, Size = seq(0.12, 0.3),
+			Transparency = seq(0.2, 0.8), Lifetime = NumberRange.new(1.2, 2), Speed = NumberRange.new(0.5, 1.2), Acceleration = Vector3.new(0.4, 2, 0.3), Rate = 14 })
+		fx({ Texture = SMOKE, Color = ColorSequence.new(g, Color3.fromRGB(5, 30, 40)), LightEmission = 0.4, Transparency = seq(0.55, 1),
+			Size = seq(0.6, 1.8), Lifetime = NumberRange.new(1, 1.6), Speed = NumberRange.new(0.2, 0.6), RotSpeed = NumberRange.new(-40, 40), Rate = 8 })
+		fx({ Texture = SPARK, Color = ColorSequence.new(white, g), LightEmission = 1, Size = seq(0, 0.35, 0),
+			Lifetime = NumberRange.new(0.3, 0.6), Speed = NumberRange.new(0, 0.1), Rate = 16 })
+	elseif kind == "void" then
+		-- the dark pouring off it, violet lightning, motes of nothing
+		fx({ Texture = SMOKE, Color = ColorSequence.new(Color3.fromRGB(40, 0, 70), Color3.fromRGB(5, 0, 10)), Transparency = seq(0.25, 1),
+			Size = seq(0.6, 2), Lifetime = NumberRange.new(0.9, 1.5), Speed = NumberRange.new(0.3, 1), RotSpeed = NumberRange.new(-120, 120), Rate = 16 })
+		fx({ Texture = SPARK, Color = ColorSequence.new(Color3.fromRGB(240, 210, 255), g), LightEmission = 1, Size = seq(0.4, 0),
+			Lifetime = NumberRange.new(0.06, 0.15), Speed = NumberRange.new(8, 14), SpreadAngle = Vector2.new(180, 180), Rate = 26 })
+		fx({ Texture = SPARK, Color = ColorSequence.new(Color3.fromRGB(20, 0, 30)), LightEmission = 0, Size = seq(0.3, 0),
+			Lifetime = NumberRange.new(0.8, 1.2), Speed = NumberRange.new(0.5, 1), Rate = 12 })
+	end
+	if item.rarity == "Legendary" or item.rarity == "Mythic" then
+		local h = Instance.new("Highlight")
+		h.Name = "GearHighlight"
+		h.FillColor = g
+		h.FillTransparency = 0.75
+		h.OutlineColor = g:Lerp(white, 0.3)
+		h.OutlineTransparency = 0
+		h.DepthMode = Enum.HighlightDepthMode.Occluded
+		h.Adornee = container
+		h.Parent = container
+	end
 end
 
 -- An invisible part welded to the root, for an aura to rise from: a disc at
@@ -175,6 +255,8 @@ function GearLook.Aura(character: Model, itemId: string?)
 	local head = character:FindFirstChild("Head")
 	local oldHalo = head and head:FindFirstChild("GearHalo")
 	if oldHalo then oldHalo:Destroy() end
+	local oldOutline = character:FindFirstChild("GearAuraHighlight")
+	if oldOutline then oldOutline:Destroy() end
 	local item = GearData.Get(itemId)
 	if not item or item.slot ~= "aura" then return end
 	local c = item.auraColor or Color3.new(1, 1, 1)
@@ -283,6 +365,72 @@ function GearLook.Aura(character: Model, itemId: string?)
 			Lifetime = NumberRange.new(0.15, 0.3), Speed = NumberRange.new(6, 10), Rate = 18, Shape = BOX, ShapeStyle = SURFACE })
 	end
 
+	-- ── Epic and up: more of everything ──
+	local rarity = item.rarity
+	if rarity == "Epic" or rarity == "Legendary" or rarity == "Mythic" then
+		local big = rarity ~= "Epic"
+		local light = Instance.new("PointLight")
+		light.Color, light.Range, light.Brightness, light.Shadows = c, if big then 16 else 12, if big then 2.4 else 1.6, false
+		light.Parent = body
+		if big then
+			-- a glowing outline round the whole character
+			local h = Instance.new("Highlight")
+			h.Name = "GearAuraHighlight"
+			h.FillColor = c
+			h.FillTransparency = 0.88
+			h.OutlineColor = c:Lerp(Color3.new(1, 1, 1), 0.25)
+			h.OutlineTransparency = 0.15
+			h.DepthMode = Enum.HighlightDepthMode.Occluded
+			h.Adornee = character
+			h.Parent = character
+		end
+		if kind == "holy" then
+			-- shafts of light coming down on you, feathers drifting
+			local sky = root:FindFirstChild("GearAura") :: BasePart? or auraPart(root, "GearAura", Vector3.new(4, 0.2, 4), CFrame.new(0, 7, 0))
+			around(3, 1.2, function(_, offset)
+				beam(sky :: BasePart, offset * 1.6, feet, offset, { Texture = SPARK, TextureSpeed = -0.5, TextureLength = 3,
+					Color = ColorSequence.new(Color3.fromRGB(255, 250, 225), c), LightEmission = 1, Width0 = 2.2, Width1 = 1.2,
+					Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.4, 0.65), NumberSequenceKeypoint.new(1, 0.8) }) })
+			end)
+			emitter(sky :: BasePart, { Texture = SPARK, Color = ColorSequence.new(Color3.new(1, 1, 1), c), LightEmission = 0.8, Size = seq(0.35, 0.3),
+				Lifetime = NumberRange.new(2.5, 3.5), Speed = NumberRange.new(0.3, 0.6), Acceleration = Vector3.new(0.4, -1.4, 0),
+				RotSpeed = NumberRange.new(-60, 60), Rate = 6, Shape = BOX, ShapeStyle = VOLUME, EmissionDirection = Enum.NormalId.Bottom })
+		elseif kind == "blood" then
+			-- blood petals swirling up round you; a second, slower rune ring
+			emitter(body, { Texture = SPARK, Color = ColorSequence.new(Color3.fromRGB(255, 60, 70), c), LightEmission = 0.6, Size = seq(0.35, 0.25, 0),
+				Lifetime = NumberRange.new(1.6, 2.4), Speed = NumberRange.new(1, 2), RotSpeed = NumberRange.new(-180, 180), SpreadAngle = Vector2.new(80, 80),
+				Acceleration = Vector3.new(0.8, 1.5, -0.6), Rate = 16, Shape = Enum.ParticleEmitterShape.Cylinder, ShapeStyle = SURFACE })
+			groundPulse(GLOW, c, 1.2, 6, 6.8, 0.5)
+		elseif kind == "stars" then
+			-- a slowly turning galaxy underfoot, a wider field of twinkles
+			emitter(feet, { Texture = VORTEX, Color = ColorSequence.new(c, Color3.fromRGB(80, 60, 200)), LightEmission = 1, Orientation = FLAT,
+				Size = seq(7, 7), Transparency = seq(1, 0.45, 1), Lifetime = NumberRange.new(3, 3), Speed = NumberRange.new(0.01, 0.01),
+				SpreadAngle = Vector2.zero, RotSpeed = NumberRange.new(40, 40), Rotation = NumberRange.new(0, 360), Rate = 1.2,
+				EmissionDirection = Enum.NormalId.Top })
+			local field = auraPart(root, "GearAuraField", Vector3.new(7, 6, 7), CFrame.new(0, 0.5, 0))
+			field.Parent = body
+			emitter(field, { Texture = SPARK, Color = ColorSequence.new(Color3.new(1, 1, 1), c), LightEmission = 1, Size = seq(0, 0.4, 0),
+				Lifetime = NumberRange.new(0.8, 1.6), Speed = NumberRange.new(0, 0.1), RotSpeed = NumberRange.new(-180, 180), Rate = 18,
+				Shape = BOX, ShapeStyle = VOLUME })
+		elseif kind == "void" then
+			-- a second, wider vortex; pillars of void rising; ash pulled down
+			emitter(feet, { Texture = VORTEX, Color = ColorSequence.new(Color3.fromRGB(60, 0, 110), Color3.fromRGB(10, 0, 20)), LightEmission = 0.3,
+				Orientation = FLAT, Size = seq(9, 9), Transparency = seq(1, 0.35, 1), Lifetime = NumberRange.new(3, 3), Speed = NumberRange.new(0.01, 0.01),
+				SpreadAngle = Vector2.zero, RotSpeed = NumberRange.new(-60, -60), Rotation = NumberRange.new(0, 360), Rate = 1.2,
+				EmissionDirection = Enum.NormalId.Top })
+			around(5, 3, function(_, offset)
+				beam(feet, offset, body, offset + Vector3.new(0, 4.5, 0), { Texture = SMOKE, TextureSpeed = 1.5, TextureLength = 2,
+					Color = ColorSequence.new(c, Color3.fromRGB(20, 0, 40)), LightEmission = 0.6, Width0 = 0.8, Width1 = 0.1,
+					Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) }) })
+			end)
+			local ash = auraPart(root, "GearAuraAsh", Vector3.new(8, 0.2, 8), CFrame.new(0, 6, 0))
+			ash.Parent = body
+			emitter(ash, { Texture = SPARK, Color = ColorSequence.new(Color3.fromRGB(30, 0, 50)), LightEmission = 0, Size = seq(0.2, 0.15),
+				Lifetime = NumberRange.new(1.4, 2), Speed = NumberRange.new(2, 3), Rate = 20, Shape = BOX, ShapeStyle = VOLUME,
+				EmissionDirection = Enum.NormalId.Bottom })
+		end
+	end
+
 	-- The crown over the head, one per aura that has one.
 	if not headPart then return end
 	local crown = Instance.new("Model")
@@ -308,6 +456,8 @@ function GearLook.Aura(character: Model, itemId: string?)
 			CFrame = headPart.CFrame * CFrame.new(0, 0.5, 0.9) * CFrame.Angles(0, math.rad(90), 0) })
 		headPiece({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.06, 3.1, 3.1), Color = Color3.fromRGB(120, 0, 15), Transparency = 0.6,
 			CFrame = headPart.CFrame * CFrame.new(0, 0.5, 0.95) * CFrame.Angles(0, math.rad(90), 0) })
+		headPiece({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.04, 3.9, 3.9), Color = Color3.fromRGB(255, 70, 80), Transparency = 0.82,
+			CFrame = headPart.CFrame * CFrame.new(0, 0.5, 1) * CFrame.Angles(0, math.rad(90), 0) })
 	elseif kind == "stars" then
 		-- five star points floating in a crown
 		for i = 1, 5 do
