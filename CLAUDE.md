@@ -10,7 +10,7 @@ Builds stack: Projectile Count × Ricochet bounces × attack speed × party size
   - Budgets shrink automatically when the frame rate drops.
 - **Server:** gate per-hit effect remotes (`HitImpact`, `RicochetFX`, and similar) with `fxAllowed(player, key, perSecond)` in `SkillManager`. Damage, knockback and stagger are never limited, only their effects.
 - **Global safety net:** `VfxDetail` already counts every effect light from any class against the FxBudget light cap and switches off the extras. Don't rely on it alone for parts and particles.
-- **Never budget:** things the player must see, such as boss attacks, enemy projectiles and warnings.
+- **Never budget:** things the player must see, such as boss attacks, warnings, and an enemy projectile's always-on-top dot and trail. Only a projectile's extras (its Highlight and light) are budgeted.
 
 ## General performance rules
 
