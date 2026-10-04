@@ -17,6 +17,7 @@ export type PlayerSettings = {
 	bloom: boolean,        -- bloom / sun-ray glow post effects
 	teammateCinematics: boolean, -- play teammates' ultimate cutscenes on your screen
 	classicCamera: boolean, -- a normal third-person camera in runs instead of the top-down one
+	autoFire: boolean,      -- ranged classes' basic attack shoots the nearest enemy in the room by itself
 	keybinds: { [string]: string }, -- actionName -> Enum.KeyCode name or UserInputType name
 }
 
@@ -44,6 +45,7 @@ local DefaultSettings: PlayerSettings = {
 	bloom = true,
 	teammateCinematics = true,
 	classicCamera = false,
+	autoFire = true,
 	keybinds = {
 		["PrimaryAttack"] = "MouseButton1",
 		["Skill1"] = "E",
@@ -74,6 +76,7 @@ function SettingsConfig.CloneDefaultSettings(): PlayerSettings
 		bloom = DefaultSettings.bloom,
 		teammateCinematics = DefaultSettings.teammateCinematics,
 		classicCamera = DefaultSettings.classicCamera,
+		autoFire = DefaultSettings.autoFire,
 		keybinds = {},
 	}
 	for action, key in pairs(DefaultSettings.keybinds) do

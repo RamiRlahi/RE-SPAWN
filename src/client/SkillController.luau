@@ -4888,6 +4888,7 @@ local function findAutoTarget(char: Model, root: BasePart): BasePart?
 end
 
 local function autoFireStep()
+	if player:GetAttribute("Setting_autoFire") == false then return end -- (Settings > Auto-Fire)
 	local class = player:GetAttribute("SelectedClass")
 	if typeof(class) ~= "string" or not RANGED_BASIC[class] then return end
 	if player:GetAttribute("InLobby") ~= false or player:GetAttribute("InHub") == true then return end

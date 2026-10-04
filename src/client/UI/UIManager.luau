@@ -82,6 +82,8 @@ local function applySettingsToRuntime(settings: any)
 	-- Read by IsometricCamera (top-down or a normal third-person camera).
 	player:SetAttribute("Setting_classicCamera", settings ~= nil and settings.classicCamera == true)
 	player:SetAttribute("Setting_lowDetailVFX", settings ~= nil and settings.lowDetailVFX == true)
+	-- Read by SkillController (ranged basic attacks firing by themselves).
+	player:SetAttribute("Setting_autoFire", not (settings and settings.autoFire == false))
 	-- Read by MusicController.
 	player:SetAttribute("Setting_musicVolume", if settings and typeof(settings.musicVolume) == "number" then settings.musicVolume else 0.6)
 	if settings and settings.keybinds then
