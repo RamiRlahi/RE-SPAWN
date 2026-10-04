@@ -616,7 +616,6 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 
 	local lastAttack = 0
 	local lastRepath = 0
-	local lastTick = os.clock()
 	-- (archers: which way they sidestep, when they switch, and the draw)
 	local strafeSide = if math.random() < 0.5 then 1 else -1
 	local strafeFlipAt = os.clock() + math.random(15, 30) / 10
@@ -746,7 +745,6 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 				if tRoot then
 					if mobType == "Ranged" then
 						local tnow = os.clock()
-						lastTick = tnow
 
 						-- Commit to a destination and only repath every ~0.6s so the mob walks a
 						-- smooth path instead of live-tracking the player's position every tick.
@@ -1255,11 +1253,6 @@ local function addEliteAura(model: Model)
 	wisps.Acceleration = Vector3.new(0, 6, 0)
 	wisps.Rate = 30
 	wisps.Parent = att
-	local light = Instance.new("PointLight")
-	light.Color = ELITE_PURPLE
-	light.Brightness = 2
-	light.Range = 12
-	light.Parent = root
 	local outline = Instance.new("Highlight")
 	outline.Name = "EliteOutline"
 	outline.FillTransparency = 1

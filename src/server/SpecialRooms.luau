@@ -215,7 +215,6 @@ local function buildBook(parent: Instance, pos: Vector3, color: Color3): BasePar
 		w.Part0, w.Part1 = hub, p
 		w.Parent = p
 	end
-	pointLight(hub, color, 1.5, 9)
 	sparkles(hub, color, 6, 1.5, 1.2)
 	return hub
 end
@@ -263,7 +262,6 @@ local function buildRest(room: Room, folder: Folder, rng: Random)
 	cyl(model, "UpperBowl", c + Vector3.new(0, 7.8, 0), 0.5, 3.6, MARBLE, Enum.Material.Marble)
 	local orb = part(model, { Name = "Moonstone", Shape = Enum.PartType.Ball, Size = Vector3.new(2, 2, 2), CFrame = CFrame.new(c + Vector3.new(0, 9.2, 0)), Color = MOON, Material = Enum.Material.Neon, CanCollide = false })
 	orb:SetAttribute("Float", true)
-	local orbLight = pointLight(orb, MOON, 3, 30)
 	-- Falling water streams from the bowls.
 	local streams = sparkles(orb, MOON, 30, 4, 1.4)
 	streams.SpreadAngle = Vector2.new(180, 20)
@@ -286,7 +284,6 @@ local function buildRest(room: Room, folder: Folder, rng: Random)
 		cyl(model, "LampPost", p + Vector3.new(0, 3, 0), 5, 0.6, STONE, Enum.Material.Slate)
 		local bowl = cyl(model, "LampBowl", p + Vector3.new(0, 5.7, 0), 0.5, 1.6, GOLD, Enum.Material.Metal)
 		fire(bowl, MOON, Color3.fromRGB(40, 90, 255), 3)
-		pointLight(bowl, MOON, 1.5, 16)
 	end
 	local ringSegs = {}
 	for i = 1, 40 do
@@ -309,7 +306,6 @@ local function buildRest(room: Room, folder: Folder, rng: Random)
 		water.CFrame = CFrame.new(c.X, y, c.Z) * CFrame.Angles(0, 0, math.rad(90))
 		glow.CFrame = water.CFrame * CFrame.new(-0.1, 0, 0)
 		glow.Transparency = 0.55 + 0.45 * (1 - k)
-		orbLight.Brightness = 0.5 + 2.5 * k
 		streams.Rate = 30 * k
 		for _, s in ipairs(ringSegs) do s.Transparency = 0.45 + 0.55 * (1 - k) end
 		if pool <= 0 then
@@ -437,7 +433,6 @@ local function buildTreasure(room: Room, folder: Folder, rng: Random)
 		cyl(model, "BrazierLeg", p + Vector3.new(0, 1.6, 0), 3.2, 0.7, STONE_DARK, Enum.Material.Metal)
 		local bowl = cyl(model, "BrazierBowl", p + Vector3.new(0, 3.4, 0), 0.8, 2.4, GOLD, Enum.Material.Metal)
 		fire(bowl, Color3.fromRGB(255, 170, 60), Color3.fromRGB(255, 80, 20), 4)
-		pointLight(bowl, Color3.fromRGB(255, 170, 80), 2, 18)
 	end
 	-- A shaft of light falling on the chest.
 	cyl(model, "LightShaft", base + Vector3.new(0, 14, 0), 1, 7, GOLD_BRIGHT, Enum.Material.Neon, { Transparency = 0.9, CanCollide = false, CastShadow = false, Size = Vector3.new(26, 7, 7) })
@@ -540,7 +535,6 @@ local function buildShop(room: Room, folder: Folder, rng: Random)
 	-- Lanterns hanging from the awning.
 	for _, x in ipairs({ -5.5, 5.5 }) do
 		local lantern = part(model, { Name = "Lantern", Size = Vector3.new(0.8, 1.1, 0.8), CFrame = CFrame.new(back + Vector3.new(x, 6.6, -1.4)), Color = GOLD_BRIGHT, Material = Enum.Material.Neon, CanCollide = false })
-		pointLight(lantern, Color3.fromRGB(255, 190, 110), 2, 18)
 	end
 
 	-- The merchant: a hooded figure with glinting eyes behind the counter.
@@ -613,7 +607,6 @@ local function buildShop(room: Room, folder: Folder, rng: Random)
 	local potionPos = back + Vector3.new(-3.5, 4, -0.4)
 	local flask = part(model, { Name = "Potion", Shape = Enum.PartType.Ball, Size = Vector3.new(1.2, 1.2, 1.2), CFrame = CFrame.new(potionPos), Color = Color3.fromRGB(230, 40, 70), Material = Enum.Material.Glass, Transparency = 0.15, CanCollide = false })
 	cyl(model, "PotionNeck", potionPos + Vector3.new(0, 0.8, 0), 0.6, 0.4, Color3.fromRGB(230, 40, 70), Enum.Material.Glass, { Transparency = 0.15, CanCollide = false })
-	pointLight(flask, Color3.fromRGB(255, 70, 90), 1.2, 7)
 	local potionStock = 2
 	local potionPrompt = prompt(flask, `Buy Potion ({POTION_PRICE} Gold)`, `Restorative Draught ×{potionStock}`, 0.3)
 	potionPrompt.Triggered:Connect(function(player)
@@ -775,7 +768,6 @@ local function buildGamble(room: Room, folder: Folder, rng: Random)
 		local p = at(Vector3.new(math.cos(a) * 16, 0, math.sin(a) * 13))
 		cyl(model, "LanternPost", p + Vector3.new(0, 3, 0), 6, 0.5, WOOD_DARK, Enum.Material.Wood)
 		local lamp = part(model, { Name = "DenLantern", Size = Vector3.new(1.1, 1.4, 1.1), CFrame = CFrame.new(p + Vector3.new(0, 6.5, 0)) * CFrame.Angles(0, math.rad(45), 0), Color = i % 2 == 0 and ROYAL or CRIMSON, Material = Enum.Material.Neon, CanCollide = false })
-		pointLight(lamp, lamp.Color, 2.2, 20)
 	end
 
 	-- ── The Wheel of Fate, at the back of the room facing the camera ──
@@ -868,7 +860,6 @@ local function buildGamble(room: Room, folder: Folder, rng: Random)
 	local coin = cyl(model, "FateCoin", altarPos + Vector3.new(0, 4.4, 0), 0.25, 1.8, GOLD_BRIGHT, Enum.Material.Metal, { CanCollide = false })
 	coin.CFrame = CFrame.new(coin.Position) * CFrame.Angles(math.rad(90), 0, 0)
 	coin:SetAttribute("Float", true)
-	pointLight(coin, GOLD_BRIGHT, 1.5, 10)
 	local altarTitle, altarStatus = billboard(model, coin, "DOUBLE OR NOTHING", Color3.fromRGB(255, 150, 170), 2.5)
 	altarStatus.Text = "Stake half your gold on a single toss"
 	local tossing = false
@@ -920,7 +911,6 @@ local function buildCursed(room: Room, folder: Folder, rng: Random)
 	local skull = part(model, { Name = "Skull", Shape = Enum.PartType.Ball, Size = Vector3.one * 1.6, CFrame = CFrame.new(c + Vector3.new(0, 5.2, 0)),
 		Color = Color3.fromRGB(225, 215, 200), Material = Enum.Material.SmoothPlastic, CanCollide = false })
 	fire(skull, CURSE, Color3.fromRGB(60, 0, 90), 4)
-	pointLight(skull, CURSE, 2.5, 22)
 	-- four pillars round it, chained to the altar
 	for i = 0, 3 do
 		local a = i * math.pi / 2 + math.pi / 4

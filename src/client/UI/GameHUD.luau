@@ -9,7 +9,6 @@
 	 • Gunslinger only: a revolver-cylinder ammo counter right of the skills
    (brass rounds / empty chambers, spins while reloading) and a Deadeye bar
  • Bottom-right: Tab plate (opens the full dungeon map, like the Tab key)
-	 • A soft dark vignette around the screen edges
 ]]
 
 local Players = game:GetService("Players")
@@ -102,7 +101,6 @@ end
 -- ─── STATE ────────────────────────────────────────────────────
 local player = Players.LocalPlayer
 local screenGui: ScreenGui = nil
-local vignetteGui: ScreenGui = nil
 local hudFrame: Frame = nil
 
 -- Health state
@@ -270,39 +268,6 @@ local function plate(parent: Instance, props: { Name: string, Size: UDim2, Posit
 	})
 	UITheme.AddStroke(inset, C.GoldDim, 1, 0.45)
 	return p
-end
-
--- ─── VIGNETTE ─────────────────────────────────────────────────
-local function createVignette(playerGui: PlayerGui)
-	vignetteGui = Instance.new("ScreenGui")
-	vignetteGui.Name = "HUDVignette"
-	vignetteGui.ResetOnSpawn = false
-	vignetteGui.IgnoreGuiInset = true
-	vignetteGui.DisplayOrder = -10 -- beneath every other UI
-	vignetteGui.Enabled = false
-	vignetteGui.Parent = playerGui
-
-	local edges = {
-		-- size, position, anchor, gradient rotation, transparency at gradient start → end
-		{ UDim2.new(1, 0, 0.24, 0), UDim2.fromScale(0, 0), Vector2.new(0, 0), 90, 0.3, 1 },
-		{ UDim2.new(1, 0, 0.3, 0), UDim2.fromScale(0, 1), Vector2.new(0, 1), 90, 1, 0.2 },
-		{ UDim2.new(0.18, 0, 1, 0), UDim2.fromScale(0, 0), Vector2.new(0, 0), 0, 0.3, 1 },
-		{ UDim2.new(0.18, 0, 1, 0), UDim2.fromScale(1, 0), Vector2.new(1, 0), 0, 1, 0.3 },
-	}
-	for i, e in ipairs(edges) do
-		local f = makeFrame({
-			Name = `Edge{i}`,
-			Parent = vignetteGui,
-			Size = e[1],
-			Position = e[2],
-			AnchorPoint = e[3],
-			BgColor = Color3.fromRGB(6, 3, 8),
-		})
-		local g = Instance.new("UIGradient")
-		g.Rotation = e[4]
-		g.Transparency = NumberSequence.new(e[5], e[6])
-		g.Parent = f
-	end
 end
 
 -- ─── HEALTH + CLASS EMBLEM ────────────────────────────────────
@@ -1342,8 +1307,6 @@ function GameHUD.Init()
 	screenGui.Enabled = false
 	screenGui.Parent = playerGui
 
-	createVignette(playerGui)
-
 	-- Main HUD frame (full screen, invisible, just a container)
 	hudFrame = makeFrame({
 		Name = "HUDContainer",
@@ -1447,9 +1410,6 @@ function GameHUD.SetVisible(visible: boolean)
 	if screenGui then
 		screenGui.Enabled = visible
 	end
-	if vignetteGui then
-		vignetteGui.Enabled = visible
-	end
 end
 
 -- Cleanup
@@ -1459,7 +1419,6 @@ function GameHUD.Destroy()
 	if characterConn then characterConn:Disconnect() end
 	if goldConn then goldConn:Disconnect() end
 	if screenGui then screenGui:Destroy() end
-	if vignetteGui then vignetteGui:Destroy() end
 	skillSlots = {}
 end
 

@@ -1310,11 +1310,6 @@ local function buildExtractPortal(cf: CFrame, parent: Instance): BasePart
 	up.EmissionDirection = Enum.NormalId.Top
 	up.Rate = 25
 	up.Parent = veil
-	local light = Instance.new("PointLight")
-	light.Color = GOLD
-	light.Range = 20
-	light.Brightness = 1
-	light.Parent = veil
 	local sign = Instance.new("BillboardGui")
 	sign.Size = UDim2.fromScale(12, 2.2)
 	sign.StudsOffsetWorldSpace = Vector3.new(0, 15.5, 0)

@@ -1,88 +1,41 @@
 --!strict
 -- ─────────────────────────────────────────────────────────────────────────────
 -- AtmosphereManager.luau
--- Manages grim, moody medieval dungeon lighting, atmosphere, and player torch lights.
+-- Dungeon / lobby lighting and atmosphere (bright and clear), set dressing,
+-- and the character outline.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 local Lighting   = game:GetService("Lighting")
 local Workspace  = game:GetService("Workspace")
-local CollectionService = game:GetService("CollectionService")
 
 local AtmosphereManager = {}
 
 -- =============================================================================
--- LIGHTING & DIMMING CONFIGURATION (TWEAK VARIABLES HERE)
+-- LIGHTING CONFIGURATION (TWEAK VARIABLES HERE)
 -- =============================================================================
--- Adjust these variables to get your exact preferred level of dimming and torch intensity:
 AtmosphereManager.Config = {
-	-- Gothic night: deep violet shadows, a low pale light throwing long shafts
-	-- between the pillars, and warm pools of candlelight doing the real work.
+	-- Bright and clear: everything in a room can be seen. No darkness and no
+	-- light fixtures doing the lighting (no player torch, no candle or
+	-- window lights): an even daylight with soft shadows.
 
 	-- ── 1. Global light ─────────────────────────────────────────────────────
-	-- Dim inside: the daylight falling through the windows (section 5), the
-	-- candles, braziers and your torch do the real lighting.
-	-- Ambient: light in fully shadowed areas. Keep it dark and teal.
-	DungeonAmbient = Color3.fromRGB(30, 42, 72),       -- cool blue shadows: depth against the warm torches
-
-	-- OutdoorAmbient: sky fill on open floors.
-	DungeonOutdoorAmbient = Color3.fromRGB(46, 60, 96),
-
-	-- Brightness of the low sun that casts the long pillar shadows.
-	DungeonBrightness = 0.8,
-
-	-- ClockTime: ~17.3 = low sun angle -> long shadows across the floor.
-	DungeonClockTime = 17.3,
+	DungeonAmbient = Color3.fromRGB(165, 165, 175),        -- light in shadowed areas: shadows stay readable
+	DungeonOutdoorAmbient = Color3.fromRGB(150, 150, 160),
+	DungeonBrightness = 2.2,
+	DungeonClockTime = 13,                                 -- high sun: short shadows
 	DungeonLatitude = 35,
+	DungeonExposure = 0,
 
-	-- Tints on sun-facing (Top) and opposite (Bottom) surfaces.
-	DungeonColorShiftTop = Color3.fromRGB(40, 28, 18),     -- lit tops only faintly warm (the torches bring the warmth)
-	DungeonColorShiftBottom = Color3.fromRGB(14, 24, 52),  -- cool blue undersides
-
-	-- Overall exposure (negative = darker scene; lights keep their punch).
-	DungeonExposure = -0.2,
-
-	-- ── 2. Player Torch Light Controls ───────────────────────────────────────
-	-- TorchEnabled: a soft warm fill above the player so the character reads
-	-- in the dark. TorchEmbers: the held-torch ember particles.
-	TorchEnabled = true,
-	TorchEmbers = false,
-
-	-- TorchRange: Radius in studs that the torch illuminates around the player (e.g. 24 - 45).
-	TorchRange = 56, -- spread wide over the room around you
-
-	-- TorchBrightness: Light intensity of the torch flame (e.g. 1.8 - 3.5).
-	TorchBrightness = 1.0, -- kept moderate so ability VFX read clearly around the player
-
-	-- TorchHeight: studs above the character the light hangs. Higher spreads the
-	-- glow evenly instead of blowing out the character and the floor under them.
-	TorchHeight = 10, -- higher spreads the glow wider and more evenly
-
-	-- The torch's far reach: a wide spotlight hung high above you pointing
-	-- down (a PointLight stops at 60 studs; this lights ~90 studs across).
-	TorchSpreadRange = 60,
-	TorchSpreadHeight = 30,
-	TorchSpreadAngle = 150,
-	TorchSpreadBrightness = 0.8,
-
-	-- TorchColor: Color of the flame light.
-	TorchColor = Color3.fromRGB(255, 190, 130),
-
-	-- TorchShadows: Cast real-time shadows from dungeon walls and obstacles.
-	TorchShadows = false,
-
-	-- ── 3. Candle clusters (placed along room walls by the generator) ────────
-	CandleColor = Color3.fromRGB(255, 146, 62),
-	CandleBrightness = 2.4,
-	CandleRange = 20,
-	CandleShadows = true,
+	-- ── 2. Candle clusters (placed along room walls by the generator) ────────
+	-- (props only: wax and little flames, no light of their own)
 	CandlesPerRoom = 3,
 
-	-- ── 4. Post-Processing & Fog ─────────────────────────────────────────────
+	-- ── 3. Post-Processing & Fog ─────────────────────────────────────────────
 	ColorCorrection = {
 		Brightness = 0,
-		Contrast = 0.3,                                   -- Painterly, punchy light vs. shadow
-		Saturation = 0.38,                                -- Hades-rich colour
-		TintColor = Color3.fromRGB(240, 244, 255),        -- A touch cool; the warmth comes from the flames
+		Contrast = 0.08,                                  -- a little punch, nothing crushed to black
+		Saturation = 0.2,                                 -- rich colour
+		TintColor = Color3.fromRGB(255, 255, 255),
 	},
 
 	Atmosphere = {
@@ -94,18 +47,10 @@ AtmosphereManager.Config = {
 		Glare = 0,
 	},
 
-	Bloom = {
-		Intensity = 1.1,                                  -- Hades-style glow on flames, neon and VFX
-		Size = 36,
-		Threshold = 0.82,                                  -- Only genuinely bright things (flames, neon) bloom
-	},
-
-	-- ── 5. Daylight through the windows ──────────────────────────────────────
+	-- ── 4. Daylight through the windows ──────────────────────────────────────
 	-- Every window opening glows with the daylight outside and throws a soft
-	-- shaft sloping down into the room, a pool of light where it lands and
-	-- drifting dust.
+	-- shaft sloping down into the room (visual only: no light) with drifting dust.
 	WindowLightColor = Color3.fromRGB(226, 226, 236), -- pale daylight, not orange
-	WindowLightBrightness = 2.2,  -- the pool of light on the floor
 	WindowShaftAngle = 38,        -- degrees below horizontal
 	WindowShaftOpacity = 0.075,   -- per layer; three layers stack into a soft core
 }
@@ -133,11 +78,6 @@ function AtmosphereManager.ApplyLobbyLighting()
 		colorCorr.Enabled = false
 	end
 
-	local bloom = Lighting:FindFirstChild("DungeonTorchBloom") :: BloomEffect?
-	if bloom then
-		bloom.Enabled = false
-	end
-
 	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
 	if atmosphere then
 		atmosphere.Density = 0.1
@@ -156,26 +96,20 @@ function AtmosphereManager.ApplyDungeonLighting(mapId: string?)
 	local map = if ok and MapData then MapData.Get(mapId) else nil
 	local ml = map and map.lighting
 
-	-- Configure dim, atmospheric dungeon lighting
-	Lighting.Ambient = if ml then ml.ambient else cfg.DungeonAmbient
-	Lighting.OutdoorAmbient = if ml then ml.outdoorAmbient else cfg.DungeonOutdoorAmbient
-	Lighting.Brightness = if ml then ml.brightness else cfg.DungeonBrightness
+	-- Bright, even light (the map only tints the colour grade)
+	Lighting.Ambient = cfg.DungeonAmbient
+	Lighting.OutdoorAmbient = cfg.DungeonOutdoorAmbient
+	Lighting.Brightness = cfg.DungeonBrightness
 	Lighting.ClockTime = cfg.DungeonClockTime
 	Lighting.GeographicLatitude = cfg.DungeonLatitude
-	Lighting.ColorShift_Top = if ml then ml.colorShiftTop else cfg.DungeonColorShiftTop
-	Lighting.ColorShift_Bottom = if ml then ml.colorShiftBottom else cfg.DungeonColorShiftBottom
+	Lighting.ColorShift_Top = Color3.new(0, 0, 0)
+	Lighting.ColorShift_Bottom = Color3.new(0, 0, 0)
 	Lighting.ExposureCompensation = cfg.DungeonExposure
 	Lighting.GlobalShadows = true
 
 	pcall(function()
-		Lighting.EnvironmentDiffuseScale = 0.25
+		Lighting.EnvironmentDiffuseScale = 1
 		Lighting.EnvironmentSpecularScale = 0.6 -- a little sheen on the stone
-	end)
-
-	-- Future gives the candles real shadows and soft falloff. Scripts usually
-	-- are not allowed to set this: set Lighting.Technology = Future in Studio.
-	pcall(function()
-		Lighting.Technology = Enum.Technology.Future
 	end)
 
 	local sunRays = Lighting:FindFirstChildOfClass("SunRaysEffect")
@@ -194,18 +128,6 @@ function AtmosphereManager.ApplyDungeonLighting(mapId: string?)
 	colorCorr.TintColor = if ml then ml.tint else cfg.ColorCorrection.TintColor
 	colorCorr.Enabled = true
 
-	-- 2. Torch Bloom Effect
-	local bloom = Lighting:FindFirstChild("DungeonTorchBloom") :: BloomEffect?
-	if not bloom then
-		bloom = Instance.new("BloomEffect")
-		bloom.Name = "DungeonTorchBloom"
-		bloom.Parent = Lighting
-	end
-	bloom.Intensity = cfg.Bloom.Intensity
-	bloom.Size = cfg.Bloom.Size
-	bloom.Threshold = cfg.Bloom.Threshold
-	bloom.Enabled = false -- (no bloom anywhere)
-
 	-- 3. Dungeon Atmosphere (Atmospheric fog & haze)
 	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
 	if not atmosphere then
@@ -219,15 +141,13 @@ function AtmosphereManager.ApplyDungeonLighting(mapId: string?)
 	atmosphere.Haze = cfg.Atmosphere.Haze
 	atmosphere.Glare = cfg.Atmosphere.Glare
 
-	print("[AtmosphereManager] Dungeon atmosphere & dim lighting applied successfully.")
+	print("[AtmosphereManager] Dungeon lighting applied (bright).")
 end
 
 -- ── 1b. Candle clusters ──────────────────────────────────────────────────────
--- A few wax candles with little flames and one warm, shadow-casting light.
--- `cf` is a point on the floor surface. The light is tagged "CandleLight" so
--- TorchLightController can flicker it on clients.
+-- A few wax candles with little flames (no light: the rooms are lit).
+-- `cf` is a point on the floor surface.
 function AtmosphereManager.PlaceCandleCluster(cf: CFrame, parent: Instance, rng: Random): Model
-	local cfg = AtmosphereManager.Config
 	local model = Instance.new("Model")
 	model.Name = "CandleCluster"
 
@@ -270,23 +190,6 @@ function AtmosphereManager.PlaceCandleCluster(cf: CFrame, parent: Instance, rng:
 			Material = Enum.Material.Neon,
 		})
 	end
-
-	local glow = candlePart({
-		Name = "Glow",
-		Size = Vector3.new(0.2, 0.2, 0.2),
-		CFrame = cf * CFrame.new(0, 2.4, 0),
-		Transparency = 1,
-	})
-	local light = Instance.new("PointLight")
-	light.Name = "CandleLight"
-	light.Color = cfg.CandleColor
-	light.Brightness = cfg.CandleBrightness
-	light.Range = cfg.CandleRange
-	light.Shadows = cfg.CandleShadows
-	light:SetAttribute("BaseBrightness", cfg.CandleBrightness)
-	light:SetAttribute("Phase", rng:NextNumber(0, 100))
-	light.Parent = glow
-	CollectionService:AddTag(light, "CandleLight")
 
 	model.Parent = parent
 	return model
@@ -444,14 +347,6 @@ function AtmosphereManager.PlaceWindowLight(wallCF: CFrame, openings: { { x: num
 		local len = (endPos - origin).Magnitude
 
 		local anchor = prop(model, { Size = Vector3.new(0.2, 0.2, 0.2), CFrame = CFrame.lookAt(origin, origin + d), Transparency = 1, CanQuery = false })
-		local spot = Instance.new("SpotLight")
-		spot.Face = Enum.NormalId.Front
-		spot.Angle = 55
-		spot.Range = len + 8
-		spot.Brightness = cfg.WindowLightBrightness
-		spot.Color = color
-		spot.Shadows = false
-		spot.Parent = anchor
 
 		-- Beam sheets: with FaceCamera off a beam's width runs along its
 		-- attachments' Y axis. One sheet spans the window's width, one its
@@ -568,103 +463,7 @@ function AtmosphereManager.PlaceHangingBrazier(pos: Vector3, parent: Instance, r
 	return model
 end
 
--- ── 2. Player Torch Light Attachment ─────────────────────────────────────────
-
-function AtmosphereManager.AttachTorchLight(character: Model)
-	local rootPart = (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart) :: BasePart?
-	if not rootPart then
-		-- Fast asynchronous check if rootPart hasn't loaded yet
-		task.spawn(function()
-			local rp = character:WaitForChild("HumanoidRootPart", 3) :: BasePart?
-			if rp then
-				AtmosphereManager.AttachTorchLight(character)
-			end
-		end)
-		return
-	end
-
-	-- Torch switched off: strip any torch pieces already on the character.
-	if not AtmosphereManager.Config.TorchEnabled then
-		for _, name in ipairs({ "TorchLightMount", "TorchSpreadMount", "PlayerTorchLight", "TorchEmbersAttachment" }) do
-			local existing = rootPart:FindFirstChild(name)
-			if existing then existing:Destroy() end
-		end
-		return
-	end
-
-	-- Do not re-attach if light is already attached
-	if rootPart:FindFirstChild("PlayerTorchLight", true) then
-		return
-	end
-
-	-- 1. Create Warm PointLight (Dynamic Torch), hung above the head
-	local cfg = AtmosphereManager.Config
-	local lightMount = Instance.new("Attachment")
-	lightMount.Name = "TorchLightMount"
-	lightMount.Position = Vector3.new(0, cfg.TorchHeight or 6, 0)
-	lightMount.Parent = rootPart
-	local torchLight = Instance.new("PointLight")
-	torchLight.Name = "PlayerTorchLight"
-	torchLight.Color = cfg.TorchColor
-	torchLight.Range = cfg.TorchRange
-	torchLight.Brightness = cfg.TorchBrightness
-	torchLight.Shadows = cfg.TorchShadows
-	torchLight.Parent = lightMount
-
-	-- A PointLight can't reach past 60 studs: a wide spotlight hung high
-	-- above, pointing down, carries the warm pool much further out.
-	if cfg.TorchSpreadRange and cfg.TorchSpreadRange > 0 then
-		local spreadMount = Instance.new("Attachment")
-		spreadMount.Name = "TorchSpreadMount"
-		spreadMount.Position = Vector3.new(0, cfg.TorchSpreadHeight or 30, 0)
-		spreadMount.Parent = rootPart
-		local spread = Instance.new("SpotLight")
-		spread.Name = "PlayerTorchSpread"
-		spread.Face = Enum.NormalId.Bottom
-		spread.Angle = cfg.TorchSpreadAngle or 150
-		spread.Range = cfg.TorchSpreadRange
-		spread.Brightness = cfg.TorchSpreadBrightness or 1
-		spread.Color = cfg.TorchColor
-		spread.Shadows = false
-		spread.Parent = spreadMount
-	end
-
-	-- 2. Create Subtle Floating Torch Embers Attachment
-	if cfg.TorchEmbers and not rootPart:FindFirstChild("TorchEmbersAttachment") then
-		local att = Instance.new("Attachment")
-		att.Name = "TorchEmbersAttachment"
-		att.Position = Vector3.new(0.6, 1.2, -0.4) -- Off to upper-right torso like held torch
-		att.Parent = rootPart
-
-		local embers = Instance.new("ParticleEmitter")
-		embers.Name = "TorchEmbers"
-		embers.Texture = "rbxassetid://258129532" -- Sparkle/Ember particle
-		embers.Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 200, 100)),
-			ColorSequenceKeypoint.new(0.6, Color3.fromRGB(255, 120, 30)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(180, 40, 10)),
-		})
-		embers.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0.2),
-			NumberSequenceKeypoint.new(0.8, 0.5),
-			NumberSequenceKeypoint.new(1, 1),
-		})
-		embers.Size = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0.3),
-			NumberSequenceKeypoint.new(1, 0.05),
-		})
-		embers.Lifetime = NumberRange.new(0.8, 1.4)
-		embers.Rate = 6
-		embers.Speed = NumberRange.new(1.0, 2.5)
-		embers.SpreadAngle = Vector2.new(25, 25)
-		embers.VelocityInheritance = 0.2
-		embers.Parent = att
-	end
-
-	print(`[AtmosphereManager] Torch light attached to character: {character.Name}`)
-end
-
--- ── 3. Character Visual Outline ──────────────────────────────────────────────
+-- ── 2. Character Visual Outline ──────────────────────────────────────────────
 -- One black Highlight around the whole character (armor, weapons and cape
 -- included, as they're added). One per character, not per part: Roblox only
 -- draws ~31 Highlights at once, and ability VFX need some for their outlines.
