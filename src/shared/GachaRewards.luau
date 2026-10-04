@@ -45,54 +45,54 @@ export type Reward = {
 
 local R: { Reward } = {
 	-- ── Normal characters (the playable classes) ─────────────────────────────
-	{ id = "char_heavy_knight", type = "character", classId = "heavy_knight", rarity = "Rare", glyph = "⚔️",
+	{ id = "char_heavy_knight", type = "character", classId = "heavy_knight", rarity = "Rare", glyph = "FK",
 		name = "Fire Knight", description = "Awakens the Fire Knight: +0.04× Damage as the Fire Knight.",
 		effects = { { stat = "damage", operation = "multiplier", value = 0.04 } } },
-	{ id = "char_ranger", type = "character", classId = "ranger", rarity = "Rare", glyph = "🏹",
+	{ id = "char_ranger", type = "character", classId = "ranger", rarity = "Rare", glyph = "RA",
 		name = "Ranger", description = "Awakens the Ranger: +4% Crit Chance as the Ranger.",
 		effects = { { stat = "critChance", operation = "percent", value = 0.04 } } },
-	{ id = "char_cleric", type = "character", classId = "cleric", rarity = "Rare", glyph = "🕊️",
+	{ id = "char_cleric", type = "character", classId = "cleric", rarity = "Rare", glyph = "CL",
 		name = "Cleric", description = "Awakens the Cleric: +40 Max HP as the Cleric.",
 		effects = { { stat = "maxHealth", operation = "add", value = 40 } } },
-	{ id = "char_ice_mage", type = "character", classId = "ice_mage", rarity = "Rare", glyph = "❄️",
+	{ id = "char_ice_mage", type = "character", classId = "ice_mage", rarity = "Rare", glyph = "IM",
 		name = "Ice Mage", description = "Awakens the Ice Mage: +8% Ability Area as the Ice Mage.",
 		effects = { { stat = "size", operation = "percent", value = 0.08 } } },
-	{ id = "char_gunslinger", type = "character", classId = "gunslinger", rarity = "Rare", glyph = "🤠",
+	{ id = "char_gunslinger", type = "character", classId = "gunslinger", rarity = "Rare", glyph = "GU",
 		name = "Gunslinger", description = "Awakens the Gunslinger: +4% Crit Chance as the Gunslinger.",
 		effects = { { stat = "critChance", operation = "percent", value = 0.04 } } },
-	{ id = "char_swordsman", type = "character", classId = "swordsman", rarity = "Rare", glyph = "🗡️",
+	{ id = "char_swordsman", type = "character", classId = "swordsman", rarity = "Rare", glyph = "SM",
 		name = "Sword Master", description = "Awakens the Sword Master: +8% Attack Speed as the Sword Master.",
 		effects = { { stat = "basicAttackSpeed", operation = "percent", value = 0.08 } } },
 
 	-- ── VFX variants (cosmetic colour schemes for ability effects) ──────────
-	{ id = "dark_variant", type = "variant", rarity = "Legendary", glyph = "🌑", palette = "dark",
+	{ id = "dark_variant", type = "variant", rarity = "Legendary", glyph = "DA", palette = "dark",
 		name = "Dark", title = "Dark", accent = Color3.fromRGB(225, 225, 232),
 		description = "Any class VFX variant: abilities turn black, outlined in white." },
 
 	-- ── Class armor (cosmetic) ─────────────────────────────────────────────────
-	{ id = "armor_heavy_knight", type = "armor", classId = "heavy_knight", rarity = "Epic", glyph = "🛡️",
+	{ id = "armor_heavy_knight", type = "armor", classId = "heavy_knight", rarity = "Epic", glyph = "KM",
 		name = "Knight's Mantle", description = "Fire Knight outfit: a crimson cloth cape with a black fur mantle." },
-	{ id = "armor_ranger", type = "armor", classId = "ranger", rarity = "Epic", glyph = "🧥",
+	{ id = "armor_ranger", type = "armor", classId = "ranger", rarity = "Epic", glyph = "RC",
 		name = "Ranger's Cloak", description = "Ranger armor: the hooded hunting cloak." },
-	{ id = "armor_cleric", type = "armor", classId = "cleric", rarity = "Epic", glyph = "🕊️",
+	{ id = "armor_cleric", type = "armor", classId = "cleric", rarity = "Epic", glyph = "CV",
 		name = "Cleric's Vestments", description = "Cleric armor: holy vestments." },
-	{ id = "armor_ice_mage", type = "armor", classId = "ice_mage", rarity = "Epic", glyph = "❄️",
+	{ id = "armor_ice_mage", type = "armor", classId = "ice_mage", rarity = "Epic", glyph = "WC",
 		name = "Winter Cape", description = "Ice Mage armor: the flowing frost cape." },
-	{ id = "armor_gunslinger", type = "armor", classId = "gunslinger", rarity = "Epic", glyph = "🤠",
+	{ id = "armor_gunslinger", type = "armor", classId = "gunslinger", rarity = "Epic", glyph = "OH",
 		name = "Outlaw's Hat", description = "Gunslinger outfit: cowboy hat and spurred boots." },
 
 	-- ── Materials ─────────────────────────────────────────────────────────────
-	{ id = "shard_pouch", type = "material", rarity = "Common", glyph = "🔮", name = "Soul Shard Pouch",
+	{ id = "shard_pouch", type = "material", rarity = "Common", glyph = "SS", name = "Soul Shard Pouch",
 		description = "10 Soul Shards (refine into Souls for talents).", currency = "soulShards", amount = 10, weight = 2 },
-	{ id = "dust_pile", type = "material", rarity = "Common", glyph = "✨", name = "Relic Dust",
+	{ id = "dust_pile", type = "material", rarity = "Common", glyph = "RD", name = "Relic Dust",
 		description = "15 Relic Dust.", currency = "relicDust", amount = 15, weight = 2 },
-	{ id = "ticket_single", type = "material", rarity = "Rare", glyph = "🎟️", name = "Summon Ticket",
+	{ id = "ticket_single", type = "material", rarity = "Rare", glyph = "ST", name = "Summon Ticket",
 		description = "1 Summon Ticket.", currency = "tickets", amount = 1 },
 
 	-- ── Cosmetics ─────────────────────────────────────────────────────────────
-	{ id = "title_wanderer", type = "cosmetic", rarity = "Rare", glyph = "🧭", name = "Title: Wanderer",
+	{ id = "title_wanderer", type = "cosmetic", rarity = "Rare", glyph = "WA", name = "Title: Wanderer",
 		title = "Wanderer", description = "A title for your profile." },
-	{ id = "title_starborn", type = "cosmetic", rarity = "Epic", glyph = "🌠", name = "Title: Starborn",
+	{ id = "title_starborn", type = "cosmetic", rarity = "Epic", glyph = "ST", name = "Title: Starborn",
 		title = "Starborn", description = "A title for your profile." },
 }
 
@@ -130,11 +130,11 @@ local function idsWhere(pred: (Reward) -> boolean): { string }
 	return out
 end
 local Sets: { Set } = {
-	{ id = "set_heroes", name = "Heroes Awakened", glyph = "⚔️", description = "Awaken every class.",
+	{ id = "set_heroes", name = "Heroes Awakened", glyph = "HA", description = "Awaken every class.",
 		items = idsWhere(function(r) return r.type == "character" end), bonus = { tickets = 10 } },
-	{ id = "set_vanguard", name = "Armored Vanguard", glyph = "🛡️", description = "Every class armor from the summons.",
+	{ id = "set_vanguard", name = "Armored Vanguard", glyph = "AV", description = "Every class armor from the summons.",
 		items = idsWhere(function(r) return r.type == "armor" and not (r.classId and BUILT_IN_ARMOR[r.classId]) end), bonus = { tickets = 10 } },
-	{ id = "set_night_sky", name = "Child of the Night Sky", glyph = "🌌", description = "The Dark variant and both star-touched titles.",
+	{ id = "set_night_sky", name = "Child of the Night Sky", glyph = "CN", description = "The Dark variant and both star-touched titles.",
 		items = { "dark_variant", "title_wanderer", "title_starborn" }, bonus = { tickets = 5, relicDust = 200 } },
 }
 

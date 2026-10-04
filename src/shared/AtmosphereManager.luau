@@ -11,7 +11,7 @@ local CollectionService = game:GetService("CollectionService")
 local AtmosphereManager = {}
 
 -- =============================================================================
--- ⚙️ LIGHTING & DIMMING CONFIGURATION (TWEAK VARIABLES HERE)
+-- LIGHTING & DIMMING CONFIGURATION (TWEAK VARIABLES HERE)
 -- =============================================================================
 -- Adjust these variables to get your exact preferred level of dimming and torch intensity:
 AtmosphereManager.Config = {

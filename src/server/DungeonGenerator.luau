@@ -1434,12 +1434,12 @@ end
 -- A sign floating high over each special room (seen through the walls,
 -- from down the corridors): what's in there, so the party picks its path.
 local ROOM_SIGNS: { [string]: { text: string, sub: string, color: Color3 } } = {
-	Elite = { text = "⚔  ELITE", sub = "a hard fight · relics and gear", color = Color3.fromRGB(200, 110, 255) },
-	Treasure = { text = "💰  TREASURE", sub = "chests (and traps)", color = Color3.fromRGB(255, 210, 90) },
-	Shop = { text = "🛒  SHOP", sub = "spend your gold", color = Color3.fromRGB(120, 220, 140) },
-	Rest = { text = "🌙  MOONWELL", sub = "rest and heal", color = Color3.fromRGB(150, 200, 255) },
-	Gamble = { text = "🎲  GAMBLING DEN", sub = "risk your gold", color = Color3.fromRGB(255, 160, 80) },
-	Cursed = { text = "☠  CURSED ALTAR", sub = "pay in health · take a relic", color = Color3.fromRGB(170, 70, 230) },
+	Elite = { text = "ELITE", sub = "a hard fight · relics and gear", color = Color3.fromRGB(200, 110, 255) },
+	Treasure = { text = "TREASURE", sub = "chests (and traps)", color = Color3.fromRGB(255, 210, 90) },
+	Shop = { text = "SHOP", sub = "spend your gold", color = Color3.fromRGB(120, 220, 140) },
+	Rest = { text = "MOONWELL", sub = "rest and heal", color = Color3.fromRGB(150, 200, 255) },
+	Gamble = { text = "GAMBLING DEN", sub = "risk your gold", color = Color3.fromRGB(255, 160, 80) },
+	Cursed = { text = "CURSED ALTAR", sub = "pay in health · take a relic", color = Color3.fromRGB(170, 70, 230) },
 }
 
 local function roomSign(room: RoomData, parent: Instance)

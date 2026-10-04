@@ -439,7 +439,7 @@ function DeathScreen.Init(cb: Callbacks)
 		Size = UDim2.new(1, 0, 0, 30), Position = UDim2.fromOffset(0, 118), ZIndex = 3,
 	})
 	-- The heartbeat countdown between the subtitle and the buttons.
-	heart = MenuStyle.Label(panel, "❤", 84, Color3.fromRGB(220, 30, 40), {
+	heart = MenuStyle.Label(panel, "♥", 84, Color3.fromRGB(220, 30, 40), {
 		Size = UDim2.fromOffset(110, 100), AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 158),
 		ZIndex = 3, Visible = false, TextStrokeTransparency = 1, Font = Enum.Font.GothamBold,
 	})

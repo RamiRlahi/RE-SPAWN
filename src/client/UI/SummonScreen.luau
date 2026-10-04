@@ -220,7 +220,7 @@ local function build(): ScreenGui
 	end
 	table.insert(refreshers, function()
 		for key, t in pairs(pills) do
-			t.Text = `{GachaConfig.Currencies[key].glyph} {state.currencies[key] or 0}`
+			t.Text = `{state.currencies[key] or 0} {GachaConfig.Currencies[key].glyph}`
 		end
 	end)
 
@@ -236,7 +236,7 @@ local function build(): ScreenGui
 	ll.Parent = left
 	sectionTag(left, "Featured", { LayoutOrder = 1 })
 	if featured then
-		label(left, { Text = featured.glyph, TextSize = 48, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 56), LayoutOrder = 2 })
+		label(left, { Text = featured.glyph, Font = Enum.Font.GothamBlack, TextColor3 = fColor, TextSize = 40, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0, 56), LayoutOrder = 2 })
 		label(left, { Text = string.upper(featured.name), Font = F.Title, TextSize = 24, TextColor3 = fColor, Size = UDim2.new(1, 0, 0, 30), LayoutOrder = 3 })
 		label(left, { Text = `[{string.upper(featured.rarity)}]`, Font = F.Tag, TextSize = 12, TextColor3 = rarityColor(featured.rarity), Size = UDim2.new(1, 0, 0, 16), LayoutOrder = 4 })
 		label(left, { Text = featured.description, TextSize = 13, TextColor3 = C.TextSecondary, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 5 })
@@ -278,7 +278,7 @@ local function build(): ScreenGui
 	sectionTag(left, "Legendary Guarantee", { LayoutOrder = 8 })
 	local legFill, legText = meter(9, rarityColor("Legendary"), P.legendarySoftStart / P.legendaryHard)
 	local pityText = label(left, { TextSize = 11, TextColor3 = C.TextMuted, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 10 })
-	sectionTag(left, "✦ Starlight", { LayoutOrder = 11 })
+	sectionTag(left, "Starlight", { LayoutOrder = 11 })
 	local sparkFill, sparkText = meter(12, Color3.fromRGB(150, 170, 255))
 	local sparkBtn = secondaryButton(left, "EXCHANGE STARLIGHT", { Size = UDim2.new(1, 0, 0, 34), LayoutOrder = 13 }, function() end)
 	local ratesBtn = secondaryButton(left, "RATES & PITY", { Size = UDim2.new(1, 0, 0, 34), LayoutOrder = 14 }, function() end)
@@ -336,7 +336,7 @@ local function build(): ScreenGui
 		local row, rowStroke = panel(parent, { BackgroundColor3 = C.SurfaceAlt, Size = UDim2.new(1, -6, 0, 54), LayoutOrder = order })
 		rowStroke.Color = if active then C.Gold else rarityColor(r.rarity)
 		rowStroke.Transparency = if active then 0 else 0.5
-		label(row, { Text = r.glyph, TextSize = 24, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromOffset(46, 54) })
+		label(row, { Text = r.glyph, Font = Enum.Font.GothamBlack, TextColor3 = rarityColor(r.rarity), TextSize = 18, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromOffset(46, 54) })
 		label(row, { Text = r.name, Font = F.Header, TextSize = 13, Position = UDim2.fromOffset(48, 6), Size = UDim2.new(1, -150, 0, 16) })
 		label(row, { Text = info, Font = F.Tag, TextSize = 10, TextColor3 = rarityColor(r.rarity), Position = UDim2.fromOffset(48, 22), Size = UDim2.new(1, -150, 0, 12) })
 		label(row, { Text = r.description, Font = F.Sub, TextSize = 10, TextColor3 = C.TextMuted, Position = UDim2.fromOffset(48, 35), Size = UDim2.new(1, -150, 0, 14),
@@ -450,7 +450,7 @@ local function build(): ScreenGui
 		tag("Soul Shards")
 		order += 1
 		local per = GachaConfig.Duplicates.shardsPerSoul
-		secondaryButton(pg, `REFINE · {per} SHARDS → 1 SOUL  ({state.currencies.soulShards or 0} 🔮)`, { Size = UDim2.new(1, -6, 0, 38), LayoutOrder = order, TextColor3 = C.Gold }, function()
+		secondaryButton(pg, `REFINE · {per} SHARDS → 1 SOUL  ({state.currencies.soulShards or 0} SHARDS)`, { Size = UDim2.new(1, -6, 0, 38), LayoutOrder = order, TextColor3 = C.Gold }, function()
 			act({ kind = "refineShards" })
 		end)
 	end)
@@ -480,7 +480,7 @@ local function build(): ScreenGui
 						local price = item.price[currency]
 						if price then
 							local have = state.currencies[currency] or 0
-							secondaryButton(pg, `BUY · {GachaConfig.Currencies[currency].glyph} {price}  (you have {have})`,
+							secondaryButton(pg, `BUY · {price} {GachaConfig.Currencies[currency].glyph}  (you have {have})`,
 								{ Size = UDim2.new(1, -6, 0, 36), LayoutOrder = nextOrder(), TextColor3 = if have >= price then C.Gold else C.TextMuted }, function()
 									SoundManager.PlayConfirm()
 									act({ kind = "buyShopItem", id = r.id, pay = currency })
@@ -499,7 +499,7 @@ local function build(): ScreenGui
 			label(pg, { Text = "Crystals are premium currency used for summons. See Rates & Pity for the exact odds before summoning.",
 				TextSize = 12, TextColor3 = C.TextMuted, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = nextOrder() })
 			for _, prod in ipairs(state.products) do
-				primaryButton(pg, `💎 {prod.label}`, { Size = UDim2.new(1, -6, 0, 44), LayoutOrder = nextOrder() }, function()
+				primaryButton(pg, prod.label, { Size = UDim2.new(1, -6, 0, 44), LayoutOrder = nextOrder() }, function()
 					SoundManager.PlayConfirm()
 					Network.GetRemoteEvent(Network.Remotes.GachaAction):FireServer({ kind = "buyCrystals", id = prod.id })
 				end)
@@ -562,7 +562,7 @@ local function build(): ScreenGui
 	task.spawn(function()
 		while sg.Parent do
 			if state.freeAvailable then
-				dailyBtn.Text = "✦ DAILY WISH  ·  FREE"
+				dailyBtn.Text = "DAILY WISH  ·  FREE"
 				dailyBtn.TextColor3 = C.GoldLight
 			else
 				local left2 = math.max(0, (state.nextFreeIn or 0) - (os.clock() - syncedAt))
@@ -577,7 +577,7 @@ local function build(): ScreenGui
 	-- ── Starlight exchange ──
 	local spark = panel(sg, { Visible = false, AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.new(0, 520, 0.72, 0),
 		BackgroundTransparency = 0.02, ZIndex = 20 })
-	label(spark, { Text = "✦ STARLIGHT EXCHANGE", Font = F.Title, TextSize = 22, TextColor3 = C.Gold, TextXAlignment = Enum.TextXAlignment.Center,
+	label(spark, { Text = "STARLIGHT EXCHANGE", Font = F.Title, TextSize = 22, TextColor3 = C.Gold, TextXAlignment = Enum.TextXAlignment.Center,
 		Size = UDim2.new(1, 0, 0, 30), Position = UDim2.fromOffset(0, 14), ZIndex = 21 })
 	local sparkSub = label(spark, { TextSize = 12, TextColor3 = C.TextMuted, TextXAlignment = Enum.TextXAlignment.Center,
 		Size = UDim2.new(1, -40, 0, 32), Position = UDim2.fromOffset(20, 44), ZIndex = 21 })
@@ -605,7 +605,7 @@ local function build(): ScreenGui
 		end
 		local have = (state.pity or {}).starlight or 0
 		local cost = GachaConfig.Spark.cost
-		sparkSub.Text = `You have ✦ {have}. Every summon on this banner adds {GachaConfig.Spark.perPull}; spend {cost} on any {GachaConfig.Spark.minRarity}-or-better reward you don't own yet.`
+		sparkSub.Text = `You have {have} Starlight. Every summon on this banner adds {GachaConfig.Spark.perPull}; spend {cost} on any {GachaConfig.Spark.minRarity}-or-better reward you don't own yet.`
 		local minIdx = table.find(GachaConfig.RarityOrder, GachaConfig.Spark.minRarity) or 3
 		local order = 0
 		for _, id in ipairs(GachaRewards.Pool(banner.pool)) do
@@ -620,7 +620,7 @@ local function build(): ScreenGui
 				row.ZIndex = 22
 				row.Parent = sparkList
 				itemRow(row, 0, r, `{string.upper(r.rarity)}{if mine then "  ·  OWNED" else ""}`,
-					if mine then nil else `✦ {cost}`, if mine then nil else function()
+					if mine then nil else `{cost} STARLIGHT`, if mine then nil else function()
 						if have < cost then return end
 						spark.Visible = false
 						pulling = true
@@ -646,7 +646,7 @@ local function build(): ScreenGui
 		end
 		if not set then return end
 		local toast = panel(sg, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, -90), Size = UDim2.fromOffset(460, 76), ZIndex = 40 })
-		label(toast, { Text = `{set.glyph}  SET COMPLETE`, Font = F.Tag, TextSize = 13, TextColor3 = C.GoldLight, TextXAlignment = Enum.TextXAlignment.Center,
+		label(toast, { Text = "SET COMPLETE", Font = F.Tag, TextSize = 13, TextColor3 = C.GoldLight, TextXAlignment = Enum.TextXAlignment.Center,
 			Size = UDim2.new(1, 0, 0, 22), Position = UDim2.fromOffset(0, 10), ZIndex = 41 })
 		local bonus = {}
 		for currency, amount in pairs(set.bonus) do
@@ -731,7 +731,7 @@ local function build(): ScreenGui
 				if rarity == "Legendary" and featured and #list > 1 then
 					pct = GachaConfig.Rarities[rarity].odds * (if r.id == featured.id then banner.featuredRate else (1 - banner.featuredRate) / (#list - 1))
 				end
-				rline(`{r.glyph} {displayName(r)} ({rarity}) — {string.format("%.3f", pct)}%`, rarityColor(rarity))
+				rline(`{displayName(r)} ({rarity}) — {string.format("%.3f", pct)}%`, rarityColor(rarity))
 			end
 		end
 	end
@@ -798,7 +798,7 @@ local function build(): ScreenGui
 					SoundManager.PlaySelect()
 					showcase(r)
 				end)
-				label(card, { Text = r.glyph, TextSize = 38, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0.44, 0), ZIndex = 33 })
+				label(card, { Text = r.glyph, Font = Enum.Font.GothamBlack, TextColor3 = rarityColor(r.rarity), TextSize = 30, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.new(1, 0, 0.44, 0), ZIndex = 33 })
 				label(card, { Text = r.name, Font = F.Header, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Center,
 					Position = UDim2.fromScale(0, 0.44), Size = UDim2.new(1, 0, 0.2, 0), ZIndex = 33 })
 				label(card, { Text = `[{string.upper(r.rarity)}]`, Font = F.Tag, TextSize = 10, TextColor3 = rarityColor(r.rarity), TextXAlignment = Enum.TextXAlignment.Center,

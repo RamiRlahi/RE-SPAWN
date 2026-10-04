@@ -5,7 +5,7 @@
 
 	  owned      filled, bright
 	  available  outline pulsing — click to unlock (server validates)
-	  locked     dim, 🔒 until its prerequisite is owned
+	  locked     dim, "?" until its prerequisite is owned
 
 	Hover shows the talent, its buff, cost and status. The souls counter sits
 	above, the constellation name and progress below.
@@ -152,7 +152,7 @@ function TalentConstellation.Create(parent: GuiObject)
 		end
 		table.clear(pulsing)
 		tip.Visible = false
-		soulsLabel.Text = `🕯️ {state.souls} Souls`
+		soulsLabel.Text = `{state.souls} Souls`
 		local classId = currentClass
 		local constellation = classId and TalentData.Get(classId)
 		local size = area.AbsoluteSize
@@ -204,7 +204,7 @@ function TalentConstellation.Create(parent: GuiObject)
 			btn.BackgroundTransparency = if isOwned then 0 elseif available then 0.1 else 0.3
 			btn.Font = Enum.Font.GothamBold
 			btn.TextSize = 16
-			btn.Text = if isOwned or available then n.glyph else "🔒"
+			btn.Text = if isOwned or available then n.glyph else "?"
 			btn.TextColor3 = if isOwned then Color3.fromRGB(15, 15, 20) elseif available then accent else Color3.fromRGB(110, 110, 120)
 			btn.ZIndex = 5
 			btn.Parent = area

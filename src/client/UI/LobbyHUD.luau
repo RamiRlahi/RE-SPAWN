@@ -207,7 +207,7 @@ local function openPicker()
 			-- this week's omen (WeeklyModifiers): every run this week has it
 			local WeeklyModifiers = require(Shared:WaitForChild("WeeklyModifiers"))
 			local m = WeeklyModifiers.Current()
-			label(g, `THIS WEEK: {m.glyph}  {m.name}  ·  {m.description}`, 16, m.color, { AnchorPoint = Vector2.new(0.5, 0),
+			label(g, `THIS WEEK: {m.name}  ·  {m.description}`, 16, m.color, { AnchorPoint = Vector2.new(0.5, 0),
 				Position = UDim2.new(0.5, 0, 0.06, 78), Size = UDim2.fromOffset(1000, 22), TextXAlignment = Enum.TextXAlignment.Center, TextWrapped = true })
 		end
 		local row = Instance.new("Frame")
@@ -281,7 +281,7 @@ local function openPicker()
 				local function upd()
 					local best = player:GetAttribute("BestFloor") or 0
 					local open = best >= map.unlockFloor
-					lock.Text = if open then `Your deepest: floor {player:GetAttribute("BestEndless") or 0}` else `🔒 Reach floor {map.unlockFloor} to open (best: {best})`
+					lock.Text = if open then `Your deepest: floor {player:GetAttribute("BestEndless") or 0}` else `LOCKED · Reach floor {map.unlockFloor} to open (best: {best})`
 					lock.TextColor3 = if open then Color3.fromRGB(210, 170, 255) else Color3.fromRGB(255, 120, 120)
 				end
 				upd()

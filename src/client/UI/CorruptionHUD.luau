@@ -127,7 +127,7 @@ function CorruptionHUD.Init()
 		omen.Visible = inRun
 		if inRun then
 			local m = WeeklyModifiers.Current()
-			omen.Text = `{m.glyph}  {m.name}`
+			omen.Text = m.name
 			omen.TextColor3 = m.color
 		end
 		local active = inRun and RunScope.Mine("CorruptionActive") == true
