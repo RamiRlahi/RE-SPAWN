@@ -36,6 +36,7 @@ local MenuStyle = require(script.Parent:WaitForChild("MenuStyle"))
 local SummonCinematic = require(script.Parent.Parent:WaitForChild("SummonCinematic"))
 local ConstellationWish = require(script.Parent.Parent:WaitForChild("ConstellationWish"))
 local LobbyCamera = require(script.Parent.Parent:WaitForChild("LobbyCamera"))
+local WardrobeScreen = require(script.Parent:WaitForChild("WardrobeScreen"))
 
 local player = Players.LocalPlayer
 -- The guild-hall palette under the names this screen was written with.
@@ -142,7 +143,7 @@ local function owned(id: string): boolean
 	if not r then return false end
 	if r.type == "character" or r.type == "variant" then return state.collection.characters[id] ~= nil end
 	if r.type == "relic" then return state.collection.relics[id] ~= nil end
-	if r.type == "cosmetic" or r.type == "armor" then return state.collection.cosmetics[id] == true end
+	if r.type == "cosmetic" or r.type == "armor" or r.type == "wings" or r.type == "mount" then return state.collection.cosmetics[id] == true end
 	return false
 end
 local function displayName(r: any): string
@@ -332,6 +333,13 @@ local function build(): ScreenGui
 	local function act(payload: any)
 		Network.GetRemoteEvent(Network.Remotes.GachaAction):FireServer(payload)
 	end
+	-- Wings / Mounts: their selection screens (every one on a pedestal).
+	secondaryButton(sg, "WINGS", { Position = UDim2.fromOffset(144, 70), Size = UDim2.fromOffset(110, 44), TextSize = 14 }, function()
+		WardrobeScreen.Open("wings", state, act)
+	end)
+	secondaryButton(sg, "MOUNTS", { Position = UDim2.fromOffset(264, 70), Size = UDim2.fromOffset(110, 44), TextSize = 14 }, function()
+		WardrobeScreen.Open("mount", state, act)
+	end)
 	local function itemRow(parent: Instance, order: number, r: any, info: string, actionText: string?, onAction: (() -> ())?, active: boolean?)
 		local row, rowStroke = panel(parent, { BackgroundColor3 = C.SurfaceAlt, Size = UDim2.new(1, -6, 0, 54), LayoutOrder = order })
 		rowStroke.Color = if active then C.Gold else rarityColor(r.rarity)
@@ -721,6 +729,7 @@ local function build(): ScreenGui
 			rline(`• Relics: copies raise level (max {D.maxRelicLevel}), then become Relic Dust.`)
 		end
 		rline("• Titles: copies become Relic Dust.")
+		rline("• Wings and mounts: copies become Soul Shards. Mounts are ridden in the lobby only (faster walking there).")
 		rline("INDIVIDUAL REWARD ODDS (PER SUMMON, BEFORE PITY)", C.Gold, F.Tag, 12)
 		for _, rarity in ipairs(GachaConfig.RarityOrder) do
 			local list = GachaRewards.InPoolByRarity(banner.pool, rarity)

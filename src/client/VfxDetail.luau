@@ -61,7 +61,7 @@ local function kindOf(inst: Instance): string?
 		-- the Armory gear it wears: that's for showing off)
 		if not Players:GetPlayerFromCharacter(top) then return nil end
 		local holder = inst.Parent
-		if inst.Name == "GearSparkle" or (holder and string.sub(holder.Name, 1, 8) == "GearAura") then return nil end
+		if inst.Name == "GearSparkle" or inst.Name == "GearFx" or (holder and string.sub(holder.Name, 1, 8) == "GearAura") then return nil end
 		if inst:IsA("ParticleEmitter") or inst:IsA("Beam") or inst:IsA("Trail") then return "worn" end
 		return nil
 	end

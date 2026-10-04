@@ -10,6 +10,8 @@
 	  relic                  the relic floating and orbiting at the shoulder
 	  cosmetic (title)       the title overhead
 	  material               a floating crystal with the item's icon
+	  wings                  worn on the dummy's back, flapping
+	  mount                  the dummy riding it, the mount walking in place
 
 	RewardPreview.Build(reward) → (model, cleanup)
 --]]
@@ -23,6 +25,8 @@ local GachaConfig = require(Shared:WaitForChild("GachaConfig"))
 local ClassArmor = require(Shared:WaitForChild("ClassArmor"))
 local IceCape = require(Shared:WaitForChild("IceCape"))
 local CastPoses = require(script.Parent:WaitForChild("CastPoses"))
+local WingsMounts = require(script.Parent:WaitForChild("WingsMounts"))
+local RideData = require(Shared:WaitForChild("RideData"))
 local ClothCape = require(script.Parent:WaitForChild("ClothCape"))
 
 local player = Players.LocalPlayer
@@ -254,6 +258,38 @@ function RewardPreview.Build(reward: any): (Model, () -> ())
 			billboard(root, reward.title or reward.name, accent, 4.2)
 		elseif reward.type == "cosmetic" then
 			billboard(root, reward.title or reward.name, accent, 4.2)
+		elseif reward.type == "wings" or reward.type == "mount" then
+			local rig = WingsMounts.Build(reward.id)
+			if rig then
+				rig.model.Parent = model
+				local isWings = reward.type == "wings"
+				local ride = RideData.RideHeight(reward.look)
+				local hum = model:FindFirstChildOfClass("Humanoid")
+				local liftedAt: Vector3? = nil
+				table.insert(conns, RunService.RenderStepped:Connect(function()
+					if not root.Parent or not model:IsDescendantOf(workspace) then return end
+					local t = os.clock()
+					if isWings then
+						local torso = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso")
+						if torso and torso:IsA("BasePart") then
+							WingsMounts.Pose(rig, torso.CFrame * CFrame.new(0, 0.35, torso.Size.Z / 2 + 0.08), t, 0.4)
+						end
+					else
+						-- (wherever it's put, it's lifted onto the mount's back)
+						local pivot = model:GetPivot()
+						if not liftedAt or (pivot.Position - liftedAt).Magnitude > 0.01 then
+							pivot += Vector3.new(0, ride, 0)
+							model:PivotTo(pivot)
+							liftedAt = pivot.Position
+						end
+						local legs = if hum and hum.RigType == Enum.HumanoidRigType.R6 then 2 else 0
+						local ground = root.Position.Y - root.Size.Y / 2 - legs - (if hum then hum.HipHeight else 2) - ride
+						local look = root.CFrame.LookVector
+						WingsMounts.Pose(rig, CFrame.new(root.Position.X, ground, root.Position.Z)
+							* CFrame.lookAt(Vector3.zero, Vector3.new(look.X, 0, look.Z)), t, 0.6)
+					end
+				end))
+			end
 		elseif reward.type == "relic" then
 			-- The relic orbits at the shoulder.
 			local core = crystal(model, reward, 0.6)

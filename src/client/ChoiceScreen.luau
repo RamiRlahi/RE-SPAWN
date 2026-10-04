@@ -446,4 +446,8 @@ function ChoiceScreen.Create(parent: GuiObject, onChoose: (string) -> (), onRero
 	return screen
 end
 
+-- The look, for other screens in the same style (WardrobeScreen).
+ChoiceScreen.Style = { new = new, text = text, diamond = diamond, ornament = ornament, glow = glow,
+	GOLD = GOLD, GOLD_L = GOLD_L, INK = INK, PANEL = PANEL, W = W, H = H }
+
 return ChoiceScreen

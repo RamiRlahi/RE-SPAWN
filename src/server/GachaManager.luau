@@ -73,7 +73,7 @@ end
 local function owns(p: any, r: any): boolean
 	if r.type == "character" or r.type == "variant" then return p.collection.characters[r.id] ~= nil end
 	if r.type == "relic" then return p.collection.relics[r.id] ~= nil end
-	if r.type == "cosmetic" or r.type == "armor" then return p.collection.cosmetics[r.id] == true end
+	if r.type == "cosmetic" or r.type == "armor" or r.type == "wings" or r.type == "mount" then return p.collection.cosmetics[r.id] == true end
 	return false
 end
 
@@ -121,11 +121,23 @@ local function refreshArmorAttributes(player: Player, p: any)
 	end
 end
 
+-- Wings / Mount = the equipped id while owned; every client builds them on
+-- that player's character (WingsMounts), and MountManager rides the mount.
+local function refreshRideAttributes(player: Player, p: any)
+	for _, kind in ipairs({ "wings", "mount" }) do
+		local id = p.equipped[kind]
+		local r = id and GachaRewards.Get(id)
+		local ok = r ~= nil and r.type == kind and p.collection.cosmetics[id] == true
+		player:SetAttribute(if kind == "wings" then "Wings" else "Mount", if ok then id else nil)
+	end
+end
+
 local function sync(player: Player)
 	local p = PlayerData.Get(player)
 	if not p then return end
 	refreshVariantAttribute(player)
 	refreshArmorAttributes(player, p)
+	refreshRideAttributes(player, p)
 	player:SetAttribute("Tickets", p.currencies.tickets or 0)
 	player:SetAttribute("Crystals", p.currencies.crystals or 0)
 	local setsDone = {}
@@ -261,6 +273,16 @@ local function grant(p: any, reward: any): (boolean, string)
 	elseif reward.type == "material" then
 		addCurrency(p, reward.currency, reward.amount or 1)
 		return false, `+{reward.amount or 1} {GachaConfig.Currencies[reward.currency] and GachaConfig.Currencies[reward.currency].name or reward.currency}`
+	elseif reward.type == "wings" or reward.type == "mount" then
+		-- The first copy is worn straight away if nothing of its kind is.
+		if not p.collection.cosmetics[reward.id] then
+			p.collection.cosmetics[reward.id] = true
+			if not p.equipped[reward.type] then p.equipped[reward.type] = reward.id end
+			return true, if reward.type == "wings" then "NEW WINGS" else "NEW MOUNT"
+		end
+		local shards = D.characterShards[reward.rarity] or 10
+		addCurrency(p, "soulShards", shards)
+		return false, `+{shards} Soul Shards`
 	elseif reward.type == "cosmetic" then
 		if not p.collection.cosmetics[reward.id] then
 			p.collection.cosmetics[reward.id] = true
@@ -391,6 +413,17 @@ local function action(player: Player, payload: any)
 			local r = GachaRewards.Get(id)
 			if r and r.type == "armor" and r.classId == payload.classId and p.collection.cosmetics[id] then
 				p.equipped.armor[payload.classId] = id
+			end
+		end
+	elseif (kind == "equipWings" or kind == "equipMount") then
+		local slot = if kind == "equipWings" then "wings" else "mount"
+		local id = payload.id
+		if id == nil then
+			p.equipped[slot] = nil
+		elseif typeof(id) == "string" then
+			local r = GachaRewards.Get(id)
+			if r and r.type == slot and p.collection.cosmetics[id] then
+				p.equipped[slot] = id
 			end
 		end
 	elseif kind == "refineShards" then

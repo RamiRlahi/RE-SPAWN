@@ -37,11 +37,11 @@ GachaConfig.StartingCurrencies = { tickets = 3, crystals = 0 }
 -- ── Rarities & base odds (must sum to 100) ───────────────────────────────────
 GachaConfig.RarityOrder = { "Common", "Rare", "Epic", "Legendary", "Mythic" }
 GachaConfig.Rarities = {
-	Common    = { odds = 60.0, color = Color3.fromRGB(190, 195, 205) },
+	Common    = { odds = 59.5, color = Color3.fromRGB(190, 195, 205) },
 	Rare      = { odds = 28.0, color = Color3.fromRGB(90, 170, 255) },
 	Epic      = { odds = 9.0,  color = Color3.fromRGB(190, 95, 255) },
 	Legendary = { odds = 3.0,  color = Color3.fromRGB(255, 200, 70) },
-	Mythic    = { odds = 0.0,  color = Color3.fromRGB(255, 70, 120) }, -- no Mythic rewards yet
+	Mythic    = { odds = 0.5,  color = Color3.fromRGB(255, 70, 120) },
 }
 
 -- ── Pity (per banner, carried between sessions) ──────────────────────────────
