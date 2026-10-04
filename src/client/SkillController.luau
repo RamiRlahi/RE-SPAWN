@@ -24,6 +24,7 @@ local DivineBeamChannel = require(script.Parent:WaitForChild("DivineBeamChannel"
 local ClericVFX = require(script.Parent:WaitForChild("ClericVFX"))
 local IceMageVFX = require(script.Parent:WaitForChild("IceMageVFX"))
 local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
+local HumanoidIndex = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("HumanoidIndex"))
 local CastPoses = require(script.Parent:WaitForChild("CastPoses"))
 local ClericFlair = require(script.Parent:WaitForChild("ClericFlair"))
 local SkateController = require(script.Parent:WaitForChild("SkateController"))
@@ -526,7 +527,7 @@ local function playFireSlamVFX(char: Model, origin: Vector3, targetPos: Vector3,
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	local ignoreList: { Instance } = { char }
-	for _, desc in ipairs(Workspace:GetDescendants()) do
+	for _, desc in ipairs(HumanoidIndex.List()) do -- (models with a Humanoid: never the whole Workspace)
 		if desc:IsA("Model") and (desc:FindFirstChildOfClass("Humanoid") or desc:FindFirstAncestorOfClass("Accessory")) then
 			table.insert(ignoreList, desc)
 		end
@@ -2088,7 +2089,7 @@ local function findRangerArrowImpact(casterChar: Model, origin: Vector3, directi
 	local bestPos = origin + flatUnit(direction) * range
 	local flatDir = flatUnit(direction)
 
-	for _, desc in ipairs(Workspace:GetDescendants()) do
+	for _, desc in ipairs(HumanoidIndex.List()) do -- (models with a Humanoid: never the whole Workspace)
 		if desc:IsA("Model") and desc ~= casterChar and not desc:IsDescendantOf(casterChar) and not desc:FindFirstAncestorOfClass("Accessory") then
 			local hum = desc:FindFirstChildOfClass("Humanoid")
 			if hum and hum.Health > 0 then
@@ -2843,7 +2844,7 @@ local function spawnVineArenaCage(center: Vector3, radius: number, duration: num
 end
 
 local function showPinnedTargets(casterChar: Model, center: Vector3, radius: number, duration: number)
-	for _, desc in ipairs(Workspace:GetDescendants()) do
+	for _, desc in ipairs(HumanoidIndex.List()) do -- (models with a Humanoid: never the whole Workspace)
 		if desc:IsA("Model") and desc ~= casterChar and not desc:IsDescendantOf(casterChar) and not desc:FindFirstAncestorOfClass("Accessory") then
 			local humanoid = desc:FindFirstChildOfClass("Humanoid")
 			local root = (desc:FindFirstChild("HumanoidRootPart") or desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")) :: BasePart?
@@ -3347,7 +3348,7 @@ local function playRangerVerdantSlashVFX(casterChar: Model, startPos: Vector3, e
 	pLight.Parent = midAtt
 
 	-- 7. Visual Hit Effect on all pierced targets in path (Panel 3)
-	for _, desc in ipairs(Workspace:GetDescendants()) do
+	for _, desc in ipairs(HumanoidIndex.List()) do -- (models with a Humanoid: never the whole Workspace)
 		if desc:IsA("Model") and desc ~= casterChar and not desc:IsDescendantOf(casterChar) and not desc:FindFirstAncestorOfClass("Accessory") then
 			local hum = desc:FindFirstChildOfClass("Humanoid")
 			local root = (desc:FindFirstChild("HumanoidRootPart") or desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")) :: BasePart?
@@ -3515,7 +3516,7 @@ local function launchSingleSeekerMissile(casterChar: Model, sideOffset: number, 
 		local bestTarget: Model? = nil
 		local bestPart: BasePart? = nil
 
-		for _, desc in ipairs(Workspace:GetDescendants()) do
+		for _, desc in ipairs(HumanoidIndex.List()) do -- (models with a Humanoid: never the whole Workspace)
 			if desc:IsA("Model") and desc ~= casterChar and not desc:IsDescendantOf(casterChar) and not desc:FindFirstAncestorOfClass("Accessory") then
 				local hum = desc:FindFirstChildOfClass("Humanoid")
 				local root = (desc:FindFirstChild("HumanoidRootPart") or desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")) :: BasePart?
@@ -3624,7 +3625,7 @@ local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vecto
 		local rayParams = RaycastParams.new()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 		local ignoreList: { Instance } = { char }
-		for _, desc in ipairs(Workspace:GetDescendants()) do
+		for _, desc in ipairs(HumanoidIndex.List()) do -- (models with a Humanoid: never the whole Workspace)
 			if desc:IsA("Model") and (desc:FindFirstChildOfClass("Humanoid") or desc:FindFirstAncestorOfClass("Accessory")) then
 				table.insert(ignoreList, desc)
 			end
@@ -4286,7 +4287,7 @@ function SkillController.UseSkill(skillIndex: number)
 			local rayParams = RaycastParams.new()
 			rayParams.FilterType = Enum.RaycastFilterType.Exclude
 			local ignoreList: { Instance } = { char }
-			for _, desc in ipairs(Workspace:GetDescendants()) do
+			for _, desc in ipairs(HumanoidIndex.List()) do -- (models with a Humanoid: never the whole Workspace)
 				if desc:IsA("Model") and (desc:FindFirstChildOfClass("Humanoid") or desc:FindFirstAncestorOfClass("Accessory")) then
 					table.insert(ignoreList, desc)
 				end

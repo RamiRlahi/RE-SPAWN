@@ -136,6 +136,7 @@ pcall(function()
 	require(script:WaitForChild("EnemyProjectiles")).Init()
 	require(script:WaitForChild("ZombieAnimator")).Init()
 	require(script:WaitForChild("VfxDetail")).Init()
+	require(script:WaitForChild("PerfMode")).Init() -- low frame rate: shadows and scenery effects off
 	-- The lobby: party panel, invite prompts, its menu states.
 	require(script:WaitForChild("UI"):WaitForChild("LobbyHUD")).Init(if successUI then UIManager else nil)
 end)

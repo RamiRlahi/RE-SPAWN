@@ -32,7 +32,7 @@ local ROWS = 15 -- particles down
 local TOP_WIDTH = 1.9 -- inside the shoulders, clear of the arms' swing
 local BOTTOM_WIDTH = 3.3
 local LENGTH = 4.35 -- collar to hem, ankle height on R6
-local ITERATIONS = 10
+local ITERATIONS = 5 -- (collisions are resolved on every other pass and the last)
 local GRAVITY = Vector3.new(0, -60, 0)
 local DAMPING = 0.975
 local MARGIN = 0.15 -- how far the cloth stays off the body
@@ -40,6 +40,7 @@ local MARGIN = 0.15 -- how far the cloth stays off the body
 -- their motion can be seen); past HALF_RATE they're stepped every other frame.
 local CULL_DIST = 160
 local HALF_RATE = 70
+-- (other players' capes always step at half rate: yours is the one you watch)
 
 export type Style = {
 	outer: Color3,     -- the cape's outside
@@ -325,7 +326,17 @@ local function simulate(cape: Cape, dt: number, now: number)
 
 	local cons = cape.constraints
 	local floorY = cape.floorY + 0.05
-	for _ = 1, ITERATIONS do
+	-- The colliders this frame, each with a bounding sphere: a point only
+	-- gets the (dearer) box test when it's inside the sphere.
+	local boxes = cape.colliders
+	local centres, radii = {}, {}
+	for b, box in ipairs(boxes) do
+		centres[b] = box.Position
+		local h = box.Size * 0.5
+		radii[b] = h.Magnitude + MARGIN
+	end
+	local nb = #boxes
+	for iter = 1, ITERATIONS do
 		for _, c in ipairs(cons) do
 			local pa, pb = pos[c.a], pos[c.b]
 			local d = pb - pa
@@ -344,14 +355,18 @@ local function simulate(cape: Cape, dt: number, now: number)
 				end
 			end
 		end
-		for i = 1, #pos do
-			if not cape.pinLocal[i] then
-				local p = pos[i]
-				for _, box in ipairs(cape.colliders) do
-					p = pushOutOfBox(p, box)
+		if iter % 2 == 0 or iter == ITERATIONS then
+			for i = 1, #pos do
+				if not cape.pinLocal[i] then
+					local p = pos[i]
+					for b = 1, nb do
+						if (p - centres[b]).Magnitude < radii[b] then
+							p = pushOutOfBox(p, boxes[b])
+						end
+					end
+					if p.Y < floorY then p = Vector3.new(p.X, floorY, p.Z) end
+					pos[i] = p
 				end
-				if p.Y < floorY then p = Vector3.new(p.X, floorY, p.Z) end
-				pos[i] = p
 			end
 		end
 	end
@@ -387,7 +402,10 @@ local function simulate(cape: Cape, dt: number, now: number)
 			-- Slightly oversized so neighbouring panels overlap at the seams
 			-- (a shredded column's last cell narrower: a torn strip).
 			local torn = r + 1 == cape.cut[c] and cape.style.shred ~= nil
-			panel.Size = Vector3.new(across.Magnitude * (if torn then 0.25 else 0.5) + 0.06, down.Magnitude * 0.5 + 0.06, 0.06)
+			-- (resizing a part is dear: only when it has changed visibly)
+			local want = Vector3.new(across.Magnitude * (if torn then 0.25 else 0.5) + 0.06, down.Magnitude * 0.5 + 0.06, 0.06)
+			local have = panel.Size
+			if math.abs(want.X - have.X) > 0.04 or math.abs(want.Y - have.Y) > 0.04 then panel.Size = want end
 		end
 	end
 	Workspace:BulkMoveTo(cape.panels, cape.panelCFs, Enum.BulkMoveMode.FireCFrameChanged)
@@ -428,6 +446,11 @@ placeFeathers = function(cape: Cape)
 	Workspace:BulkMoveTo(cape.featherParts, cape.featherCFs, Enum.BulkMoveMode.FireCFrameChanged)
 end
 
+local function localCharacter(): Model?
+	local lp = game:GetService("Players").LocalPlayer
+	return lp and lp.Character
+end
+
 local function step(dt: number)
 	dt = math.clamp(dt, 1 / 240, 1 / 30)
 	local now = os.clock()
@@ -441,7 +464,7 @@ local function step(dt: number)
 			-- Out of sight (far off, or a menu scene parked out of the world):
 			-- left as it hangs. (Back in view, a big jump snaps it to rest.)
 			cape.lastTorso = cape.torso.Position
-		elseif far > HALF_RATE and not cape.odd then
+		elseif (far > HALF_RATE or character ~= localCharacter()) and not cape.odd then
 			cape.odd = true
 		else
 			local stepDt = if cape.odd then math.min(dt * 2, 1 / 30) else dt

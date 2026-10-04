@@ -12,6 +12,7 @@ local Debris = game:GetService("Debris")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local HumanoidIndex = require(Shared:WaitForChild("HumanoidIndex"))
 local RunScope = require(Shared:WaitForChild("RunScope"))
 local SkillData = require(Shared:WaitForChild("SkillData"))
 local PlayerStats = require(script.Parent:WaitForChild("PlayerStats"))
@@ -176,25 +177,27 @@ local function hitPoint(model: Model, root: BasePart, casterChar: Model): BasePa
 	return proxy
 end
 
+-- (every model in the world with a Humanoid, kept up to date: HumanoidIndex.
+-- Targets are looked up for every swing, bullet, bounce and blast; walking
+-- the whole Workspace each time brought the server to its knees.)
+local humanoidModels = HumanoidIndex.Each()
+
 local function getPotentialTargets(casterChar: Model): { { character: Model, humanoid: Humanoid, rootPart: BasePart } }
 	local targets = {}
-	local addedSet: { [Model]: boolean } = {}
 
-	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if desc:IsA("Model") and desc ~= casterChar and not addedSet[desc] then
+	for desc, hum in pairs(humanoidModels) do
+		if desc ~= casterChar then
 			-- Don't consider accessories or player character sub-models
 			if desc:FindFirstAncestorOfClass("Accessory") then continue end
 			if desc:IsDescendantOf(casterChar) then continue end
 			if isFriendly(desc) then continue end
 
-			local hum = desc:FindFirstChildOfClass("Humanoid")
-			if hum and hum.Health > 0 then
+			if hum.Parent == desc and hum.Health > 0 then
 				local root: BasePart? = (desc:FindFirstChild("HumanoidRootPart") or desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")) :: BasePart?
 				if root and desc:GetAttribute("HitRadius") ~= nil then
 					root = hitPoint(desc, root, casterChar)
 				end
 				if root then
-					addedSet[desc] = true
 					table.insert(targets, {
 						character = desc,
 						humanoid = hum,
@@ -504,7 +507,16 @@ local function damageFirstTargetOnLine(player: Player, casterChar: Model, origin
 	return nil, nil
 end
 
+local findArrowUncached: () -> Instance?
+local cachedArrow: Instance? = nil
+-- (looked up once, not on every shot: ReplicatedStorage holds every asset)
 local function findRangerArrowTemplate(): Instance?
+	if cachedArrow and cachedArrow.Parent then return cachedArrow end
+	cachedArrow = findArrowUncached()
+	return cachedArrow
+end
+
+findArrowUncached = function(): Instance?
 	-- Prefer the dedicated projectile asset placed directly in ReplicatedStorage.
 	-- The recursive lookup keeps this resilient if it is later organized into a
 	-- different ReplicatedStorage folder.
@@ -683,10 +695,8 @@ local function executeRangerVerdantSlash(player: Player, casterChar: Model, orig
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	local ignoreList: { Instance } = { casterChar }
-	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if desc:IsA("Model") and (desc:FindFirstChildOfClass("Humanoid") or desc:FindFirstAncestorOfClass("Accessory")) then
-			table.insert(ignoreList, desc)
-		end
+	for model in pairs(humanoidModels) do
+		table.insert(ignoreList, model)
 	end
 	rayParams.FilterDescendantsInstances = ignoreList
 	rayParams.IgnoreWater = true

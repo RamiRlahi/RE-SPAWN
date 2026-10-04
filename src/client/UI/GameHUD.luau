@@ -967,10 +967,13 @@ local function updateRunTimer()
 	if runTimerText then
 		local mins = math.floor(elapsed / 60)
 		local secs = elapsed % 60
-		runTimerText.Text = string.format("%02d:%02d", mins, secs)
+		-- (UI writes only when the text changes: no layout work every frame)
+		local txt = string.format("%02d:%02d", mins, secs)
+		if runTimerText.Text ~= txt then runTimerText.Text = txt end
 	end
 	if runTierText then
-		runTierText.Text = tierLabel(tier)
+		local txt = tierLabel(tier)
+		if runTierText.Text ~= txt then runTierText.Text = txt end
 	end
 end
 
@@ -989,7 +992,7 @@ local function onHeartbeat(dt: number)
 		hpTrail.Size = UDim2.new(trailFraction, 0, 1, 0)
 	else
 		local fraction = if maxHP > 0 then math.clamp(currentHP / maxHP, 0, 1) else 0
-		hpTrail.Size = UDim2.new(fraction, 0, 1, 0)
+		if hpTrail.Size.X.Scale ~= fraction then hpTrail.Size = UDim2.new(fraction, 0, 1, 0) end
 	end
 end
 

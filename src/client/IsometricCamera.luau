@@ -307,56 +307,65 @@ local function markHit(hitPart: BasePart, currentlyHit: { [BasePart]: boolean })
 	end
 end
 
+-- (performance: the sightlines are cast 15 times a second, not every frame;
+-- what they find stays faded for OCCLUSION_HOLD_TIME, so nothing flickers.
+-- The fades themselves still ease every frame.)
+local CAST_EVERY = 1 / 15
+local lastCast = 0
+local currentlyHit: { [BasePart]: boolean } = {}
+
 local function updateOcclusion(camPos: Vector3, targetPos: Vector3, character: Model, dt: number?)
 	local stepDt = dt or 0.01666
-	raycastParams.FilterDescendantsInstances = { character }
+	local castNow = os.clock() - lastCast >= CAST_EVERY
+	if castNow then
+		lastCast = os.clock()
+		raycastParams.FilterDescendantsInstances = { character }
 
-	local currentlyHit: { [BasePart]: boolean } = {}
+		currentlyHit = {}
 
-	local camDir = (targetPos - camPos).Unit
-	local camRight = camDir:Cross(Vector3.new(0, 1, 0)).Unit
+		local camDir = (targetPos - camPos).Unit
+		local camRight = camDir:Cross(Vector3.new(0, 1, 0)).Unit
 
-	-- Target sightline points on and immediately around the character
-	local targetPoints = {
-		targetPos,                                      -- Character center / torso
-		targetPos + Vector3.new(0, 2.2, 0),             -- Head
-		targetPos + Vector3.new(0, -1.0, 0),            -- Lower torso
-		targetPos + camRight * 1.2,                     -- Right shoulder
-		targetPos - camRight * 1.2,                     -- Left shoulder
-		targetPos + Vector3.new(0, 3.5, 0),             -- Low ceiling overhead
-	}
+		-- Target sightline points on and immediately around the character
+		local targetPoints = {
+			targetPos,                                      -- Character center / torso
+			targetPos + Vector3.new(0, 2.6, 0),             -- Head (and a low ceiling over it)
+			targetPos + camRight * 1.2,                     -- Right shoulder
+			targetPos - camRight * 1.2,                     -- Left shoulder
+		}
 
-	for _, tPt in ipairs(targetPoints) do
-		local origin = camPos
-		local direction = (tPt - origin)
-		local totalDistance = direction.Magnitude
-		local currentOrigin = origin
-		local dirUnit = direction.Unit
+		for _, tPt in ipairs(targetPoints) do
+			local origin = camPos
+			local direction = (tPt - origin)
+			local totalDistance = direction.Magnitude
+			local currentOrigin = origin
+			local dirUnit = direction.Unit
 
-		local rayResult = Workspace:Spherecast(currentOrigin, OCCLUSION_RADIUS, dirUnit * totalDistance, raycastParams)
-		local iterations = 0
+			local rayResult = Workspace:Spherecast(currentOrigin, OCCLUSION_RADIUS, dirUnit * totalDistance, raycastParams)
+			local iterations = 0
 
-		while rayResult and rayResult.Instance and iterations < 10 do
-			iterations += 1
-			local hitPart = rayResult.Instance
-			if hitPart:IsA("BasePart") and hitPart.Transparency < 1 then
-				-- Only fade objects above floor level (never fade the ground under the player)
-				local isGround = rayResult.Position.Y < (targetPos.Y - 1.5)
-				-- Only fade what is genuinely between the camera and the player:
-				-- where the hit sits along the sightline must end before the player.
-				local along = (rayResult.Position - origin):Dot(dirUnit)
-				local betweenCameraAndPlayer = along < totalDistance - PLAYER_CLEARANCE
-				if not isGround and betweenCameraAndPlayer then
-					markHit(hitPart, currentlyHit)
+			while rayResult and rayResult.Instance and iterations < 4 do
+				iterations += 1
+				local hitPart = rayResult.Instance
+				if hitPart:IsA("BasePart") and hitPart.Transparency < 1 then
+					-- Only fade objects above floor level (never fade the ground under the player)
+					local isGround = rayResult.Position.Y < (targetPos.Y - 1.5)
+					-- Only fade what is genuinely between the camera and the player:
+					-- where the hit sits along the sightline must end before the player.
+					local along = (rayResult.Position - origin):Dot(dirUnit)
+					local betweenCameraAndPlayer = along < totalDistance - PLAYER_CLEARANCE
+					if not isGround and betweenCameraAndPlayer then
+						markHit(hitPart, currentlyHit)
+					end
 				end
+				local advanceDist = rayResult.Distance + 0.3
+				currentOrigin = currentOrigin + dirUnit * advanceDist
+				local remainingDist = (tPt - currentOrigin).Magnitude
+				if remainingDist <= 0.8 then break end
+				rayResult = Workspace:Spherecast(currentOrigin, OCCLUSION_RADIUS, dirUnit * remainingDist, raycastParams)
 			end
-			local advanceDist = rayResult.Distance + 0.3
-			currentOrigin = currentOrigin + dirUnit * advanceDist
-			local remainingDist = (tPt - currentOrigin).Magnitude
-			if remainingDist <= 0.8 then break end
-			rayResult = Workspace:Spherecast(currentOrigin, OCCLUSION_RADIUS, dirUnit * remainingDist, raycastParams)
 		end
-	end
+	end -- (castNow)
 
 	-- ── Smooth transparency updates with cooldown ──
 	local now = os.clock()
@@ -370,6 +379,7 @@ local function updateOcclusion(camPos: Vector3, targetPos: Vector3, character: M
 		local isStillActive = currentlyHit[part] or (timeSinceHit < OCCLUSION_HOLD_TIME)
 
 		if isStillActive then
+			if info.currentTransparency >= OBSTACLE_TRANSPARENCY then continue end -- (already there)
 			-- Smoothly fade TO transparent
 			info.currentTransparency = math.min(
 				info.currentTransparency + stepDt * FADE_OUT_SPEED,

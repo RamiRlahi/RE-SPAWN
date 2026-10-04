@@ -43,6 +43,7 @@ local KEEP = {
 
 local function level(): Level
 	local heavy = player:GetAttribute("Setting_classicCamera") == true or player:GetAttribute("Setting_lowDetailVFX") == true
+		or player:GetAttribute("PerfMode") == true
 	return if heavy then LOW else NORMAL
 end
 

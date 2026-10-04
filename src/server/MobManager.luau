@@ -898,6 +898,12 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 	end)
 end
 
+local UNUSED_MOB_STATES = {
+	Enum.HumanoidStateType.Climbing, Enum.HumanoidStateType.Swimming, Enum.HumanoidStateType.Seated,
+	Enum.HumanoidStateType.Ragdoll, Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.GettingUp,
+	Enum.HumanoidStateType.Flying, Enum.HumanoidStateType.StrafingNoPhysics,
+}
+
 local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boolean, initialHealth: number?, onDied: (() -> ())?)
 	-- 1. Humanoid Setup
 	local humanoid = mobModel:FindFirstChildOfClass("Humanoid")
@@ -907,6 +913,14 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 	end
 
 	humanoid.RequiresNeck = false
+	-- (performance: the states a mob never uses are switched off, so the
+	-- humanoid doesn't keep checking for ladders, water, seats or ragdolls;
+	-- nameplates and health are ours, not the humanoid's)
+	for _, st in ipairs(UNUSED_MOB_STATES) do
+		humanoid:SetStateEnabled(st, false)
+	end
+	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
 	local diffScale = DifficultyManager.GetMobScale(RunScope.Of(mobModel))
 	local walkSpeed = (mobModel:GetAttribute("WalkSpeed") or (isBoss and 10 or 14)) * diffScale.speed
 	humanoid.WalkSpeed = walkSpeed

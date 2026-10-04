@@ -350,7 +350,7 @@ function AtmosphereManager.PlaceWindowLight(wallCF: CFrame, openings: { { x: num
 
 		-- Beam sheets: with FaceCamera off a beam's width runs along its
 		-- attachments' Y axis. One sheet spans the window's width, one its
-		-- height, each in three widths for a soft falloff.
+		-- height. (One beam each: stacked transparent sheets are costly to draw.)
 		local tall = across:Cross(d).Unit
 		local function sheet(widthAxis: Vector3, w0: number, w1: number)
 			local xAxis = widthAxis:Cross(d).Unit
@@ -360,20 +360,18 @@ function AtmosphereManager.PlaceWindowLight(wallCF: CFrame, openings: { { x: num
 			local a1 = Instance.new("Attachment")
 			a1.Parent = anchor
 			a1.WorldCFrame = CFrame.fromMatrix(endPos, xAxis, widthAxis)
-			for i, k in ipairs({ 1, 0.68, 0.4 }) do
-				local b = Instance.new("Beam")
-				b.Attachment0 = a0
-				b.Attachment1 = a1
-				b.FaceCamera = false
-				b.Width0 = w0 * k
-				b.Width1 = w1 * k
-				b.LightEmission = 1
-				b.LightInfluence = 0
-				b.Segments = 8
-				b.Color = ColorSequence.new(color)
-				b.Transparency = shaftTransparency(cfg.WindowShaftOpacity * (0.8 + i * 0.2))
-				b.Parent = a0
-			end
+			local b = Instance.new("Beam")
+			b.Attachment0 = a0
+			b.Attachment1 = a1
+			b.FaceCamera = false
+			b.Width0 = w0 * 0.8
+			b.Width1 = w1 * 0.8
+			b.LightEmission = 1
+			b.LightInfluence = 0
+			b.Segments = 4
+			b.Color = ColorSequence.new(color)
+			b.Transparency = shaftTransparency(cfg.WindowShaftOpacity * 2.2)
+			b.Parent = a0
 		end
 		sheet(across, o.w, o.w * 1.25)
 		sheet(tall, o.h * math.cos(a), o.h * math.cos(a) * 1.2)
@@ -396,18 +394,28 @@ function AtmosphereManager.PlaceWindowLight(wallCF: CFrame, openings: { { x: num
 	return model
 end
 
--- A chain of alternating links from `a` to `b`.
+-- A chain of alternating links from `a` to `b`. (Past LINKED studs it's one
+-- iron rod: a chain rising out of view needn't be dozens of parts.)
 local CHAIN_IRON = Color3.fromRGB(58, 52, 50)
+local LINKED = 6
 local function chain(parent: Instance, a: Vector3, b: Vector3)
-	local len = (b - a).Magnitude
-	local links = math.max(1, math.floor(len / 0.55))
+	local full = (b - a).Magnitude
+	local len = math.min(full, LINKED)
 	local dir = CFrame.lookAt(a, b)
+	local stop = a:Lerp(b, len / full)
+	local links = math.max(1, math.floor(len / 0.9))
 	for i = 0, links - 1 do
-		local p = a:Lerp(b, (i + 0.5) / links)
-		local link = prop(parent, { Size = Vector3.new(0.12, 0.34, 0.7),
+		local p = a:Lerp(stop, (i + 0.5) / links)
+		local link = prop(parent, { Size = Vector3.new(0.16, 0.45, 1.05),
 			CFrame = CFrame.new(p) * dir.Rotation * CFrame.Angles(0, 0, if i % 2 == 0 then 0 else math.rad(90)),
 			Color = CHAIN_IRON, Material = Enum.Material.Metal })
 		link.CastShadow = false
+	end
+	if full > len + 0.05 then
+		local rest = full - len
+		local rod = prop(parent, { Size = Vector3.new(0.22, 0.22, rest), CFrame = CFrame.lookAt(stop:Lerp(b, 0.5), b),
+			Color = CHAIN_IRON, Material = Enum.Material.Metal })
+		rod.CastShadow = false
 	end
 end
 
