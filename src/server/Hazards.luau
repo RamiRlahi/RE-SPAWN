@@ -91,11 +91,6 @@ local function lavaPool(folder: Instance, center: Vector3, radius: number, rng: 
 			CFrame = CFrame.new(c + Vector3.new(0, 0.1, 0)) * FLAT, Color = LAVA, Material = Enum.Material.CrackedLava })
 		table.insert(hazards, { kind = "lava", center = c, radius = r, floorY = center.Y, part = lava, runId = buildingRun } :: any)
 		if i == 1 then
-			local light = Instance.new("PointLight")
-			light.Color = LAVA
-			light.Brightness = 1.1
-			light.Range = r * 2 + 8
-			light.Parent = lava
 			local a = Instance.new("Attachment")
 			a.Parent = lava
 			emitter(a, { Name = "Bubbles", Texture = "rbxasset://textures/particles/sparkles_main.dds",

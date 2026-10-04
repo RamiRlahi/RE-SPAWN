@@ -78,11 +78,6 @@ ClassManager.OnClassSelected(function(player: Player, classId: string)
 		player:SetAttribute("SpawnedInMap", true)
 		player:SetAttribute("InLobby", false)
 		print(`[Server] Sent {player.Name} into run {runId}`)
-
-		if Shared then
-			local AtmosphereManager = require(Shared:FindFirstChild("AtmosphereManager") :: ModuleScript)
-			AtmosphereManager.AttachTorchLight(char)
-		end
 	end
 
 	-- Their run's minimap

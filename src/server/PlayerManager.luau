@@ -50,9 +50,6 @@ local function setupCharacter(player: Player, character: Model)
 
 	if not humanoid or not rootPart then return end
 
-	-- Attach player torch light & embers, and visual outline
-	AtmosphereManager.AttachTorchLight(character)
-
 	local inLobby = player:GetAttribute("InLobby")
 	if inLobby == nil or inLobby == true then
 		-- Position in church / lobby

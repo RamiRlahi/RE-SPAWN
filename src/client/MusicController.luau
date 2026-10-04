@@ -1,9 +1,10 @@
 --!strict
 --[[
 	MusicController.luau
-	Music outside the dungeon: one track on the menu screens (title, class
-	select, the campfire), another walking the lobby plaza; in a run, only
-	the drums of a horde event (Horde.luau).
+	Music: one track on the menu screens (title, class select, the campfire),
+	another walking the lobby plaza; in a run, a dark dungeon track (the two
+	take turns run to run), giving way to the drums of a horde event
+	(Horde.luau) while one is on.
 	Tracks crossfade; the volume is the Music Volume setting.
 --]]
 
@@ -21,29 +22,42 @@ local TRACKS = {
 	menu = "rbxassetid://9046506025",   -- "Imminent Closure (Underscore C)", APM
 	lobby = "rbxassetid://108830435742016", -- "Festival Night Tavern"
 	horde = "rbxassetid://108019516023646", -- "Intense Epic Battle Drums"
+	dungeon1 = "rbxassetid://1837286563", -- "Dark Fantasy", APM
+	dungeon2 = "rbxassetid://1835356065", -- "Demon Dimension", APM
 }
+-- (each track's own level: the dungeon's is a bed under the fighting)
+local GAIN: { [string]: number } = { dungeon1 = 0.7, dungeon2 = 0.7 }
 local BASE = 0.5 -- the tracks' own loudness at full Music Volume
 local FADE = 1.5
 
 local sounds: { [string]: Sound } = {}
 local current: string? = nil
 
-local function volume(): number
+local function volume(name: string): number
 	local v = player:GetAttribute("Setting_musicVolume")
-	return BASE * (if typeof(v) == "number" then math.clamp(v, 0, 1) else 0.6)
+	return BASE * (GAIN[name] or 1) * (if typeof(v) == "number" then math.clamp(v, 0, 1) else 0.6)
 end
+
+-- Which dungeon track this run gets: the other one from last run.
+local dungeonTrack = "dungeon2"
+local wasInRun = false
 
 local function want(): string?
 	if player:GetAttribute("InHub") == true then return "lobby" end
 	if player:GetAttribute("InLobby") ~= false then return "menu" end
 	if typeof(RunScope.Mine("HordeUntil")) == "number" then return "horde" end
-	return nil
+	return dungeonTrack
 end
 
 local function sync()
+	local inRun = player:GetAttribute("InLobby") == false and player:GetAttribute("InHub") ~= true
+	if inRun and not wasInRun then
+		dungeonTrack = if dungeonTrack == "dungeon1" then "dungeon2" else "dungeon1"
+	end
+	wasInRun = inRun
 	local w = want()
 	if w == current then
-		if w and sounds[w] then sounds[w].Volume = volume() end
+		if w and sounds[w] then sounds[w].Volume = volume(w) end
 		return
 	end
 	current = w
@@ -57,7 +71,7 @@ local function sync()
 	if w then
 		local s = sounds[w]
 		if not s.IsPlaying then s.Volume = 0; s:Resume() end
-		TweenService:Create(s, TweenInfo.new(FADE), { Volume = volume() }):Play()
+		TweenService:Create(s, TweenInfo.new(FADE), { Volume = volume(w) }):Play()
 	end
 end
 

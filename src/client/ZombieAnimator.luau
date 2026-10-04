@@ -4,11 +4,12 @@
 	The zombies' bodies (plain zombies, ghouls, brutes, the risen: every mob
 	tagged "Shambler" by MobManager), posed every frame on each client:
 
-	  walking   a limping shamble: the right leg stiff and dragged, the body
-	            lurching onto each step, hunched, arms reaching out ahead at
-	            uneven heights, the head lolling and twitching
-	  standing  swaying where it stands, arms half raised and drifting, the
-	            head rolling on its neck
+	  walking   a limping, wobbling shamble: bent over at the back, one leg
+	            stiff and dragged, the body lurching and rolling hard onto
+	            each step, one arm reaching for you and the other hanging
+	            loose and flopping, the head lolling and twitching
+	  standing  swaying and drifting where it stands, hunched, arms hanging,
+	            the head rolling on its neck
 	  attacking (MobManager's "AttackAt") both arms thrown up and brought
 	            down in a lunge, the body pitching in behind them
 
@@ -114,45 +115,59 @@ local function pose(b: Body, dt: number, now: number, serverNow: number)
 		raise = if a < 0.4 then math.sin(a / 0.4 * math.pi / 2) else 1 - (a - 0.4) / 0.6
 	end
 
+	-- (a slow drunken drift on top of everything: never quite balanced)
+	local drift = math.noise(t * 0.35, b.seed) * 2
+	local drift2 = math.noise(t * 0.5, b.seed + 7) * 2
+
 	-- The legs: the bad leg barely swings and drags; the good one takes the stride.
-	local good, bad = 0.55, 0.2
+	local good, bad = 0.6, 0.18
 	local ampR = if b.limp > 0 then bad else good
 	local ampL = if b.limp > 0 then good else bad
 	local idleShift = math.sin(t * 0.7) * 0.06 * (1 - walk)
 	local rhA = (ampR * step) * walk + idleShift
 	local lhA = (ampL * step) * walk + idleShift
 	-- (the dragged leg trails a little behind the body)
-	if b.limp > 0 then rhA -= 0.12 * walk else lhA += 0.12 * walk end
+	if b.limp > 0 then rhA -= 0.14 * walk else lhA += 0.14 * walk end
 
-	-- The body: hunched, dipping and rolling onto the bad leg as weight goes on it.
+	-- The body: bent well over at the back, wobbling hard from side to side as
+	-- it lurches onto each foot, sagging onto the bad leg, twisting.
 	local onBad = math.max(0, step * b.limp)
-	local hunch = 0.28 + 0.05 * math.sin(ph * 2) * walk + lunge * 0.45 + math.sin(t * 0.9) * 0.03 * (1 - walk)
-	local roll = (0.14 * step * walk + 0.1 * onBad * b.limp * walk) + math.sin(t * 0.8) * 0.07 * (1 - walk)
-	local yaw = 0.1 * step * walk + math.sin(t * 0.5) * 0.05 * (1 - walk)
-	local bob = -0.28 * onBad * onBad * walk - 0.15 * lunge
+	local hunch = 0.55 + 0.1 * math.abs(math.sin(ph)) * walk + lunge * 0.35
+		+ math.sin(t * 0.9) * 0.05 * (1 - walk) + 0.06 * drift2
+	local roll = (0.26 * step * walk + 0.14 * onBad * b.limp * walk)
+		+ math.sin(t * 0.8) * 0.12 * (1 - walk) + 0.1 * drift
+	local yaw = 0.2 * math.sin(ph + 0.4) * walk + math.sin(t * 0.5) * 0.08 * (1 - walk) + 0.06 * drift2
+	local bob = -0.32 * onBad * onBad * walk - 0.18 * math.abs(math.cos(ph)) * walk - 0.15 * lunge
+	local sway = 0.35 * step * walk + 0.15 * drift
 
-	-- The arms: reaching out ahead, uneven, bobbing with the steps; drifting
-	-- half up standing; thrown up and down in the lunge.
-	local reachR = b.reachR * walk + (0.55 + 0.12 * math.sin(t * 1.1)) * (1 - walk)
-	local reachL = b.reachL * walk + (0.4 + 0.12 * math.sin(t * 0.9 + 1.3)) * (1 - walk)
-	local swayR = 0.12 * math.sin(ph + 0.6) * walk
-	local swayL = 0.12 * math.sin(ph + 2.2) * walk
-	local up = raise * 1.4
-	local rsA = reachR + swayR + up + 0.25 * jerk
-	local lsA = -(reachL + swayL + up)
+	-- The arms: one reaching out for you, unsteady; the other hanging loose,
+	-- flopping with the lurches. Standing: both hang and drift. The lunge
+	-- throws both up and brings them down.
+	local reach = b.reachR * 0.75 * walk + (0.35 + 0.1 * math.sin(t * 1.1)) * (1 - walk)
+	local hang = 0.25 + 0.3 * walk
+	local floppyR = 0.35 * math.sin(ph + 1.2) * walk + 0.08 * math.sin(t * 2.3)
+	local floppyL = 0.35 * math.sin(ph + 2.6 + math.pi) * walk + 0.08 * math.sin(t * 1.9 + 1)
+	local upR = if b.limp > 0 then hang else reach    -- (which arm reaches: the one over the good leg)
+	local upL = if b.limp > 0 then reach else hang
+	local up = raise * 1.6
+	-- (the hunch tips the arms forward too: take a part back so they hang)
+	local rsA = upR + floppyR + up + 0.3 * jerk - hunch * 0.45
+	local lsA = -(upL + floppyL + up - hunch * 0.45)
 
-	-- The head: lolling on its neck, hanging forward, jerking.
-	local hPitch = 0.22 + 0.1 * math.sin(t * 1.3) + 0.15 * lunge
-	local hRoll = 0.3 * math.sin(t * 0.9) + 0.4 * jerk
+	-- The head: hanging forward off the bent back, lolling side to side with the
+	-- wobble, jerking now and then.
+	local hPitch = -0.15 + 0.12 * math.sin(t * 1.3) + 0.1 * lunge
+	local hRoll = 0.35 * math.sin(t * 0.9) - 0.35 * step * walk + 0.4 * jerk
 	local hYaw = 0.25 * math.sin(t * 0.6 + 1.7) + 0.15 * jerk
 
-	b.rootJ.Transform = CFrame.new(0, 0, bob) * CFrame.Angles(-hunch, roll, yaw)
+	b.rootJ.Transform = CFrame.new(sway, 0, bob) * CFrame.Angles(-hunch, roll, yaw)
 	b.neck.Transform = CFrame.Angles(-hPitch, hRoll, hYaw)
-	b.rs.Transform = CFrame.Angles(0, 0, rsA)
-	b.ls.Transform = CFrame.Angles(0, 0, lsA)
-	-- (the legs swing back under the hunch so the feet stay under it)
-	b.rh.Transform = CFrame.Angles(0, 0, rhA + hunch * 0.6)
-	b.lh.Transform = CFrame.Angles(0, 0, lhA - hunch * 0.6)
+	b.rs.Transform = CFrame.Angles(0.12 * floppyR, 0, rsA)
+	b.ls.Transform = CFrame.Angles(0.12 * floppyL, 0, lsA)
+	-- (the legs swing back under the hunch so the feet stay under it, and
+	-- splay out a touch against the wobble)
+	b.rh.Transform = CFrame.Angles(-0.12 * roll, 0, rhA + hunch * 0.75)
+	b.lh.Transform = CFrame.Angles(0.12 * roll, 0, lhA - hunch * 0.75)
 end
 
 function ZombieAnimator.Init()

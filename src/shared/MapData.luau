@@ -11,15 +11,10 @@
 	  MapData.DEFAULT       the map used when none was picked
 --]]
 
+-- (every dungeon is lit bright and clear; a map only tints the colour grade)
 export type Lighting = {
-	ambient: Color3,
-	outdoorAmbient: Color3,
-	colorShiftTop: Color3,
-	colorShiftBottom: Color3,
-	brightness: number,
 	tint: Color3,           -- ColorCorrection tint
 	saturation: number,
-	torch: Color3,          -- the player's torch light
 }
 
 export type Map = {
@@ -55,14 +50,8 @@ MapData.Maps = {
 		dragonFirst = false,
 		bosses = { "colossus", "witch" },
 		lighting = {
-			ambient = Color3.fromRGB(26, 46, 52),
-			outdoorAmbient = Color3.fromRGB(40, 66, 72),
-			colorShiftTop = Color3.fromRGB(20, 40, 34),
-			colorShiftBottom = Color3.fromRGB(10, 32, 36),
-			brightness = 0.7,
 			tint = Color3.fromRGB(228, 248, 240),
 			saturation = 0.2,
-			torch = Color3.fromRGB(210, 240, 220),
 		},
 	},
 	{
@@ -78,14 +67,8 @@ MapData.Maps = {
 		dragonFirst = true,
 		bosses = { "warlord", "slime" },
 		lighting = {
-			ambient = Color3.fromRGB(52, 30, 30),
-			outdoorAmbient = Color3.fromRGB(74, 44, 40),
-			colorShiftTop = Color3.fromRGB(70, 34, 14),
-			colorShiftBottom = Color3.fromRGB(40, 12, 12),
-			brightness = 0.8,
 			tint = Color3.fromRGB(255, 238, 228),
 			saturation = 0.35,
-			torch = Color3.fromRGB(255, 180, 120),
 		},
 	},
 	{
@@ -101,14 +84,8 @@ MapData.Maps = {
 		dragonFirst = false,
 		bosses = { "witch", "colossus", "warlord" },
 		lighting = {
-			ambient = Color3.fromRGB(30, 42, 74),
-			outdoorAmbient = Color3.fromRGB(48, 64, 104),
-			colorShiftTop = Color3.fromRGB(30, 38, 56),
-			colorShiftBottom = Color3.fromRGB(14, 24, 56),
-			brightness = 0.85,
 			tint = Color3.fromRGB(232, 242, 255),
 			saturation = 0.15,
-			torch = Color3.fromRGB(215, 230, 255),
 		},
 	},
 	{
@@ -126,14 +103,8 @@ MapData.Maps = {
 		endless = true,
 		unlockFloor = 6,
 		lighting = {
-			ambient = Color3.fromRGB(40, 26, 60),
-			outdoorAmbient = Color3.fromRGB(60, 40, 86),
-			colorShiftTop = Color3.fromRGB(50, 24, 70),
-			colorShiftBottom = Color3.fromRGB(24, 10, 44),
-			brightness = 0.75,
 			tint = Color3.fromRGB(240, 228, 255),
 			saturation = 0.25,
-			torch = Color3.fromRGB(230, 200, 255),
 		},
 	},
 } :: { Map }
