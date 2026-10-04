@@ -469,6 +469,33 @@ function DeathScreen.Init(cb: Callbacks)
 	button(spectateBar, UDim2.fromOffset(170, 44), UDim2.new(1, -100, 0.5, 0), "LEAVE GAME", {}, onLeave)
 
 	Network.GetRemoteEvent(Network.Remotes.DeathState).OnClientEvent:Connect(onState)
+
+	-- A free mouse cursor while there's something to click (REVIVE / GIVE UP,
+	-- or the spectator bar), whatever camera you play with: the normal
+	-- camera's shift lock hides the cursor and locks it to the screen's
+	-- centre. ("DeathMenuOpen" tells IsometricCamera to leave it free.)
+	local UserInputService = game:GetService("UserInputService")
+	local wasOpen = false
+	local savedIcon: boolean? = nil
+	RunService.RenderStepped:Connect(function()
+		local open = gui.Enabled and (panel.Visible or spectateBar.Visible)
+		if open ~= wasOpen then
+			wasOpen = open
+			player:SetAttribute("DeathMenuOpen", if open then true else nil)
+			if open then
+				savedIcon = UserInputService.MouseIconEnabled
+			elseif savedIcon ~= nil then
+				UserInputService.MouseIconEnabled = savedIcon
+				savedIcon = nil
+			end
+		end
+		if open then
+			if UserInputService.MouseBehavior ~= Enum.MouseBehavior.Default then
+				UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+			end
+			if not UserInputService.MouseIconEnabled then UserInputService.MouseIconEnabled = true end
+		end
+	end)
 end
 
 return DeathScreen

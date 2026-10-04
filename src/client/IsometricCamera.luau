@@ -586,8 +586,9 @@ function IsometricCamera.Start(transitionDuration: number?)
 		if classic then
 			-- (the aim reticle is the top-down camera's; others re-enable it)
 			if cursorGui and cursorGui.Enabled then cursorGui.Enabled = false end
-			if choosingBuff() then
-				-- a free arrow to pick with; locked again once it's picked
+			if choosingBuff() or player:GetAttribute("DeathMenuOpen") == true then
+				-- a free arrow to pick with (a tome, or REVIVE / GIVE UP when
+				-- you've fallen); locked again once it's gone
 				releaseShiftLock()
 				if not UserInputService.MouseIconEnabled then UserInputService.MouseIconEnabled = true end
 			else
