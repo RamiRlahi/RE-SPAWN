@@ -319,7 +319,11 @@ local function findVFXAsset(name: string): Instance?
 	return nil
 end
 
+-- Auto-fire aims here instead of at the cursor (set only while it shoots).
+local aimOverride: Vector3? = nil
+
 local function getCursorWorldPosition(rootPart: BasePart): Vector3
+	if aimOverride then return aimOverride end
 	local mousePos = UserInputService:GetMouseLocation()
 	local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
 	local raycastParams = RaycastParams.new()
@@ -4833,9 +4837,90 @@ local function performBasicAttack()
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Auto-fire: every class whose basic attack is a projectile (the
+-- Gunslinger's revolver, the Ranger's bow, the Cleric's smite, the Ice
+-- Mage's crystal bolt) shoots the nearest enemy in the room by itself, at
+-- its normal rate. "In the room": within AUTO_RANGE with no wall between.
+-- Clicking still fires too; skills still aim with the mouse.
+-- ─────────────────────────────────────────────────────────────────────────────
+local RANGED_BASIC: { [string]: boolean } = { gunslinger = true, ranger = true, cleric = true, ice_mage = true }
+local AUTO_RANGE = 70
+local SCAN_EVERY = 0.1
+local autoTarget: BasePart? = nil
+local lastScan = 0
+local losParams = RaycastParams.new()
+losParams.FilterType = Enum.RaycastFilterType.Include
+losParams.IgnoreWater = true
+
+local function canSee(from: Vector3, to: Vector3): boolean
+	local walls = {}
+	for _, c in ipairs(Workspace:GetChildren()) do
+		if c.Name == "GeneratedDungeon" then table.insert(walls, c) end
+	end
+	if #walls == 0 then return true end
+	losParams.FilterDescendantsInstances = walls
+	local up = Vector3.new(0, 2, 0)
+	return Workspace:Raycast(from + up, (to + up) - (from + up), losParams) == nil
+end
+
+local function findAutoTarget(char: Model, root: BasePart): BasePart?
+	local candidates = {}
+	for model, hum in pairs(HumanoidIndex.Each()) do
+		if hum.Health > 0 and model ~= char and model.Parent
+			and not Players:GetPlayerFromCharacter(model)
+			and model:GetAttribute("IsAlly") ~= true and model:GetAttribute("IsDecoy") ~= true then
+			local r = model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
+			if r and r:IsA("BasePart") then
+				local d = r.Position - root.Position
+				local flat = Vector3.new(d.X, 0, d.Z).Magnitude
+				if flat <= AUTO_RANGE and math.abs(d.Y) < 14 then
+					table.insert(candidates, { part = r, dist = flat })
+				end
+			end
+		end
+	end
+	table.sort(candidates, function(a, b) return a.dist < b.dist end)
+	-- the nearest one in sight (a few rays at most)
+	for i = 1, math.min(#candidates, 5) do
+		if canSee(root.Position, candidates[i].part.Position) then return candidates[i].part end
+	end
+	return nil
+end
+
+local function autoFireStep()
+	local class = player:GetAttribute("SelectedClass")
+	if typeof(class) ~= "string" or not RANGED_BASIC[class] then return end
+	if player:GetAttribute("InLobby") ~= false or player:GetAttribute("InHub") == true then return end
+	if player:GetAttribute("DeathMenuOpen") == true or player:GetAttribute("SettingsOpen") == true then return end
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not char or not hum or not root or hum.Health <= 0 then return end
+	if char:GetAttribute("IsSkillCasting") == true or char:GetAttribute("IsUltActive") == true
+		or char:GetAttribute("Tumbling") == true or char:GetAttribute("Riding") then return end
+	local now = os.clock()
+	if now - lastScan >= SCAN_EVERY or (autoTarget and not autoTarget.Parent) then
+		lastScan = now
+		autoTarget = findAutoTarget(char, root)
+	end
+	local target = autoTarget
+	if not target or not target.Parent then return end
+	if class == "gunslinger" then
+		-- (reloading or empty: wait, instead of clicking an empty gun)
+		local st = GunslingerController.GetState()
+		if st.reloading or st.ammo <= 0 then return end
+	end
+	aimOverride = target.Position
+	local ok, err = pcall(performBasicAttack)
+	aimOverride = nil
+	if not ok then warn("[AutoFire]", err) end
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Initialization & Event Connections
 -- ─────────────────────────────────────────────────────────────────────────────
 function SkillController.Init()
+	RunService.Heartbeat:Connect(autoFireStep)
 	-- Every class: legs with WASD, the top half to the cursor.
 	AimStance.Init(getAimDirection)
 	GunslingerController.Init({
