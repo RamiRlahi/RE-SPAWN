@@ -160,7 +160,7 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 	local toolTemplate: Instance? = if config.build then config.build() else findWeaponTemplate(config.toolName)
 
 	if not toolTemplate then
-		warn(`[WeaponManager] ❌ Tool '{config.toolName}' not found in ReplicatedStorage!`)
+		warn(`[WeaponManager] Tool '{config.toolName}' not found in ReplicatedStorage!`)
 		for _, child in ipairs(ReplicatedStorage:GetChildren()) do
 			warn(`   RS Child: "{child.Name}" ({child.ClassName})`)
 		end

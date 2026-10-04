@@ -111,8 +111,8 @@ local function show(info: any)
 		t.Text = str
 		t.Parent = card
 	end
-	line(`✦ {string.upper(info.name or "Someone")} WISHED UPON A STAR ✦`, 8, 14, Color3.fromRGB(220, 225, 255), Enum.Font.GothamBold)
-	line(`{reward.glyph}  {string.upper(reward.name)}  ·  {string.upper(info.rarity)}`, 32, 22, color, Enum.Font.Antique)
+	line(`{string.upper(info.name or "Someone")} WISHED UPON A STAR`, 8, 14, Color3.fromRGB(220, 225, 255), Enum.Font.GothamBold)
+	line(`{string.upper(reward.name)}  ·  {string.upper(info.rarity)}`, 32, 22, color, Enum.Font.Antique)
 	TweenService:Create(card, TweenInfo.new(0.5, Enum.EasingStyle.Back), { Position = UDim2.new(0.5, 0, 0, 72) }):Play()
 	beam(info.userId, color)
 	task.wait(4.5)

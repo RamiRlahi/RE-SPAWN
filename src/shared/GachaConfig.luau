@@ -20,10 +20,10 @@ GachaConfig.FREE_SUMMONS = true
 -- tickets  : earned in gameplay, quests, events, achievements. 1 ticket = 1 pull.
 -- crystals : premium, from purchases / selected premium rewards.
 GachaConfig.Currencies = {
-	tickets = { name = "Summon Ticket", glyph = "🎟️" },
-	crystals = { name = "Crystal", glyph = "💎" },
-	soulShards = { name = "Soul Shard", glyph = "🔮" },
-	relicDust = { name = "Relic Dust", glyph = "✨" },
+	tickets = { name = "Summon Ticket", glyph = "TICKETS" },
+	crystals = { name = "Crystal", glyph = "CRYSTALS" },
+	soulShards = { name = "Soul Shard", glyph = "SHARDS" },
+	relicDust = { name = "Relic Dust", glyph = "DUST" },
 }
 
 GachaConfig.Cost = {

@@ -199,7 +199,7 @@ function SettingsModal.Create(parent: GuiObject, currentSettings: any, callbacks
 	grad.Parent = window
 
 	-- Header: the gear, "System Settings", ✕.
-	-- the gear: a ring with teeth (drawn: the font has no ⚙)
+	-- the gear: a ring with teeth (drawn: the font has no gear symbol)
 	local gear = Instance.new("Frame")
 	gear.AnchorPoint = Vector2.new(0.5, 0.5)
 	gear.Position = UDim2.fromOffset(44, 37)
@@ -276,8 +276,8 @@ function SettingsModal.Create(parent: GuiObject, currentSettings: any, callbacks
 	local TABS = {
 		{ id = "Graphics", icon = "▣" },
 		{ id = "Audio", icon = "♪" },
-		{ id = "Controls", icon = "⌨" },
-		{ id = "Gameplay", icon = "⚙" },
+		{ id = "Controls", icon = "▤" },
+		{ id = "Gameplay", icon = "◈" },
 	}
 	local pages: { [string]: ScrollingFrame } = {}
 	local tabButtons: { [string]: TextButton } = {}

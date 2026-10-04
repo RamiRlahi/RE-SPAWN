@@ -220,9 +220,9 @@ local function show(s: any)
 	local rewards = card(panel, "REWARDS", { Position = UDim2.fromOffset(506, 108), Size = UDim2.fromOffset(470, cardsH) })
 	local rrows = {
 		{ "◆  Souls", rw.souls, `(+{rw.floorSouls or 0} floor bonus)` },
-		{ "⬆  Account XP", rw.xp, `(+{commas(rw.floorXP or 0)} floor bonus)` },
-		{ "🎟  Summon tickets", rw.tickets, nil },
-		{ "💰  Gold collected", rw.gold, nil },
+		{ "◆  Account XP", rw.xp, `(+{commas(rw.floorXP or 0)} floor bonus)` },
+		{ "◆  Summon tickets", rw.tickets, nil },
+		{ "◆  Gold collected", rw.gold, nil },
 	}
 	for i, r in ipairs(rrows) do
 		local y = 42 + (i - 1) * 28

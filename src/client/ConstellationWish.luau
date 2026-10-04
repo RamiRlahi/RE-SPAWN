@@ -452,10 +452,10 @@ function ConstellationWish.Play(best: any, all: { any }?, onDone: (() -> ())?)
 		local glyph = Instance.new("TextLabel")
 		glyph.BackgroundTransparency = 1
 		glyph.Size = UDim2.new(1, 0, 0, 34)
-		glyph.Text = r.glyph or "✦"
+		glyph.Text = r.glyph or "?"
 		glyph.TextScaled = true
-		glyph.Font = Enum.Font.GothamBold
-		glyph.TextColor3 = Color3.new(1, 1, 1)
+		glyph.Font = Enum.Font.GothamBlack
+		glyph.TextColor3 = col
 		glyph.Parent = bb
 		local nm = Instance.new("TextLabel")
 		nm.BackgroundTransparency = 1

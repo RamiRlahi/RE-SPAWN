@@ -110,7 +110,7 @@ function FloorPortalHUD.Init()
 			if countLabel then
 				countLabel.Text = if going == "extract" then "EXTRACTING..."
 					elseif going == "descend" then "DESCENDING..."
-					else `⬆ Extract {counts.extract or 0}    ·    ⬇ Descend {counts.descend or 0}    of {total}`
+					else `Extract {counts.extract or 0}    ·    Descend {counts.descend or 0}    of {total}`
 			end
 			if subLabel then
 				subLabel.Text = if going then "Everyone agrees."

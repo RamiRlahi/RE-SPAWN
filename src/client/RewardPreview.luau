@@ -145,7 +145,7 @@ local function crystal(parent: Instance, reward: any, size: number): BasePart
 	g.BackgroundTransparency = 1
 	g.Font = Enum.Font.GothamBold
 	g.TextScaled = true
-	g.Text = reward.glyph or "✨"
+	g.Text = reward.glyph or "?"
 	g.Parent = bb
 	local light = Instance.new("PointLight")
 	light.Color, light.Brightness, light.Range = color, 2, 10

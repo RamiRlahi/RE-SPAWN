@@ -28,19 +28,23 @@ local SERIF = Font.new("rbxasset://fonts/families/Merriweather.json")
 
 -- The symbol drawn on each tome's logo.
 local GLYPHS: { [string]: string } = {
-	agility = "👟", attack_speed = "⚡", cooldown = "⏳", damage = "⚔️", evasion = "💨",
-	gold = "🪙", health = "❤️", knockback = "👊", precision = "🎯", projectile_speed = "🏹",
-	regen = "💚", shield = "🛡️", silver = "🥈", ricochet = "↪️", size = "🔮",
-	armor = "🪖", attraction = "🧲", bloody = "🩸", chaos = "🌀", cursed = "💀",
-	duration = "⌛", luck = "🍀", quantity = "➕", thorns = "🌵",
-	gs_loaded_coin = "🪙", gs_lucky_coin = "🍀", gs_silver_dollar = "💲", gs_double_or_nothing = "🎲",
-	gs_explosive_ricochet = "💥", gs_marked_currency = "🎯", gs_heads = "👑", gs_tails = "🦅",
-	gs_quick_hands = "✋", gs_extended_cylinder = "🔫", gs_roll_reload = "🔄", gs_piercing_rounds = "📌",
-	gs_last_word = "⚰️", gs_steady_aim = "👁️", gs_coin_collector = "💰",
+	agility = "AGI", attack_speed = "ATK", cooldown = "CD", damage = "DMG", evasion = "EVA",
+	gold = "GLD", health = "HP", knockback = "KB", precision = "CRT", projectile_speed = "PRJ",
+	regen = "REG", shield = "SHD", silver = "SLV", ricochet = "RIC", size = "SIZ",
+	armor = "ARM", attraction = "MAG", bloody = "BLD", chaos = "CHS", cursed = "CRS",
+	duration = "DUR", luck = "LCK", quantity = "QTY", thorns = "THN",
+	gs_loaded_coin = "LC", gs_lucky_coin = "LK", gs_silver_dollar = "SD", gs_double_or_nothing = "DN",
+	gs_explosive_ricochet = "ER", gs_marked_currency = "MC", gs_heads = "HD", gs_tails = "TL",
+	gs_quick_hands = "QH", gs_extended_cylinder = "EC", gs_roll_reload = "RR", gs_piercing_rounds = "PR",
+	gs_last_word = "LW", gs_steady_aim = "SA", gs_coin_collector = "CC",
 }
 
 function TomeIcons.Glyph(id: string): string
-	return GLYPHS[id] or "📖"
+	if GLYPHS[id] then return GLYPHS[id] end
+	-- (anything else: the first letters of its name)
+	local tome = TomeData.GetTome and TomeData.GetTome(id)
+	local name = if tome then string.gsub(tome.name, " Tome$", "") else id
+	return string.upper(string.sub(name, 1, 3))
 end
 
 function TomeIcons.Accent(id: string): Color3
