@@ -28,6 +28,7 @@ local ClassData = require(Shared:WaitForChild("ClassData"))
 
 local ClassManager = require(script.Parent:WaitForChild("ClassManager"))
 local PartyManager = require(script.Parent:WaitForChild("PartyManager"))
+local RunManager = require(script.Parent:WaitForChild("RunManager"))
 
 local CampfireManager = {}
 
@@ -44,11 +45,12 @@ type Seat = { classId: string, ready: boolean, seat: number }
 local seated: { [Player]: Seat } = {}
 local launching: { [Player]: boolean } = {}
 
--- Party members still in the lobby (members already in a run don't count).
+-- Party members at the campfire (those still walking the lobby, or already
+-- in a run, don't hold the others up).
 local function group(player: Player): { Player }
 	local out: { Player } = {}
 	for _, m in ipairs(PartyManager.Members(player)) do
-		if m.Parent and m:GetAttribute("InLobby") ~= false then table.insert(out, m) end
+		if m.Parent and m:GetAttribute("InLobby") ~= false and (m == player or seated[m] ~= nil) then table.insert(out, m) end
 	end
 	return out
 end
@@ -119,6 +121,9 @@ local function tryLaunch(player: Player)
 	for _, m in ipairs(list) do launching[m] = true end
 	local portalAt = Workspace:GetServerTimeNow() + LEAD
 	sync(player, portalAt)
+	-- Their own run on the map they picked, built while the portal opens.
+	local mapId = list[1]:GetAttribute("LobbyMap")
+	task.spawn(RunManager.Start, list, if typeof(mapId) == "string" then mapId else nil)
 	task.delay(LEAD + OPEN + STAGGER * (#list - 1) + WALK + FLARE, function()
 		for _, m in ipairs(list) do
 			local s = seated[m]
@@ -175,16 +180,26 @@ local function onAction(player: Player, payload: any)
 	end
 end
 
+-- Take a seat at the campfire as `classId` (the lobby sends a party here once
+-- its map is picked).
+function CampfireManager.Seat(player: Player, classId: string): boolean
+	if launching[player] or not ClassData.GetClass(classId) then return false end
+	local prev = seated[player]
+	seated[player] = { classId = classId, ready = false, seat = if prev then prev.seat else freeSeat(player) }
+	player:SetAttribute("AtCampfire", true)
+	sync(player)
+	return true
+end
+
+-- Stand up from the campfire (back to the lobby).
+function CampfireManager.Unseat(player: Player)
+	if launching[player] then return end
+	seated[player] = nil
+	player:SetAttribute("AtCampfire", nil)
+	sync(player)
+end
+
 function CampfireManager.Init()
-	-- Confirming a class takes a seat at the campfire instead of entering.
-	ClassManager.SetGate(function(player: Player, classId: string): boolean
-		if launching[player] or not ClassData.GetClass(classId) then return false end
-		local prev = seated[player]
-		seated[player] = { classId = classId, ready = false, seat = if prev then prev.seat else freeSeat(player) }
-		player:SetAttribute("AtCampfire", true)
-		sync(player)
-		return true
-	end)
 	Network.GetRemoteEvent(Network.Remotes.CampfireAction).OnServerEvent:Connect(onAction)
 	-- Party changes reshuffle who sits together.
 	PartyManager.OnChanged(function(players: { Player })

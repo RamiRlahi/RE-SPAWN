@@ -18,6 +18,8 @@ local WeaponGrip = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild
 local RevolverModel = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RevolverModel"))
 local SwordModel = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SwordModel"))
 local BerserkerLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BerserkerLook"))
+local WeaponSling = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("WeaponSling"))
+local GearLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GearLook"))
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Configuration
@@ -145,6 +147,8 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 	-- the ranger loadout limited to its Bow rather than accumulating weapons.
 	local oldEquipped = character:FindFirstChild("EquippedWeapon")
 	if oldEquipped then oldEquipped:Destroy() end
+	local oldStowed = character:FindFirstChild("StowedWeapon")
+	if oldStowed then oldStowed:Destroy() end
 	for _, weaponConfig in pairs(WEAPON_CONFIG) do
 		local oldCharTool = character:FindFirstChild(weaponConfig.toolName)
 		if oldCharTool then oldCharTool:Destroy() end
@@ -185,6 +189,9 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 	if handle and tool:IsA("Tool") then
 		weldLoosePartsToHandle(tool, handle)
 	end
+	-- (the Armory weapon finish they wear)
+	local finish = player:GetAttribute("Gear_weapon")
+	if typeof(finish) == "string" then pcall(GearLook.Weapon, tool, finish) end
 
 	-- 5. Equip Tool natively using Humanoid:EquipTool() and wait for RightGrip
 	local humanoid = character:FindFirstChildOfClass("Humanoid") :: Humanoid?
@@ -328,6 +335,49 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 	end
 
 	print(`[WeaponManager] Weapon '{config.toolName}' successfully ready for {player.Name}`)
+end
+
+-- ── carried in the lobby ───────────────────────────────────────────────────────
+
+-- Walking the lobby: the class weapon carried, not held. Swords and the bow
+-- slung across the back (as the heroes round the campfire carry them), the
+-- Gunslinger's revolver in its holster on the right hip. (A run equips it
+-- into the hand again: EquipWeapon clears this one.)
+function WeaponManager.StowWeapon(player: Player, classId: string)
+	local config = WEAPON_CONFIG[classId]
+	local character = player.Character
+	if not config or not character then return end
+	for _, name in ipairs({ "EquippedWeapon", "StowedWeapon" }) do
+		local old = character:FindFirstChild(name)
+		if old then old:Destroy() end
+	end
+	for _, weaponConfig in pairs(WEAPON_CONFIG) do
+		for _, holder in ipairs({ character, player:FindFirstChildOfClass("Backpack") } :: { Instance? }) do
+			local old = holder and holder:FindFirstChild(weaponConfig.toolName)
+			if old then old:Destroy() end
+		end
+	end
+	local template: Instance? = if config.build then config.build() else findWeaponTemplate(config.toolName)
+	if not template then return end
+	local tool = if config.build then template else template:Clone()
+	if not tool:IsA("Tool") then
+		local inner = tool:FindFirstChildWhichIsA("Tool")
+		if not inner then
+			tool:Destroy()
+			return
+		end
+		tool = inner
+	end
+	local handle = (tool:FindFirstChild("Handle") or tool:FindFirstChildWhichIsA("BasePart")) :: BasePart?
+	if not handle then
+		tool:Destroy()
+		return
+	end
+	disableCollision(tool)
+	weldLoosePartsToHandle(tool :: Tool, handle)
+	local finish = player:GetAttribute("Gear_weapon")
+	if typeof(finish) == "string" then pcall(GearLook.Weapon, tool, finish) end
+	WeaponSling.Stow(character, tool :: Tool, classId == "gunslinger")
 end
 
 -- ── respawn ───────────────────────────────────────────────────────────────────

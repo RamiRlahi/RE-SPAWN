@@ -16,6 +16,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local TalentData = require(Shared:WaitForChild("TalentData"))
 local PlayerData = require(script.Parent:WaitForChild("PlayerData"))
+local RunStats = require(script.Parent:WaitForChild("RunStats"))
 
 local TalentManager = {}
 
@@ -39,6 +40,7 @@ function TalentManager.AwardSouls(player: Player, amount: number)
 	local p = PlayerData.Get(player)
 	if not p or amount <= 0 then return end
 	p.souls += amount
+	RunStats.Add(player, "souls", amount)
 	sync(player)
 	PlayerData.MarkDirty(player)
 end

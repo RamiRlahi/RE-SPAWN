@@ -116,7 +116,45 @@ end)
 pcall(function()
 	require(script:WaitForChild("ClassCapes")).Init()
 	require(script:WaitForChild("EnemyProjectiles")).Init()
+	require(script:WaitForChild("ZombieAnimator")).Init()
 	require(script:WaitForChild("VfxDetail")).Init()
+	-- The lobby: party panel, invite prompts, its menu states.
+	require(script:WaitForChild("UI"):WaitForChild("LobbyHUD")).Init(if successUI then UIManager else nil)
+end)
+
+-- Menu and lobby music.
+pcall(function()
+	require(script:WaitForChild("MusicController")).Init()
+end)
+
+-- The Armory (gear you wear) and the loot toasts.
+pcall(function()
+	require(script:WaitForChild("UI"):WaitForChild("Armory")).Init()
+end)
+
+-- Evolutions: the banner when one happens, and the Build Codex.
+pcall(function()
+	require(script:WaitForChild("UI"):WaitForChild("BuildCodex")).Init()
+end)
+
+-- The end-of-run summary (stats, rewards, loot, the party).
+pcall(function()
+	require(script:WaitForChild("UI"):WaitForChild("RunSummary")).Init()
+end)
+
+-- Horde events: the countdown, the red light.
+pcall(function()
+	require(script:WaitForChild("UI"):WaitForChild("HordeHUD")).Init()
+end)
+
+-- Corruption: the meter, the collapse.
+pcall(function()
+	require(script:WaitForChild("UI"):WaitForChild("CorruptionHUD")).Init()
+end)
+
+-- The count at the floor's exit (everyone in before the run goes down).
+pcall(function()
+	require(script:WaitForChild("UI"):WaitForChild("FloorPortalHUD")).Init()
 end)
 
 -- "Left click to interact" bubble + prompt near a ready room reward.

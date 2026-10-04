@@ -25,7 +25,11 @@ local DifficultyManager = require(script.Parent:WaitForChild("DifficultyManager"
 local BossAI = require(script.Parent:WaitForChild("BossAI"))
 local DragonBoss = require(script.Parent:WaitForChild("DragonBoss"))
 local MobKinds = require(script.Parent:WaitForChild("MobKinds"))
+local LootManager = require(script.Parent:WaitForChild("LootManager"))
+local WeeklyModifiers = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("WeeklyModifiers"))
 local TomeData = require(Shared:WaitForChild("TomeData"))
+local MapData = require(Shared:WaitForChild("MapData"))
+local RunScope = require(Shared:WaitForChild("RunScope"))
 
 local MobManager = {}
 
@@ -49,6 +53,7 @@ type MobRecord = {
 	kind: string?,  -- MobKinds id (its look, stats and moves)
 	affix: string?, -- an elite's trait
 	summoned: boolean?, -- brought by another mob (risen dead, slimelings)
+	runId: string?, -- its run, when it isn't in a room group
 	group: any,
 	health: number,
 	defeated: boolean,
@@ -56,6 +61,7 @@ type MobRecord = {
 }
 
 type RoomMobGroup = {
+	runId: string, -- the run (party) whose dungeon this room is in
 	room: any,
 	mobs: { MobRecord },
 	planned: boolean,
@@ -212,6 +218,51 @@ local function createMobHealthBar(mobModel: Model, humanoid: Humanoid, rootPart:
 	nameLabel.Text = `{displayName(mobModel, isBoss)}\n{math.ceil(humanoid.Health)} / {math.ceil(humanoid.MaxHealth)} HP`
 	nameLabel.Parent = bg
 
+	-- An elite's traits, in their colours, over its bar (what to watch out for).
+	local traits = MobKinds.AffixList(mobModel)
+	if #traits > 0 then
+		local bits = {}
+		for _, id in ipairs(traits) do
+			local info = MobKinds.AffixInfo(id)
+			if info then
+				table.insert(bits, string.format('<font color="#%s">%s</font>', info.color:ToHex(), string.upper(info.name)))
+			end
+		end
+		bb.Size = UDim2.new(0, math.max(150, 62 * #traits + 20), 0, 48)
+		bg.Size = UDim2.new(1, 0, 0, 30)
+		bg.Position = UDim2.fromOffset(0, 18)
+		local chips = Instance.new("TextLabel")
+		chips.Name = "Traits"
+		chips.BackgroundTransparency = 1
+		chips.Size = UDim2.new(1, 0, 0, 16)
+		chips.Font = Enum.Font.GothamBlack
+		chips.TextSize = 11
+		chips.RichText = true
+		chips.TextStrokeTransparency = 0.2
+		chips.TextColor3 = Color3.new(1, 1, 1)
+		chips.Text = table.concat(bits, "  ·  ")
+		chips.Parent = bb
+		-- a Shielded elite's barrier: a gold bar over its health until broken
+		if MobKinds.HasAffix(mobModel, "shielded") then
+			local shield = Instance.new("Frame")
+			shield.Name = "Shield"
+			shield.BackgroundColor3 = Color3.fromRGB(255, 215, 110)
+			shield.BorderSizePixel = 0
+			shield.Size = UDim2.new(1, -6, 0, 3)
+			shield.Position = UDim2.new(0, 3, 1, -15)
+			shield.Parent = bg
+			local function upd()
+				local left = mobModel:GetAttribute("Shield")
+				local max = mobModel:GetAttribute("ShieldMax")
+				local k = if typeof(left) == "number" and typeof(max) == "number" and max > 0 then math.clamp(left / max, 0, 1) else 0
+				shield.Size = UDim2.new(k, -6 * k, 0, 3)
+				shield.Visible = k > 0
+			end
+			mobModel:GetAttributeChangedSignal("Shield"):Connect(upd)
+			upd()
+		end
+	end
+
 	-- Update on health change
 	humanoid.HealthChanged:Connect(function(health)
 		local alpha = math.clamp(health / humanoid.MaxHealth, 0, 1)
@@ -234,22 +285,28 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 local RunService = game:GetService("RunService")
 
--- Global mob freeze used by ultimates: while frozen, every mob AI loop halts.
-local mobFreezeUntil = 0
-
-local function mobsAreFrozen(): boolean
-	return os.clock() < mobFreezeUntil
+-- The mob freeze used by ultimates: while it holds, every mob AI loop of
+-- that run halts (other parties' runs carry on).
+local function mobsAreFrozen(model: Instance?): boolean
+	return RunScope.Frozen(model)
 end
 
-function MobManager.FreezeMobs(duration: number)
-	local untilTime = os.clock() + (duration or 0)
-	if untilTime > mobFreezeUntil then
-		mobFreezeUntil = untilTime
+function MobManager.FreezeMobs(duration: number, runId: string?)
+	if not runId then return end
+	local untilTime = Workspace:GetServerTimeNow() + (duration or 0)
+	local cur = RunScope.Get(runId, "MobsFrozenUntil")
+	if typeof(cur) ~= "number" or untilTime > cur then
+		RunScope.Set(runId, "MobsFrozenUntil", untilTime)
 	end
 end
 
-function MobManager.IsMobsFrozen(): boolean
-	return mobsAreFrozen()
+function MobManager.IsMobsFrozen(model: Instance?): boolean
+	return mobsAreFrozen(model)
+end
+
+-- Whether a mob's run is paused (someone in it choosing a tome).
+local function runPaused(model: Instance?): boolean
+	return RunScope.Paused(model)
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -335,26 +392,28 @@ function MobManager.ChillMob(mobModel: Model, duration: number)
 	task.delay(duration, function()
 		if not rootPart.Parent then return end
 		if (mobModel:GetAttribute("ChilledUntil") or 0) > os.clock() then return end
-		if Workspace:GetAttribute("TomesPaused") == true then return end
+		if runPaused(mobModel) then return end
 		rootPart.Anchored = false
 	end)
 end
 
--- Fire an arrow projectile from a ranged mob toward a target character.
-local function fireArrow(originMob: Model, fromPos: Vector3, targetChar: Model, damage: number)
+-- Fire an arrow projectile from a ranged mob toward a target character (or
+-- along `aimAt`, the point its aim line showed). A glowing red bolt, plenty
+-- big enough to see coming (EnemyProjectiles adds its glow and trail).
+local function fireArrow(originMob: Model, fromPos: Vector3, targetChar: Model, damage: number, aimAt: Vector3?)
 	local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
-	if not targetRoot then return end
+	if not targetRoot and not aimAt then return end
 
 	local arrow = Instance.new("Part")
 	arrow.Name = "SkeletonArrow"
-	arrow.Size = Vector3.new(0.18, 0.18, 2.5)
-	arrow.Color = Color3.fromRGB(95, 65, 35)
-	arrow.Material = Enum.Material.Wood
+	arrow.Size = Vector3.new(0.4, 0.4, 3.2)
+	arrow.Color = Color3.fromRGB(255, 70, 45)
+	arrow.Material = Enum.Material.Neon
 	arrow.Anchored = true
 	arrow.CanCollide = false
 	arrow.CanQuery = false
 	arrow.CanTouch = false
-	arrow.CFrame = CFrame.lookAt(fromPos, targetRoot.Position)
+	arrow.CFrame = CFrame.lookAt(fromPos, aimAt or (targetRoot :: BasePart).Position)
 	arrow:AddTag("EnemyProjectile") -- (outlined white on every client: readable in the dark)
 	arrow.Parent = Workspace
 
@@ -400,6 +459,38 @@ local function fireArrow(originMob: Model, fromPos: Vector3, targetChar: Model, 
 	end)
 end
 
+-- The aim line a skeleton shows while drawing: a thin red line from its bow
+-- along where the arrow will fly, brightening until it looses.
+local function aimLine(fromPos: Vector3, aimAt: Vector3, length: number, duration: number)
+	local dir = (aimAt - fromPos)
+	if dir.Magnitude < 0.1 then return end
+	dir = dir.Unit
+	local line = Instance.new("Part")
+	line.Name = "SkeletonAimLine"
+	line.Anchored = true
+	line.CanCollide = false
+	line.CanQuery = false
+	line.CanTouch = false
+	line.CastShadow = false
+	line.Material = Enum.Material.Neon
+	line.Color = Color3.fromRGB(255, 60, 40)
+	line.Transparency = 0.75
+	line.Size = Vector3.new(0.14, 0.14, length)
+	line.CFrame = CFrame.lookAt(fromPos + dir * (length / 2), fromPos + dir * length)
+	line.Parent = Workspace
+	TweenService:Create(line, TweenInfo.new(duration, Enum.EasingStyle.Linear), { Transparency = 0.15, Size = Vector3.new(0.22, 0.22, length) }):Play()
+	task.delay(duration + 0.05, function() line:Destroy() end)
+end
+
+-- Kinds that walk like the plain zombie (its body): animated on every client
+-- (ZombieAnimator: the shamble, the lurch, the lunge) instead of by tracks.
+local function shambles(mobModel: Model): boolean
+	local kindId = mobModel:GetAttribute("MobKind")
+	local kind = typeof(kindId) == "string" and MobKinds.Kinds[kindId] or nil
+	if kind then return kind.base == "Zombie" end
+	return mobModel.Name == "Zombie"
+end
+
 -- Configure a rigged, animation-driven mob (melee chaser or ranged archer).
 local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetCFrame: CFrame, isBoss: boolean, onDied: (() -> ())?)
 	local mobType = mobModel:GetAttribute("MobType") or "Melee"
@@ -412,7 +503,7 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 	local xpReward = mobModel:GetAttribute("XP") or (isBoss and 100 or 25)
 
 	-- Scale with the run difficulty tier (and elite / boss multipliers).
-	local diffScale = DifficultyManager.GetMobScale()
+	local diffScale = DifficultyManager.GetMobScale(RunScope.Of(mobModel))
 	damage = damage * diffScale.damage * (mobModel:GetAttribute("DamageMult") or 1)
 	xpReward *= mobModel:GetAttribute("XPMult") or 1
 	walkSpeed = walkSpeed * diffScale.speed
@@ -461,6 +552,12 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 
 	local walkTrack = nil
 	local attackTrack = nil
+	local shambler = not isBoss and shambles(mobModel)
+	if shambler then
+		-- (its clients pose it every frame; the tracks would fight them)
+		walkAnim, attackAnim = nil, nil
+		mobModel:AddTag("Shambler")
+	end
 	if walkAnim and walkAnim:IsA("Animation") then
 		walkTrack = animator:LoadAnimation(walkAnim)
 		walkTrack.Priority = Enum.AnimationPriority.Movement
@@ -497,6 +594,11 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 	local lastAttack = 0
 	local lastRepath = 0
 	local lastTick = os.clock()
+	-- (archers: which way they sidestep, when they switch, and the draw)
+	local strafeSide = if math.random() < 0.5 then 1 else -1
+	local strafeFlipAt = os.clock() + math.random(15, 30) / 10
+	local strafeFrom = Vector3.zero
+	local drawingUntil = 0
 	local walkPlaying = false
 	local function setWalk(on)
 		if not walkTrack then return end
@@ -548,7 +650,7 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 		if parried(targetChar, mobModel) then return end
 		local dealt = incoming(plr, targetChar, damage * curseScale(plr))
 		hum:TakeDamage(dealt)
-		MobKinds.OnDealt(mobModel, dealt)
+		MobKinds.OnDealt(mobModel, dealt, targetChar)
 		if not knockable(targetChar) then return end
 		local diff = pr.Position - rootPart.Position
 		local pushDir = diff.Magnitude > 0.1 and diff.Unit or Vector3.new(1, 0, 0)
@@ -559,22 +661,22 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 		while mobModel.Parent and humanoid.Health > 0 do
 			task.wait(0.2)
 			if not rootPart.Parent then break end
-			if mobsAreFrozen() then
+			if mobsAreFrozen(mobModel) then
 				humanoid:Move(Vector3.zero)
 				humanoid.WalkSpeed = 0
 				setWalk(false)
-				repeat task.wait(0.1) until not mobsAreFrozen() or not mobModel.Parent or humanoid.Health <= 0
+				repeat task.wait(0.1) until not mobsAreFrozen(mobModel) or not mobModel.Parent or humanoid.Health <= 0
 				if mobModel.Parent and humanoid.Health > 0 then
 					humanoid.WalkSpeed = walkSpeed
 				end
 				continue
 			end
-			if Workspace:GetAttribute("TomesPaused") == true then
+			if runPaused(mobModel) then
 				humanoid:Move(Vector3.zero)
 				humanoid.WalkSpeed = 0
 				setWalk(false)
 				rootPart.Anchored = true
-				repeat task.wait(0.1) until Workspace:GetAttribute("TomesPaused") ~= true or not mobModel.Parent or humanoid.Health <= 0
+				repeat task.wait(0.1) until not runPaused(mobModel) or not mobModel.Parent or humanoid.Health <= 0
 				if mobModel.Parent and humanoid.Health > 0 and rootPart.Parent then
 					humanoid.WalkSpeed = walkSpeed
 					rootPart.Anchored = false
@@ -609,7 +711,12 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 						-- Commit to a destination and only repath every ~0.6s so the mob walks a
 						-- smooth path instead of live-tracking the player's position every tick.
 						local moving = false
-						if dist > preferredRange + 4 then
+						local strafing = false
+						if tnow < drawingUntil then
+							-- Drawing the bow: stands still, aiming.
+							humanoid:Move(Vector3.zero)
+							setWalk(false)
+						elseif dist > preferredRange + 4 then
 							if tnow - lastRepath >= 0.6 then
 								humanoid:MoveTo(tRoot.Position)
 								lastRepath = tnow
@@ -617,21 +724,34 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 							moving = true
 							setWalk(true)
 						elseif dist < preferredRange - 8 then
+							-- Too close: it sidesteps round you, facing you (switching
+							-- sides now and then, or when a wall stops it), never backing off.
 							if tnow - lastRepath >= 0.6 then
-								local away = rootPart.Position + (rootPart.Position - tRoot.Position).Unit * 14
-								humanoid:MoveTo(away)
+								local stuck = lastRepath > 0 and (rootPart.Position - strafeFrom).Magnitude < 1
+								if tnow >= strafeFlipAt or stuck then
+									strafeSide = -strafeSide
+									strafeFlipAt = tnow + math.random(15, 30) / 10
+								end
+								local to = tRoot.Position - rootPart.Position
+								local flat = Vector3.new(to.X, 0, to.Z)
+								if flat.Magnitude > 0.1 then
+									humanoid:MoveTo(rootPart.Position + flat.Unit:Cross(Vector3.yAxis) * strafeSide * 12)
+								end
+								strafeFrom = rootPart.Position
 								lastRepath = tnow
 							end
-							moving = true
+							strafing = true
 							setWalk(true)
 						else
 							humanoid:Move(Vector3.zero)
 							setWalk(false)
 						end
+						-- (it turns itself to you while sidestepping; walking in, the Humanoid turns it)
+						humanoid.AutoRotate = moving
 
 						-- Smoothly turn to face the target while holding position, instead of
 						-- snapping the CFrame every tick. While walking, the Humanoid rotates us.
-						if not moving then
+						if not moving or strafing then
 							local flat = Vector3.new(tRoot.Position.X, rootPart.Position.Y, tRoot.Position.Z)
 							if (flat - rootPart.Position).Magnitude > 0.1 then
 								local desiredRot = CFrame.lookAt(rootPart.Position, flat) - rootPart.Position
@@ -648,9 +768,18 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 							humanoid:Move(Vector3.zero)
 							setWalk(false)
 							if attackTrack then attackTrack:Play() end
-							task.delay(0.4, function()
+							-- Draw: the aim is set now and shown as a red line; the
+							-- arrow flies along it (step off the line to dodge).
+							local DRAW = 0.45
+							drawingUntil = now + DRAW
+							local flatTo = Vector3.new(tRoot.Position.X - rootPart.Position.X, 0, tRoot.Position.Z - rootPart.Position.Z)
+							local facing = if flatTo.Magnitude > 0.1 then flatTo.Unit else rootPart.CFrame.LookVector
+							local fromPos = rootPart.Position + facing * 2 + Vector3.new(0, 1, 0)
+							local aimAt = tRoot.Position
+							aimLine(fromPos, aimAt, preferredRange + 25, DRAW)
+							task.delay(DRAW, function()
 								if mobModel.Parent and humanoid.Health > 0 and rootPart.Parent then
-									fireArrow(mobModel, rootPart.Position + rootPart.CFrame.LookVector * 2 + Vector3.new(0, 1, 0), target, damage)
+									fireArrow(mobModel, fromPos, target, damage, aimAt)
 								end
 							end)
 						end
@@ -664,6 +793,7 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 							if now - lastAttack >= cooldown then
 								lastAttack = now
 								if attackTrack then attackTrack:Play() end
+								if shambler then mobModel:SetAttribute("AttackAt", Workspace:GetServerTimeNow()) end
 								damagePlayer(target)
 							end
 						end
@@ -703,6 +833,7 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 			TalentManager.OnMobKilled(player, isBoss)
 			GachaManager.OnMobKilled(player, isBoss)
 		end
+		LootManager.OnMobKilled(mobModel, isBoss, nearby)
 
 		task.spawn(function()
 			for _, desc in ipairs(mobModel:GetDescendants()) do
@@ -728,7 +859,7 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 	end
 
 	humanoid.RequiresNeck = false
-	local diffScale = DifficultyManager.GetMobScale()
+	local diffScale = DifficultyManager.GetMobScale(RunScope.Of(mobModel))
 	local walkSpeed = (mobModel:GetAttribute("WalkSpeed") or (isBoss and 10 or 14)) * diffScale.speed
 	humanoid.WalkSpeed = walkSpeed
 	humanoid.PlatformStand = false
@@ -839,10 +970,10 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 
 		if not decoyTarget and (targetChar:GetAttribute("InvulnerableUntil") or 0) > os.clock() then return end -- dodge i-frames
 		if not decoyTarget and parried(targetChar, mobModel) then return end
-		local damage = (isBoss and 25 or 10) * DifficultyManager.GetMobScale().damage * (mobModel:GetAttribute("DamageMult") or 1)
+		local damage = (isBoss and 25 or 10) * DifficultyManager.GetMobScale(RunScope.Of(mobModel)).damage * (mobModel:GetAttribute("DamageMult") or 1)
 		if plr and not decoyTarget then damage = incoming(plr, targetChar, damage * curseScale(plr)) end
 		hum:TakeDamage(damage)
-		MobKinds.OnDealt(mobModel, damage)
+		MobKinds.OnDealt(mobModel, damage, targetChar)
 		if decoyTarget or not knockable(targetChar) then return end
 
 		-- Apply knockback push to player
@@ -857,21 +988,21 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 		while mobModel.Parent and humanoid.Health > 0 do
 			task.wait(0.35)
 			if not rootPart.Parent then break end
-			if mobsAreFrozen() then
+			if mobsAreFrozen(mobModel) then
 				humanoid:Move(Vector3.zero)
 				humanoid.WalkSpeed = 0
 				rootPart.Anchored = true
-				repeat task.wait(0.1) until not mobsAreFrozen() or not mobModel.Parent or humanoid.Health <= 0
+				repeat task.wait(0.1) until not mobsAreFrozen(mobModel) or not mobModel.Parent or humanoid.Health <= 0
 				if mobModel.Parent and humanoid.Health > 0 and rootPart.Parent then
 					humanoid.WalkSpeed = walkSpeed
 					rootPart.Anchored = false
 				end
 				continue
 			end
-			if Workspace:GetAttribute("TomesPaused") == true then
+			if runPaused(mobModel) then
 				humanoid:Move(Vector3.zero)
 				rootPart.Anchored = true
-				repeat task.wait(0.1) until Workspace:GetAttribute("TomesPaused") ~= true or not mobModel.Parent or humanoid.Health <= 0
+				repeat task.wait(0.1) until not runPaused(mobModel) or not mobModel.Parent or humanoid.Health <= 0
 				if rootPart.Parent then rootPart.Anchored = false end
 				continue
 			end
@@ -952,6 +1083,7 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 			TalentManager.OnMobKilled(player, isBoss)
 			GachaManager.OnMobKilled(player, isBoss)
 		end
+		LootManager.OnMobKilled(mobModel, isBoss, nearby)
 
 		task.spawn(function()
 			for _, desc in ipairs(mobModel:GetDescendants()) do
@@ -1211,11 +1343,11 @@ end
 -- blazing and ready to claim.
 -- Rooms whose mobs are all dead, for the map ("|3|7|", room ids).
 local function markCleared(group: RoomMobGroup)
-	local list = Workspace:GetAttribute("ClearedRooms")
+	local list = RunScope.Get(group.runId, "ClearedRooms")
 	local s = if typeof(list) == "string" then list else "|"
 	local tag = `|{group.room.id}|`
 	if not string.find(s, tag, 1, true) then
-		Workspace:SetAttribute("ClearedRooms", s .. `{group.room.id}|`)
+		RunScope.Set(group.runId, "ClearedRooms", s .. `{group.room.id}|`)
 	end
 end
 
@@ -1313,7 +1445,7 @@ local function bossDown(record: MobRecord)
 	local at = record.spawnCFrame.Position + Vector3.new(0, 3, 0)
 	pcall(function()
 		local DeathManager = require(script.Parent:WaitForChild("DeathManager"))
-		DeathManager.ReviveAllAt(at)
+		DeathManager.ReviveAllAt(at, record.group and record.group.runId or nil)
 	end)
 end
 
@@ -1322,19 +1454,24 @@ local function activateMob(record: MobRecord)
 
 	-- The dragon flies its own fight (DragonBoss).
 	if record.bossKind == "dragon" and record.group then
-		record.model = DragonBoss.Spawn(activeMobsFolder, record.group.room, record.health, function()
+		record.model = DragonBoss.Spawn(activeMobsFolder, record.group.room, record.health, record.group.runId, function()
 			record.defeated = true
 			record.model = nil
 			if record.group then updateEmblem(record.group) end
 			bossDown(record)
 		end)
-		if record.model then return end
+		if record.model then
+			record.model:SetAttribute("RunId", record.group.runId)
+			return
+		end
 		record.bossKind = "warlord" -- (no dragon model in this place: a normal boss instead)
 	end
 
 	local model = record.template and record.template:Clone() or createFallbackMob()
 	-- Rank tags for abilities that care (e.g. the Gunslinger's Silver Dollar).
 	model:SetAttribute("IsBoss", record.isBoss)
+	local rid = if record.group then record.group.runId else record.runId
+	if rid then model:SetAttribute("RunId", rid) end
 	model:SetAttribute("IsElite", record.isElite == true)
 	model:SetAttribute("FloorY", record.spawnCFrame.Position.Y)
 	-- Its kind: the look, stats and moves (MobKinds).
@@ -1403,16 +1540,18 @@ local function planRoom(group: RoomMobGroup)
 	group.planned = true
 	local room = group.room
 	local normalTemplates, bossTemplates = getMobTemplates()
-	local tier = DifficultyManager.GetTier()
+	local tier = DifficultyManager.GetTier(group.runId)
+	local map = MapData.Get(RunScope.Get(group.runId, "MapId")) or MapData.Get(MapData.DEFAULT)
 	local minX = room.gx * FLOOR_SIZE + 4
 	local maxX = (room.gx + room.w - 1) * FLOOR_SIZE - 4
 	local minZ = room.gz * FLOOR_SIZE + 4
 	local maxZ = (room.gz + room.d - 1) * FLOOR_SIZE - 4
 	local remaining = mobCountFor(tier)
 
-	-- The dragon rules every run's first level (and turns up now and then later).
-	local level = Workspace:GetAttribute("RunLevel") or 1
-	if room.roomType == "Boss" and DragonBoss.Available() and (level <= 1 or math.random() < 0.35) then
+	-- The dragon rules its map's first level (and turns up now and then later).
+	local level = RunScope.Get(group.runId, "RunLevel") or 1
+	local dragonHere = map ~= nil and ((map.dragonFirst and level <= 1) or math.random() < map.dragonChance)
+	if room.roomType == "Boss" and DragonBoss.Available() and dragonHere then
 		table.insert(group.mobs, {
 			template = nil,
 			spawnCFrame = CFrame.new((room.gx + room.w / 2) * FLOOR_SIZE, room.floorY, (room.gz + room.d / 2) * FLOOR_SIZE),
@@ -1432,6 +1571,14 @@ local function planRoom(group: RoomMobGroup)
 		for _, id in ipairs(BossAI.KindIds()) do
 			if (id == "slime") == isSlime then table.insert(kinds, id) end
 		end
+		-- (the map's own bosses, where the model allows)
+		if map and not isSlime then
+			local themed = {}
+			for _, id in ipairs(map.bosses) do
+				if table.find(kinds, id) then table.insert(themed, id) end
+			end
+			if #themed > 0 then kinds = themed end
+		end
 		table.insert(group.mobs, {
 			template = template,
 			spawnCFrame = CFrame.new((room.gx + room.w / 2) * FLOOR_SIZE, room.floorY, (room.gz + room.d / 2) * FLOOR_SIZE),
@@ -1445,17 +1592,23 @@ local function planRoom(group: RoomMobGroup)
 	end
 
 	for _, r in ipairs(group.mobs) do r.group = group end -- the boss
-	local eliteChance = eliteChanceFor(tier)
+	-- (Corruption brings out more elites; the Endless Abyss, more of everything each floor)
+	local eliteChance = eliteChanceFor(tier) + 0.04 * (RunScope.Get(group.runId, "Corruption") or 0)
+	if map and map.endless then
+		remaining += math.min(12, level)
+		eliteChance += 0.02 * level
+	end
+	if WeeklyModifiers.Is("elite_invasion") then eliteChance *= 3 end
 	-- A themed pack for the room (MobKinds): ghouls and wraiths in a crypt,
 	-- magma and bloat slimes in a slime pit, and so on.
-	for _, kindId in ipairs(MobKinds.PlanRoom(remaining, level)) do
+	for _, kindId in ipairs(MobKinds.PlanRoom(remaining, level, if map then map.packs else nil, (RunScope.Get(group.runId, "RunElapsed") or 0) / 60)) do
 		local template = MobKinds.Template(kindId)
 		if not template and #normalTemplates > 0 then template = normalTemplates[math.random(1, #normalTemplates)] end
 		local elite = room.roomType == "Elite" or math.random() < eliteChance
 		table.insert(group.mobs, {
 			template = template,
 			kind = kindId,
-			affix = if elite then MobKinds.RollAffix() else nil,
+			affix = if elite then MobKinds.RollAffix(tier) else nil,
 			spawnCFrame = CFrame.new(math.random(math.floor(minX), math.floor(maxX)), room.floorY, math.random(math.floor(minZ), math.floor(maxZ))) * CFrame.Angles(0, math.rad(math.random(0, 360)), 0),
 			isBoss = false,
 			isElite = elite,
@@ -1501,6 +1654,17 @@ function MobManager.RoomBoundsAt(pos: Vector3): { minX: number, maxX: number, mi
 	return nil
 end
 
+-- The run whose dungeon `pos` is in (the nearest room of any run).
+local function runAt(pos: Vector3): string?
+	local best, bestD = nil, math.huge
+	for _, g in ipairs(roomMobGroups) do
+		local c = Vector3.new((g.room.gx + g.room.w / 2) * FLOOR_SIZE, g.room.floorY, (g.room.gz + g.room.d / 2) * FLOOR_SIZE)
+		local d = (c - pos).Magnitude
+		if d < bestD then best, bestD = g.runId, d end
+	end
+	return best
+end
+
 function MobManager.SpawnMinion(pos: Vector3): Model?
 	if not activeMobsFolder then return nil end
 	local kindId = MobKinds.MINIONS[math.random(1, #MobKinds.MINIONS)]
@@ -1511,6 +1675,8 @@ function MobManager.SpawnMinion(pos: Vector3): Model?
 	model:SetAttribute("IsElite", false)
 	model:SetAttribute("XPMult", (model:GetAttribute("XPMult") or 1) * 0.4)
 	model:SetAttribute("FloorY", pos.Y)
+	local rid = runAt(pos)
+	if rid then model:SetAttribute("RunId", rid) end
 	model.Parent = activeMobsFolder
 	configureMob(model, CFrame.new(pos), false, nil, nil)
 	if template then MobKinds.Attach(model, kindId) end
@@ -1546,6 +1712,7 @@ local function spawnKind(kindId: string, cf: CFrame, near: Model?): Model?
 		defeated = false,
 		model = nil,
 		summoned = true,
+		runId = RunScope.Of(near),
 	}
 	if group then table.insert(group.mobs, record) end
 	activateMob(record)
@@ -1553,43 +1720,69 @@ local function spawnKind(kindId: string, cf: CFrame, near: Model?): Model?
 	return record.model
 end
 
-function MobManager.SpawnRoomMobs(rooms: { any })
-	MobManager.Clear()
-	Workspace:SetAttribute("ClearedRooms", "|") -- a fresh dungeon: nothing cleared
+local refreshStarted = false
 
-	local mobsFolder = Instance.new("Folder")
-	mobsFolder.Name = "Mobs"
-	mobsFolder.Parent = Workspace
-	activeMobsFolder = mobsFolder
+-- The rooms of run `runId`'s (new) level; its old rooms are dropped. One loop
+-- fills / empties every run's rooms as players come near.
+function MobManager.SpawnRoomMobs(rooms: { any }, runId: string)
+	MobManager.Clear(runId)
+	RunScope.Set(runId, "ClearedRooms", "|") -- a fresh dungeon: nothing cleared
+
+	if not activeMobsFolder or not activeMobsFolder.Parent then
+		local mobsFolder = Workspace:FindFirstChild("Mobs") :: Folder?
+		if not mobsFolder then
+			local f = Instance.new("Folder")
+			f.Name = "Mobs"
+			f.Parent = Workspace
+			mobsFolder = f
+		end
+		activeMobsFolder = mobsFolder
+	end
 
 	local roomCount = 0
 	for _, room in ipairs(rooms) do
 		if room.id == 1 or room.roomType == "Start" or room.roomType == "Rest" or room.roomType == "Treasure" or room.roomType == "Shop" or room.roomType == "Gamble" then continue end
-		table.insert(roomMobGroups, { room = room, mobs = {}, planned = false })
+		table.insert(roomMobGroups, { runId = runId, room = room, mobs = {}, planned = false })
 		roomCount += 1
 	end
 
 	refreshActiveRooms()
-	task.spawn(function()
-		while activeMobsFolder == mobsFolder and mobsFolder.Parent do
-			task.wait(ROOM_REFRESH_INTERVAL)
-			refreshActiveRooms()
-		end
-	end)
-	print(`[MobManager] {roomCount} combat rooms; each fills with mobs (scaled by Threat) when a player gets near.`)
+	if not refreshStarted then
+		refreshStarted = true
+		task.spawn(function()
+			while true do
+				task.wait(ROOM_REFRESH_INTERVAL)
+				local ok, err = pcall(refreshActiveRooms)
+				if not ok then warn("[MobManager] rooms:", err) end
+			end
+		end)
+	end
+	print(`[MobManager] run {runId}: {roomCount} combat rooms; each fills with mobs (scaled by Threat) when a player gets near.`)
 end
 
-function MobManager.Clear()
-	roomMobGroups = {}
-	local emblems = Workspace:FindFirstChild("RoomEmblems")
-	if emblems then emblems:Destroy() end
-	if activeMobsFolder and activeMobsFolder.Parent then
-		activeMobsFolder:Destroy()
-		activeMobsFolder = nil
+-- Drop a run's rooms, mobs and room rewards (or every run's).
+function MobManager.Clear(runId: string?)
+	local kept: { RoomMobGroup } = {}
+	for _, group in ipairs(roomMobGroups) do
+		if runId == nil or group.runId == runId then
+			local e = group.emblem
+			if e and e.model and e.model.Parent then e.model:Destroy() end
+			for _, r in ipairs(group.mobs) do
+				r.defeated = true
+				if r.model and r.model.Parent then r.model:Destroy() end
+				r.model = nil
+			end
+		else
+			table.insert(kept, group)
+		end
 	end
-	local existing = Workspace:FindFirstChild("Mobs")
-	if existing then
-		existing:Destroy()
+	roomMobGroups = kept
+	-- (mobs of the run not tied to a room: summons, minions)
+	local mobs = Workspace:FindFirstChild("Mobs")
+	if mobs then
+		for _, m in ipairs(mobs:GetChildren()) do
+			if runId == nil or m:GetAttribute("RunId") == runId then m:Destroy() end
+		end
 	end
 end
 
@@ -1640,11 +1833,12 @@ local function grantBossRewards(model: Model, pos: Vector3, xpReward: number)
 		TalentManager.OnMobKilled(player, true)
 		GachaManager.OnMobKilled(player, true)
 	end
+	LootManager.OnMobKilled(model, true, nearby)
 end
 
 local function bossCanAct(model: Model): boolean
-	return not mobsAreFrozen()
-		and Workspace:GetAttribute("TomesPaused") ~= true
+	return not mobsAreFrozen(model)
+		and not runPaused(model)
 		and (model:GetAttribute("ChilledUntil") or 0) <= os.clock()
 		-- (no stagger check: bosses shrug off hit-stagger, or constant
 		-- hits would stop them from ever attacking)
@@ -1675,8 +1869,8 @@ function MobManager.Init()
 		canAct = bossCanAct,
 		hurt = hurtPlayer,
 		spawnKind = spawnKind,
-		damageScale = function(): number
-			return DifficultyManager.GetMobScale().damage
+		damageScale = function(model: Instance?): number
+			return DifficultyManager.GetMobScale(RunScope.Of(model)).damage
 		end,
 	})
 	print("[MobManager] Server MobManager initialized.")

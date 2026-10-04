@@ -1099,7 +1099,7 @@ end
 
 -- Spawn the dragon over `room` (a DungeonGenerator room). `health` carries
 -- over damage from an earlier visit. `onDied` runs once when it's slain.
-function DragonBoss.Spawn(parent: Instance, room: any, health: number?, onDied: () -> ()): Model?
+function DragonBoss.Spawn(parent: Instance, room: any, health: number?, runId: string?, onDied: () -> ()): Model?
 	local model = DragonBuilder.Build()
 	model.Name = "Ignarath"
 	pcall(function() model:ScaleTo(SCALE) end)
@@ -1167,12 +1167,13 @@ function DragonBoss.Spawn(parent: Instance, room: any, health: number?, onDied: 
 	hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 	hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
 	pcall(function() hum.EvaluateStateMachine = false end)
-	local scale = DifficultyManager.GetMobScale()
+	local scale = DifficultyManager.GetMobScale(runId)
 	local maxHp = math.floor(400 * HEALTH_MULT * scale.health)
 	hum.MaxHealth = maxHp
 	hum.Health = if health and health < maxHp then math.max(1, math.floor(health)) else maxHp
 
 	model:SetAttribute("IsBoss", true)
+	if runId then model:SetAttribute("RunId", runId) end
 	model:SetAttribute("IsElite", false)
 	model:SetAttribute("BossKind", "dragon")
 	model:SetAttribute("DisplayName", NAME)

@@ -21,8 +21,10 @@ local BOLD = Font.new("rbxasset://fonts/families/Merriweather.json", Enum.FontWe
 
 LoadingCover.Logo = LOGO
 
-type Ui = { gui: ScreenGui, root: CanvasGroup, logo: ImageLabel, fill: Frame, glint: Frame, status: TextLabel, pct: TextLabel }
+type Ui = { gui: ScreenGui, root: Frame, logo: ImageLabel, fill: Frame, glint: Frame, status: TextLabel, pct: TextLabel }
 local ui: Ui? = nil
+-- Everything the fade-out fades: (object, property, its shown value).
+local faders: { { obj: Instance, prop: string, base: number } } = {}
 local shown = 0 -- progress shown, 0..1
 local hiding = false
 local shimmer: RBXScriptConnection? = nil
@@ -35,7 +37,10 @@ local function build(): Ui
 	gui.DisplayOrder = 1000
 	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
-	local root = Instance.new("CanvasGroup")
+	-- (a plain Frame, not a CanvasGroup: a CanvasGroup draws through a texture
+	-- that comes up black on the first frames, over the bar; the fade-out
+	-- fades each piece instead)
+	local root = Instance.new("Frame")
 	root.Size = UDim2.fromScale(1, 1)
 	root.BackgroundColor3 = Color3.fromRGB(6, 4, 12)
 	root.BorderSizePixel = 0
@@ -122,6 +127,14 @@ local function build(): Ui
 		task.delay(0.55, function() logo.ImageTransparency = 0 end)
 	end)
 
+	for _, o in ipairs(root:GetDescendants()) do
+		if o:IsA("GuiObject") and o.BackgroundTransparency < 1 then
+			table.insert(faders, { obj = o, prop = "BackgroundTransparency", base = o.BackgroundTransparency })
+		end
+		if o:IsA("TextLabel") then table.insert(faders, { obj = o, prop = "TextTransparency", base = o.TextTransparency }) end
+	end
+	table.insert(faders, { obj = root, prop = "BackgroundTransparency", base = 0 })
+
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 	return { gui = gui, root = root, logo = logo, fill = fill, glint = glint, status = status, pct = pct }
 end
@@ -135,7 +148,8 @@ function LoadingCover.Show()
 	hiding = false
 	shown = 0
 	u.fill.Size = UDim2.fromScale(0, 1)
-	u.root.GroupTransparency = 0
+	for _, f in ipairs(faders) do (f.obj :: any)[f.prop] = f.base end
+	if u.logo.IsLoaded then u.logo.ImageTransparency = 0 end
 	u.gui.Enabled = true
 	if not shimmer then
 		local t = 0
@@ -166,12 +180,14 @@ function LoadingCover.Hide()
 	local u = ui
 	if not u or hiding then return end
 	hiding = true
-	TweenService:Create(u.root, TweenInfo.new(1.0, Enum.EasingStyle.Sine), { GroupTransparency = 1 }):Play()
+	local info = TweenInfo.new(1.0, Enum.EasingStyle.Sine)
+	for _, f in ipairs(faders) do TweenService:Create(f.obj, info, { [f.prop] = 1 }):Play() end
+	TweenService:Create(u.logo, info, { ImageTransparency = 1 }):Play()
 	-- Finish on a timer rather than on the tween (tweens freeze while the
 	-- window isn't rendering); the screen must never get stuck up.
 	task.delay(1.05, function()
 		if hiding then
-			u.root.GroupTransparency = 1
+			for _, f in ipairs(faders) do (f.obj :: any)[f.prop] = 1 end
 			u.gui.Enabled = false
 			if shimmer then
 				shimmer:Disconnect()

@@ -11,6 +11,7 @@ local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local RunScope = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("RunScope"))
 local Network = require(Shared:WaitForChild("Network"))
 local TomeData = require(Shared:WaitForChild("TomeData"))
 
@@ -251,8 +252,13 @@ local function buildCard(parent: Instance, tome: any, index: number, total: numb
 	title.ZIndex = 4
 
 	-- Category tag
-	local category = (tome.category == "Unlockable") and "UNLOCKABLE" or "BASE"
-	local tag = makeText(face, category, 11, BRASS, INK)
+	-- (a boon reads its level: what this pick takes it to)
+	local t = tome :: any
+	local category = if tome.category == "Boon" then `BOON  ·  LV {t.level or 1} / {t.maxLevel or 3}`
+		elseif tome.category == "Relic" then (if tome.classId then "CLASS RELIC" else "RUN RELIC")
+		elseif tome.category == "Unlockable" then "UNLOCKABLE"
+		else "BASE"
+	local tag = makeText(face, category, 11, if tome.category == "Boon" then accentBright else BRASS, INK)
 	tag.Name = "Tag"
 	tag.Size = UDim2.new(1, -20, 0, 13)
 	tag.Position = UDim2.new(0, 10, 0, 115)
@@ -279,6 +285,12 @@ local function buildCard(parent: Instance, tome: any, index: number, total: numb
 	description.TextYAlignment = Enum.TextYAlignment.Top
 	description.TextWrapped = true
 	description.ZIndex = 4
+	-- (a boon's text, with what it evolves into, can run long: it shrinks to fit)
+	description.TextScaled = true
+	local fitText = Instance.new("UITextSizeConstraint")
+	fitText.MaxTextSize = 14
+	fitText.MinTextSize = 9
+	fitText.Parent = description
 
 	-- Corner ornaments in the accent colour
 	for _, pos in ipairs({
@@ -332,6 +344,13 @@ local function showChoices(choices: { any }, rerollsRemaining: number, lockDurat
 	for index, tome in ipairs(choices) do
 		buildCard(cards, tome, index, #choices)
 	end
+
+	-- (a relic found: the heading says so)
+	local relics = #choices > 0 and choices[1].category == "Relic"
+	local heading = choiceOverlay:FindFirstChild("Heading") :: TextLabel?
+	local sub = choiceOverlay:FindFirstChild("Subheading") :: TextLabel?
+	if heading then heading.Text = if relics then "A RELIC FOUND" else "CHOOSE A TOME" end
+	if sub then sub.Text = if relics then "—  CHOOSE ONE TO CARRY (3 RELIC SLOTS)  —" else "—  CHOOSE A TOME  —" end
 
 	if rerollButton and rerollLabel then
 		rerollLabel.Text = rerollsRemaining > 0 and `REROLL  ({rerollsRemaining})` or "NO REROLLS LEFT"
@@ -541,15 +560,20 @@ function TomeController.Init()
 	waiting.ZIndex = 25
 	waiting.Visible = false
 	local function refreshWaiting()
-		local who = Workspace:GetAttribute("TomesChoosing")
+		local who = RunScope.Mine("TomesChoosing")
 		local choosingMyself = choiceOverlay ~= nil and choiceOverlay.Visible
-		local show = Workspace:GetAttribute("TomesPaused") == true and typeof(who) == "string"
+		local show = RunScope.Mine("TomesPaused") == true and typeof(who) == "string"
 			and not choosingMyself and player:GetAttribute("InLobby") == false
 		waiting.Visible = show
 		if show then waiting.Text = `WAITING FOR {string.upper(who :: string)} TO CHOOSE A TOME…` end
 	end
-	Workspace:GetAttributeChangedSignal("TomesPaused"):Connect(refreshWaiting)
-	Workspace:GetAttributeChangedSignal("TomesChoosing"):Connect(refreshWaiting)
+	-- (the run's attributes live on its RunScope folder: checked often)
+	task.spawn(function()
+		while true do
+			task.wait(0.25)
+			refreshWaiting()
+		end
+	end)
 	if choiceOverlay then choiceOverlay:GetPropertyChangedSignal("Visible"):Connect(refreshWaiting) end
 	refreshWaiting()
 	local shownLevel: number? = player:GetAttribute("AccountLevel")

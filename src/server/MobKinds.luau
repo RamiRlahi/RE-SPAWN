@@ -42,7 +42,7 @@ export type Deps = {
 	canAct: (Model) -> boolean,                       -- not frozen / paused / chilled
 	hurt: (Model, number, Vector3?, Model?) -> number, -- damage a player (from, attacker); returns what landed
 	spawnKind: (string, CFrame, Model?) -> Model?,    -- another mob, in `near`'s room
-	damageScale: () -> number,                        -- the Threat tier's damage multiplier
+	damageScale: (Instance?) -> number,               -- the Threat tier's damage multiplier (of the mob's run)
 }
 local deps: Deps
 
@@ -558,8 +558,24 @@ local PACKS: { { [string]: number } } = {
 }
 local CAPS: { [string]: number } = { brute = 2, necromancer = 1, bloatslime = 2, magmaslime = 3, bonemage = 3, wraith = 3 }
 
-function MobKinds.PlanRoom(count: number, level: number): { string }
-	local pack = PACKS[math.random(1, #PACKS)]
+-- A run starts with the three starter mobs only; the rest join in over its
+-- first minutes, each from its own minute, slowly at first (`minutes`: the
+-- run's time).
+local STARTERS: { [string]: boolean } = { zombie = true, skeleton = true, slime = true }
+local JOINS_AT: { [string]: number } = {
+	ghoul = 2, bonemage = 3, magmaslime = 3, wraith = 5, bloatslime = 5, brute = 7, necromancer = 9,
+}
+local function share(id: string, minutes: number): number
+	if STARTERS[id] then return 1 end
+	local at = JOINS_AT[id] or 6
+	return math.clamp((minutes - at) / 4, 0, 1) -- (full weight four minutes after it joins)
+end
+
+-- `packs`: the map's own packs (PACKS indices) to draw the room's from.
+function MobKinds.PlanRoom(count: number, level: number, packs: { number }?, minutes: number?): { string }
+	local mins = minutes or math.huge
+	local pick0 = if packs and #packs > 0 then packs[math.random(1, #packs)] else math.random(1, #PACKS)
+	local pack = PACKS[pick0] or PACKS[1]
 	local taken: { [string]: number } = {}
 	local out = {}
 	for _ = 1, count do
@@ -567,16 +583,17 @@ function MobKinds.PlanRoom(count: number, level: number): { string }
 		for id, w in pairs(pack) do
 			local cap = CAPS[id]
 			if cap then cap += math.floor((level - 1) / 2) end
-			if not cap or (taken[id] or 0) < cap then total += w end
+			if not cap or (taken[id] or 0) < cap then total += w * share(id, mins) end
 		end
-		local pick = "zombie"
+		local pick = ({ "zombie", "skeleton", "slime" })[math.random(1, 3)]
 		local r = math.random() * total
 		for id, w in pairs(pack) do
 			local cap = CAPS[id]
 			if cap then cap += math.floor((level - 1) / 2) end
 			if not cap or (taken[id] or 0) < cap then
-				r -= w
-				if r <= 0 then
+				local sw = w * share(id, mins)
+				r -= sw
+				if r <= 0 and sw > 0 then
 					pick = id
 					break
 				end
@@ -599,17 +616,85 @@ function MobKinds.Template(kindId: string): Model?
 end
 
 -- ── Elite traits ────────────────────────────────────────────────────────────
+-- An elite carries one or more of these (more at higher Threat), each one
+-- something to read and react to, not just more health:
+--   Frenzied     faster, attacks far more often
+--   Vampiric     heals twice what it hits you for
+--   Explosive    blows up where it dies (a ring warns you)
+--   Blazing      leaves burning ground behind it
+--   Frozen       drops ice zones under you that slow you right down
+--   Swarming     keeps summoning the risen dead around itself
+--   Teleporting  blinks in behind you and strikes
+--   Cursed       its hits curse you: healing on you is cut hard for a while
+--   Shielded     a barrier soaks a big share of its health before it can be hurt
 type Affix = { name: string, color: Color3 }
 local AFFIXES: { [string]: Affix } = {
 	frenzied = { name = "Frenzied", color = Color3.fromRGB(255, 120, 60) },
 	vampiric = { name = "Vampiric", color = Color3.fromRGB(210, 20, 50) },
-	volatile = { name = "Volatile", color = Color3.fromRGB(255, 160, 40) },
+	volatile = { name = "Explosive", color = Color3.fromRGB(255, 160, 40) },
 	blazing = { name = "Blazing", color = Color3.fromRGB(255, 110, 20) },
+	frozen = { name = "Frozen", color = Color3.fromRGB(140, 220, 255) },
+	swarming = { name = "Swarming", color = Color3.fromRGB(120, 220, 110) },
+	teleporting = { name = "Teleporting", color = Color3.fromRGB(170, 110, 255) },
+	cursed = { name = "Cursed", color = Color3.fromRGB(150, 60, 200) },
+	shielded = { name = "Shielded", color = Color3.fromRGB(255, 215, 110) },
 }
-local AFFIX_IDS = { "frenzied", "vampiric", "volatile", "blazing" }
+local AFFIX_IDS = { "frenzied", "vampiric", "volatile", "blazing", "frozen", "swarming", "teleporting", "cursed", "shielded" }
+-- (some don't stack well: two summoners, or a shield on a vampire, is miserable)
+local CLASH: { [string]: { [string]: boolean } } = {
+	vampiric = { shielded = true }, shielded = { vampiric = true },
+}
+local CURSE_TIME = 5      -- seconds a Cursed elite's hit lasts
+MobKinds.CURSE_HEAL = 0.35 -- healing on a cursed player is cut to this
+local SHIELD_SHARE = 0.6  -- a Shielded elite's barrier: this share of its health
 
-function MobKinds.RollAffix(): string
-	return AFFIX_IDS[math.random(1, #AFFIX_IDS)]
+-- Does `model` carry the trait `id`? (Its "Affix" attribute lists them: "vampiric,volatile".)
+local function hasAffix(model: Instance, id: string): boolean
+	local list = model:GetAttribute("Affix")
+	return typeof(list) == "string" and string.find("," .. list .. ",", "," .. id .. ",", 1, true) ~= nil
+end
+MobKinds.HasAffix = hasAffix
+
+local function affixList(model: Instance): { string }
+	local out = {}
+	local list = model:GetAttribute("Affix")
+	if typeof(list) == "string" then
+		for id in string.gmatch(list, "[^,]+") do
+			if AFFIXES[id] then table.insert(out, id) end
+		end
+	end
+	return out
+end
+MobKinds.AffixList = affixList
+
+function MobKinds.AffixInfo(id: string): Affix?
+	return AFFIXES[id]
+end
+
+-- An elite's traits: one, two at Threat 3+, sometimes three at Threat 6+.
+-- (This week's omen leans them: Frozen Abyss → Frozen, Inferno → Blazing.)
+function MobKinds.RollAffix(tier: number?): string
+	local WeeklyModifiers = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("WeeklyModifiers")) :: any
+	local t = tier or 0
+	local count = 1
+	if t >= 2 and math.random() < 0.35 + 0.1 * (t - 2) then count = 2 end
+	if t >= 5 and math.random() < 0.3 + 0.05 * (t - 5) then count = 3 end
+	local pool = table.clone(AFFIX_IDS)
+	local picked: { string } = {}
+	local lean = if WeeklyModifiers.Is("frozen_abyss") then "frozen" elseif WeeklyModifiers.Is("inferno") then "blazing" else nil
+	if lean and math.random() < 0.6 then
+		table.insert(picked, lean)
+		table.remove(pool, table.find(pool, lean) :: number)
+	end
+	while #picked < count and #pool > 0 do
+		local id = table.remove(pool, math.random(1, #pool)) :: string
+		local ok = true
+		for _, other in ipairs(picked) do
+			if CLASH[id] and CLASH[id][other] then ok = false end
+		end
+		if ok then table.insert(picked, id) end
+	end
+	return table.concat(picked, ",")
 end
 
 -- Dress a fresh clone of the kind's template and set its stats, before
@@ -627,11 +712,11 @@ function MobKinds.Prepare(model: Model, kindId: string, affixId: string?)
 	model:SetAttribute("HealthMult", kind.health)
 	model:SetAttribute("DamageMult", kind.damage)
 	model:SetAttribute("XPMult", kind.xp)
-	local affix = affixId and AFFIXES[affixId]
-	if affix then
+	if affixId and affixId ~= "" then
 		model:SetAttribute("Affix", affixId)
-		model:SetAttribute("DisplayName", `{affix.name} {kind.name}`)
-		if affixId == "frenzied" then
+		-- (its traits are shown on its health bar, in their colours)
+		model:SetAttribute("DisplayName", `Elite {kind.name}`)
+		if hasAffix(model, "frenzied") then
 			local speed = model:GetAttribute("WalkSpeed")
 			model:SetAttribute("WalkSpeed", (if typeof(speed) == "number" then speed else 12) * 1.35)
 			local cd = model:GetAttribute("AttackCooldown")
@@ -855,13 +940,13 @@ end
 -- How hard this mob hits (its base damage, Threat, kind and elite).
 local function power(m: Mob): number
 	local base = m.model:GetAttribute("Damage")
-	return (if typeof(base) == "number" then base else 10) * deps.damageScale() * (m.model:GetAttribute("DamageMult") or 1)
+	return (if typeof(base) == "number" then base else 10) * deps.damageScale(m.model) * (m.model:GetAttribute("DamageMult") or 1)
 end
 
--- Hurt a player; a Vampiric elite drinks it back.
+-- Hurt a player; a Vampiric elite drinks it back, a Cursed one curses them.
 local function strike(m: Mob, char: Model, damage: number, from: Vector3?)
 	local dealt = deps.hurt(char, damage, from, m.model)
-	MobKinds.OnDealt(m.model, dealt)
+	MobKinds.OnDealt(m.model, dealt, char)
 end
 
 -- Hurt every player within `radius` (flat) of `center`.
@@ -1276,9 +1361,69 @@ MOVES.bolt = function(m, v, d)
 end
 
 -- ── Elite traits at work ────────────────────────────────────────────────────
+local iceZone: (Mob, Vector3) -> ()
+local summonSwarm: (Mob) -> ()
 local function addTraitLook(m: Mob, affixId: string)
 	local affix = AFFIXES[affixId]
 	if not affix then return end
+	if affixId == "frozen" or affixId == "swarming" or affixId == "teleporting" or affixId == "cursed" then
+		-- a drift of its colour around it
+		local att = Instance.new("Attachment")
+		att.Name = "TraitAura"
+		att.Parent = m.root
+		local e = Instance.new("ParticleEmitter")
+		e.Name = "TraitAura"
+		e.Texture = if affixId == "cursed" then "rbxasset://textures/particles/smoke_main.dds" else "rbxasset://textures/particles/sparkles_main.dds"
+		e.Color = ColorSequence.new(affix.color)
+		e.LightEmission = if affixId == "cursed" then 0 else 0.8
+		e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 1) })
+		e.Size = if affixId == "cursed" then NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.2), NumberSequenceKeypoint.new(1, 2.4) })
+			else NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 0) })
+		e.Lifetime = NumberRange.new(0.6, 1.1)
+		e.Speed = NumberRange.new(1, 3)
+		e.SpreadAngle = Vector2.new(180, 180)
+		e.Rate = if affixId == "cursed" then 6 else 12
+		e.Parent = att
+		return
+	end
+	if affixId == "shielded" then
+		-- the barrier: a gold bubble round it while it holds
+		local size = m.model:GetExtentsSize()
+		local d = math.max(size.X, size.Y, size.Z) * 1.15
+		local bubble = Instance.new("Part")
+		bubble.Name = "EliteShield"
+		bubble.Shape = Enum.PartType.Ball
+		bubble.Size = Vector3.one * d
+		bubble.Material = Enum.Material.ForceField
+		bubble.Color = affix.color
+		bubble.Transparency = 0.1
+		bubble.CanCollide = false
+		bubble.CanQuery = false
+		bubble.CanTouch = false
+		bubble.Massless = true
+		bubble.CastShadow = false
+		bubble.CFrame = m.root.CFrame
+		bubble.Parent = m.model
+		local w = Instance.new("WeldConstraint")
+		w.Part0 = m.root
+		w.Part1 = bubble
+		w.Parent = bubble
+		local hum = m.hum
+		m.model:SetAttribute("Shield", math.floor(hum.MaxHealth * SHIELD_SHARE))
+		m.model:SetAttribute("ShieldMax", math.floor(hum.MaxHealth * SHIELD_SHARE))
+		local conn: RBXScriptConnection? = nil
+		conn = m.model:GetAttributeChangedSignal("Shield"):Connect(function()
+			local left = m.model:GetAttribute("Shield")
+			if typeof(left) == "number" and left <= 0 then
+				if conn then conn:Disconnect() end
+				-- broken: it bursts
+				sparks(m.root.Position + Vector3.new(0, 1, 0), affix.color, 30, 22)
+				burst(m.root.Position, d * 0.6, affix.color)
+				bubble:Destroy()
+			end
+		end)
+		return
+	end
 	local att = Instance.new("Attachment")
 	att.Name = "TraitAura"
 	att.Parent = m.root
@@ -1367,9 +1512,35 @@ local function burnPatch(m: Mob, at: Vector3)
 	end)
 end
 
--- A Vampiric elite heals for the damage it lands (twice over).
-function MobKinds.OnDealt(model: Model?, amount: number)
-	if not model or amount <= 0 or model:GetAttribute("Affix") ~= "vampiric" then return end
+-- What an elite's hit does beyond the damage: a Cursed one curses you (healing
+-- on you cut hard for a while), a Vampiric one drinks it back (twice over).
+function MobKinds.OnDealt(model: Model?, amount: number, victim: Model?)
+	if not model or amount <= 0 then return end
+	if victim and hasAffix(model, "cursed") then
+		local first = (victim:GetAttribute("CursedUntil") or 0) <= os.clock()
+		victim:SetAttribute("CursedUntil", os.clock() + CURSE_TIME)
+		local vroot = victim:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if vroot and first then
+			local att = Instance.new("Attachment")
+			att.Name = "CurseMark"
+			att.Parent = vroot
+			local e = Instance.new("ParticleEmitter")
+			e.Texture = "rbxasset://textures/particles/smoke_main.dds"
+			e.Color = ColorSequence.new(AFFIXES.cursed.color, Color3.fromRGB(30, 0, 40))
+			e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 1) })
+			e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 2) })
+			e.Lifetime = NumberRange.new(0.6, 1)
+			e.Speed = NumberRange.new(0.5, 1.5)
+			e.Rate = 8
+			e.Parent = att
+			task.spawn(function()
+				while (victim:GetAttribute("CursedUntil") or 0) > os.clock() and att.Parent do task.wait(0.25) end
+				e.Rate = 0
+				Debris:AddItem(att, 1.2)
+			end)
+		end
+	end
+	if not hasAffix(model, "vampiric") then return end
 	local hum = model:FindFirstChildOfClass("Humanoid")
 	local root = model:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not hum or hum.Health <= 0 then return end
@@ -1392,9 +1563,9 @@ function MobKinds.OnDied(model: Model, pos: Vector3)
 			deps.spawnKind("slimeling", CFrame.new(at) * CFrame.Angles(0, a, 0), model)
 		end
 	end
-	if model:GetAttribute("Affix") == "volatile" then
+	if hasAffix(model, "volatile") then
 		local base = model:GetAttribute("Damage")
-		local damage = (if typeof(base) == "number" then base else 10) * deps.damageScale() * 2.2
+		local damage = (if typeof(base) == "number" then base else 10) * deps.damageScale(model) * 2.2
 		local center = Vector3.new(pos.X, fy, pos.Z)
 		local r = 9
 		ring(center, r, 1.2, fy, AFFIXES.volatile.color)
@@ -1431,6 +1602,68 @@ local function rise(m: Mob)
 	m.model:SetAttribute("MobBusy", false)
 end
 
+-- A Frozen elite's ice: a ring warns where, then a patch of ice there that
+-- slows anyone standing in it right down for a few seconds.
+local ICE_RADIUS = 6.5
+local ICE_LIFE = 5
+local ICE_SLOW = 0.45
+function iceZone(m: Mob, at: Vector3)
+	local pos = Vector3.new(at.X, m.floorY, at.Z)
+	local warn = ring(pos, ICE_RADIUS, 0.7, m.floorY, AFFIXES.frozen.color)
+	task.delay(0.7, function()
+		cancel(warn)
+		if not m.model.Parent then return end
+		local patch = part({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.12, ICE_RADIUS * 2, ICE_RADIUS * 2),
+			CFrame = CFrame.new(pos + Vector3.new(0, 0.08, 0)) * FLAT, Color = Color3.fromRGB(190, 235, 255), Material = Enum.Material.Ice, Transparency = 0.2 })
+		local frost = Instance.new("ParticleEmitter")
+		frost.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		frost.Color = ColorSequence.new(Color3.fromRGB(230, 250, 255))
+		frost.LightEmission = 0.6
+		frost.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 0) })
+		frost.Lifetime = NumberRange.new(0.6, 1.2)
+		frost.Speed = NumberRange.new(0.5, 2)
+		frost.EmissionDirection = Enum.NormalId.Right
+		frost.Shape = Enum.ParticleEmitterShape.Cylinder
+		frost.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+		frost.Rate = 14
+		frost.Parent = patch
+		sparks(pos + Vector3.new(0, 1, 0), AFFIXES.frozen.color, 16, 10)
+		local t0 = os.clock()
+		while os.clock() - t0 < ICE_LIFE and patch.Parent do
+			for _, v in ipairs(victims()) do
+				if flatDist(v.root.Position, pos) <= ICE_RADIUS and math.abs(v.root.Position.Y - pos.Y) < 5 then
+					-- (the client reads it: walking at ICE_SLOW while it lasts)
+					v.char:SetAttribute("IceSlowUntil", Workspace:GetServerTimeNow() + 0.4)
+					v.char:SetAttribute("IceSlow", ICE_SLOW)
+				end
+			end
+			task.wait(0.2)
+		end
+		frost.Rate = 0
+		tween(patch, 0.5, { Transparency = 1 })
+		Debris:AddItem(patch, 0.6)
+	end)
+end
+
+-- A Swarming elite raises the dead round itself (a few at a time).
+local SWARM_MAX = 4
+function summonSwarm(m: Mob)
+	for i = #m.minions, 1, -1 do
+		local mm = m.minions[i]
+		local h = mm.Parent and mm:FindFirstChildOfClass("Humanoid")
+		if not h or h.Health <= 0 then table.remove(m.minions, i) end
+	end
+	local room = SWARM_MAX - #m.minions
+	if room <= 0 then return end
+	for i = 1, math.min(2, room) do
+		local a = math.random() * math.pi * 2
+		local at = Vector3.new(m.root.Position.X + math.cos(a) * 4, m.floorY, m.root.Position.Z + math.sin(a) * 4)
+		sparks(at + Vector3.new(0, 1, 0), AFFIXES.swarming.color, 12, 8)
+		local minion = deps.spawnKind("risen", CFrame.new(at) * CFrame.Angles(0, a, 0), m.model)
+		if minion then table.insert(m.minions, minion) end
+	end
+end
+
 -- Start a configured mob's moves (and its elite trait).
 function MobKinds.Attach(model: Model, kindId: string)
 	local kind = kinds[kindId]
@@ -1449,8 +1682,8 @@ function MobKinds.Attach(model: Model, kindId: string)
 	elseif kindId == "wraith" then
 		setRest(m, { RightArm = { 70, 0, 8 }, LeftArm = { 70, 0, -8 }, Neck = { -6 } })
 	end
-	local affixId = model:GetAttribute("Affix")
-	if typeof(affixId) == "string" then addTraitLook(m, affixId) end
+	local traits = affixList(model)
+	for _, id in ipairs(traits) do addTraitLook(m, id) end
 	if model:GetAttribute("Rising") == true then task.spawn(rise, m) end
 
 	local slots = kind.moves or {}
@@ -1460,8 +1693,15 @@ function MobKinds.Attach(model: Model, kindId: string)
 		-- (not all at once when a room wakes up)
 		m.nextMove[slot.id] = os.clock() + 1 + math.random() * 2
 	end
-	local blazing = affixId == "blazing"
-	if #slots == 0 and not blazing then return end
+	local blazing = hasAffix(model, "blazing")
+	local frozen = hasAffix(model, "frozen")
+	local swarming = hasAffix(model, "swarming")
+	local teleporting = hasAffix(model, "teleporting")
+	if #slots == 0 and not (blazing or frozen or swarming or teleporting) then return end
+	-- (the traits' own moves, staggered so they don't all go at once)
+	local nextIce = os.clock() + 2 + math.random() * 2
+	local nextSwarm = os.clock() + 3 + math.random() * 2
+	local nextBlink = os.clock() + 3 + math.random() * 3
 	task.spawn(function()
 		local lastPatch = root.Position
 		local lastPatchAt = 0
@@ -1476,6 +1716,22 @@ function MobKinds.Attach(model: Model, kindId: string)
 			if model:GetAttribute("MobBusy") == true or not deps.canAct(model) or staggered(m) then continue end
 			local v, d = nearest(m, 70)
 			if not v then continue end
+			local now = os.clock()
+			if frozen and now >= nextIce and d <= 40 then
+				nextIce = now + 3.5 + math.random() * 1.5
+				iceZone(m, v.root.Position)
+			end
+			if swarming and now >= nextSwarm then
+				nextSwarm = now + 6 + math.random() * 2
+				summonSwarm(m)
+			end
+			if teleporting and now >= nextBlink and d >= 8 and d <= 40 then
+				model:SetAttribute("MobBusy", true)
+				local ok, fired = pcall(MOVES.blink, m, v, d)
+				if model.Parent then model:SetAttribute("MobBusy", false) end
+				nextBlink = os.clock() + (if ok and fired then 5 + math.random() * 2 else 1.5)
+				continue
+			end
 			for _, slot in ipairs(slots) do
 				if os.clock() >= (m.nextMove[slot.id] or 0) then
 					model:SetAttribute("MobBusy", true)

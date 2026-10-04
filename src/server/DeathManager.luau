@@ -27,6 +27,7 @@ local Debris = game:GetService("Debris")
 local Network = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Network"))
 local ClassManager = require(script.Parent:WaitForChild("ClassManager"))
 local WeaponManager = require(script.Parent:WaitForChild("WeaponManager"))
+local RunStats = require(script.Parent:WaitForChild("RunStats"))
 
 local DeathManager = {}
 
@@ -49,12 +50,12 @@ local function inDungeon(p: Player): boolean
 	return p.Parent ~= nil and p:GetAttribute("InLobby") == false
 end
 
--- Everyone fighting in the dungeon with `p` (the whole server shares one
--- dungeon, so this is everyone in the run, in a party or not).
+-- Everyone fighting in `p`'s run (its own dungeon: RunManager).
 local function runMates(p: Player): { Player }
 	local out = {}
+	local runId = p:GetAttribute("RunId")
 	for _, m in ipairs(Players:GetPlayers()) do
-		if m == p or inDungeon(m) then table.insert(out, m) end
+		if m == p or (inDungeon(m) and runId ~= nil and m:GetAttribute("RunId") == runId) then table.insert(out, m) end
 	end
 	return out
 end
@@ -352,8 +353,10 @@ local function reviveAt(player: Player, at: Vector3, exact: boolean?)
 	refresh(player)
 end
 
--- Off to the title menu (after giving up).
-local function toMenu(player: Player)
+-- Off to the title menu (after giving up, or leaving): the run's over for
+-- them, so its summary goes up on their screen (RunStats).
+local function toMenu(player: Player, result: string)
+	RunStats.Finish(player, result)
 	revive(player, true)
 	player:SetAttribute("InLobby", true)
 	player:SetAttribute("SpawnedInMap", false)
@@ -376,7 +379,7 @@ local function onAction(player: Player, action: any)
 	if action == "quit" then
 		if not inDungeon(player) or player:GetAttribute("IsDead") == true then return end
 		deathPos[player] = nil
-		toMenu(player)
+		toMenu(player, "left")
 		return
 	end
 	if player:GetAttribute("IsDead") ~= true then return end
@@ -405,12 +408,20 @@ local function onAction(player: Player, action: any)
 			player:SetAttribute("Spectating", true)
 			refresh(player)
 		else
-			toMenu(player)
+			toMenu(player, "fallen")
 		end
 	elseif action == "leave" then
 		if player:GetAttribute("Spectating") ~= true then return end
-		toMenu(player)
+		toMenu(player, "fallen")
 	end
+end
+
+-- The run's over for `player` from outside (the party extracted, the
+-- dungeon collapsed on them): back to the menu with `result` on their summary.
+function DeathManager.EndRun(player: Player, result: string)
+	if not inDungeon(player) then return end
+	deathPos[player] = nil
+	toMenu(player, result)
 end
 
 -- The Cleric's Divine Ascent: every fallen player in the run who hasn't
@@ -425,14 +436,16 @@ function DeathManager.ReviveParty(caster: Player, at: Vector3): number
 			task.spawn(reviveAt, m, at)
 		end
 	end
+	RunStats.Add(caster, "revives", n)
 	return n
 end
 
 -- A new level: every fallen player still in the run stands up at `at`
 -- (unless they're already giving up).
-function DeathManager.ReviveAllAt(at: Vector3)
+function DeathManager.ReviveAllAt(at: Vector3, runId: string?)
 	for _, p in ipairs(Players:GetPlayers()) do
-		if p:GetAttribute("IsDead") == true and p:GetAttribute("GivingUp") ~= true and inDungeon(p) then
+		if p:GetAttribute("IsDead") == true and p:GetAttribute("GivingUp") ~= true and inDungeon(p)
+			and (runId == nil or p:GetAttribute("RunId") == runId) then
 			task.spawn(reviveAt, p, at)
 		end
 	end

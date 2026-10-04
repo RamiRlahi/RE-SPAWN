@@ -374,11 +374,15 @@ end
 -- shot it looks exactly as far and as massive, but it's always drawn.
 -- Distances from 200 studs out map into 95–150 (nearer stays nearer).
 local compressOrigin = Vector3.zero -- the title camera (set by Build)
+-- (1 for the title shot; the lobby's sky is drawn at a larger scale, since
+-- you walk about in it: BuildHubSky)
+local compressScale = 1
 local function compress(pos: Vector3): (Vector3, number)
 	local off = pos - compressOrigin
 	local d = off.Magnitude
-	if d < 150 then return pos, 1 end
-	local placed = 95 + 55 * (1 - 1 / (1 + math.max(d - 200, 0) / 300))
+	local cs = compressScale
+	if d < 150 * cs then return pos, 1 end
+	local placed = (95 + 55 * (1 - 1 / (1 + math.max(d - 200 * cs, 0) / (300 * cs)))) * cs
 	local k = placed / d
 	return compressOrigin + off * k, k
 end
@@ -414,6 +418,10 @@ end
 -- ── Build state ────────────────────────────────────────────────────────────
 type Floater = { model: Model, base: CFrame, amp: number, speed: number, phase: number, yaw: number }
 local floaters: { Floater } = {}
+-- Building the lobby's sky: its islands stay still (far off, a bob can't be
+-- seen, and moving thousands of parts every frame cost the plaza its frame
+-- rate) and its halo rings turn only while you're on the plaza.
+local buildingHub = false
 local beamCore: BasePart? = nil
 local beamSheath: BasePart? = nil
 local beamRise: ParticleEmitter? = nil
@@ -421,6 +429,7 @@ local hero: Model? = nil
 
 local function float(m: Model, base: CFrame, amp: number)
 	m:PivotTo(base)
+	if buildingHub then return end
 	table.insert(floaters, { model = m, base = base, amp = amp, speed = rng:NextNumber(0.25, 0.45),
 		phase = rng:NextNumber(0, 6.28), yaw = rng:NextNumber(-0.01, 0.01) })
 end
@@ -489,10 +498,26 @@ local GRADE = {
 	ExposureCompensation = -0.2,
 	EnvironmentDiffuseScale = 0.3,
 }
+-- The lobby plaza's: the same dusk, lifted (you walk about in it, among
+-- lanterns and strings of lights): a warmer, brighter fill, the far blur
+-- eased off.
+local HUB_GRADE = {
+	Ambient = Color3.fromRGB(76, 64, 98),
+	OutdoorAmbient = Color3.fromRGB(110, 92, 134),
+	ColorShift_Top = Color3.fromRGB(166, 124, 100),
+	ColorShift_Bottom = Color3.fromRGB(66, 48, 102),
+	Brightness = 1.25,
+	ExposureCompensation = -0.25,
+	EnvironmentDiffuseScale = 0.4,
+}
+local onPlaza = false
+local function activeGrade(): { [string]: any }
+	return if onPlaza then HUB_GRADE else GRADE
+end
 local gradeSun: { ClockTime: number, GeographicLatitude: number }? = nil
 
 local function setGrade()
-	for k, v in pairs(GRADE) do (Lighting :: any)[k] = v end
+	for k, v in pairs(activeGrade()) do (Lighting :: any)[k] = v end
 	if gradeSun then
 		Lighting.ClockTime = gradeSun.ClockTime
 		Lighting.GeographicLatitude = gradeSun.GeographicLatitude
@@ -515,18 +540,21 @@ local function setGrade()
 	cc.Contrast = 0.08
 	cc.Brightness = -0.03
 	local bloom = Instance.new("BloomEffect")
-	bloom.Intensity = 0.6
-	bloom.Size = 30
-	bloom.Threshold = 0.95
+	-- (the plaza is full of lamps and bulbs: a big soft bloom smears them
+	-- into one glow there, so it's kept small and only on the brightest)
+	bloom.Intensity = if onPlaza then 0.25 else 0.6
+	bloom.Size = if onPlaza then 12 else 30
+	bloom.Threshold = if onPlaza then 1.6 else 0.95
+	bloom.Enabled = false -- (no bloom anywhere)
 	local rays = Instance.new("SunRaysEffect")
 	rays.Intensity = 0.1
 	rays.Spread = 0.55
 	-- Hero sharpest, castle soft, far islands softer.
 	local dof = Instance.new("DepthOfFieldEffect")
-	dof.FocusDistance = 25
-	dof.InFocusRadius = 12
-	dof.FarIntensity = 0.16
-	dof.NearIntensity = 0.25
+	dof.FocusDistance = if onPlaza then 40 else 25
+	dof.InFocusRadius = if onPlaza then 60 else 12
+	dof.FarIntensity = if onPlaza then 0.08 else 0.16
+	dof.NearIntensity = if onPlaza then 0 else 0.25
 	for _, e in ipairs({ cc, bloom, rays, dof } :: { Instance }) do
 		e.Name = "MenuGrade"
 		e.Parent = Lighting
@@ -553,13 +581,52 @@ end
 -- its effects while the menu is up.
 function MenuBackdrop.EnsureGrade()
 	if not savedLighting then return end
-	local ok = Lighting.Ambient == GRADE.Ambient and Lighting.Brightness == GRADE.Brightness and #gradeFx > 0
+	local g = activeGrade()
+	-- (near enough, not ==: Lighting keeps 1.15 as 1.1499999…, and an exact
+	-- test rebuilt the grade, effects and all, every second)
+	local amb = Lighting.Ambient
+	local ok = math.abs(amb.R - g.Ambient.R) + math.abs(amb.G - g.Ambient.G) + math.abs(amb.B - g.Ambient.B) < 0.01
+		and math.abs(Lighting.Brightness - g.Brightness) < 0.001 and #gradeFx > 0
 	for _, e in ipairs(gradeFx) do
 		if e.Parent ~= Lighting then ok = false end
 	end
 	local atm = Lighting:FindFirstChildOfClass("Atmosphere")
 	if atm and math.abs(atm.Density - 0.07) > 0.001 then ok = false end
 	if not ok then setGrade() end
+end
+
+-- On the lobby plaza (or not): its grade, and only the scene you're in kept
+-- in the world. The title scene (its islands bob, its castles flicker, its
+-- particles drift) is parked out of the world while you walk the plaza, and
+-- the plaza's sky while you're in the menus: each is thousands of parts.
+local stashed = false
+local stashToken = 0
+local hubSky: Folder? = nil
+function MenuBackdrop.SetInHub(on: boolean)
+	if onPlaza ~= on then
+		onPlaza = on
+		if savedLighting then setGrade() end
+	end
+	stashToken += 1
+	local token = stashToken
+	if on then
+		if hubSky then hubSky.Parent = Workspace end
+		-- (once the fade to the plaza has covered the screen)
+		task.delay(0.6, function()
+			if stashToken ~= token or not onPlaza then return end
+			local f = folder
+			if f and f.Parent == Workspace then
+				f.Parent = nil
+				stashed = true
+			end
+		end)
+	else
+		if stashed then
+			stashed = false
+			if folder then folder.Parent = Workspace end
+		end
+		if hubSky then hubSky.Parent = nil end
+	end
 end
 
 local function clearGrade()
@@ -579,7 +646,7 @@ local function clearGrade()
 end
 
 -- ── The runic halo: rings of glowing links with rune knots and sparkle ────
-local haloRings: { { model: Model, center: CFrame, speed: number } } = {}
+local haloRings: { { model: Model, center: CFrame, speed: number, hub: boolean } } = {}
 local ringParts: { { part: BasePart, base: number } } = {} -- faded in as the beam ignites
 local function runeRing(parent: Instance, center: CFrame, radius: number, n: number, color: Color3, speed: number, k: number?)
 	local m = Instance.new("Model")
@@ -616,7 +683,7 @@ local function runeRing(parent: Instance, center: CFrame, radius: number, n: num
 	m.WorldPivot = CFrame.new()
 	m:PivotTo(center)
 	m.Parent = parent
-	table.insert(haloRings, { model = m, center = center, speed = speed })
+	table.insert(haloRings, { model = m, center = center, speed = speed, hub = buildingHub })
 end
 
 -- A low sun on the horizon: a soft glow and a bright band on the cloud sea.
@@ -714,10 +781,10 @@ local function cloneCharacter(char: Model): (Model?, Humanoid?, BasePart?)
 	char.Archivable = was
 	if not ok or not clone then return nil, nil, nil end
 	local h = clone :: Model
-	-- No weapon from a past run: the copy is dressed by ClassLook (the class
-	-- being shown), so a Tool still on the character would double up.
+	-- No weapon from a past run (or carried round the lobby): the copy is
+	-- dressed by ClassLook (the class being shown), so it would double up.
 	for _, t in ipairs(h:GetChildren()) do
-		if t:IsA("Tool") then t:Destroy() end
+		if t:IsA("Tool") or t.Name == "StowedWeapon" then t:Destroy() end
 	end
 	for _, d in ipairs(h:GetDescendants()) do
 		if d:IsA("LuaSourceContainer") or d:IsA("BillboardGui") or d:IsA("ForceField") or d:IsA("Sound") or d:IsA("Light") then
@@ -784,7 +851,8 @@ local function cloneHero()
 	local player = Players.LocalPlayer
 	local classId = player:GetAttribute("SelectedClass")
 	if ClassLook and typeof(classId) == "string" then
-		ClassLook.Apply(h, classId, { armor = player:GetAttribute(`Armor_{classId}`) == true })
+		ClassLook.Apply(h, classId, { armor = player:GetAttribute(`Armor_{classId}`) == true,
+			finish = player:GetAttribute("Gear_weapon"), aura = player:GetAttribute("Gear_aura") })
 	end
 	for _, cb in ipairs(heroChanged) do task.spawn(cb, h) end
 end
@@ -907,6 +975,7 @@ local function seatMember(userId: number, idx: number, classId: string?)
 			armor = plr:GetAttribute(`Armor_{classId}`) == true,
 			handTilt = CFrame.identity,
 			onBack = ClassLook.SWORD_CLASSES[classId] == true,
+			finish = plr:GetAttribute("Gear_weapon"), aura = plr:GetAttribute("Gear_aura"),
 		})
 	end
 	nameTag(h, plr.DisplayName, classId, plr:GetAttribute("AccountLevel"))
@@ -1387,7 +1456,8 @@ function MenuBackdrop.Folder(): Folder?
 end
 function MenuBackdrop.IsHealthy(): boolean
 	local f = folder
-	if not f or f.Parent ~= Workspace or not vista then return false end
+	if not f or not vista then return false end
+	if f.Parent ~= Workspace and not stashed then return false end -- (parked: you're on the plaza)
 	if builtCount > 0 and #f:GetDescendants() < builtCount * 0.7 then return false end
 	return true
 end
@@ -1556,6 +1626,12 @@ function MenuBackdrop.Build(_focus: Vector3?)
 		-- and castles are already in place, fully loaded, when the loading
 		-- screen lifts.
 		local ign = if since < 0 then 0 else math.clamp((since - 0.4) / 0.6, 0, 1)
+		-- (on the plaza the title scene is parked: nothing of it to move; only
+		-- the plaza sky's halo turns, every other frame)
+		for _, r in ipairs(haloRings) do
+			if r.hub and onPlaza and frame % 2 == 0 and r.model.Parent then r.model:PivotTo(r.center * CFrame.Angles(0, t * r.speed, 0)) end
+		end
+		if onPlaza then return end
 		-- The islands bob slowly, so each one only needs moving every third
 		-- frame (staggered).
 		for i, fl in ipairs(floaters) do
@@ -1565,7 +1641,7 @@ function MenuBackdrop.Build(_focus: Vector3?)
 			end
 		end
 		for _, r in ipairs(haloRings) do
-			if r.model.Parent then r.model:PivotTo(r.center * CFrame.Angles(0, t * r.speed, 0)) end
+			if not r.hub and r.model.Parent then r.model:PivotTo(r.center * CFrame.Angles(0, t * r.speed, 0)) end
 		end
 		if not ringsDone then
 			for _, rp in ipairs(ringParts) do
@@ -1611,10 +1687,98 @@ function MenuBackdrop.Destroy()
 	table.clear(haloRings)
 	table.clear(ringParts)
 	if folder then folder:Destroy() folder = nil end
+	stashed = false
 	beamCore, beamSheath, beamRise, hero = nil, nil, nil, nil
 	revealedAt = nil
 	clearGrade()
 	vista = nil
+end
+
+-- ── The lobby's sky ─────────────────────────────────────────────────────────
+-- The title screen's floating kingdom drawn round the lobby plaza too: the
+-- great capital with its pillar of light and runic halo behind the DUNGEON
+-- gate, islands and shards across the sky, a cloud sea below and the sunset.
+-- Built (once) when you enter the lobby; it has its own folder, so the title
+-- scene's rebuilds leave it be. Depth is compressed round the plaza like the
+-- title shot's, but wider (you walk about in this one).
+function MenuBackdrop.BuildHubSky(center: Vector3, forward: Vector3)
+	if hubSky then
+		if onPlaza then hubSky.Parent = Workspace end
+		return
+	end
+	local hs = Instance.new("Folder")
+	hs.Name = "HubSky"
+	hs.Parent = Workspace
+	hubSky = hs
+	local prevFolder, prevOrigin, prevScale = folder, compressOrigin, compressScale
+	folder = hs
+	compressOrigin = center
+	compressScale = 3.2
+	buildingHub = true
+	local ok, err = pcall(function()
+		local fwd = Vector3.new(forward.X, 0, forward.Z).Unit
+		local function dirAt(yawDeg: number): Vector3
+			return CFrame.Angles(0, math.rad(yawDeg), 0) * fwd
+		end
+		-- the capital behind the gate, off to the right (as in the art)
+		local capScale = 3.6
+		local spireFar = center + dirAt(-24) * 1000 + Vector3.new(0, 40, 0)
+		place("spire", spireFar, capScale)
+		local spirePos, ck = compress(spireFar)
+		local sz = 68 * capScale * ck / 44
+		local tip = spirePos + Vector3.new(0, 45 * sz, 0)
+		local beamLen = 2048 * ck
+		part(hs, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(beamLen, 1.4 * sz, 1.4 * sz),
+			CFrame = CFrame.new(tip + Vector3.new(0, beamLen / 2, 0)) * UP, Color = GOLD, Material = Enum.Material.Neon, Transparency = 0.15 })
+		part(hs, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(beamLen, 4.5 * sz, 4.5 * sz),
+			CFrame = CFrame.new(tip + Vector3.new(0, beamLen / 2, 0)) * UP, Color = Color3.fromRGB(255, 170, 70), Material = Enum.Material.Neon, Transparency = 0.75 })
+		local tilt = CFrame.Angles(math.rad(10), 0, math.rad(-4))
+		local before = #ringParts
+		runeRing(hs, CFrame.new(spirePos + Vector3.new(0, 40 * sz, 0)) * tilt, 34 * sz, 96, Color3.fromRGB(110, 150, 255), 0.08, ck)
+		runeRing(hs, CFrame.new(spirePos + Vector3.new(0, 42 * sz, 0)) * tilt, 30 * sz, 84, Color3.fromRGB(170, 130, 255), -0.12, ck)
+		-- (lit now: the title's halo fades in with its beam, this one just shines)
+		for i = before + 1, #ringParts do ringParts[i].part.Transparency = ringParts[i].base end
+		-- islands round the sky (clear of the capital's line), farther ones bigger
+		local kinds = { "keep", "ruin", "keep", "ruin", "keep", "ruin", "keep", "ruin", "keep", "ruin", "keep", "ruin" }
+		local placed = 0
+		local tries = 0
+		while placed < #kinds and tries < 600 do
+			tries += 1
+			local yaw = rng:NextNumber(-150, 150)
+			local dist = rng:NextNumber(560, 1400)
+			if math.abs(yaw + 24) < 12 then continue end
+			placed += 1
+			place(kinds[placed], center + dirAt(yaw) * dist + Vector3.new(0, rng:NextNumber(-0.12, 0.1) * dist, 0), rng:NextNumber(2, 3.6) * dist / 700)
+		end
+		for _ = 1, 14 do
+			local dist = rng:NextNumber(560, 1300)
+			shard(center + dirAt(rng:NextNumber(-170, 170)) * dist + Vector3.new(0, rng:NextNumber(0, 0.35) * dist, 0), rng:NextNumber(12, 26) * dist / 600)
+		end
+		-- the cloud sea below, banks far off
+		for i = 1, 10 do
+			cloudBank(hs, center + dirAt(-180 + i * 36) * 900 + Vector3.new(0, -500, 0), 600, 240, 1)
+		end
+		for i = 1, 5 do
+			cloudBank(hs, center + dirAt(-90 + (i - 1) * 45) * 1500 + Vector3.new(0, -160, 0), 380, 260, 0.4)
+		end
+		-- the sun where the light actually comes from
+		local sd = Lighting:GetSunDirection()
+		if sd.Y > -0.2 then sunset(hs, center + Vector3.new(sd.X, math.max(sd.Y, 0.05), sd.Z).Unit * 2600) end
+	end)
+	folder, compressOrigin, compressScale = prevFolder, prevOrigin, prevScale
+	buildingHub = false
+	if not ok then warn("[MenuBackdrop] lobby sky:", err) end
+	-- The far islands' waterfalls: their spray specks and steam are too small
+	-- to see from the plaza (the falls and their mist stay).
+	for _, d in ipairs(hs:GetDescendants()) do
+		if d:IsA("ParticleEmitter") and (d.Name == "Specs" or d.Name == "Smoke") then d:Destroy() end
+	end
+	if not onPlaza then hs.Parent = nil end
+end
+
+function MenuBackdrop.DestroyHubSky()
+	if hubSky then hubSky:Destroy() end
+	hubSky = nil
 end
 
 -- Building, keeping and tearing down the scene (and switching between lobby

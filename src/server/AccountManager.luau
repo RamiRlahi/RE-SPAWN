@@ -17,6 +17,8 @@ local Network = require(Shared:WaitForChild("Network"))
 local AccountLevel = require(Shared:WaitForChild("AccountLevel"))
 local PlayerData = require(script.Parent:WaitForChild("PlayerData"))
 
+local RunStats = require(script.Parent:WaitForChild("RunStats"))
+
 local AccountManager = {}
 
 -- XP for claiming a cleared room's reward (on top of the kills in it).
@@ -58,6 +60,7 @@ function AccountManager.AddXP(player: Player, amount: number)
 	local a = account(player)
 	if not a or amount <= 0 or a.level >= AccountLevel.MAX then return end
 	a.xp += math.floor(amount + 0.5)
+	RunStats.Add(player, "xp", math.floor(amount + 0.5))
 	while a.level < AccountLevel.MAX and a.xp >= AccountLevel.XpToNext(a.level) do
 		a.xp -= AccountLevel.XpToNext(a.level)
 		a.level += 1

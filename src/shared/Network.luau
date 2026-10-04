@@ -48,10 +48,21 @@ Network.Remotes = {
 	PartyState          = "PartyState",      -- server → client: { leader = userId?, members = { {userId, name} } }
 	PartyAction         = "PartyAction",     -- client → server: invite / accept / decline / leave / kick / request
 	PartyInvite         = "PartyInvite",     -- server → invited client: { fromUserId, fromName }
+	LobbyState          = "LobbyState",      -- server → client: { mode = "hub" | "campfire", mapId?, notice? }
+	LobbyAction         = "LobbyAction",     -- client → server: { kind = "toHub" }
 	CampfireState       = "CampfireState",   -- server → party: { members = { {userId, name, classId, seated, seat, ready} }, portalAt?, open, stagger, walk }
 	CampfireAction      = "CampfireAction",  -- client → server: { kind = "ready", value } | { kind = "class", classId } | { kind = "seat", seat } | { kind = "leave" }
 	DeathState          = "DeathState",      -- server → dead client: { mode = "solo"|"coop"|"wipe"|"clear", alive = {userId} }
 	DeathAction         = "DeathAction",
+	FloorPortal         = "FloorPortal",
+	RunSummary          = "RunSummary",
+	Evolution           = "Evolution",
+	ArmoryState         = "ArmoryState",     -- server → client: { owned = { [id] = count }, equipped = { weapon, aura, title } }
+	ArmoryAction        = "ArmoryAction",    -- client → server: { kind = "equip", slot, id? }
+	RequestArmory       = "RequestArmory",   -- client → server: ask for an ArmoryState sync
+	LootDrop            = "LootDrop",        -- server → finder: { id, name, rarity, slot, glyph, isNew, source }       -- server → client: a boon evolved { id, name, description, color, isNew }
+	CodexState          = "CodexState",      -- server → client: { discovered = { [evoId] = true } }
+	RequestCodex        = "RequestCodex",    -- client → server: ask for a CodexState sync      -- server → client: the run's over for you: { result, floor, time, tier, stats, rewards, party }     -- server → run's players: { ready, total, readyIds, waiting = {names}, descending } at the floor's exit
 	ClaimReward         = "ClaimReward",     -- client → server: the room reward Model you left-clicked near     -- client → server: "respawn" | "menu"
 }
 

@@ -879,7 +879,8 @@ function SettingsModal.Create(parent: GuiObject, currentSettings: any, callbacks
 				table.insert(hiddenGuis, g)
 			end
 		end
-		IsometricCamera.Pause()
+		-- (walking the lobby the camera is Roblox's own, not the run's)
+		if localPlayer:GetAttribute("InLobby") == false then IsometricCamera.Pause() end
 		cam.CameraType = Enum.CameraType.Scriptable
 		-- Just behind his right shoulder (the reference): his head and back
 		-- fill the left of the frame, and the glass panel floats ahead of him,
@@ -910,13 +911,14 @@ function SettingsModal.Create(parent: GuiObject, currentSettings: any, callbacks
 		heldRoot = root
 		-- (no weapon in the shot: it would cover the frame)
 		for _, d in ipairs(char:GetDescendants()) do
-			if d:IsA("BasePart") and d:FindFirstAncestorOfClass("Tool") then
+			if d:IsA("BasePart") and (d:FindFirstAncestorOfClass("Tool") or d:FindFirstAncestor("StowedWeapon")) then
 				d.LocalTransparencyModifier = 1
 				table.insert(hiddenParts, d)
 			end
 		end
 		localPlayer:SetAttribute("SettingsOpen", true)
-		quitBtn.Visible = true
+		-- (Leave Run: in a run only)
+		quitBtn.Visible = localPlayer:GetAttribute("InLobby") == false
 		lightShot(root, look, right, eye, front)
 		-- (the normal mouse cursor, to click the panel with)
 		savedMouseIcon = UserInputService.MouseIconEnabled
@@ -947,7 +949,16 @@ function SettingsModal.Create(parent: GuiObject, currentSettings: any, callbacks
 		inShot = false
 		unlightShot()
 		-- (unless the run's over and the camera's already handed back)
-		if IsometricCamera and IsometricCamera.IsActive() then IsometricCamera.Resume(0.45) end
+		if IsometricCamera and IsometricCamera.IsActive() then
+			IsometricCamera.Resume(0.45)
+		elseif localPlayer:GetAttribute("InHub") == true then
+			-- the lobby: back to walking behind him
+			local cam = Workspace.CurrentCamera
+			local hum = localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Humanoid")
+			cam.CameraType = Enum.CameraType.Custom
+			cam.FieldOfView = 70
+			if hum then cam.CameraSubject = hum end
+		end
 	end
 
 	local wasShown = false
@@ -957,7 +968,8 @@ function SettingsModal.Create(parent: GuiObject, currentSettings: any, callbacks
 		surface.Enabled = shown
 		if shown ~= wasShown then
 			wasShown = shown
-			if shown and localPlayer:GetAttribute("InLobby") == false then enterShot() elseif not shown then leaveShot() end
+			local walking = localPlayer:GetAttribute("InLobby") == false or localPlayer:GetAttribute("InHub") == true
+			if shown and walking then enterShot() elseif not shown then leaveShot() end
 			if not shown then
 				stopListening()
 				panel.Parent = nil

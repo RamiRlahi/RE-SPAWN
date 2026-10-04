@@ -9,14 +9,19 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local ClassData = require(Shared:WaitForChild("ClassData"))
 local TomeData = require(Shared:WaitForChild("TomeData"))
+local RunScope = require(Shared:WaitForChild("RunScope"))
 local TalentManager = require(script.Parent:WaitForChild("TalentManager"))
 local GachaManager = require(script.Parent:WaitForChild("GachaManager"))
 local AccountManager = require(script.Parent:WaitForChild("AccountManager"))
+local RunStats = require(script.Parent:WaitForChild("RunStats"))
+local PlayerData = require(script.Parent:WaitForChild("PlayerData"))
+local WeeklyModifiers = require(Shared:WaitForChild("WeeklyModifiers"))
 
 local PlayerStats = {}
 
 local BASE_XP_TO_LEVEL = 100
-local MAX_UNIQUE_TOMES = 4
+local MAX_UNIQUE_TOMES = 6 -- (tomes and boons: the build's slots)
+local MAX_RELICS = 3       -- run relics have their own
 local SELECTION_LOCK_DURATION = 2
 local REROLLS_PER_LEVEL = 1
 
@@ -35,6 +40,11 @@ type RunState = {
 	chaosBoosts: { string },
 	talentEffects: { any }, -- unlocked class talents (TalentManager), fixed for the run
 	stats: { [string]: number },
+	evolutions: { [string]: boolean }, -- boons evolved this run (TomeData.Evolutions)
+	relics: { string },                -- run relics carried (TomeData.RelicOrder)
+	relicOffers: number,               -- relic choices waiting to be shown
+	curses: number,                    -- cursed altars accepted (-25% max HP each)
+	presentingRelics: boolean,         -- the choice up now is a relic choice
 }
 
 local states: { [Player]: RunState } = {}
@@ -43,23 +53,25 @@ local function setGamePaused(owner: Player, paused: boolean)
 	local state = states[owner]
 	if not state then return end
 	state.isPausingGame = paused
+	-- (only the chooser's run pauses: other parties' runs carry on)
+	local runId = owner:GetAttribute("RunId")
 	local shouldPause = false
 	local choosing: { string } = {}
 	for p, otherState in pairs(states) do
-		if otherState.isPausingGame then
+		if otherState.isPausingGame and p:GetAttribute("RunId") == runId then
 			shouldPause = true
 			table.insert(choosing, p.DisplayName)
 		end
 	end
-	Workspace:SetAttribute("TomesPaused", shouldPause)
+	RunScope.Set(runId, "TomesPaused", shouldPause)
 	-- Who everyone is waiting on (clients show "waiting for … to choose").
-	Workspace:SetAttribute("TomesChoosing", if #choosing > 0 then table.concat(choosing, ", ") else nil)
+	RunScope.Set(runId, "TomesChoosing", if #choosing > 0 then table.concat(choosing, ", ") else nil)
 
 	for _, player in ipairs(Players:GetPlayers()) do
 		local character = player.Character
 		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
-		if humanoid and root and player:GetAttribute("InLobby") ~= true then
+		if humanoid and root and player:GetAttribute("InLobby") ~= true and player:GetAttribute("RunId") == runId then
 			root.Anchored = shouldPause
 			if shouldPause then
 				humanoid.WalkSpeed = 0
@@ -190,6 +202,12 @@ local function applyStats(player: Player, state: RunState)
 	for stat, bonus in pairs(percentageBonuses) do
 		stats[stat] = (stats[stat] or 1) * (1 + bonus)
 	end
+	-- (the Frozen Abyss: everyone a little slower)
+	if WeeklyModifiers.Is("frozen_abyss") then stats.movementSpeed *= 0.9 end
+	-- (a cursed altar's price: a quarter of your max health, each)
+	if (state.curses or 0) > 0 then stats.maxHealth *= math.max(0.25, 1 - 0.25 * state.curses) end
+	-- Evolutions: a flag stat each (Boons reads them).
+	for id in pairs(state.evolutions or {}) do stats[id] = 1 end
 	-- Caps, so stacking one tome can't break the game.
 	stats.size = math.min(stats.size or 1, 1.75)
 	stats.abilityCooldown = math.max(stats.abilityCooldown or 1, 0.5)
@@ -236,17 +254,108 @@ local function sampleChoices(pool: { string }): { string }
 	return choices
 end
 
-local function presentChoices(player: Player, state: RunState)
-	if state.pendingChoices or state.pendingLevelUps <= 0 then return end
+-- What a level-up can offer: new tomes and boons while there are free slots,
+-- and another level of what you already carry (boons stop at their max).
+local function buildPool(player: Player, state: RunState, noNew: { [string]: boolean }?): { string }
 	local pool: { string } = {}
-	if #state.uniqueTomes >= MAX_UNIQUE_TOMES then
-		pool = table.clone(state.uniqueTomes)
-	else
+	local classId = player:GetAttribute("SelectedClass")
+	for _, id in ipairs(state.uniqueTomes) do
+		if (state.tomeCounts[id] or 0) < TomeData.MaxLevel(id) then table.insert(pool, id) end
+	end
+	if #state.uniqueTomes < MAX_UNIQUE_TOMES then
 		for _, id in ipairs(TomeData.Order) do
-			if not state.tomeCounts[id] and TomeData.IsForClass(id, player:GetAttribute("SelectedClass")) then
+			if not state.tomeCounts[id] and TomeData.IsForClass(id, classId) and not (noNew and noNew[id]) then
 				table.insert(pool, id)
 			end
 		end
+	end
+	return pool
+end
+
+-- A choice as its card shows it: a boon's card reads its next level (and
+-- what it evolves into at max).
+local function choiceView(player: Player, state: RunState, id: string): any
+	local tome = TomeData.GetTome(id)
+	if not tome then return nil end
+	if tome.category ~= "Boon" then return tome end
+	local nextLevel = (state.tomeCounts[id] or 0) + 1
+	local view = table.clone(tome) :: any
+	view.level = nextLevel
+	local lines = { (tome.levels and tome.levels[nextLevel]) or tome.description }
+	local hint = TomeData.EvolveHint(id, player:GetAttribute("SelectedClass"))
+	if hint and nextLevel >= (tome.maxLevel or 3) then table.insert(lines, hint) end
+	view.description = table.concat(lines, "\n")
+	return view
+end
+
+local function sendChoices(player: Player, state: RunState)
+	local choices = {}
+	for _, id in ipairs(state.pendingChoices or {}) do
+		local view = choiceView(player, state, id)
+		if view then table.insert(choices, view) end
+	end
+	Network.GetRemoteEvent(Network.Remotes.TomeChoices):FireClient(player, {
+		choices = choices,
+		rerollsRemaining = state.rerollsRemaining,
+		lockDuration = SELECTION_LOCK_DURATION,
+	})
+end
+
+-- A boon at its max level evolves: with its tome (class-free ones), or on its
+-- class (that class's signature skill changes). Found ones go in the Codex.
+local function checkEvolutions(player: Player, state: RunState)
+	local classId = player:GetAttribute("SelectedClass")
+	for _, evo in ipairs(TomeData.Evolutions) do
+		if state.evolutions[evo.id] then continue end
+		if (state.tomeCounts[evo.boon] or 0) < TomeData.MaxLevel(evo.boon) then continue end
+		local ready = if evo.with then (state.tomeCounts[evo.with] or 0) > 0 else evo.classId == classId
+		if not ready then continue end
+		state.evolutions[evo.id] = true
+		player:SetAttribute(`Evo_{evo.id}`, true)
+		local isNew = false
+		local p = PlayerData.Get(player)
+		if p then
+			p.codex = p.codex or {}
+			isNew = not p.codex[evo.id]
+			p.codex[evo.id] = true
+			PlayerData.MarkDirty(player)
+		end
+		Network.GetRemoteEvent(Network.Remotes.Evolution):FireClient(player, {
+			id = evo.id, name = evo.name, description = evo.description, color = evo.color, isNew = isNew,
+		})
+		RunStats.AddLoot(player, { kind = "evolution", glyph = "◆", name = evo.name, rarity = "Legendary", isNew = isNew })
+		print(`[PlayerStats] {player.Name} evolved {evo.name}{if isNew then " (new to the Codex)" else ""}`)
+	end
+	applyStats(player, state)
+end
+
+-- The run relics this player could still be offered.
+local function relicPool(player: Player, state: RunState): { string }
+	local pool = {}
+	local classId = player:GetAttribute("SelectedClass")
+	for _, id in ipairs(TomeData.RelicOrder) do
+		if not state.tomeCounts[id] and TomeData.IsForClass(id, classId) then table.insert(pool, id) end
+	end
+	return pool
+end
+
+local function presentChoices(player: Player, state: RunState)
+	if state.pendingChoices or state.pendingLevelUps <= 0 then return end
+	-- (a relic found waits its turn, then shows before any level-up)
+	local pool: { string }
+	if state.relicOffers > 0 and #state.relics < MAX_RELICS and #relicPool(player, state) > 0 then
+		state.relicOffers -= 1
+		state.presentingRelics = true
+		pool = relicPool(player, state)
+	else
+		if state.relicOffers > 0 then
+			-- (no room for a relic: that offer lapses)
+			state.pendingLevelUps -= state.relicOffers
+			state.relicOffers = 0
+			if state.pendingLevelUps <= 0 then return end
+		end
+		state.presentingRelics = false
+		pool = buildPool(player, state)
 	end
 
 	state.pendingChoices = sampleChoices(pool)
@@ -267,22 +376,13 @@ local function presentChoices(player: Player, state: RunState)
 	end
 	state.selectionUnlockAt = os.clock() + SELECTION_LOCK_DURATION
 	setGamePaused(player, true)
-	local choices = {}
-	for _, id in ipairs(state.pendingChoices) do
-		local tome = TomeData.GetTome(id)
-		if tome then table.insert(choices, tome) end
-	end
-	Network.GetRemoteEvent(Network.Remotes.TomeChoices):FireClient(player, {
-		choices = choices,
-		rerollsRemaining = state.rerollsRemaining,
-		lockDuration = SELECTION_LOCK_DURATION,
-	})
+	sendChoices(player, state)
 end
 
 function PlayerStats.StartRun(player: Player)
 	-- Last run's tome counts (read by the client's Tab tome list).
 	for name in pairs(player:GetAttributes()) do
-		if string.sub(name, 1, 5) == "Tome_" then player:SetAttribute(name, nil) end
+		if string.sub(name, 1, 5) == "Tome_" or string.sub(name, 1, 4) == "Evo_" then player:SetAttribute(name, nil) end
 	end
 	local state: RunState = {
 		level = 1,
@@ -298,6 +398,11 @@ function PlayerStats.StartRun(player: Player)
 		chaosBoosts = {},
 		talentEffects = {},
 		stats = {},
+		evolutions = {},
+		relics = {},
+		relicOffers = 0,
+		curses = 0,
+		presentingRelics = false,
 	}
 	local classId = player:GetAttribute("SelectedClass")
 	if typeof(classId) == "string" then
@@ -352,9 +457,11 @@ end
 -- Gold earned in the run, scaled by the Golden Tome's goldGain stat.
 function PlayerStats.AwardGold(player: Player, amount: number): number
 	local state = states[player]
-	local gain = math.floor(amount * ((state and state.stats.goldGain) or 1) + 0.5)
+	local rush = if WeeklyModifiers.Is("gold_rush") then 2 else 1
+	local gain = math.floor(amount * ((state and state.stats.goldGain) or 1) * rush + 0.5)
 	if gain <= 0 then return 0 end
 	player:SetAttribute("Gold", (player:GetAttribute("Gold") or 0) + gain)
+	RunStats.Add(player, "gold", gain)
 	return gain
 end
 
@@ -374,19 +481,11 @@ function PlayerStats.GrantTome(player: Player, preferredId: string?): TomeData.T
 	if not state then return nil end
 	local slotsFull = #state.uniqueTomes >= MAX_UNIQUE_TOMES
 	local tomeId: string? = nil
-	if preferredId and TomeData.GetTome(preferredId) and (state.tomeCounts[preferredId] or not slotsFull) then
+	if preferredId and TomeData.GetTome(preferredId) and (state.tomeCounts[preferredId] or not slotsFull)
+		and (state.tomeCounts[preferredId] or 0) < TomeData.MaxLevel(preferredId) then
 		tomeId = preferredId
 	else
-		local pool: { string } = {}
-		if slotsFull then
-			pool = table.clone(state.uniqueTomes)
-		else
-			for _, id in ipairs(TomeData.Order) do
-				if id ~= "chaos" and id ~= "cursed" and TomeData.IsForClass(id, player:GetAttribute("SelectedClass")) then
-					table.insert(pool, id)
-				end
-			end
-		end
+		local pool = buildPool(player, state, { chaos = true, cursed = true })
 		if #pool == 0 then return nil end
 		tomeId = pool[math.random(1, #pool)]
 	end
@@ -398,13 +497,35 @@ function PlayerStats.GrantTome(player: Player, preferredId: string?): TomeData.T
 	state.tomeCounts[id] += 1
 	player:SetAttribute(`Tome_{id}`, state.tomeCounts[id])
 	applyStats(player, state)
+	checkEvolutions(player, state)
 	return TomeData.GetTome(id)
+end
+
+-- A run relic found (a boss, an elite, a cursed altar): a choice of three on
+-- the same cards as the tomes. False if there's no room for one.
+function PlayerStats.OfferRelics(player: Player): boolean
+	local state = states[player]
+	if not state or #state.relics >= MAX_RELICS or #relicPool(player, state) == 0 then return false end
+	state.relicOffers += 1
+	state.pendingLevelUps += 1
+	presentChoices(player, state)
+	return true
+end
+
+-- A cursed altar's bargain accepted: a quarter of your max health, for good.
+function PlayerStats.AddCurse(player: Player)
+	local state = states[player]
+	if not state then return end
+	state.curses += 1
+	player:SetAttribute("Curses", state.curses)
+	applyStats(player, state)
 end
 
 -- Whether a specific tome could be granted right now (shop listings).
 function PlayerStats.CanReceiveTome(player: Player, tomeId: string): boolean
 	local state = states[player]
 	if not state then return false end
+	if (state.tomeCounts[tomeId] or 0) >= TomeData.MaxLevel(tomeId) then return false end
 	return state.tomeCounts[tomeId] ~= nil or #state.uniqueTomes < MAX_UNIQUE_TOMES
 end
 
@@ -427,9 +548,15 @@ function PlayerStats.Init()
 		if os.clock() < state.selectionUnlockAt then return end
 		if not table.find(state.pendingChoices, tomeId) then return end
 
+		if (state.tomeCounts[tomeId] or 0) >= TomeData.MaxLevel(tomeId) then return end
+		if TomeData.IsRelic(tomeId) and #state.relics >= MAX_RELICS then return end
 		state.pendingChoices = nil
 		state.pendingLevelUps -= 1
-		if not state.tomeCounts[tomeId] then
+		if TomeData.IsRelic(tomeId) then
+			-- (its own slots)
+			table.insert(state.relics, tomeId)
+			state.tomeCounts[tomeId] = 0
+		elseif not state.tomeCounts[tomeId] then
 			if #state.uniqueTomes >= MAX_UNIQUE_TOMES then return end
 			state.tomeCounts[tomeId] = 0
 			table.insert(state.uniqueTomes, tomeId)
@@ -439,7 +566,7 @@ function PlayerStats.Init()
 			local chaosPool: { string } = {}
 			for _, candidateId in ipairs(TomeData.Order) do
 				local candidate = TomeData.GetTome(candidateId)
-				if candidateId ~= "chaos" and candidateId ~= "cursed" and candidate and candidate.effects[1] and candidate.effects[1].value
+				if candidateId ~= "chaos" and candidateId ~= "cursed" and not TomeData.IsBoon(candidateId) and candidate and candidate.effects[1] and candidate.effects[1].value
 					and TomeData.IsForClass(candidateId, player:GetAttribute("SelectedClass")) then
 					table.insert(chaosPool, candidateId)
 				end
@@ -450,6 +577,7 @@ function PlayerStats.Init()
 		end
 		player:SetAttribute(`Tome_{tomeId}`, state.tomeCounts[tomeId])
 		applyStats(player, state)
+		checkEvolutions(player, state)
 		setGamePaused(player, false)
 		presentChoices(player, state)
 	end)
@@ -458,26 +586,18 @@ function PlayerStats.Init()
 		local state = states[player]
 		if not state or not state.pendingChoices or state.rerollsRemaining <= 0 then return end
 		if os.clock() < state.selectionUnlockAt then return end
-		local pool = #state.uniqueTomes >= MAX_UNIQUE_TOMES and table.clone(state.uniqueTomes) or {}
-		if #pool == 0 then
-			for _, id in ipairs(TomeData.Order) do
-				if not state.tomeCounts[id] and TomeData.IsForClass(id, player:GetAttribute("SelectedClass")) then table.insert(pool, id) end
-			end
-		end
-		state.pendingChoices = sampleChoices(pool)
+		state.pendingChoices = sampleChoices(if state.presentingRelics then relicPool(player, state) else buildPool(player, state))
 		state.rerollsRemaining -= 1
 		state.selectionUnlockAt = os.clock() + SELECTION_LOCK_DURATION
-		local choices = {}
-		for _, id in ipairs(state.pendingChoices) do
-			local tome = TomeData.GetTome(id)
-			if tome then table.insert(choices, tome) end
-		end
-		Network.GetRemoteEvent(Network.Remotes.TomeChoices):FireClient(player, {
-			choices = choices,
-			rerollsRemaining = state.rerollsRemaining,
-			lockDuration = SELECTION_LOCK_DURATION,
-		})
+		sendChoices(player, state)
 	end)
+
+	-- The Build Codex (the lobby's archive): the evolutions you've found.
+	local function syncCodex(player: Player)
+		local p = PlayerData.Get(player)
+		Network.GetRemoteEvent(Network.Remotes.CodexState):FireClient(player, { discovered = if p then (p.codex or {}) else {} })
+	end
+	Network.GetRemoteEvent(Network.Remotes.RequestCodex).OnServerEvent:Connect(syncCodex)
 
 	Players.PlayerRemoving:Connect(function(player)
 		if states[player] and states[player].isPausingGame then

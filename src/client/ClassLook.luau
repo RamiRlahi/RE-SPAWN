@@ -19,6 +19,8 @@ local WeaponGrip = require(Shared:WaitForChild("WeaponGrip"))
 local RevolverModel = require(Shared:WaitForChild("RevolverModel"))
 local SwordModel = require(Shared:WaitForChild("SwordModel"))
 local BerserkerLook = require(Shared:WaitForChild("BerserkerLook"))
+local WeaponSling = require(Shared:WaitForChild("WeaponSling"))
+local GearLook = require(Shared:WaitForChild("GearLook"))
 local ClothCape = require(script.Parent:WaitForChild("ClothCape"))
 
 local ClassLook = {}
@@ -73,122 +75,20 @@ export type Options = {
 	plant: CFrame?,                           -- stand the weapon here (Torso space, blade down) instead of in the hand
 	plantScale: number?,                      -- resize the planted weapon
 	onBack: boolean?,                         -- sling the weapon across the back instead (seated heroes)
+	finish: string?,                          -- an Armory weapon finish (GearData id) on the weapon
+	aura: string?,                            -- an Armory aura on the character
 }
 
 -- Swords: slung across the back when their hero sits down.
 ClassLook.SWORD_CLASSES = { heavy_knight = true, swordsman = true, berserker = true } :: { [string]: boolean }
 
--- Where a weapon sits slung across the back, as the handle's CFrame in Torso
--- space: the hilt up behind the right shoulder, the blade running down and
--- across to the left, its flat against the back. Worked out from the weapon
--- itself (its blade is its biggest part; the hilt is the end the hand holds),
--- so any sword fits.
-local BACK_GRIP = Vector3.new(0.75, 1.45, 0)   -- the hilt (X, Y; Z is worked out), torso space, +Z = the back
-local BACK_ANGLE = math.rad(50)                 -- the blade's tilt from straight down
-local BACK_LENGTH = 5.6                         -- bigger weapons are shown smaller on the back
-local BACK_CLEAR = 0.55                         -- the nearest point sits this far behind the torso's centre
-local BACK_PUSH_MAX = 2.0                       -- never pushed further out than this (past a mantle or cape)
-
-local function biggestPart(tool: Tool, handle: BasePart): BasePart
-	local blade: BasePart = handle
-	for _, d in ipairs(tool:GetDescendants()) do
-		if d:IsA("BasePart") and d.Size.Magnitude > blade.Size.Magnitude then blade = d end
-	end
-	return blade
-end
-
--- The handle's CFrame in Torso space. `gripAt` is where the hand holds it
--- (handle space).
-local function backCFrame(tool: Tool, handle: BasePart, gripAt: Vector3): CFrame
-	local blade = biggestPart(tool, handle)
-	local s = blade.Size
-	local axes = { { Vector3.xAxis, s.X }, { Vector3.yAxis, s.Y }, { Vector3.zAxis, s.Z } }
-	table.sort(axes, function(a, b) return a[2] > b[2] end)
-	local function toHandle(v: Vector3): Vector3
-		return handle.CFrame:VectorToObjectSpace(blade.CFrame:VectorToWorldSpace(v))
-	end
-	local long = toHandle(axes[1][1])
-	local center = handle.CFrame:PointToObjectSpace(blade.Position)
-	if (center - gripAt):Dot(long) < 0 then long = -long end -- point it hilt → tip
-	-- Every visible corner, handle space (to lay it flat against the back).
-	local corners: { Vector3 } = {}
-	for _, d in ipairs(tool:GetDescendants()) do
-		if d:IsA("BasePart") and d.Transparency < 1 then
-			local h = d.Size / 2
-			for _, c in ipairs({ Vector3.new(1, 1, 1), Vector3.new(1, 1, -1), Vector3.new(1, -1, 1), Vector3.new(1, -1, -1),
-				Vector3.new(-1, 1, 1), Vector3.new(-1, 1, -1), Vector3.new(-1, -1, 1), Vector3.new(-1, -1, -1) }) do
-				table.insert(corners, handle.CFrame:PointToObjectSpace(d.CFrame:PointToWorldSpace(h * c)))
-			end
-		end
-	end
-	-- Hilt → tip runs down and to the left; of the blade's two other axes, the
-	-- one that lies thinnest against the back faces it.
-	local down = Vector3.new(-math.sin(BACK_ANGLE), -math.cos(BACK_ANGLE), 0)
-	local to = CFrame.fromMatrix(Vector3.zero, down, Vector3.zAxis, down:Cross(Vector3.zAxis))
-	local best: { r: CFrame, minZ: number, depth: number }? = nil
-	for _, i in ipairs({ 2, 3 }) do
-		local flat = toHandle(axes[i][1])
-		flat = (flat - long * flat:Dot(long)).Unit
-		local r = to * CFrame.fromMatrix(Vector3.zero, long, flat, long:Cross(flat)):Inverse()
-		local lo, hi = math.huge, -math.huge
-		for _, c in ipairs(corners) do
-			local z = (r * (c - gripAt)).Z
-			lo, hi = math.min(lo, z), math.max(hi, z)
-		end
-		if not best or hi - lo < best.depth then best = { r = r, minZ = lo, depth = hi - lo } end
-	end
-	local b = best :: { r: CFrame, minZ: number, depth: number }
-	local at = Vector3.new(BACK_GRIP.X, BACK_GRIP.Y, BACK_CLEAR - b.minZ)
-	return CFrame.new(at) * b.r * CFrame.new(-gripAt)
-end
-
--- How far the slung weapon must move out (along the back) to clear whatever
--- the character wears over its back (armor plates, capes): the backmost
--- point of anything else on the character within the weapon's outline.
-local function backClearance(character: Model, tool: Tool, torso: BasePart, handle: BasePart, c0: CFrame): number
-	local function corners(p: BasePart, cf: CFrame): { Vector3 }
-		local h = p.Size / 2
-		local out = {}
-		for _, c in ipairs({ Vector3.new(1, 1, 1), Vector3.new(1, 1, -1), Vector3.new(1, -1, 1), Vector3.new(1, -1, -1),
-			Vector3.new(-1, 1, 1), Vector3.new(-1, 1, -1), Vector3.new(-1, -1, 1), Vector3.new(-1, -1, -1) }) do
-			table.insert(out, cf * (h * c))
-		end
-		return out
-	end
-	-- the weapon's outline across the back, and how close it comes to it
-	local x0, x1, y0, y1, zNear = math.huge, -math.huge, math.huge, -math.huge, math.huge
-	for _, d in ipairs(tool:GetDescendants()) do
-		if d:IsA("BasePart") and d.Transparency < 1 then
-			for _, c in ipairs(corners(d, c0 * handle.CFrame:ToObjectSpace(d.CFrame))) do
-				x0, x1, y0, y1 = math.min(x0, c.X), math.max(x1, c.X), math.min(y0, c.Y), math.max(y1, c.Y)
-				zNear = math.min(zNear, c.Z)
-			end
-		end
-	end
-	local zBack = -math.huge
-	for _, d in ipairs(character:GetDescendants()) do
-		-- (anchored pieces are simulated, like cloth: they settle wherever the
-		-- pose leaves them, so they never decide where the weapon goes)
-		if d:IsA("BasePart") and d.Transparency < 1 and d.Name ~= "HumanoidRootPart" and not d.Anchored and not d:IsDescendantOf(tool) then
-			for _, c in ipairs(corners(d, torso.CFrame:ToObjectSpace(d.CFrame))) do
-				-- (the upper back only: a cape flaring out below would push it off the body)
-				if c.Z > 0 and c.Y > -0.2 and c.X >= x0 and c.X <= x1 and c.Y >= y0 and c.Y <= y1 then zBack = math.max(zBack, c.Z) end
-			end
-		end
-	end
-	return math.clamp(zBack + 0.08 - zNear, 0, BACK_PUSH_MAX)
-end
-
--- Shrink the whole weapon (parts, joints, meshes) by `k` through a temporary
--- Model, then hand the pieces back to the Tool.
-local function scaleTool(tool: Tool, handle: BasePart, k: number)
-	local holder = Instance.new("Model")
-	for _, c in ipairs(tool:GetChildren()) do c.Parent = holder end
-	holder.PrimaryPart = handle
-	holder:ScaleTo(k)
-	for _, c in ipairs(holder:GetChildren()) do c.Parent = tool end
-	holder:Destroy()
-end
+-- (Where it sits slung across the back: WeaponSling, shared with the lobby's
+-- real characters.)
+local BACK_LENGTH = WeaponSling.BACK_LENGTH
+local biggestPart = WeaponSling.BiggestPart
+local backCFrame = WeaponSling.BackCFrame
+local backClearance = WeaponSling.BackClearance
+local scaleTool = WeaponSling.ScaleTool
 
 -- Handle-space turn that points the blade straight down (-Y). The game's
 -- sword asset runs its blade along the Handle's +Y, the built one along -Z.
@@ -232,6 +132,8 @@ function ClassLook.Apply(character: Model, classId: string, opts: Options?)
 					wc.Parent = d
 				end
 			end
+			-- (their Armory weapon finish)
+			if o.finish then pcall(GearLook.Weapon, tool, o.finish) end
 			local grip = tool.Grip
 			if o.grip then grip = o.grip(classId, grip) end
 			-- Where Roblox would put an equipped tool: the right grip
@@ -342,6 +244,9 @@ function ClassLook.Apply(character: Model, classId: string, opts: Options?)
 			if d:IsA("BasePart") and (d.Name == "Cape" or d.Name == "CapeRag") then d.Transparency = 1 end
 		end
 	end
+
+	-- (their Armory aura)
+	if o.aura then pcall(GearLook.Aura, character, o.aura) end
 
 	-- Over the cloak, not through it.
 	local bw = backWeld

@@ -901,8 +901,66 @@ local function buildGamble(room: Room, folder: Folder, rng: Random)
 end
 
 -- ═════════════════════════════════════════════════════════════════════════════
+-- ─── Cursed altar ──────────────────────────────────────────────────────────
+-- A black altar in violet fire. Accept its bargain (once each): lose a quarter
+-- of your max health for the rest of the run, and take a run relic (a choice
+-- of three) and a piece of gear, Epic or better.
+local CURSE = Color3.fromRGB(150, 50, 220)
+local function buildCursed(room: Room, folder: Folder, rng: Random)
+	local model = Instance.new("Model")
+	model.Name = `CursedAltar_{room.id}`
+	model.Parent = folder
+	local c = Vector3.new(room.centerWorld.X, room.floorY, room.centerWorld.Z)
+	cyl(model, "AltarRing", c + Vector3.new(0, 0.08, 0), 0.08, 16, CURSE, Enum.Material.Neon, { Transparency = 0.45, CanCollide = false })
+	cyl(model, "AltarFloor", c + Vector3.new(0, 0.3, 0), 0.5, 13, Color3.fromRGB(26, 20, 30), Enum.Material.Basalt)
+	local altar = part(model, { Name = "Altar", Size = Vector3.new(6, 3.4, 3.4), CFrame = CFrame.new(c + Vector3.new(0, 2.25, 0)),
+		Color = Color3.fromRGB(20, 16, 24), Material = Enum.Material.Slate })
+	part(model, { Name = "AltarTop", Size = Vector3.new(6.8, 0.5, 4.2), CFrame = CFrame.new(c + Vector3.new(0, 4.2, 0)), Color = Color3.fromRGB(40, 30, 50), Material = Enum.Material.Marble })
+	-- the skull on it, in violet fire
+	local skull = part(model, { Name = "Skull", Shape = Enum.PartType.Ball, Size = Vector3.one * 1.6, CFrame = CFrame.new(c + Vector3.new(0, 5.2, 0)),
+		Color = Color3.fromRGB(225, 215, 200), Material = Enum.Material.SmoothPlastic, CanCollide = false })
+	fire(skull, CURSE, Color3.fromRGB(60, 0, 90), 4)
+	pointLight(skull, CURSE, 2.5, 22)
+	-- four pillars round it, chained to the altar
+	for i = 0, 3 do
+		local a = i * math.pi / 2 + math.pi / 4
+		local p = c + Vector3.new(math.cos(a) * 6.5, 0, math.sin(a) * 6.5)
+		part(model, { Name = "Pillar", Size = Vector3.new(1.4, 7, 1.4), CFrame = CFrame.new(p + Vector3.new(0, 3.5, 0)), Color = Color3.fromRGB(34, 28, 40), Material = Enum.Material.Slate })
+		local flame = part(model, { Name = "Brazier", Size = Vector3.new(1.6, 0.6, 1.6), CFrame = CFrame.new(p + Vector3.new(0, 7.3, 0)), Color = Color3.fromRGB(20, 16, 24), Material = Enum.Material.Metal })
+		fire(flame, CURSE, Color3.fromRGB(30, 0, 50), 3)
+		local from = p + Vector3.new(0, 5, 0)
+		local to = c + Vector3.new(0, 3.5, 0)
+		part(model, { Name = "Chain", Size = Vector3.new(0.18, 0.18, (to - from).Magnitude), CFrame = CFrame.lookAt((from + to) / 2, to),
+			Color = Color3.fromRGB(70, 60, 70), Material = Enum.Material.Metal, CanCollide = false })
+	end
+	sparkles(skull, CURSE, 8, 1.5, 1.5)
+	local title, sub = billboard(model, altar, "CURSED ALTAR", CURSE, 7.5)
+	sub.Text = "Lose 25% max HP for the run. Gain a relic and rare gear."
+	local taken: { [Player]: boolean } = {}
+	local pr = prompt(altar, "Accept the curse", "Cursed Altar", 1.2)
+	pr.Triggered:Connect(function(player: Player)
+		if taken[player] or player:GetAttribute("InLobby") ~= false then return end
+		taken[player] = true
+		PlayerStats.AddCurse(player)
+		local _, root = playerHumanoid(player)
+		if root then
+			pop(root.Position + Vector3.new(0, 4, 0), "CURSED: -25% MAX HP", CURSE)
+			burst(root.Position, CURSE, 1.4)
+		end
+		pcall(function()
+			local LootManager = require(script.Parent:WaitForChild("LootManager")) :: any
+			LootManager.Drop(player, "cursed", c + Vector3.new(0, 0.5, 0), "Epic")
+		end)
+		PlayerStats.OfferRelics(player)
+		title.Text = "CURSED ALTAR"
+	end)
+end
+
 function SpecialRooms.Build(room: Room, folder: Folder, rng: Random): boolean
-	if room.roomType == "Rest" then
+	if room.roomType == "Cursed" then
+		buildCursed(room, folder, rng)
+		return true
+	elseif room.roomType == "Rest" then
 		buildRest(room, folder, rng)
 	elseif room.roomType == "Treasure" then
 		buildTreasure(room, folder, rng)

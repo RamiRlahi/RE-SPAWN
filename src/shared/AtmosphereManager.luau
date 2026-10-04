@@ -149,17 +149,21 @@ function AtmosphereManager.ApplyLobbyLighting()
 	print("[AtmosphereManager] Lobby / Sanctuary bright lighting applied.")
 end
 
-function AtmosphereManager.ApplyDungeonLighting()
+function AtmosphereManager.ApplyDungeonLighting(mapId: string?)
 	local cfg = AtmosphereManager.Config
+	-- (the map's own light over the base: MapData)
+	local ok, MapData = pcall(function() return require(script.Parent:WaitForChild("MapData")) end)
+	local map = if ok and MapData then MapData.Get(mapId) else nil
+	local ml = map and map.lighting
 
 	-- Configure dim, atmospheric dungeon lighting
-	Lighting.Ambient = cfg.DungeonAmbient
-	Lighting.OutdoorAmbient = cfg.DungeonOutdoorAmbient
-	Lighting.Brightness = cfg.DungeonBrightness
+	Lighting.Ambient = if ml then ml.ambient else cfg.DungeonAmbient
+	Lighting.OutdoorAmbient = if ml then ml.outdoorAmbient else cfg.DungeonOutdoorAmbient
+	Lighting.Brightness = if ml then ml.brightness else cfg.DungeonBrightness
 	Lighting.ClockTime = cfg.DungeonClockTime
 	Lighting.GeographicLatitude = cfg.DungeonLatitude
-	Lighting.ColorShift_Top = cfg.DungeonColorShiftTop
-	Lighting.ColorShift_Bottom = cfg.DungeonColorShiftBottom
+	Lighting.ColorShift_Top = if ml then ml.colorShiftTop else cfg.DungeonColorShiftTop
+	Lighting.ColorShift_Bottom = if ml then ml.colorShiftBottom else cfg.DungeonColorShiftBottom
 	Lighting.ExposureCompensation = cfg.DungeonExposure
 	Lighting.GlobalShadows = true
 
@@ -186,8 +190,8 @@ function AtmosphereManager.ApplyDungeonLighting()
 	end
 	colorCorr.Brightness = cfg.ColorCorrection.Brightness
 	colorCorr.Contrast = cfg.ColorCorrection.Contrast
-	colorCorr.Saturation = cfg.ColorCorrection.Saturation
-	colorCorr.TintColor = cfg.ColorCorrection.TintColor
+	colorCorr.Saturation = if ml then ml.saturation else cfg.ColorCorrection.Saturation
+	colorCorr.TintColor = if ml then ml.tint else cfg.ColorCorrection.TintColor
 	colorCorr.Enabled = true
 
 	-- 2. Torch Bloom Effect
@@ -200,7 +204,7 @@ function AtmosphereManager.ApplyDungeonLighting()
 	bloom.Intensity = cfg.Bloom.Intensity
 	bloom.Size = cfg.Bloom.Size
 	bloom.Threshold = cfg.Bloom.Threshold
-	bloom.Enabled = true
+	bloom.Enabled = false -- (no bloom anywhere)
 
 	-- 3. Dungeon Atmosphere (Atmospheric fog & haze)
 	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")

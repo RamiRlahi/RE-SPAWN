@@ -18,6 +18,7 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local RunScope = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("RunScope"))
 local UITheme = require(Shared:WaitForChild("UITheme"))
 
 local GameHUD = {}
@@ -996,8 +997,8 @@ local function tierLabel(tier: number): string
 end
 
 local function updateRunTimer()
-	local elapsed = workspace:GetAttribute("RunElapsed") or 0
-	local tier = workspace:GetAttribute("RunTier") or 0
+	local elapsed = RunScope.Mine("RunElapsed") or 0
+	local tier = RunScope.Mine("RunTier") or 0
 	if runTimerText then
 		local mins = math.floor(elapsed / 60)
 		local secs = elapsed % 60

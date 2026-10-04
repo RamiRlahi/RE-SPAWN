@@ -433,8 +433,52 @@ local function shiftLockStep()
 	end
 end
 
+-- The classic camera's crosshair: a small white cross at the screen's
+-- centre (where the locked mouse aims), in place of the arrow.
+local crosshairGui: ScreenGui? = nil
+local function crosshair(on: boolean)
+	if on and not crosshairGui then
+		local g = Instance.new("ScreenGui")
+		g.Name = "ClassicCrosshair"
+		g.IgnoreGuiInset = true
+		g.ResetOnSpawn = false
+		g.DisplayOrder = 40
+		local function bar(size: UDim2, pos: UDim2)
+			local f = Instance.new("Frame")
+			f.AnchorPoint = Vector2.new(0.5, 0.5)
+			f.Size = size
+			f.Position = pos
+			f.BackgroundColor3 = Color3.new(1, 1, 1)
+			f.BorderSizePixel = 0
+			local st = Instance.new("UIStroke")
+			st.Color = Color3.new(0, 0, 0)
+			st.Transparency = 0.4
+			st.Parent = f
+			f.Parent = g
+		end
+		local c = UDim2.fromScale(0.5, 0.5)
+		bar(UDim2.fromOffset(2, 2), c)                                         -- the dot
+		bar(UDim2.fromOffset(2, 8), c + UDim2.fromOffset(0, -9))               -- up
+		bar(UDim2.fromOffset(2, 8), c + UDim2.fromOffset(0, 9))                -- down
+		bar(UDim2.fromOffset(8, 2), c + UDim2.fromOffset(-9, 0))               -- left
+		bar(UDim2.fromOffset(8, 2), c + UDim2.fromOffset(9, 0))                -- right
+		g.Parent = player:WaitForChild("PlayerGui")
+		crosshairGui = g
+	end
+	if crosshairGui and crosshairGui.Enabled ~= on then crosshairGui.Enabled = on end
+end
+
+-- Picking a buff (the tome choice is open): the mouse is freed to click it.
+local function choosingBuff(): boolean
+	local pg = player:FindFirstChildOfClass("PlayerGui")
+	local ui = pg and pg:FindFirstChild("TomeProgressUI")
+	local choices = ui and ui:FindFirstChild("TomeChoices", true)
+	return choices ~= nil and ui:IsA("ScreenGui") and ui.Enabled and (choices :: GuiObject).Visible
+end
+
 local function releaseShiftLock()
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	crosshair(false)
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	if hum then
@@ -454,7 +498,6 @@ local function applyClassic(on: boolean)
 		end
 		if hum and cam.CameraSubject ~= hum then cam.CameraSubject = hum end
 		if cursorGui and cursorGui.Enabled then cursorGui.Enabled = false end
-		if not UserInputService.MouseIconEnabled then UserInputService.MouseIconEnabled = true end
 	else
 		if cam.CameraType ~= Enum.CameraType.Scriptable then
 			cam.CameraType = Enum.CameraType.Scriptable
@@ -531,7 +574,17 @@ function IsometricCamera.Start(transitionDuration: number?)
 			applyClassic(classic)
 		end
 		if classic then
-			shiftLockStep()
+			-- (the aim reticle is the top-down camera's; others re-enable it)
+			if cursorGui and cursorGui.Enabled then cursorGui.Enabled = false end
+			if choosingBuff() then
+				-- a free arrow to pick with; locked again once it's picked
+				releaseShiftLock()
+				if not UserInputService.MouseIconEnabled then UserInputService.MouseIconEnabled = true end
+			else
+				shiftLockStep()
+				crosshair(true)
+				if UserInputService.MouseIconEnabled then UserInputService.MouseIconEnabled = false end
+			end
 			return
 		end
 

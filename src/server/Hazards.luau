@@ -41,6 +41,12 @@ type Spike = { kind: "spike", center: Vector3, half: number, floorY: number, act
 type Hazard = Lava | Vent | Spike
 
 local hazards: { any } = {}
+-- (each hazard belongs to the run whose dungeon was being built: runs are
+-- torn down one at a time)
+local buildingRun: string? = nil
+function Hazards.SetRun(runId: string?)
+	buildingRun = runId
+end
 local started = false
 
 local function part(parent: Instance, props: { [string]: any }): BasePart
@@ -83,7 +89,7 @@ local function lavaPool(folder: Instance, center: Vector3, radius: number, rng: 
 			CFrame = CFrame.new(c + Vector3.new(0, 0.06, 0)) * FLAT, Color = CRUST, Material = Enum.Material.Basalt })
 		local lava = part(pool, { Name = "Lava", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.34, r * 2, r * 2),
 			CFrame = CFrame.new(c + Vector3.new(0, 0.1, 0)) * FLAT, Color = LAVA, Material = Enum.Material.CrackedLava })
-		table.insert(hazards, { kind = "lava", center = c, radius = r, floorY = center.Y, part = lava } :: any)
+		table.insert(hazards, { kind = "lava", center = c, radius = r, floorY = center.Y, part = lava, runId = buildingRun } :: any)
 		if i == 1 then
 			local light = Instance.new("PointLight")
 			light.Color = LAVA
@@ -133,6 +139,7 @@ local function flameVent(folder: Instance, center: Vector3, rng: Random)
 		Lifetime = NumberRange.new(0.5, 0.8), Speed = NumberRange.new(26, 34), SpreadAngle = Vector2.new(8, 8),
 		EmissionDirection = Enum.NormalId.Right, Rate = 0 })
 	local v: Vent = { kind = "vent", center = center, radius = 3.2, floorY = center.Y, active = false, hit = {} }
+	(v :: any).runId = buildingRun
 	table.insert(hazards, v :: any)
 	-- Cycle: rest → glow warning → eruption.
 	task.spawn(function()
@@ -174,6 +181,7 @@ local function spikeTrap(folder: Instance, center: Vector3, rng: Random)
 		end
 	end
 	local t: Spike = { kind = "spike", center = center, half = SIZE / 2, floorY = center.Y, active = false, hit = {} }
+	(t :: any).runId = buildingRun
 	table.insert(hazards, t :: any)
 	task.spawn(function()
 		task.wait(rng:NextNumber(0, 3))
@@ -313,9 +321,15 @@ local function step(dt: number)
 	end
 end
 
--- Forget every hazard (a new level replaces them).
-function Hazards.Clear()
-	table.clear(hazards)
+-- Forget a run's hazards (a new level replaces them), or every run's.
+function Hazards.Clear(runId: string?)
+	if not runId then
+		table.clear(hazards)
+		return
+	end
+	for i = #hazards, 1, -1 do
+		if hazards[i].runId == runId then table.remove(hazards, i) end
+	end
 end
 
 function Hazards.Init()

@@ -763,7 +763,7 @@ function BossAI.Attach(model: Model, kindId: string)
 	local b: Boss = {
 		model = model, hum = hum, root = root, kind = kind,
 		floorY = model:GetAttribute("FloorY") or (root.Position.Y - 3),
-		damage = kind.damage * DifficultyManager.GetMobScale().damage,
+		damage = kind.damage * DifficultyManager.GetMobScale(model:GetAttribute("RunId")).damage,
 		enraged = false, minions = {},
 	}
 	addAura(b)

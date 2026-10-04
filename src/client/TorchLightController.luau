@@ -106,6 +106,11 @@ function TorchLightController.Start()
 							end
 						end
 					end
+					-- (no torch on the lobby plaza: its lamps light it)
+					local lit = plr:GetAttribute("InHub") ~= true
+					local spreadLight = spread and spread:FindFirstChildWhichIsA("Light")
+					if spreadLight and spreadLight.Enabled ~= lit then spreadLight.Enabled = lit end
+					if torchLight and torchLight.Enabled ~= lit then torchLight.Enabled = lit end
 					if torchLight then
 						-- Flicker the brightness only: changing a moving light's
 						-- Range every frame makes the engine re-light the area

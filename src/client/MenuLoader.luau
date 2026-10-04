@@ -388,7 +388,12 @@ local function enterDungeon()
 	if inDungeon then return end
 	inDungeon = true
 	MenuBackdrop.Destroy()
-	if Atmosphere then Atmosphere.ApplyDungeonLighting() end
+	MenuBackdrop.DestroyHubSky()
+	if Atmosphere then
+		-- (the light of the map the party picked)
+		local mapId = player:GetAttribute("LobbyMap")
+		Atmosphere.ApplyDungeonLighting(if typeof(mapId) == "string" then mapId else nil)
+	end
 end
 
 local function watchdog()

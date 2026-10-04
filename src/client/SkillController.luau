@@ -13,6 +13,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local RunScope = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("RunScope"))
 local Network = require(Shared:WaitForChild("Network"))
 local SkillData = require(Shared:WaitForChild("SkillData"))
 local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
@@ -4188,7 +4189,7 @@ end
 function SkillController.UseSkill(skillIndex: number)
 	if player:GetAttribute("InLobby") == true then return end
 	if player:GetAttribute("SettingsOpen") == true then return end
-	if Workspace:GetAttribute("TomesPaused") == true then return end
+	if RunScope.Mine("TomesPaused") == true then return end
 
 	local char = player.Character
 	if not char then return end
@@ -4726,7 +4727,7 @@ local function performBasicAttack()
 	if player:GetAttribute("SettingsOpen") == true then return end
 	-- That click is claiming a room reward (EmblemPrompt), not attacking.
 	if player:GetAttribute("InteractReady") == true then return end
-	if Workspace:GetAttribute("TomesPaused") == true then return end
+	if RunScope.Mine("TomesPaused") == true then return end
 	local char = player.Character
 	if not char then return end
 	-- The revolver has its own ammo, fire rate and prediction.
@@ -4839,6 +4840,8 @@ function SkillController.Init()
 		if gpe then return end
 		-- (the settings panel is open: clicks are for it)
 		if player:GetAttribute("SettingsOpen") == true then return end
+		-- (no fighting in the lobby or the menus: only in a run)
+		if player:GetAttribute("InLobby") ~= false then return end
 
 		if inputMatchesAction(input, "PrimaryAttack") then
 			performBasicAttack()

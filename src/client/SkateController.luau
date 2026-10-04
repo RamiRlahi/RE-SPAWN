@@ -18,6 +18,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
 local Workspace = game:GetService("Workspace")
+local RunScope = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("RunScope"))
 
 local CastPoses = require(script.Parent:WaitForChild("CastPoses"))
 
@@ -322,7 +323,7 @@ local function updateLocalPhysics(s: SkaterState, dt: number): (boolean, boolean
 	if hum.FloorMaterial ~= Enum.Material.Air then lastGrounded = os.clock() end
 	local grounded = os.clock() - lastGrounded < AIR_GRACE
 		and hum:GetState() ~= Enum.HumanoidStateType.Jumping and hum:GetState() ~= Enum.HumanoidStateType.Freefall
-	local paused = Workspace:GetAttribute("TomesPaused") == true or root.Anchored or hum.Health <= 0
+	local paused = RunScope.Mine("TomesPaused") == true or root.Anchored or hum.Health <= 0
 	if paused then
 		velocity = Vector3.zero
 		lv.Enabled = false

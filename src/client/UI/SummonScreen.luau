@@ -675,6 +675,16 @@ end
 function SummonScreen.Close()
 	if gui then gui.Enabled = false end
 	hideOtherGuis(false)
+	-- Opened at the lobby's GACHA tent: the camera back on you, walking.
+	local plr = game:GetService("Players").LocalPlayer
+	if plr:GetAttribute("InHub") == true then
+		LobbyCamera.StopImmediate()
+		local cam = workspace.CurrentCamera
+		local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+		cam.CameraType = Enum.CameraType.Custom
+		cam.FieldOfView = 70
+		if hum then cam.CameraSubject = hum end
+	end
 end
 
 return SummonScreen

@@ -12,10 +12,14 @@ local Debris = game:GetService("Debris")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local RunScope = require(Shared:WaitForChild("RunScope"))
 local SkillData = require(Shared:WaitForChild("SkillData"))
 local PlayerStats = require(script.Parent:WaitForChild("PlayerStats"))
+local RunStats = require(script.Parent:WaitForChild("RunStats"))
 local AllyManager = require(script.Parent:WaitForChild("AllyManager"))
 local MobManager = require(script.Parent:WaitForChild("MobManager"))
+local MobKinds = require(script.Parent:WaitForChild("MobKinds"))
+local Boons = require(script.Parent:WaitForChild("Boons"))
 local GunslingerServer = require(script.Parent:WaitForChild("GunslingerServer"))
 local SwordsmanServer = require(script.Parent:WaitForChild("SwordsmanServer"))
 local BerserkerServer = require(script.Parent:WaitForChild("BerserkerServer"))
@@ -326,15 +330,33 @@ local function dealDamage(player: Player, target: { character: Model, humanoid: 
 	local finalAmount = math.max(0, math.floor(amount))
 	if finalAmount <= 0 or target.humanoid.Health <= 0 then return nil, nil end
 	if isFriendly(target.character) then return nil, nil end -- belt and braces: no friendly fire
+	local shielded = false
+	-- (the run's boons: Frostbite, Executioner, Bloodlust, Second Wind…)
+	finalAmount = math.floor(finalAmount * Boons.DamageMult(player, target, source))
 
 	local isCrit = false
 	local critChance = PlayerStats.GetStat(player, "critChance")
-	if (opts and opts.forceCrit) or (critChance > 0 and math.random() < critChance) then
+	if (opts and opts.forceCrit) or Boons.ForceCrit(player, source) or (critChance > 0 and math.random() < critChance) then
 		isCrit = true
 		finalAmount = math.floor(finalAmount * 1.5)
 	end
 
-	target.humanoid:TakeDamage(finalAmount)
+	-- A Shielded elite's barrier soaks the hit first (MobKinds).
+	local shield = target.character:GetAttribute("Shield")
+	if typeof(shield) == "number" and shield > 0 then
+		local soaked = math.min(shield, finalAmount)
+		target.character:SetAttribute("Shield", shield - soaked)
+		finalAmount -= soaked
+		shielded = true
+	end
+	local killed = false
+	if finalAmount > 0 then
+		target.humanoid:TakeDamage(finalAmount)
+		killed = target.humanoid.Health <= 0
+		RunStats.OnDamage(player, target, finalAmount)
+		Boons.OnHit(player, target, finalAmount, source, isCrit)
+		if killed then Boons.OnKill(player, target, finalAmount, source) end
+	end
 	applyImpact(player, target, source, isCrit)
 
 	local lifesteal = PlayerStats.GetStat(player, "lifesteal")
@@ -342,7 +364,8 @@ local function dealDamage(player: Player, target: { character: Model, humanoid: 
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
 		if hum and hum.Health > 0 then
-			local heal = math.floor(finalAmount * lifesteal)
+			local cursed = char and (char:GetAttribute("CursedUntil") or 0) > os.clock()
+			local heal = math.floor(finalAmount * lifesteal * (if cursed then MobKinds.CURSE_HEAL else 1))
 			if heal > 0 then
 				hum.Health = math.min(hum.MaxHealth, hum.Health + heal)
 			end
@@ -352,7 +375,7 @@ local function dealDamage(player: Player, target: { character: Model, humanoid: 
 	Network.GetRemoteEvent(Network.Remotes.DamageDealt):FireClient(player, {
 		position = target.rootPart.Position + Vector3.new(0, 2.5, 0),
 		amount = finalAmount,
-		source = source,
+		source = if shielded and finalAmount <= 0 then "SHIELD" else source,
 		crit = isCrit,
 	})
 	return finalAmount, isCrit
@@ -817,10 +840,15 @@ local Debris = game:GetService("Debris")
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Cleric Basic Combat: Divine Touch + Divine Beam
 -- ─────────────────────────────────────────────────────────────────────────────
-local function healCharacter(targetChar: Model, amount: number)
+local function healCharacter(targetChar: Model, amount: number, healer: Player?)
 	local hum = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
 	if hum and hum.Health > 0 then
+		local before = hum.Health
+		-- (a Cursed elite's mark cuts healing hard; relics: Vampire Fang, Saint's Bell)
+		if (targetChar:GetAttribute("CursedUntil") or 0) > os.clock() then amount *= MobKinds.CURSE_HEAL end
+		amount = Boons.OnHeal(healer, targetChar, amount)
 		hum.Health = math.min(hum.MaxHealth, hum.Health + amount)
+		if healer then RunStats.Add(healer, "healing", hum.Health - before) end
 	end
 end
 
@@ -864,7 +892,7 @@ local function executeClericDivineTouch(player: Player, casterChar: Model, confi
 	local healAmount = config.healAmount or 35
 	local targetChar = getClericHealTarget(casterChar, range)
 	if targetChar then
-		healCharacter(targetChar, healAmount)
+		healCharacter(targetChar, healAmount, player)
 		local tr = targetChar:FindFirstChild("HumanoidRootPart") :: BasePart?
 		if tr then table.insert(healed, tr.Position) end
 	end
@@ -962,7 +990,7 @@ local function executeClericDivineAscent(player: Player, casterChar: Model, orig
 			local oc = other.Character
 			local oroot = oc and oc:FindFirstChild("HumanoidRootPart")
 			if oc and oroot and (oroot.Position - origin).Magnitude <= radius then
-				healCharacter(oc, healAmount)
+				healCharacter(oc, healAmount, player)
 				oc:SetAttribute("DebuffCleanse", os.clock())
 			end
 		end
@@ -1009,7 +1037,7 @@ local function executeClericRadiantGround(player: Player, casterChar: Model, ori
 			if oroot and ohum and ohum.Health > 0 then
 				local flatOffset = Vector3.new(oroot.Position.X - flatOrigin.X, 0, oroot.Position.Z - flatOrigin.Z)
 				if flatOffset.Magnitude <= radius then
-					healCharacter(oc, healAmount)
+					healCharacter(oc, healAmount, player)
 					oc:SetAttribute("DebuffCleanse", os.clock())
 				end
 			end
@@ -1237,10 +1265,10 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	if not humanoid or not rootPart or humanoid.Health <= 0 then return end
 
 	-- Block skills in lobby
-	if player:GetAttribute("InLobby") == true then return end
+	if player:GetAttribute("InLobby") ~= false then return end -- (only in a run: never in the lobby)
 
 	-- Block skills while a tome/level-up selection is pausing the game.
-	if Workspace:GetAttribute("TomesPaused") == true then
+	if RunScope.Paused(player.Character) then
 		if player:GetAttribute("SelectedClass") == "gunslinger" then GunslingerServer.Refused(player, skillIndex) end
 		return
 	end
@@ -1302,6 +1330,8 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 
 	-- Mark cooldown
 	playerCooldowns[player][skillIndex] = now
+	RunStats.Add(player, "abilities", 1)
+	Boons.OnAbility(player)
 	cooldownLengths[player] = cooldownLengths[player] or {}
 	cooldownLengths[player][skillIndex] = effectiveConfig.cooldown
 
@@ -1367,7 +1397,7 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	-- Ultimates freeze every mob only while the cutscene plays; they move
 	-- again as the camera cuts back.
 	if skillIndex == 4 then
-		MobManager.FreezeMobs(ultCutscene(classId, effectiveConfig) + 0.1)
+		MobManager.FreezeMobs(ultCutscene(classId, effectiveConfig) + 0.1, RunScope.Of(char))
 	end
 
 	-- Replicate VFX to other players (for Skill 4, fire to ALL including caster
@@ -1421,8 +1451,8 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 	local humanoid = char:FindFirstChildOfClass("Humanoid")
 	local rootPart = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not humanoid or not rootPart or humanoid.Health <= 0 then return end
-	if player:GetAttribute("InLobby") == true then return end
-	if Workspace:GetAttribute("TomesPaused") == true then return end
+	if player:GetAttribute("InLobby") ~= false then return end -- (only in a run: never in the lobby)
+	if RunScope.Paused(player.Character) then return end
 	-- The Gunslinger's revolver has its own ammo, fire rate and roll shot.
 	if player:GetAttribute("SelectedClass") == "gunslinger" then
 		GunslingerServer.OnShoot(player, char, rootPart, payload)
@@ -1568,6 +1598,13 @@ function SkillManager.Init()
 		getPotentialTargets = getPotentialTargets,
 		dealDamage = dealDamage,
 		addParryHook = MobManager.AddParryHook,
+		addIncomingHook = MobManager.AddIncomingHook,
+	})
+	Boons.Init({
+		dealDamage = dealDamage,
+		getPotentialTargets = getPotentialTargets,
+		getStat = PlayerStats.GetStat,
+		chill = MobManager.ChillMob,
 		addIncomingHook = MobManager.AddIncomingHook,
 	})
 

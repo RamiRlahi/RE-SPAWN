@@ -22,6 +22,9 @@ local Workspace         = game:GetService("Workspace")
 local SpecialRooms      = require(script.Parent:WaitForChild("SpecialRooms"))
 local Hazards           = require(script.Parent:WaitForChild("Hazards"))
 local AtmosphereManager = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("AtmosphereManager"))
+local MapData           = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("MapData"))
+local RunScope          = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RunScope"))
+local Network           = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Network"))
 
 local DungeonGenerator = {}
 
@@ -41,7 +44,7 @@ local STAIR_LENGTH      = 21    -- Horizontal stair length (21 studs)
 
 -- ── Types ────────────────────────────────────────────────────────────────────
 
-export type RoomType = "Start" | "Combat" | "Rest" | "Treasure" | "Shop" | "Gamble" | "Elite" | "Event" | "Boss"
+export type RoomType = "Start" | "Combat" | "Rest" | "Treasure" | "Shop" | "Gamble" | "Elite" | "Event" | "Boss" | "Cursed"
 
 export type DungeonConfig = {
 	seed: number?,
@@ -85,13 +88,30 @@ type RoomData = {
 
 -- ── Module State ─────────────────────────────────────────────────────────────
 
-local currentDungeonFolder: Folder? = nil
-local cachedSpawnCFrame: CFrame = CFrame.identity
-local cachedBossCFrame: CFrame = CFrame.identity
-local cachedExitCFrame: CFrame = CFrame.identity
-local cachedMapPayload: any = nil
-local activeSeed: number = 0
-local floorTransitioning = false -- one level change at a time
+-- Every party's run has its own dungeon (RunManager), built in its own slot:
+-- the whole layout shifted SLOT_TILES grid cells along +X per slot, so runs
+-- never overlap. Its folder, spawn / boss / exit, minimap and level live here.
+type RunDungeon = {
+	folder: Folder?,
+	spawn: CFrame,
+	boss: CFrame,
+	exit: CFrame,
+	payload: any,
+	seed: number,
+	level: number,
+	slot: number,
+	mapId: string,
+	transitioning: boolean, -- one level change at a time
+}
+local SLOT_TILES = 170 -- 2040 studs between runs (a dungeon spans ~80 cells)
+local dungeons: { [string]: RunDungeon } = {}
+local building: string? = nil -- the run being generated now (one build at a time)
+local buildLock = false
+
+-- (the run the generator is building: SpecialRooms / Hazards tag what they make)
+function DungeonGenerator.BuildingRun(): string?
+	return building
+end
 
 -- Asset Cache
 local assets = {
@@ -622,6 +642,8 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 
 	-- 4. Side Branches across Multi-Floor Tiers
 	local branchTypes: { RoomType } = { "Rest", "Treasure", "Shop", "Gamble", "Elite", "Event" }
+	-- (a cursed altar on some floors: a gamble with your health)
+	if rng:NextNumber() < 0.6 then table.insert(branchTypes, "Cursed") end
 
 	for _, mainRoom in ipairs(rooms) do
 		if nextId > totalRooms then break end
@@ -1083,7 +1105,235 @@ end
 
 -- ── 3. Pitch-Black Abyss Exit Construction ───────────────────────────────────
 
-local function constructPitchBlackExit(stairCF: CFrame, parentFolder: Folder)
+-- Every third floor is a choice: beside the Abyss Gate (down, deeper) stands
+-- an Extraction portal (out, with everything you carry). Standing in a portal
+-- is choosing it; the party goes only when every living player stands in the
+-- same one (the dead come back on the next floor). A count hangs over each
+-- portal, and each player's screen shows it too (FloorPortal).
+--   Descending past an extraction floor wakes the dungeon's Corruption
+--   (Corruption.luau); when it collapses, an escape portal opens where the
+--   floor began.
+local GO_AFTER = 1.2      -- everyone in the same portal this long, then go (step out and it's off)
+local EXTRACT_EVERY = 3   -- floors 3, 6, 9… offer extraction
+DungeonGenerator.EXTRACT_EVERY = EXTRACT_EVERY
+
+-- Set by Corruption.luau: what extracting does, and what going down does.
+DungeonGenerator.Hooks = {
+	extract = nil :: ((string, { Player }) -> ())?,
+	descended = nil :: ((string, number, boolean) -> ())?, -- (runId, the floor left, it offered extraction)
+}
+
+type Portal = { part: BasePart, kind: string, text: TextLabel, bb: BillboardGui }
+
+local function countBoard(part: BasePart): (BillboardGui, TextLabel)
+	local bb = Instance.new("BillboardGui")
+	bb.Name = "ReadyCount"
+	bb.Size = UDim2.fromScale(16, 4)
+	bb.StudsOffsetWorldSpace = Vector3.new(0, part.Size.Y / 2 + 4, 0)
+	bb.MaxDistance = 160
+	bb.LightInfluence = 0
+	bb.Enabled = false
+	bb.Parent = part
+	local text = Instance.new("TextLabel")
+	text.Size = UDim2.fromScale(1, 1)
+	text.BackgroundTransparency = 1
+	text.Font = Enum.Font.Antique
+	text.TextScaled = true
+	text.TextColor3 = Color3.fromRGB(240, 214, 160)
+	text.TextStrokeTransparency = 0.2
+	text.Parent = bb
+	return bb, text
+end
+
+local function watchPortals(runId: string, portals: { Portal }, extractFloor: boolean)
+	local remote = Network.GetRemoteEvent(Network.Remotes.FloorPortal)
+	local function inside(part: BasePart, root: BasePart): boolean
+		local rel = part.CFrame:PointToObjectSpace(root.Position)
+		local h = part.Size / 2 + Vector3.new(1.5, 2, 1.5)
+		return math.abs(rel.X) <= h.X and math.abs(rel.Y) <= h.Y and math.abs(rel.Z) <= h.Z
+	end
+	local function send(to: { Player }, state: any)
+		for _, p in ipairs(to) do
+			if p.Parent then remote:FireClient(p, state) end
+		end
+	end
+	local function alivePortals(): boolean
+		for _, pt in ipairs(portals) do
+			if pt.part.Parent then return true end
+		end
+		return false
+	end
+
+	task.spawn(function()
+		local lastKey = ""
+		local agreedSince: number? = nil
+		local agreedOn: string? = nil
+		local members: { Player } = {}
+		local level = (dungeons[runId] and dungeons[runId].level) or 1
+		while alivePortals() do
+			local d = dungeons[runId]
+			if not d or d.level ~= level then break end
+			table.clear(members)
+			local counts: { [string]: number } = {}
+			local readyIds, waiting = {}, {}
+			local choice: { [Player]: string } = {}
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p:GetAttribute("RunId") ~= runId or p:GetAttribute("InLobby") ~= false then continue end
+				table.insert(members, p)
+				local char = p.Character
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+				local alive = hum ~= nil and hum.Health > 0 and root ~= nil
+					and p:GetAttribute("IsDead") ~= true and p:GetAttribute("Spectating") ~= true
+				if not alive then continue end
+				for _, pt in ipairs(portals) do
+					if pt.part.Parent and inside(pt.part, root :: BasePart) then
+						choice[p] = pt.kind
+						break
+					end
+				end
+				if choice[p] then
+					table.insert(readyIds, p.UserId)
+					counts[choice[p]] = (counts[choice[p]] or 0) + 1
+				else
+					table.insert(waiting, p.DisplayName)
+				end
+			end
+			local total = #readyIds + #waiting
+			-- everyone living in one portal?
+			local unanimous: string? = nil
+			if total > 0 and #waiting == 0 and not d.transitioning then
+				for kind, n in pairs(counts) do
+					if n == total then unanimous = kind end
+				end
+			end
+			if unanimous and unanimous == agreedOn then
+				-- (still agreed)
+			elseif unanimous then
+				agreedOn, agreedSince = unanimous, os.clock()
+			else
+				agreedOn, agreedSince = nil, nil
+			end
+			local go = agreedSince ~= nil and os.clock() - (agreedSince :: number) >= GO_AFTER
+			local key = `{table.concat(readyIds, ",")}|{table.concat(waiting, ",")}|{counts.descend or 0}|{counts.extract or 0}|{agreedOn or ""}`
+			if key ~= lastKey or go then
+				lastKey = key
+				for _, pt in ipairs(portals) do
+					local n = counts[pt.kind] or 0
+					pt.bb.Enabled = #readyIds > 0
+					pt.text.Text = if agreedOn == pt.kind then (if pt.kind == "extract" then "EXTRACTING..." else "DESCENDING...")
+						else `{n} / {total} {if pt.kind == "extract" then "EXTRACT" else "DESCEND"}`
+				end
+				send(members, {
+					ready = #readyIds, total = total, readyIds = readyIds, waiting = waiting,
+					counts = counts, extractFloor = extractFloor, going = agreedOn,
+					descending = agreedOn == "descend", extracting = agreedOn == "extract",
+				})
+			end
+			if go and agreedOn then
+				d.transitioning = true
+				local everyone = table.clone(members)
+				if agreedOn == "extract" then
+					print(`[Roguelite] Run {runId}: the party extracts on floor {level}.`)
+					local hook = DungeonGenerator.Hooks.extract
+					if hook then task.spawn(hook, runId, everyone) end
+					send(everyone, { ready = 0, total = 0, readyIds = {}, waiting = {}, counts = {} })
+				else
+					print(`[Roguelite] Run {runId}: everyone is in the abyss. Generating the next level...`)
+					-- (every floor cleared is worth a drop each)
+					pcall(function()
+						local LootManager = require(script.Parent:WaitForChild("LootManager")) :: any
+						for _, p in ipairs(everyone) do LootManager.Drop(p, "floor") end
+					end)
+					task.spawn(function()
+						DungeonGenerator.NextLevel(runId)
+						send(everyone, { ready = 0, total = 0, readyIds = {}, waiting = {}, counts = {} })
+						local hook = DungeonGenerator.Hooks.descended
+						if hook then hook(runId, level, extractFloor) end
+					end)
+				end
+				break
+			end
+			task.wait(0.2)
+		end
+	end)
+end
+
+-- The Extraction portal: a standing ring of gold light over a glowing disc.
+local function buildExtractPortal(cf: CFrame, parent: Instance): BasePart
+	local GOLD = Color3.fromRGB(255, 205, 110)
+	local model = Instance.new("Model")
+	model.Name = "ExtractionPortal"
+	model.Parent = parent
+	local zone = Instance.new("Part")
+	zone.Name = "ExtractZone"
+	zone.Size = Vector3.new(12, 14, 8)
+	zone.CFrame = cf * CFrame.new(0, 7, 0)
+	zone.Anchored = true
+	zone.CanCollide = false
+	zone.CanQuery = false
+	zone.CanTouch = false
+	zone.Transparency = 1
+	zone.Parent = model
+	local function deco(props: { [string]: any }): BasePart
+		local pt = Instance.new("Part")
+		pt.Anchored = true
+		pt.CanCollide = false
+		pt.CanQuery = false
+		pt.CanTouch = false
+		pt.CastShadow = false
+		pt.Material = Enum.Material.Neon
+		for k, v in pairs(props) do (pt :: any)[k] = v end
+		pt.Parent = model
+		return pt
+	end
+	-- the ring of light, standing
+	local n, r = 28, 5.5
+	for i = 1, n do
+		local a = i / n * math.pi * 2
+		local p = cf * CFrame.new(math.cos(a) * r, 7 + math.sin(a) * r, 0)
+		deco({ Size = Vector3.new(0.6, r * 2 * math.pi / n + 0.1, 0.6), CFrame = p * CFrame.Angles(0, 0, a), Color = GOLD })
+	end
+	-- the light inside it
+	local veil = deco({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.2, r * 2 - 0.6, r * 2 - 0.6), CFrame = cf * CFrame.new(0, 7, 0) * CFrame.Angles(0, math.rad(90), 0),
+		Color = Color3.fromRGB(255, 225, 160), Transparency = 0.72 })
+	deco({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.2, 12, 12), CFrame = cf * CFrame.new(0, 0.12, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = GOLD, Transparency = 0.5 })
+	local up = Instance.new("ParticleEmitter")
+	up.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	up.Color = ColorSequence.new(GOLD)
+	up.LightEmission = 1
+	up.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0) })
+	up.Lifetime = NumberRange.new(1, 2)
+	up.Speed = NumberRange.new(2, 5)
+	up.SpreadAngle = Vector2.new(25, 25)
+	up.EmissionDirection = Enum.NormalId.Top
+	up.Rate = 25
+	up.Parent = veil
+	local light = Instance.new("PointLight")
+	light.Color = GOLD
+	light.Range = 20
+	light.Brightness = 1
+	light.Parent = veil
+	local sign = Instance.new("BillboardGui")
+	sign.Size = UDim2.fromScale(12, 2.2)
+	sign.StudsOffsetWorldSpace = Vector3.new(0, 15.5, 0)
+	sign.MaxDistance = 140
+	sign.LightInfluence = 0
+	sign.Parent = zone
+	local t = Instance.new("TextLabel")
+	t.Size = UDim2.fromScale(1, 1)
+	t.BackgroundTransparency = 1
+	t.Font = Enum.Font.Antique
+	t.TextScaled = true
+	t.Text = "EXTRACT"
+	t.TextColor3 = GOLD
+	t.TextStrokeTransparency = 0.2
+	t.Parent = sign
+	return zone
+end
+
+local function constructPitchBlackExit(stairCF: CFrame, parentFolder: Folder, runId: string)
 	local exitModel = Instance.new("Folder")
 	exitModel.Name = "AbyssExit"
 	exitModel.Parent = parentFolder
@@ -1132,24 +1382,109 @@ local function constructPitchBlackExit(stairCF: CFrame, parentFolder: Folder)
 	abyssFog.SpreadAngle = Vector2.new(180, 180)
 	abyssFog.Parent = att
 
-	voidPortal.Touched:Connect(function(hit)
-		local char = hit.Parent
-		if char and char:FindFirstChild("Humanoid") then
-			local player = game:GetService("Players"):GetPlayerFromCharacter(char)
-			if player and not floorTransitioning then
-				floorTransitioning = true
-				print(`[Roguelite] {player.Name} entered the Abyss Staircase! Generating Next Level...`)
-				task.delay(1.2, DungeonGenerator.NextLevel)
-			end
-		end
+	local portals: { Portal } = {}
+	local bb, text = countBoard(voidPortal)
+	table.insert(portals, { part = voidPortal, kind = "descend", bb = bb, text = text })
+	-- (the floor's level: every third one offers extraction)
+	local d = dungeons[runId]
+	local level = if d then d.level else 1
+	local map = MapData.Get(RunScope.Get(runId, "MapId"))
+	local every = if map and map.endless then 5 else EXTRACT_EVERY
+	local extractFloor = level % every == 0
+	if extractFloor then
+		-- in front of the stairs, in the room (floor level: the stair's base)
+		local base = stairCF * CFrame.new(0, -7, -16)
+		local zone = buildExtractPortal(CFrame.new(base.Position) * stairCF.Rotation, exitModel)
+		local ebb, etext = countBoard(zone)
+		table.insert(portals, { part = zone, kind = "extract", bb = ebb, text = etext })
+	end
+	watchPortals(runId, portals, extractFloor)
+end
+
+-- The dungeon is collapsing (Corruption.luau): an escape portal where the
+-- floor began. All living players in it: they extract.
+function DungeonGenerator.OpenEscapePortal(runId: string)
+	local d = dungeons[runId]
+	if not d or not d.spawn then return end
+	local holder = Instance.new("Folder")
+	holder.Name = "EscapePortal"
+	holder.Parent = d.folder
+	local spawnPos = d.spawn.Position
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local chars = {}
+	for _, p in ipairs(Players:GetPlayers()) do if p.Character then table.insert(chars, p.Character) end end
+	params.FilterDescendantsInstances = chars
+	local hit = Workspace:Raycast(spawnPos + Vector3.new(6, 10, 0), Vector3.new(0, -40, 0), params)
+	local floorPos = if hit then hit.Position else spawnPos - Vector3.new(0, 3, 0)
+	local zone = buildExtractPortal(CFrame.new(floorPos) * d.spawn.Rotation, holder)
+	local bb, text = countBoard(zone)
+	watchPortals(runId, { { part = zone, kind = "extract", bb = bb, text = text } }, true)
+	-- (gone with the level)
+	task.spawn(function()
+		local level = d.level
+		while holder.Parent and dungeons[runId] and dungeons[runId].level == level do task.wait(0.5) end
+		holder:Destroy()
 	end)
 end
 
 -- ── 4. Special Room Gameplay + Rich Cosmetics ───────────────────────────────
 
 -- Rest / Treasure / Shop / Gamble rooms are built and run by SpecialRooms.
+-- A sign floating high over each special room (seen through the walls,
+-- from down the corridors): what's in there, so the party picks its path.
+local ROOM_SIGNS: { [string]: { text: string, sub: string, color: Color3 } } = {
+	Elite = { text = "⚔  ELITE", sub = "a hard fight · relics and gear", color = Color3.fromRGB(200, 110, 255) },
+	Treasure = { text = "💰  TREASURE", sub = "chests (and traps)", color = Color3.fromRGB(255, 210, 90) },
+	Shop = { text = "🛒  SHOP", sub = "spend your gold", color = Color3.fromRGB(120, 220, 140) },
+	Rest = { text = "🌙  MOONWELL", sub = "rest and heal", color = Color3.fromRGB(150, 200, 255) },
+	Gamble = { text = "🎲  GAMBLING DEN", sub = "risk your gold", color = Color3.fromRGB(255, 160, 80) },
+	Cursed = { text = "☠  CURSED ALTAR", sub = "pay in health · take a relic", color = Color3.fromRGB(170, 70, 230) },
+}
+
+local function roomSign(room: RoomData, parent: Instance)
+	local def = ROOM_SIGNS[room.roomType]
+	if not def then return end
+	local anchor = Instance.new("Part")
+	anchor.Name = "RoomSign"
+	anchor.Anchored = true
+	anchor.CanCollide = false
+	anchor.CanQuery = false
+	anchor.CanTouch = false
+	anchor.Transparency = 1
+	anchor.Size = Vector3.one
+	anchor.CFrame = CFrame.new(room.centerWorld + Vector3.new(0, 18, 0))
+	anchor.Parent = parent
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.fromOffset(240, 52)
+	bb.AlwaysOnTop = true
+	bb.MaxDistance = 140
+	bb.LightInfluence = 0
+	bb.Parent = anchor
+	local t = Instance.new("TextLabel")
+	t.BackgroundTransparency = 1
+	t.Size = UDim2.new(1, 0, 0, 30)
+	t.Font = Enum.Font.Antique
+	t.TextSize = 26
+	t.TextColor3 = def.color
+	t.TextStrokeTransparency = 0.2
+	t.Text = def.text
+	t.Parent = bb
+	local s = Instance.new("TextLabel")
+	s.BackgroundTransparency = 1
+	s.Position = UDim2.fromOffset(0, 30)
+	s.Size = UDim2.new(1, 0, 0, 18)
+	s.Font = Enum.Font.GothamMedium
+	s.TextSize = 13
+	s.TextColor3 = Color3.fromRGB(235, 228, 215)
+	s.TextStrokeTransparency = 0.35
+	s.Text = def.sub
+	s.Parent = bb
+end
+
 local function buildSpecialRoom(room: RoomData, propsFolder: Folder, rng: Random)
 	SpecialRooms.Build(room :: any, propsFolder, rng)
+	roomSign(room, propsFolder)
 end
 
 -- ── 4b. Rich Cosmetics, Rubble & Barriers Placement ─────────────────────────
@@ -1305,22 +1640,67 @@ end
 
 -- ── 5. Main Generator Lifecycle ──────────────────────────────────────────────
 
+-- Shift a whole layout `off` grid cells along +X (its run's slot).
+local function shiftLayout(off: number, rooms: { RoomData }, floorGrid: { [string]: CellData }, doorways: { DoorwayData }, stairs: { StairData }): { [string]: CellData }
+	if off == 0 then return floorGrid end
+	local dx = Vector3.new(off * FLOOR_SIZE, 0, 0)
+	for _, r in ipairs(rooms) do
+		r.gx += off
+		r.centerWorld += dx
+	end
+	local moved: { [string]: CellData } = {}
+	for key, cell in pairs(floorGrid) do
+		local c = string.split(key, "_")
+		moved[`{(tonumber(c[1]) :: number) + off}_{c[2]}`] = cell
+	end
+	for _, dw in ipairs(doorways) do dw.position += dx end
+	for _, st in ipairs(stairs) do st.cframe += dx end
+	return moved
+end
+
+local build: (string, any) -> (CFrame, CFrame, CFrame)
+
+-- Build the dungeon of run `cfg.runId` (replacing its previous level) in its
+-- slot, themed for its map. Returns its spawn, boss and exit.
 function DungeonGenerator.Generate(config: DungeonConfig?): (CFrame, CFrame, CFrame)
 	loadAssets()
+	local cfg: any = config or {}
+	local runId: string = cfg.runId or "solo"
+	-- (one build at a time: SpecialRooms / Hazards / mobs learn the run from `building`)
+	while buildLock do task.wait() end
+	buildLock = true
+	local ok, a, b, c = pcall(build, runId, cfg)
+	building = nil
+	buildLock = false
+	if not ok then error(a) end
+	return a, b, c
+end
 
-	local cfg = config or {}
-	Workspace:SetAttribute("RunLevel", cfg.level or 1)
+build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
+	local prev = dungeons[runId]
+	local slot = cfg.slot or (prev and prev.slot) or 0
+	local mapId = cfg.mapId or (prev and prev.mapId) or MapData.DEFAULT
+	local map = MapData.Get(mapId) or MapData.Get(MapData.DEFAULT)
+	local level = cfg.level or 1
 	local seed = cfg.seed or os.time()
-	activeSeed = seed
 	local rng = Random.new(seed)
+	RunScope.Set(runId, "RunLevel", level)
+	RunScope.Set(runId, "MapId", mapId)
 
-	-- Clean previous dungeon instance
-	DungeonGenerator.Clear()
+	-- Clean this run's previous level
+	DungeonGenerator.Clear(runId)
+	building = runId
+	Hazards.SetRun(runId)
 
 	local dungeonFolder = Instance.new("Folder")
 	dungeonFolder.Name = "GeneratedDungeon"
+	dungeonFolder:SetAttribute("RunId", runId)
 	dungeonFolder.Parent = Workspace
-	currentDungeonFolder = dungeonFolder
+	local d: RunDungeon = {
+		folder = dungeonFolder, spawn = CFrame.identity, boss = CFrame.identity, exit = CFrame.identity,
+		payload = nil, seed = seed, level = level, slot = slot, mapId = mapId, transitioning = false,
+	}
+	dungeons[runId] = d
 
 	local floorsFolder = Instance.new("Folder", dungeonFolder); floorsFolder.Name = "Floors"
 	local wallsFolder  = Instance.new("Folder", dungeonFolder); wallsFolder.Name = "Walls"
@@ -1330,7 +1710,9 @@ function DungeonGenerator.Generate(config: DungeonConfig?): (CFrame, CFrame, CFr
 	print(`[DungeonGenerator] ─── Building Roguelite Dungeon (Seed: {seed}, Floor Y: {FLOOR_Y_OFFSET}, Wall Y: {WALL_Y_OFFSET}) ───`)
 
 	-- 1. Graph Layout Construction
-	local rooms, floorGrid, doorwayList, stairList = buildDungeonGraph(rng, cfg)
+	local rooms, floorGrid0, doorwayList, stairList = buildDungeonGraph(rng, cfg)
+	-- (into this run's slot)
+	local floorGrid = shiftLayout(slot * SLOT_TILES, rooms, floorGrid0, doorwayList, stairList)
 	local startRoom = rooms[1]
 	local bossRoom = rooms[#rooms]
 	for _, room in ipairs(rooms) do
@@ -1340,8 +1722,8 @@ function DungeonGenerator.Generate(config: DungeonConfig?): (CFrame, CFrame, CFr
 		end
 	end
 
-	cachedSpawnCFrame = CFrame.new(startRoom.centerWorld + Vector3.new(0, 8, 0))
-	cachedBossCFrame  = CFrame.new(bossRoom.centerWorld + Vector3.new(0, 8, 0))
+	d.spawn = CFrame.new(startRoom.centerWorld + Vector3.new(0, 8, 0))
+	d.boss  = CFrame.new(bossRoom.centerWorld + Vector3.new(0, 8, 0))
 
 	-- 2. Floor Placement (Exact 12x12 Snapping at FLOOR_Y_OFFSET = 4 with Center Pieces)
 	local centerPieceGrid: { [string]: boolean } = {}
@@ -1483,12 +1865,12 @@ function DungeonGenerator.Generate(config: DungeonConfig?): (CFrame, CFrame, CFr
 		(bossRoom.gz + bossRoom.d - 1) * FLOOR_SIZE
 	)
 	local stairCF = CFrame.new(stairPos) * CFrame.Angles(0, 0, 0)
-	cachedExitCFrame = stairCF
+	d.exit = stairCF
 
 	if exitStairTemplate then
 		spawnInstance(exitStairTemplate, stairCF, stairsFolder)
 	end
-	constructPitchBlackExit(stairCF, stairsFolder)
+	constructPitchBlackExit(stairCF, stairsFolder, runId)
 
 	-- 5. Interior Decorating (Abundant Corner/Perimeter Rubble, Barriers, Cosmetics)
 	decorateRooms(rooms, propsFolder, rng)
@@ -1517,88 +1899,110 @@ function DungeonGenerator.Generate(config: DungeonConfig?): (CFrame, CFrame, CFr
 		grid = floorGrid,
 		rooms = roomListPayload,
 	}
-	cachedMapPayload = mapPayload
+	d.payload = mapPayload
 
+	-- The map's stone: its tint over every floor and wall.
+	if map then
+		local tint = map.stone
+		for _, f in ipairs({ floorsFolder, wallsFolder, stairsFolder }) do
+			for _, part in ipairs(f:GetDescendants()) do
+				if part:IsA("BasePart") and part.Material ~= Enum.Material.Neon then
+					local col = part.Color
+					part.Color = Color3.new(col.R * tint.R, col.G * tint.G, col.B * tint.B)
+				end
+			end
+		end
+	end
+
+	-- (the minimap: to this run's players)
 	pcall(function()
 		local Shared = ReplicatedStorage:FindFirstChild("Shared")
 		if Shared then
 			local Network = require(Shared:FindFirstChild("Network") :: ModuleScript)
 			local mapRemote = Network.GetRemoteEvent(Network.Remotes.DungeonMapData)
-			mapRemote:FireAllClients(mapPayload)
+			for _, plr in ipairs(Players:GetPlayers()) do
+				if plr:GetAttribute("RunId") == runId then mapRemote:FireClient(plr, mapPayload) end
+			end
 		end
 	end)
 
-	-- Spawn 20 mobs per room (except spawn room) via MobManager
+	-- The mobs (each room fills as players come near) via MobManager
 	pcall(function()
 		local MobManager = require(script.Parent:WaitForChild("MobManager"))
-		MobManager.SpawnRoomMobs(rooms)
+		MobManager.SpawnRoomMobs(rooms, runId)
 	end)
 
-	print(`[DungeonGenerator] ✅ Procedural Dungeon Ready! ({#rooms} rooms generated).`)
-	print(`  • Spawn: {cachedSpawnCFrame.Position}`)
-	print(`  • Boss:  {cachedBossCFrame.Position}`)
-	print(`  • Exit:  {cachedExitCFrame.Position}`)
+	print(`[DungeonGenerator] Dungeon ready for run {runId} ({if map then map.name else mapId}, level {level}, slot {slot}): {#rooms} rooms.`)
+	print(`  • Spawn: {d.spawn.Position}`)
+	print(`  • Boss:  {d.boss.Position}`)
+	print(`  • Exit:  {d.exit.Position}`)
 
-	return cachedSpawnCFrame, cachedBossCFrame, cachedExitCFrame
+	return d.spawn, d.boss, d.exit
 end
-
--- Send cached map payload when a player joins late
-Players.PlayerAdded:Connect(function(plr: Player)
-	if cachedMapPayload then
-		pcall(function()
-			local Shared = ReplicatedStorage:FindFirstChild("Shared")
-			if Shared then
-				local Network = require(Shared:FindFirstChild("Network") :: ModuleScript)
-				local mapRemote = Network.GetRemoteEvent(Network.Remotes.DungeonMapData)
-				mapRemote:FireClient(plr, cachedMapPayload)
-			end
-		end)
-	end
-end)
 
 -- ── Public API ───────────────────────────────────────────────────────────────
 
-function DungeonGenerator.Clear()
-	Hazards.Clear()
-	pcall(function()
-		local MobManager = require(script.Parent:WaitForChild("MobManager"))
-		MobManager.Clear()
-	end)
-	if currentDungeonFolder and currentDungeonFolder.Parent then
-		currentDungeonFolder:Destroy()
-		currentDungeonFolder = nil
+-- Tear down a run's dungeon (its mobs, hazards and level), or every run's.
+function DungeonGenerator.Clear(runId: string?)
+	local ids = {}
+	if runId then table.insert(ids, runId) else for id in pairs(dungeons) do table.insert(ids, id) end end
+	for _, id in ipairs(ids) do
+		Hazards.Clear(id)
+		pcall(function()
+			local MobManager = require(script.Parent:WaitForChild("MobManager"))
+			MobManager.Clear(id)
+		end)
+		local d = dungeons[id]
+		if d and d.folder and d.folder.Parent then d.folder:Destroy() end
+		if d then d.folder = nil end
+		for _, f in ipairs(Workspace:GetChildren()) do
+			if f.Name == "GeneratedDungeon" and f:GetAttribute("RunId") == id then f:Destroy() end
+		end
 	end
-	local existing = Workspace:FindFirstChild("GeneratedDungeon") or Workspace:FindFirstChild("Dungeon")
-	if existing then
-		existing:Destroy()
-	end
 end
 
-function DungeonGenerator.GetSpawnCFrame(): CFrame
-	return cachedSpawnCFrame
+-- The run is over: forget it entirely.
+function DungeonGenerator.Forget(runId: string)
+	DungeonGenerator.Clear(runId)
+	dungeons[runId] = nil
 end
 
-function DungeonGenerator.GetBossCFrame(): CFrame
-	return cachedBossCFrame
+function DungeonGenerator.GetSpawnCFrame(runId: string?): CFrame
+	local d = runId and dungeons[runId]
+	return if d then d.spawn else CFrame.identity
 end
 
-function DungeonGenerator.GetExitCFrame(): CFrame
-	return cachedExitCFrame
+function DungeonGenerator.GetBossCFrame(runId: string?): CFrame
+	local d = runId and dungeons[runId]
+	return if d then d.boss else CFrame.identity
 end
 
-function DungeonGenerator.GetActiveSeed(): number
-	return activeSeed
+function DungeonGenerator.GetExitCFrame(runId: string?): CFrame
+	local d = runId and dungeons[runId]
+	return if d then d.exit else CFrame.identity
+end
+
+function DungeonGenerator.GetActiveSeed(runId: string?): number
+	local d = runId and dungeons[runId]
+	return if d then d.seed else 0
+end
+
+function DungeonGenerator.GetLevel(runId: string?): number
+	local d = runId and dungeons[runId]
+	return if d then d.level else 1
 end
 
 -- The whole run moves to a fresh level together. Everyone in the dungeon is
 -- held in place while the old level is torn down and the new one is built
 -- (so nobody falls into the void), then set down on the new spawn's floor,
 -- side by side. Fallen teammates come back there too.
-function DungeonGenerator.NextLevel()
+function DungeonGenerator.NextLevel(runId: string)
+	local d = dungeons[runId]
+	if not d then return end
 	local runners: { { player: Player, root: BasePart } } = {}
 	for _, p in ipairs(Players:GetPlayers()) do
 		local root = p.Character and p.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
-		if p:GetAttribute("InLobby") == false and root then
+		if p:GetAttribute("InLobby") == false and p:GetAttribute("RunId") == runId and root then
 			root.Anchored = true
 			root.AssemblyLinearVelocity = Vector3.zero
 			table.insert(runners, { player = p, root = root })
@@ -1607,13 +2011,14 @@ function DungeonGenerator.NextLevel()
 
 	local ok, err = pcall(function()
 		DungeonGenerator.Generate({
+			runId = runId,
 			seed = os.time() + math.random(1, 100000),
-			level = (Workspace:GetAttribute("RunLevel") or 1) + 1,
+			level = d.level + 1,
 		})
 	end)
 	if not ok then warn("[DungeonGenerator] Next level failed:", err) end
 
-	local spawnCF = DungeonGenerator.GetSpawnCFrame()
+	local spawnCF = DungeonGenerator.GetSpawnCFrame(runId)
 	-- Stand on the actual floor under the spawn point.
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
@@ -1646,13 +2051,15 @@ function DungeonGenerator.NextLevel()
 	-- Anyone who was dead joins the party on the new level.
 	pcall(function()
 		local DeathManager = require(script.Parent:WaitForChild("DeathManager"))
-		DeathManager.ReviveAllAt(spawnCF.Position + Vector3.new(0, 3, 0))
+		DeathManager.ReviveAllAt(spawnCF.Position + Vector3.new(0, 3, 0), runId)
 	end)
-	floorTransitioning = false
+	local nd = dungeons[runId]
+	if nd then nd.transitioning = false end
 end
 
-function DungeonGenerator.GetMapPayload(): any
-	return cachedMapPayload
+function DungeonGenerator.GetMapPayload(runId: string?): any
+	local d = runId and dungeons[runId]
+	return if d then d.payload else nil
 end
 
 return DungeonGenerator

@@ -36,6 +36,10 @@ local ITERATIONS = 10
 local GRAVITY = Vector3.new(0, -60, 0)
 local DAMPING = 0.975
 local MARGIN = 0.15 -- how far the cloth stays off the body
+-- Capes further from the camera than this are left as they hang (none of
+-- their motion can be seen); past HALF_RATE they're stepped every other frame.
+local CULL_DIST = 160
+local HALF_RATE = 70
 
 export type Style = {
 	outer: Color3,     -- the cape's outside
@@ -141,6 +145,7 @@ type Cape = {
 	floorAt: number,
 	lastTorso: Vector3,
 	collidersAt: number,
+	odd: boolean, -- (half rate: this frame skipped)
 }
 
 local capes: { [Model]: Cape } = {}
@@ -426,10 +431,21 @@ end
 local function step(dt: number)
 	dt = math.clamp(dt, 1 / 240, 1 / 30)
 	local now = os.clock()
+	local cam = Workspace.CurrentCamera
+	local camPos = if cam then cam.CFrame.Position else nil
 	for character, cape in pairs(capes) do
+		local far = if camPos then (cape.torso.Position - camPos).Magnitude else 0
 		if not (character.Parent and cape.model.Parent and cape.torso.Parent) then
 			ClothCape.Detach(character)
+		elseif far > CULL_DIST or not character:IsDescendantOf(Workspace) then
+			-- Out of sight (far off, or a menu scene parked out of the world):
+			-- left as it hangs. (Back in view, a big jump snaps it to rest.)
+			cape.lastTorso = cape.torso.Position
+		elseif far > HALF_RATE and not cape.odd then
+			cape.odd = true
 		else
+			local stepDt = if cape.odd then math.min(dt * 2, 1 / 30) else dt
+			cape.odd = false
 			-- Body parts can arrive or be replaced after the cape (respawn,
 			-- avatar loading): pick them up again now and then.
 			if now - cape.collidersAt > 0.5 then
@@ -457,7 +473,7 @@ local function step(dt: number)
 					end
 				end
 			end
-			simulate(cape, dt, now)
+			simulate(cape, stepDt, now)
 		end
 	end
 	if next(capes) == nil and conn then
@@ -715,6 +731,7 @@ function ClothCape.Attach(character: Model, tag: string?, style: Style?): Model?
 		floorAt = -1,
 		lastTorso = torso.Position,
 		collidersAt = os.clock(),
+		odd = false,
 	}
 	for r = 1, ROWS do
 		for c = 1, COLS do

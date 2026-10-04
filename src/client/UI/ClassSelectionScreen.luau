@@ -245,6 +245,9 @@ local function applyClassCosmetics(classId: string)
 		-- hands folded on the hilt.
 		plant = if classId == "swordsman" then SWORDSMAN_PLANT else nil,
 		plantScale = SWORDSMAN_PLANT_SCALE,
+		-- (your Armory gear on every class you look at)
+		finish = Players.LocalPlayer:GetAttribute("Gear_weapon"),
+		aura = Players.LocalPlayer:GetAttribute("Gear_aura"),
 	})
 	playPreviewAnimation(character, classId)
 	if ClassData.IsPlayable(classId) then

@@ -23,6 +23,7 @@ local Workspace = game:GetService("Workspace")
 local Debris = game:GetService("Debris")
 local Lighting = game:GetService("Lighting")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunScope = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("RunScope"))
 
 local Network = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Network"))
 local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
@@ -826,7 +827,7 @@ end
 
 -- Your own click / roll landing shot. Returns true if a shot was fired.
 function GunslingerController.Shoot(rollShot: boolean?): boolean
-	if player:GetAttribute("InLobby") == true or Workspace:GetAttribute("TomesPaused") == true then return false end
+	if player:GetAttribute("InLobby") == true or RunScope.Mine("TomesPaused") == true then return false end
 	local char = player.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	local hum = char and char:FindFirstChildOfClass("Humanoid")

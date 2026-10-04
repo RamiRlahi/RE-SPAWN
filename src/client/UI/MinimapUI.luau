@@ -14,6 +14,7 @@ local StarterGui        = game:GetService("StarterGui")
 local Workspace         = game:GetService("Workspace")
 
 local Shared  = ReplicatedStorage:WaitForChild("Shared")
+local RunScope = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("RunScope"))
 local Network = require(Shared:WaitForChild("Network"))
 local TomeData = require(Shared:WaitForChild("TomeData"))
 
@@ -484,7 +485,7 @@ local function applyCleared()
 	for _, m in ipairs(clearMarks) do m:Destroy() end
 	table.clear(clearMarks)
 	local data = activeMapData
-	local list = Workspace:GetAttribute("ClearedRooms")
+	local list = RunScope.Mine("ClearedRooms")
 	if not data or not data.rooms or typeof(list) ~= "string" then return end
 	for _, room in ipairs(data.rooms) do
 		if not string.find(list, `|{room.id}|`, 1, true) then continue end
@@ -608,7 +609,18 @@ local function startTrackingLoop()
 			if not seen[p] then m.root:Destroy(); fullMarkers[p] = nil end
 		end
 	end)
-	Workspace:GetAttributeChangedSignal("ClearedRooms"):Connect(applyCleared)
+	-- (the run's cleared rooms live on its RunScope folder: re-checked often)
+	local lastCleared: any = nil
+	task.spawn(function()
+		while true do
+			task.wait(0.5)
+			local now = RunScope.Mine("ClearedRooms")
+			if now ~= lastCleared then
+				lastCleared = now
+				applyCleared()
+			end
+		end
+	end)
 end
 
 -- ── Public API ───────────────────────────────────────────────────────────────

@@ -387,6 +387,9 @@ function GachaManager.AwardTickets(player: Player, amount: number, _reason: stri
 	addCurrency(p, "tickets", amount)
 	PlayerData.MarkDirty(player)
 	sync(player)
+	pcall(function()
+		(require(script.Parent:WaitForChild("RunStats")) :: any).Add(player, "tickets", amount)
+	end)
 end
 
 function GachaManager.OnMobKilled(player: Player, isBoss: boolean)

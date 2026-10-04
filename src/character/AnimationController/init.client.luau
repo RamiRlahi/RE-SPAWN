@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local RunScope = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("RunScope"))
 local Network = require(Shared:WaitForChild("Network"))
 local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
 
@@ -72,7 +73,13 @@ local RUN_SPEED = 34
 -- Walk/run speed multiplier set by the server on the character (e.g. the
 -- Fire Knight's Inferno).
 local function speedMult(): number
-	return tonumber(character:GetAttribute("SpeedMult")) or 1
+	local m = tonumber(character:GetAttribute("SpeedMult")) or 1
+	-- (standing in a Frozen elite's ice)
+	local until_ = character:GetAttribute("IceSlowUntil")
+	if typeof(until_) == "number" and workspace:GetServerTimeNow() < until_ then
+		m *= tonumber(character:GetAttribute("IceSlow")) or 0.5
+	end
+	return m
 end
 
 local AirborneState = {
@@ -497,7 +504,7 @@ end
 local function performAttack()
 	if player:GetAttribute("InLobby") == true then return end
 	if humanoid.Health <= 0 then return end
-	if Workspace:GetAttribute("TomesPaused") == true then return end
+	if RunScope.Mine("TomesPaused") == true then return end
 
 	-- Block attacks while using the 1st ability (Spin Attack) or casting skills
 	if character:GetAttribute("IsSkill1Active") == true
@@ -670,8 +677,10 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 			setSprinting(true)
 		end
 	elseif inputMatchesAction(input, "PrimaryAttack") or input.KeyCode == Enum.KeyCode.ButtonR2 then
-		-- That click is claiming a room reward (EmblemPrompt), not attacking.
-		if game:GetService("Players").LocalPlayer:GetAttribute("InteractReady") ~= true then
+		-- That click is claiming a room reward (EmblemPrompt), not attacking;
+		-- and no swinging in the lobby (only in a run).
+		local lp = game:GetService("Players").LocalPlayer
+		if lp:GetAttribute("InteractReady") ~= true and lp:GetAttribute("InLobby") == false then
 			performAttack()
 		end
 	end
@@ -717,7 +726,9 @@ function playIdle()
 end
 
 function UpdateMovement()
-	if player:GetAttribute("InLobby") ~= false then
+	-- In the menus: just the idle. (Walking the lobby plaza is a real walk:
+	-- walk / run / jump animations as in a run.)
+	if player:GetAttribute("InLobby") ~= false and player:GetAttribute("InHub") ~= true then
 		stopSpeedSprintVFX()
 		playIdle()
 		return
@@ -811,13 +822,23 @@ end
 
 RunService.Heartbeat:Connect(UpdateMovement)
 
--- Load initial animations and listen for class changes
-task.spawn(function()
-	local currentClass = player:GetAttribute("SelectedClass") or "default"
-	loadClassAnimations(currentClass)
+-- Load initial animations and listen for class changes. (Walking the lobby
+-- the weapon is carried on the back, not held: the plain set, hands free.)
+local function animationSet(): string
+	if player:GetAttribute("InHub") == true then return "default" end
+	return player:GetAttribute("SelectedClass") or "default"
+end
 
-	player:GetAttributeChangedSignal("SelectedClass"):Connect(function()
-		local newClass = player:GetAttribute("SelectedClass") or "default"
-		loadClassAnimations(newClass)
-	end)
+task.spawn(function()
+	local loaded = animationSet()
+	loadClassAnimations(loaded)
+
+	local function refresh()
+		local want = animationSet()
+		if want == loaded then return end
+		loaded = want
+		loadClassAnimations(want)
+	end
+	player:GetAttributeChangedSignal("SelectedClass"):Connect(refresh)
+	player:GetAttributeChangedSignal("InHub"):Connect(refresh)
 end)

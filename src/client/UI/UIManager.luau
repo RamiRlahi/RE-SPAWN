@@ -65,7 +65,10 @@ local function applyGraphics(settings: any)
 	local bloom = not (settings and settings.bloom == false)
 	if Lighting.GlobalShadows ~= shadows then Lighting.GlobalShadows = shadows end
 	for _, e in ipairs(Lighting:GetChildren()) do
-		if (e:IsA("BloomEffect") or e:IsA("SunRaysEffect")) and e.Enabled ~= bloom then e.Enabled = bloom end
+		-- No bloom anywhere (it smeared lights together); the setting now only
+		-- turns the sun rays on or off.
+		if e:IsA("BloomEffect") and e.Enabled then e.Enabled = false end
+		if e:IsA("SunRaysEffect") and e.Enabled ~= bloom then e.Enabled = bloom end
 	end
 end
 
@@ -78,6 +81,8 @@ local function applySettingsToRuntime(settings: any)
 	-- Read by IsometricCamera (top-down or a normal third-person camera).
 	player:SetAttribute("Setting_classicCamera", settings ~= nil and settings.classicCamera == true)
 	player:SetAttribute("Setting_lowDetailVFX", settings ~= nil and settings.lowDetailVFX == true)
+	-- Read by MusicController.
+	player:SetAttribute("Setting_musicVolume", if settings and typeof(settings.musicVolume) == "number" then settings.musicVolume else 0.6)
 	if settings and settings.keybinds then
 		for action, key in pairs(settings.keybinds) do
 			player:SetAttribute(`Keybind_{action}`, key)
@@ -192,8 +197,8 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 		end
 	end)
 
-	-- The Toggle Menu key (default M, rebindable) in the dungeon: the settings
-	-- window (angled, in the world). (Not Escape: Roblox keeps that for its
+	-- The Toggle Menu key (default M, rebindable) in the dungeon and on the
+	-- lobby plaza: the settings window (angled, in the world). (Not Escape: Roblox keeps that for its
 	-- own menu and a game can't take it over.)
 	game:GetService("UserInputService").InputBegan:Connect(function(input: InputObject, processed: boolean)
 		if processed or game:GetService("UserInputService"):GetFocusedTextBox() then return end
@@ -263,8 +268,8 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 				local selectRemote = Network.GetRemoteEvent(Network.Remotes.SelectClass)
 				selectRemote:FireServer(classId)
 				onGameStartRequested(classId)
-				-- Take a seat at the campfire; the run starts from its portal.
-				UIManager.ShowCampfire()
+				-- Into the lobby: the server answers with LobbyState "hub"
+				-- (UIManager.EnterHub); a map's gate leads on to the campfire.
 			end,
 		})
 	end
@@ -273,7 +278,8 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 	if CampfireScreen then
 		campfireGroup = CampfireScreen.Create(screenGui, {
 			onChangeClass = function()
-				UIManager.ShowClassSelect()
+				-- BACK: stand up and walk the lobby again
+				Network.GetRemoteEvent(Network.Remotes.LobbyAction):FireServer({ kind = "toHub" })
 			end,
 		})
 	end
@@ -328,10 +334,11 @@ function UIManager.ShowTitle()
 end
 
 local inGameSettings = false -- opened with Escape during a run (the menu UI is off)
+local inHub = false -- walking the lobby plaza (its settings open in the world too)
 
 function UIManager.ShowSettings()
-	if player:GetAttribute("InLobby") == false then
-		-- In the dungeon: just the settings window over the game.
+	if player:GetAttribute("InLobby") == false or inHub then
+		-- In the dungeon (or walking the lobby): just the settings window over the game.
 		inGameSettings = true
 		screenGui.Enabled = true
 		if settingsModalGroup then
@@ -363,7 +370,7 @@ function UIManager.CloseSettings()
 		if settingsModalGroup then
 			fadeCanvas(settingsModalGroup, 1, 0.2, function()
 				settingsModalGroup.Visible = false
-				if player:GetAttribute("InLobby") == false then screenGui.Enabled = false end
+				if player:GetAttribute("InLobby") == false or inHub then screenGui.Enabled = false end
 			end)
 		end
 		return
@@ -414,6 +421,75 @@ function UIManager.ShowCampfire()
 			fadeCanvas(group, 0, 0.35)
 		end)
 	end
+end
+
+-- ── The lobby (walk around as your class, party up, pick a map) ──
+local hubFade: Frame? = nil
+
+local function fadeFlash(then_: () -> ())
+	local f = Instance.new("Frame")
+	f.Size = UDim2.fromScale(1, 1)
+	f.BackgroundColor3 = Color3.new(0, 0, 0)
+	f.BackgroundTransparency = 1
+	f.ZIndex = 999
+	f.Parent = screenGui
+	hubFade = f
+	screenGui.Enabled = true
+	local tIn = TweenService:Create(f, TweenInfo.new(0.35, Enum.EasingStyle.Sine), { BackgroundTransparency = 0 })
+	tIn.Completed:Once(function()
+		then_()
+		task.wait(0.15)
+		local tOut = TweenService:Create(f, TweenInfo.new(0.5, Enum.EasingStyle.Sine), { BackgroundTransparency = 1 })
+		tOut.Completed:Once(function() f:Destroy() end)
+		tOut:Play()
+	end)
+	tIn:Play()
+end
+
+-- Into the lobby: the menus give way to the plaza; the camera follows you.
+function UIManager.EnterHub()
+	if inHub then return end
+	inHub = true
+	fadeFlash(function()
+		if titleScreenGroup then titleScreenGroup.Visible = false end
+		if classSelectGroup then classSelectGroup.Visible = false end
+		if menuSettingsGroup then menuSettingsGroup.Visible = false end
+		if campfireGroup then
+			campfireGroup.Visible = false
+			campfireGroup.GroupTransparency = 1
+		end
+		if LobbyCamera then pcall(function() LobbyCamera.StopImmediate() end) end
+		local cam = workspace.CurrentCamera
+		local char = player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		cam.CameraType = Enum.CameraType.Custom
+		cam.FieldOfView = 70
+		if hum then cam.CameraSubject = hum end
+		game:GetService("UserInputService").MouseIconEnabled = true
+		-- (the plaza has no menu UI on screen; its own HUD is LobbyHUD)
+		task.delay(0.6, function()
+			if inHub and not (hubFade and hubFade.Parent) then screenGui.Enabled = false end
+		end)
+	end)
+end
+
+-- From the lobby's gate to the campfire platform (ready up for the run).
+function UIManager.ShowCampfireFromHub()
+	inHub = false
+	fadeFlash(function()
+		screenGui.Enabled = true
+		if LobbyCamera then pcall(function() LobbyCamera.StartCampfireMode() end) end
+		local group = campfireGroup
+		if group then
+			if classSelectGroup then classSelectGroup.Visible = false end
+			group.Visible = true
+			fadeCanvas(group, 0, 0.35)
+		end
+	end)
+end
+
+function UIManager.InHub(): boolean
+	return inHub
 end
 
 function UIManager.FadeOutToGame(onComplete: (() -> ())?)
@@ -480,7 +556,7 @@ end
 -- Back to the title menu (after dying): hide the HUD, show the lobby again.
 -- The Toggle Menu key during a run opens / closes the settings window.
 function UIManager.ToggleInGameSettings()
-	if player:GetAttribute("InLobby") ~= false then return end
+	if player:GetAttribute("InLobby") ~= false and not inHub then return end
 	if settingsModalGroup and settingsModalGroup.Visible then
 		UIManager.CloseSettings()
 	else
@@ -490,6 +566,7 @@ end
 
 function UIManager.ReturnToMenu()
 	inGameSettings = false
+	inHub = false
 	if GameHUD then pcall(function() GameHUD.SetVisible(false) end) end
 	if MinimapUI then pcall(function() MinimapUI.SetVisible(false) end) end
 	screenGui.Enabled = true

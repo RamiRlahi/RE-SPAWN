@@ -39,6 +39,12 @@ local function members(player: Player): { Player }
 end
 PartyManager.Members = members
 
+-- The party's leader (a solo player leads themselves).
+function PartyManager.Leader(player: Player): Player
+	local party = partyOf[player]
+	return if party then party.leader else player
+end
+
 -- Listeners told which players' party just changed (CampfireManager).
 local changedListeners: { (players: { Player }) -> () } = {}
 function PartyManager.OnChanged(cb: (players: { Player }) -> ())

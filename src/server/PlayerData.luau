@@ -36,6 +36,9 @@ export type Profile = {
 	stats: { [string]: number },                      -- lifetime counters (pulls, kills…)
 	purchases: { [string]: boolean },                 -- processed receipt ids (idempotent grants)
 	account: { level: number, xp: number },           -- account level 1..100 (AccountManager)
+	codex: { [string]: boolean },                     -- evolutions discovered (the Build Codex)
+	gear: { owned: { [string]: number }, equipped: { [string]: string } }, -- the Armory (LootManager)
+	records: { [string]: number },                    -- bests and totals (deepest floor, runs, kills…)
 }
 
 local function newProfile(): Profile
@@ -50,6 +53,9 @@ local function newProfile(): Profile
 		stats = {},
 		purchases = {},
 		account = { level = 1, xp = 0 },
+		codex = {},
+		records = {},
+		gear = { owned = {}, equipped = {} },
 	}
 end
 

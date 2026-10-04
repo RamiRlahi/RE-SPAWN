@@ -1,16 +1,19 @@
 --[[
 	DifficultyManager.luau
-	Server-side run clock + escalating difficulty (the Threat tier).
-	Publishes elapsed run seconds + difficulty tier as Workspace attributes so the
-	client HUD can read them directly (attributes replicate, no remote needed).
+	Server-side run clocks + escalating difficulty (the Threat tier), one per
+	run (RunManager: every party's run is its own). Publishes elapsed run
+	seconds + the Threat tier on the run's folder (RunScope: RunElapsed,
+	RunTier) so the HUD of everyone in it can read them directly.
 
-	The clock starts when a player is actually in the dungeon and runs until
-	Reset (a new run, or the whole party back at the menu); after a Reset it
-	starts again with the next run.
+	A run's clock starts when one of its players is actually in its dungeon and
+	runs until Reset (a new run, or the run ending).
 --]]
 
-local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local RunScope = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RunScope"))
+local WeeklyModifiers = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("WeeklyModifiers"))
 
 local DifficultyManager = {}
 
@@ -22,68 +25,79 @@ local DAMAGE_PER_TIER = 0.12
 local SPEED_PER_TIER  = 0.04
 local MAX_TIER = 30
 
-local startClock: number? = nil
-local currentTier = 0
+type Clock = { start: number?, tier: number }
+local clocks: { [string]: Clock } = {}
 
-function DifficultyManager.GetElapsed(): number
-	if not startClock then return 0 end
-	return os.clock() - startClock
+local function clockOf(runId: string?): Clock?
+	return if runId then clocks[runId] else nil
 end
 
-function DifficultyManager.GetTier(): number
-	return currentTier
+function DifficultyManager.GetElapsed(runId: string?): number
+	local c = clockOf(runId)
+	if not c or not c.start then return 0 end
+	return os.clock() - c.start
 end
 
--- Multipliers applied to freshly spawned mobs.
-function DifficultyManager.GetMobScale(): { health: number, damage: number, speed: number, tier: number }
-	local tier = currentTier
+function DifficultyManager.GetTier(runId: string?): number
+	local c = clockOf(runId)
+	return if c then c.tier else 0
+end
+
+-- Multipliers applied to freshly spawned mobs of `runId`.
+function DifficultyManager.GetMobScale(runId: string?): { health: number, damage: number, speed: number, tier: number }
+	local tier = DifficultyManager.GetTier(runId)
+	-- (Corruption: every level makes the dungeon's mobs 10% tougher and harder-hitting)
+	local corruption = (runId and RunScope.Get(runId, "Corruption")) or 0
+	local c = 1 + 0.1 * corruption
+	local moon = if WeeklyModifiers.Is("blood_moon") then 1.5 else 1
 	return {
-		health = 1 + tier * HEALTH_PER_TIER,
-		damage = 1 + tier * DAMAGE_PER_TIER,
+		health = (1 + tier * HEALTH_PER_TIER) * c * moon,
+		damage = (1 + tier * DAMAGE_PER_TIER) * c,
 		speed  = math.min(1 + tier * SPEED_PER_TIER, 1.75),
 		tier = tier,
 	}
 end
 
-local function playerInRun(): boolean
+local function playerInRun(runId: string): boolean
 	for _, plr in ipairs(Players:GetPlayers()) do
-		if plr:GetAttribute("InLobby") ~= true and plr:GetAttribute("SpawnedInMap") == true then
+		if plr:GetAttribute("RunId") == runId and plr:GetAttribute("InLobby") ~= true and plr:GetAttribute("SpawnedInMap") == true then
 			return true
 		end
 	end
 	return false
 end
 
-function DifficultyManager.Start()
-	if startClock then return end
-	startClock = os.clock()
-	currentTier = 0
-	Workspace:SetAttribute("RunElapsed", 0)
-	Workspace:SetAttribute("RunTier", 0)
+-- Back to Threat 0 with the clock stopped (it starts again once someone is
+-- in the run's dungeon).
+function DifficultyManager.Reset(runId: string?)
+	if not runId then return end
+	clocks[runId] = { start = nil, tier = 0 }
+	RunScope.Set(runId, "RunElapsed", 0)
+	RunScope.Set(runId, "RunTier", 0)
 end
 
--- Back to Threat 0 with the clock stopped (it starts again with the next run).
-function DifficultyManager.Reset()
-	startClock = nil
-	currentTier = 0
-	Workspace:SetAttribute("RunElapsed", 0)
-	Workspace:SetAttribute("RunTier", 0)
+-- The run is over.
+function DifficultyManager.Forget(runId: string)
+	clocks[runId] = nil
 end
 
--- The one clock loop: starts the clock once a player has actually entered the
--- dungeon, then ticks the elapsed time and the Threat tier while a run is on.
--- (It used to start only the first time and spawn a ticker per Start, so a
--- Reset stopped the clock for good and the Threat never went back to 0.)
+-- The one clock loop: starts each run's clock once a player has actually
+-- entered its dungeon, then ticks its elapsed time and Threat tier.
 task.spawn(function()
 	while true do
 		task.wait(0.5)
-		if not startClock then
-			if playerInRun() then DifficultyManager.Start() end
-		else
-			local elapsed = DifficultyManager.GetElapsed()
-			currentTier = math.min(math.floor(elapsed / TIER_SECONDS), MAX_TIER)
-			Workspace:SetAttribute("RunElapsed", math.floor(elapsed))
-			Workspace:SetAttribute("RunTier", currentTier)
+		for runId, c in pairs(clocks) do
+			if not c.start then
+				if playerInRun(runId) then
+					c.start = os.clock()
+					c.tier = 0
+				end
+			else
+				local elapsed = os.clock() - c.start
+				c.tier = math.min(math.floor(elapsed / TIER_SECONDS), MAX_TIER)
+				RunScope.Set(runId, "RunElapsed", math.floor(elapsed))
+				RunScope.Set(runId, "RunTier", c.tier)
+			end
 		end
 	end
 end)
