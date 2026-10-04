@@ -623,6 +623,23 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 	local strafeFrom = Vector3.zero
 	local drawingUntil = 0
 	local walkPlaying = false
+	-- (archers turn to face you with physics, smoothly every frame: snapping
+	-- the root's CFrame from this 0.2 s loop made them stutter)
+	local faceAO: AlignOrientation? = nil
+	if mobType == "Ranged" then
+		local att = Instance.new("Attachment")
+		att.Name = "FaceAttachment"
+		att.Parent = rootPart
+		local ao = Instance.new("AlignOrientation")
+		ao.Name = "Face"
+		ao.Mode = Enum.OrientationAlignmentMode.OneAttachment
+		ao.Attachment0 = att
+		ao.MaxTorque = 1e7
+		ao.Responsiveness = 14
+		ao.Enabled = false
+		ao.Parent = rootPart
+		faceAO = ao
+	end
 	local function setWalk(on)
 		if not walkTrack then return end
 		if on and not walkPlaying then
@@ -684,6 +701,7 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 		while mobModel.Parent and humanoid.Health > 0 do
 			task.wait(0.2)
 			if not rootPart.Parent then break end
+			if faceAO then faceAO.Enabled = false end
 			if mobsAreFrozen(mobModel) then
 				humanoid:Move(Vector3.zero)
 				humanoid.WalkSpeed = 0
@@ -728,7 +746,6 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 				if tRoot then
 					if mobType == "Ranged" then
 						local tnow = os.clock()
-						local dt = math.max(tnow - lastTick, 0.001)
 						lastTick = tnow
 
 						-- Commit to a destination and only repath every ~0.6s so the mob walks a
@@ -772,15 +789,14 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 						-- (it turns itself to you while sidestepping; walking in, the Humanoid turns it)
 						humanoid.AutoRotate = moving
 
-						-- Smoothly turn to face the target while holding position, instead of
-						-- snapping the CFrame every tick. While walking, the Humanoid rotates us.
-						if not moving or strafing then
-							local flat = Vector3.new(tRoot.Position.X, rootPart.Position.Y, tRoot.Position.Z)
-							if (flat - rootPart.Position).Magnitude > 0.1 then
-								local desiredRot = CFrame.lookAt(rootPart.Position, flat) - rootPart.Position
-								local currentRot = rootPart.CFrame - rootPart.Position
-								local alpha = 1 - math.exp(-4 * dt)
-								rootPart.CFrame = CFrame.new(rootPart.Position) * currentRot:Lerp(desiredRot, alpha)
+						-- Turn to face the target while holding position or sidestepping
+						-- (AlignOrientation: smooth on every client). While walking in,
+						-- the Humanoid rotates us.
+						if (not moving or strafing) and faceAO then
+							local to = Vector3.new(tRoot.Position.X - rootPart.Position.X, 0, tRoot.Position.Z - rootPart.Position.Z)
+							if to.Magnitude > 0.1 then
+								faceAO.CFrame = CFrame.lookAt(Vector3.zero, to.Unit)
+								faceAO.Enabled = true
 							end
 						end
 
@@ -843,6 +859,7 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 		if deadTriggered then return end
 		deadTriggered = true
 		setWalk(false)
+		if faceAO then faceAO.Enabled = false end
 		local pos = (rootPart and rootPart.Position) or mobModel:GetPivot().Position
 		-- (before the room counts it: what it leaves behind keeps the room open)
 		MobKinds.OnDied(mobModel, pos)
