@@ -233,20 +233,25 @@ end
 
 -- ── Geometry & Cloner Helpers ────────────────────────────────────────────────
 
-local function spawnInstance(template: Instance, cf: CFrame, parent: Instance): Instance
+-- (performance: nothing in the game listens for touches on the dungeon, so
+-- its parts don't generate them; `noShadow`: floors and small props cast no
+-- shadow, which keeps the shadow pass to the walls and big pieces)
+local function spawnInstance(template: Instance, cf: CFrame, parent: Instance, noShadow: boolean?): Instance
 	local clone = template:Clone()
+	local function setup(part: BasePart)
+		part.Anchored = true
+		part.CanCollide = true
+		part.CanTouch = false
+		if noShadow then part.CastShadow = false end
+	end
 	if clone:IsA("Model") then
 		clone:PivotTo(cf)
 		for _, desc in ipairs(clone:GetDescendants()) do
-			if desc:IsA("BasePart") then
-				desc.Anchored = true
-				desc.CanCollide = true
-			end
+			if desc:IsA("BasePart") then setup(desc) end
 		end
 	elseif clone:IsA("BasePart") then
 		clone.CFrame = cf
-		clone.Anchored = true
-		clone.CanCollide = true
+		setup(clone)
 	end
 	clone.Parent = parent
 	return clone
@@ -1510,7 +1515,7 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 				local rubTemplate = pickRandom(assets.rubble, rng)
 				if rubTemplate then
 					local cf = CFrame.new(rubPos) * CFrame.Angles(0, math.rad(rng:NextInteger(0, 3) * 90), 0)
-					spawnInstance(rubTemplate, cf, propsFolder)
+					spawnInstance(rubTemplate, cf, propsFolder, true)
 				end
 			end
 		end
@@ -1525,7 +1530,7 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 				local barTemplate = pickRandom(assets.barriers, rng)
 				if barTemplate then
 					local cf = CFrame.new(bPos) * CFrame.Angles(0, math.rad(rng:NextInteger(0, 3) * 90), 0)
-					spawnInstance(barTemplate, cf, propsFolder)
+					spawnInstance(barTemplate, cf, propsFolder, true)
 				end
 			end
 		end
@@ -1562,7 +1567,7 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 				end
 
 				local cf = CFrame.new(cosPos) * CFrame.Angles(0, math.rad(rotY), 0)
-				spawnInstance(cosTemplate, cf, propsFolder)
+				spawnInstance(cosTemplate, cf, propsFolder, true)
 			end
 		end
 
@@ -1781,7 +1786,7 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 		if floorTemplate then
 			local rotY = rng:NextInteger(0, 3) * 90
 			local cf = CFrame.new(pos) * CFrame.Angles(0, math.rad(rotY), 0)
-			local tile = spawnInstance(floorTemplate, cf, floorsFolder)
+			local tile = spawnInstance(floorTemplate, cf, floorsFolder, true)
 			-- No two tiles quite alike: a little lighter or darker, some
 			-- leaning cool (the stone reads less uniformly orange).
 			local shade = rng:NextNumber(0.8, 1.06)

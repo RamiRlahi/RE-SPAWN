@@ -12,6 +12,7 @@ local Debris = game:GetService("Debris")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local HumanoidIndex = require(Shared:WaitForChild("HumanoidIndex"))
 local RunScope = require(Shared:WaitForChild("RunScope"))
 local SkillData = require(Shared:WaitForChild("SkillData"))
 local PlayerStats = require(script.Parent:WaitForChild("PlayerStats"))
@@ -176,25 +177,27 @@ local function hitPoint(model: Model, root: BasePart, casterChar: Model): BasePa
 	return proxy
 end
 
+-- (every model in the world with a Humanoid, kept up to date: HumanoidIndex.
+-- Targets are looked up for every swing, bullet, bounce and blast; walking
+-- the whole Workspace each time brought the server to its knees.)
+local humanoidModels = HumanoidIndex.Each()
+
 local function getPotentialTargets(casterChar: Model): { { character: Model, humanoid: Humanoid, rootPart: BasePart } }
 	local targets = {}
-	local addedSet: { [Model]: boolean } = {}
 
-	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if desc:IsA("Model") and desc ~= casterChar and not addedSet[desc] then
+	for desc, hum in pairs(humanoidModels) do
+		if desc ~= casterChar then
 			-- Don't consider accessories or player character sub-models
 			if desc:FindFirstAncestorOfClass("Accessory") then continue end
 			if desc:IsDescendantOf(casterChar) then continue end
 			if isFriendly(desc) then continue end
 
-			local hum = desc:FindFirstChildOfClass("Humanoid")
-			if hum and hum.Health > 0 then
+			if hum.Parent == desc and hum.Health > 0 then
 				local root: BasePart? = (desc:FindFirstChild("HumanoidRootPart") or desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")) :: BasePart?
 				if root and desc:GetAttribute("HitRadius") ~= nil then
 					root = hitPoint(desc, root, casterChar)
 				end
 				if root then
-					addedSet[desc] = true
 					table.insert(targets, {
 						character = desc,
 						humanoid = hum,
@@ -284,6 +287,33 @@ local IMPACT_PROFILES: { [string]: ImpactProfile } = {
 	["WORLDBREAKER EXECUTE"] = { kb = 44, lift = 20, stagger = 1.0, style = "slash", heavy = true },
 }
 
+-- How many effect messages a player's hits may send each second. The hits
+-- themselves (damage, knockback, stagger) are never limited; only their
+-- pictures are, so a flood of them (a stack of Projectile + Ricochet tomes)
+-- can't swamp the network and every client's frame rate.
+type Bucket = { tokens: number, at: number }
+local fxBuckets: { [Player]: { [string]: Bucket } } = {}
+Players.PlayerRemoving:Connect(function(p) fxBuckets[p] = nil end)
+local function fxAllowed(player: Player, key: string, perSecond: number): boolean
+	local mine = fxBuckets[player]
+	if not mine then
+		mine = {}
+		fxBuckets[player] = mine
+	end
+	local now = os.clock()
+	local cap = math.max(2, perSecond / 4)
+	local b = mine[key]
+	if not b then
+		b = { tokens = cap, at = now }
+		mine[key] = b
+	end
+	b.tokens = math.min(cap, b.tokens + (now - b.at) * perSecond)
+	b.at = now
+	if b.tokens < 1 then return false end
+	b.tokens -= 1
+	return true
+end
+
 local function applyImpact(player: Player, target: { character: Model, humanoid: Humanoid, rootPart: BasePart }, source: string, crit: boolean)
 	local profile = IMPACT_PROFILES[source]
 	if not profile then return end
@@ -312,6 +342,7 @@ local function applyImpact(player: Player, target: { character: Model, humanoid:
 		end
 	end
 
+	if not fxAllowed(player, if crit or profile.heavy then "impactBig" else "impact", if crit or profile.heavy then 15 else 30) then return end
 	Network.GetRemoteEvent(Network.Remotes.HitImpact):FireAllClients({
 		position = target.rootPart.Position,
 		direction = flatAway,
@@ -429,7 +460,9 @@ local function ricochet(player: Player, casterChar: Model, first: any, damage: n
 			hit[best.character] = true
 			dmg = math.max(1, math.floor(dmg * RICOCHET_DAMAGE))
 			local toPos = best.rootPart.Position
-			Network.GetRemoteEvent(Network.Remotes.RicochetFX):FireAllClients({ from = fromPos, to = toPos, attacker = player })
+			if fxAllowed(player, "ricochet", 25) then
+				Network.GetRemoteEvent(Network.Remotes.RicochetFX):FireAllClients({ from = fromPos, to = toPos, attacker = player })
+			end
 			dealDamage(player, best, dmg, source)
 			fromPos = toPos
 		end
@@ -474,7 +507,16 @@ local function damageFirstTargetOnLine(player: Player, casterChar: Model, origin
 	return nil, nil
 end
 
+local findArrowUncached: () -> Instance?
+local cachedArrow: Instance? = nil
+-- (looked up once, not on every shot: ReplicatedStorage holds every asset)
 local function findRangerArrowTemplate(): Instance?
+	if cachedArrow and cachedArrow.Parent then return cachedArrow end
+	cachedArrow = findArrowUncached()
+	return cachedArrow
+end
+
+findArrowUncached = function(): Instance?
 	-- Prefer the dedicated projectile asset placed directly in ReplicatedStorage.
 	-- The recursive lookup keeps this resilient if it is later organized into a
 	-- different ReplicatedStorage folder.
@@ -653,10 +695,8 @@ local function executeRangerVerdantSlash(player: Player, casterChar: Model, orig
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	local ignoreList: { Instance } = { casterChar }
-	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if desc:IsA("Model") and (desc:FindFirstChildOfClass("Humanoid") or desc:FindFirstAncestorOfClass("Accessory")) then
-			table.insert(ignoreList, desc)
-		end
+	for model in pairs(humanoidModels) do
+		table.insert(ignoreList, model)
 	end
 	rayParams.FilterDescendantsInstances = ignoreList
 	rayParams.IgnoreWater = true

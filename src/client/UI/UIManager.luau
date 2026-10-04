@@ -61,7 +61,8 @@ local currentSettings = SettingsConfig.CloneDefaultSettings()
 -- in and out of the dungeon, so they're re-applied every second).
 local function applyGraphics(settings: any)
 	local Lighting = game:GetService("Lighting")
-	local shadows = not (settings and settings.shadows == false)
+	-- (performance mode, switched on when the frame rate stays low: no shadows)
+	local shadows = not (settings and settings.shadows == false) and player:GetAttribute("PerfMode") ~= true
 	local bloom = not (settings and settings.bloom == false)
 	if Lighting.GlobalShadows ~= shadows then Lighting.GlobalShadows = shadows end
 	for _, e in ipairs(Lighting:GetChildren()) do

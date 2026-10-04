@@ -372,7 +372,7 @@ local function anyoneFighting(player: Player): boolean
 	return false
 end
 
-local function onAction(player: Player, action: any)
+local function onAction(player: Player, action: any, arg: any)
 	-- Leaving the run alive (the settings panel's LEAVE RUN): straight back
 	-- to the menu. The run goes on for whoever's still in it, and ends (and
 	-- resets) once nobody is.
@@ -413,6 +413,16 @@ local function onAction(player: Player, action: any)
 	elseif action == "leave" then
 		if player:GetAttribute("Spectating") ~= true then return end
 		toMenu(player, "fallen")
+	elseif action == "watch" then
+		-- Spectating someone: stream the map round them to this player (with
+		-- streaming on, a teammate across the dungeon isn't loaded on their
+		-- client, and the camera was left at their own body under the floor).
+		if player:GetAttribute("Spectating") ~= true then return end
+		local target = if typeof(arg) == "number" then Players:GetPlayerByUserId(arg) else nil
+		local mates = runMates(player)
+		local root = target and table.find(mates, target) and target.Character
+			and target.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		player.ReplicationFocus = root
 	end
 end
 
@@ -458,6 +468,14 @@ function DeathManager.Init()
 		player:SetAttribute("RevivesLeft", REVIVES_PER_RUN)
 	end)
 	Network.GetRemoteEvent(Network.Remotes.DeathAction).OnServerEvent:Connect(onAction)
+	-- Done spectating (revived, left, run over): the map streams round them again.
+	local function watchSpectating(p: Player)
+		p:GetAttributeChangedSignal("Spectating"):Connect(function()
+			if p:GetAttribute("Spectating") ~= true then p.ReplicationFocus = nil end
+		end)
+	end
+	for _, p in ipairs(Players:GetPlayers()) do watchSpectating(p) end
+	Players.PlayerAdded:Connect(watchSpectating)
 	local function added(player: Player)
 		player.CharacterAdded:Connect(function(c) hook(player, c) end)
 		if player.Character then task.spawn(hook, player, player.Character) end

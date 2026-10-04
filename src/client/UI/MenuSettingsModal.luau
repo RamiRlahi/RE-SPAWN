@@ -442,7 +442,7 @@ function SettingsModal.Create(
 	local togglesList = {
 		{ key = "cameraShake", name = "Camera Shake Effects", desc = "Enable dynamic screen impact shaking." },
 		{ key = "damageNumbers", name = "Damage Popups", desc = "Show floating combat damage numbers." },
-		{ key = "lowDetailVFX", name = "Low Detail Particle VFX", desc = "Reduces particle density for better performance." },
+		{ key = "lowDetailVFX", name = "Low Detail Particle VFX", desc = "Fewer particles, and no scenery fires or dust, for better performance." },
 	}
 
 	for i, item in ipairs(togglesList) do

@@ -130,11 +130,7 @@ local function eyes(model: Model, color: Color3, spread: number?, depth: number?
 			Name = "Eye", Size = Vector3.new(s * 1.3, s, 0.06), Color = color, Material = Enum.Material.Neon,
 		})
 	end
-	local light = Instance.new("PointLight")
-	light.Color = color
-	light.Range = 6
-	light.Brightness = 1.2
-	light.Parent = head
+	-- (no light: neon eyes glow on their own, and a light on every mob costs)
 end
 
 -- A deep hood around the head with an open face (head space).
@@ -352,12 +348,6 @@ local function dressNecromancer(model: Model)
 		fire.Size = 2.5
 		fire.Heat = 6
 		fire.Parent = skull
-		local light = Instance.new("PointLight")
-		light.Name = "OrbLight"
-		light.Color = SOUL
-		light.Range = 10
-		light.Brightness = 1.6
-		light.Parent = skull
 	end
 end
 
@@ -1457,12 +1447,6 @@ local function addTraitLook(m: Mob, affixId: string)
 		e.Speed = NumberRange.new(3, 7)
 		e.SpreadAngle = Vector2.new(180, 180)
 		e.Rate = 14
-		local light = Instance.new("PointLight")
-		light.Name = "VolatileGlow"
-		light.Color = affix.color
-		light.Range = 8
-		light.Brightness = 1
-		light.Parent = m.root
 		TweenService:Create(light, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Brightness = 3.5 }):Play()
 	elseif affixId == "blazing" then
 		local fire = Instance.new("Fire")

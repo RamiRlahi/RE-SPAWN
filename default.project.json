@@ -6,7 +6,12 @@
       "$properties": {
         "StreamingEnabled": true,
         "StreamingMinRadius": 64,
-        "StreamingTargetRadius": 256
+        "StreamingTargetRadius": 180
+      }
+    },
+    "Lighting": {
+      "$properties": {
+        "Technology": "Voxel"
       }
     },
     "ReplicatedStorage": {

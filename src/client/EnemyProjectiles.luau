@@ -7,19 +7,22 @@
 	  • a bright core dot drawn over everything (walls, mobs, effects), white
 	    ringed in red, sized to the projectile
 	  • a streaking red-to-orange trail behind it
-	  • a white outline and red fill (a Highlight, while there are some to spare)
-	  • a small light around it
+	  • a white outline and red fill (a Highlight) on the first few: Highlights
+	    are dear to draw, and the dot and trail already can't be missed
+	  • a small light around it, while the effects budget has lights to spare
 --]]
 
 local CollectionService = game:GetService("CollectionService")
+
+local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
 
 local EnemyProjectiles = {}
 
 local TAG = "EnemyProjectile"
 local DANGER = Color3.fromRGB(255, 50, 35)
 local HOT = Color3.fromRGB(255, 170, 60)
--- (Roblox draws at most 31 Highlights at once; leave room for the rest)
-local MAX_OUTLINES = 20
+-- (each Highlight is a full extra pass over the screen: only a few)
+local MAX_OUTLINES = 4
 local outlined = 0
 
 local function mark(inst: Instance)
@@ -119,13 +122,16 @@ local function mark(inst: Instance)
 		hl.Parent = part
 		hl.Destroying:Connect(function() outlined -= 1 end)
 	end
-	local light = Instance.new("PointLight")
-	light.Name = "ProjectileGlow"
-	light.Color = Color3.fromRGB(255, 120, 90)
-	light.Range = 10
-	light.Brightness = 2
-	light.Shadows = false
-	light.Parent = part
+	if FxBudget.Light() then
+		local light = Instance.new("PointLight")
+		light.Name = "ProjectileGlow"
+		light.Color = Color3.fromRGB(255, 120, 90)
+		light.Range = 10
+		light.Brightness = 2
+		light.Shadows = false
+		light.Parent = part
+		FxBudget.TrackLight(light)
+	end
 end
 
 function EnemyProjectiles.Init()

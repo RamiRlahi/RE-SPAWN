@@ -525,7 +525,7 @@ function SettingsModal.Create(parent: GuiObject, currentSettings: any, callbacks
 	end)
 	toggleRow(gfx, 1, "Shadows", "shadows")
 	toggleRow(gfx, 2, "Bloom & Glow", "bloom")
-	toggleRow(gfx, 3, "Low Detail VFX", "lowDetailVFX", "Fewer particles, for better performance.")
+	toggleRow(gfx, 3, "Low Detail VFX", "lowDetailVFX", "Fewer particles, and no scenery fires or dust, for better performance.")
 
 	-- ── Audio ──
 	sliderRow(pages.Audio, 1, "Master Volume", "masterVolume")

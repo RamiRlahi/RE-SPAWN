@@ -21,6 +21,7 @@ local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 local UserInputService = game:GetService("UserInputService")
 local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
+local HumanoidIndex = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("HumanoidIndex"))
 
 local player = Players.LocalPlayer
 
@@ -175,10 +176,10 @@ end
 -- Living enemies the client can see (mobs); excludes players and ice clones.
 local function getEnemyRoots(exclude: Model?): { BasePart }
 	local out = {}
-	for _, d in ipairs(Workspace:GetDescendants()) do
-		if d:IsA("Humanoid") and d.Health > 0 then
-			local m = d.Parent
-			if m and m:IsA("Model") and m ~= exclude and not Players:GetPlayerFromCharacter(m)
+	-- (models with a Humanoid, kept up to date: never the whole Workspace)
+	for m, d in pairs(HumanoidIndex.Each()) do
+		if d.Health > 0 then
+			if m ~= exclude and not Players:GetPlayerFromCharacter(m)
 				and m:GetAttribute("IsDecoy") ~= true and not m:FindFirstAncestorOfClass("Accessory") then
 				local r = m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart
 				if r and r:IsA("BasePart") then table.insert(out, r) end

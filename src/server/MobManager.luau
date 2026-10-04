@@ -898,6 +898,12 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 	end)
 end
 
+local UNUSED_MOB_STATES = {
+	Enum.HumanoidStateType.Climbing, Enum.HumanoidStateType.Swimming, Enum.HumanoidStateType.Seated,
+	Enum.HumanoidStateType.Ragdoll, Enum.HumanoidStateType.FallingDown, Enum.HumanoidStateType.GettingUp,
+	Enum.HumanoidStateType.Flying, Enum.HumanoidStateType.StrafingNoPhysics,
+}
+
 local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boolean, initialHealth: number?, onDied: (() -> ())?)
 	-- 1. Humanoid Setup
 	local humanoid = mobModel:FindFirstChildOfClass("Humanoid")
@@ -907,6 +913,14 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 	end
 
 	humanoid.RequiresNeck = false
+	-- (performance: the states a mob never uses are switched off, so the
+	-- humanoid doesn't keep checking for ladders, water, seats or ragdolls;
+	-- nameplates and health are ours, not the humanoid's)
+	for _, st in ipairs(UNUSED_MOB_STATES) do
+		humanoid:SetStateEnabled(st, false)
+	end
+	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
 	local diffScale = DifficultyManager.GetMobScale(RunScope.Of(mobModel))
 	local walkSpeed = (mobModel:GetAttribute("WalkSpeed") or (isBoss and 10 or 14)) * diffScale.speed
 	humanoid.WalkSpeed = walkSpeed
@@ -1630,6 +1644,9 @@ local function eliteChanceFor(tier: number): number
 	return math.min(ELITE_BASE_CHANCE + tier * ELITE_CHANCE_PER_TIER, ELITE_MAX_CHANCE)
 end
 
+local DRAGON_FIRST_FLOOR = 3
+local DRAGON_EVERY = 3
+
 local function planRoom(group: RoomMobGroup)
 	if group.planned then return end
 	group.planned = true
@@ -1643,9 +1660,11 @@ local function planRoom(group: RoomMobGroup)
 	local maxZ = (room.gz + room.d - 1) * FLOOR_SIZE - 4
 	local remaining = mobCountFor(tier)
 
-	-- The dragon rules its map's first level (and turns up now and then later).
+	-- The dragon is floor 3's boss (the first floor you can extract from), and
+	-- comes back every third floor after it for the greedy who keep going down
+	-- (6, 9, 12...).
 	local level = RunScope.Get(group.runId, "RunLevel") or 1
-	local dragonHere = map ~= nil and ((map.dragonFirst and level <= 1) or math.random() < map.dragonChance)
+	local dragonHere = level >= DRAGON_FIRST_FLOOR and level % DRAGON_EVERY == 0
 	if room.roomType == "Boss" and DragonBoss.Available() and dragonHere then
 		table.insert(group.mobs, {
 			template = nil,

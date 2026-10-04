@@ -4,6 +4,11 @@
 -- Every character's outline (AtmosphereManager.AttachCharacterOutline), put on
 -- as it spawns; and the lobby's flame lights (tagged "CandleLight" by
 -- LobbyBuilder) flickering gently, each about its own BaseBrightness and Phase.
+--
+-- One Highlight per character at most (each is a full extra pass over the
+-- screen): a Legendary aura's own glowing outline (GearAuraHighlight, from
+-- the server) stands in for the black one while it's worn, and only your own
+-- weapon's finish keeps its Highlight (GearHighlight) on your screen.
 -- (There is no player torch: the dungeons are lit bright and clear.)
 -- ─────────────────────────────────────────────────────────────────────────────
 
@@ -18,10 +23,35 @@ local TorchLightController = {}
 
 local renderConnection: RBXScriptConnection? = nil
 
+local function syncOutlines(plr: Player, char: Model)
+	local outline = char:FindFirstChild("CharacterOutline")
+	local aura = char:FindFirstChild("GearAuraHighlight")
+	if outline and outline:IsA("Highlight") then
+		local want = aura == nil
+		if outline.Enabled ~= want then outline.Enabled = want end
+	end
+	if plr ~= Players.LocalPlayer then
+		for _, d in ipairs(char:GetDescendants()) do
+			if d.Name == "GearHighlight" and d:IsA("Highlight") and d.Enabled then d.Enabled = false end
+		end
+	end
+end
+
+local function setupCharacter(plr: Player, char: Model)
+	AtmosphereManager.AttachCharacterOutline(char)
+	syncOutlines(plr, char)
+	char.DescendantAdded:Connect(function(d)
+		if d.Name == "GearAuraHighlight" or d.Name == "GearHighlight" then task.defer(syncOutlines, plr, char) end
+	end)
+	char.DescendantRemoving:Connect(function(d)
+		if d.Name == "GearAuraHighlight" then task.defer(syncOutlines, plr, char) end
+	end)
+end
+
 local function setupPlayer(plr: Player)
-	if plr.Character then AtmosphereManager.AttachCharacterOutline(plr.Character) end
+	if plr.Character then setupCharacter(plr, plr.Character) end
 	plr.CharacterAdded:Connect(function(char)
-		AtmosphereManager.AttachCharacterOutline(char)
+		setupCharacter(plr, char)
 	end)
 end
 

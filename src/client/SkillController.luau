@@ -23,6 +23,8 @@ local IsometricCamera = require(script.Parent:WaitForChild("IsometricCamera"))
 local DivineBeamChannel = require(script.Parent:WaitForChild("DivineBeamChannel"))
 local ClericVFX = require(script.Parent:WaitForChild("ClericVFX"))
 local IceMageVFX = require(script.Parent:WaitForChild("IceMageVFX"))
+local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
+local HumanoidIndex = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("HumanoidIndex"))
 local CastPoses = require(script.Parent:WaitForChild("CastPoses"))
 local ClericFlair = require(script.Parent:WaitForChild("ClericFlair"))
 local SkateController = require(script.Parent:WaitForChild("SkateController"))
@@ -525,7 +527,7 @@ local function playFireSlamVFX(char: Model, origin: Vector3, targetPos: Vector3,
 	local rayParams = RaycastParams.new()
 	rayParams.FilterType = Enum.RaycastFilterType.Exclude
 	local ignoreList: { Instance } = { char }
-	for _, desc in ipairs(Workspace:GetDescendants()) do
+	for _, desc in ipairs(HumanoidIndex.List()) do -- (models with a Humanoid: never the whole Workspace)
 		if desc:IsA("Model") and (desc:FindFirstChildOfClass("Humanoid") or desc:FindFirstAncestorOfClass("Accessory")) then
 			table.insert(ignoreList, desc)
 		end
@@ -2087,7 +2089,7 @@ local function findRangerArrowImpact(casterChar: Model, origin: Vector3, directi
 	local bestPos = origin + flatUnit(direction) * range
 	local flatDir = flatUnit(direction)
 
-	for _, desc in ipairs(Workspace:GetDescendants()) do
+	for _, desc in ipairs(HumanoidIndex.List()) do -- (models with a Humanoid: never the whole Workspace)
 		if desc:IsA("Model") and desc ~= casterChar and not desc:IsDescendantOf(casterChar) and not desc:FindFirstAncestorOfClass("Accessory") then
 			local hum = desc:FindFirstChildOfClass("Humanoid")
 			if hum and hum.Health > 0 then
@@ -2842,7 +2844,7 @@ local function spawnVineArenaCage(center: Vector3, radius: number, duration: num
 end
 
 local function showPinnedTargets(casterChar: Model, center: Vector3, radius: number, duration: number)
-	for _, desc in ipairs(Workspace:GetDescendants()) do
+	for _, desc in ipairs(HumanoidIndex.List()) do -- (models with a Humanoid: never the whole Workspace)
 		if desc:IsA("Model") and desc ~= casterChar and not desc:IsDescendantOf(casterChar) and not desc:FindFirstAncestorOfClass("Accessory") then
 			local humanoid = desc:FindFirstChildOfClass("Humanoid")
 			local root = (desc:FindFirstChild("HumanoidRootPart") or desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")) :: BasePart?
@@ -3346,7 +3348,7 @@ local function playRangerVerdantSlashVFX(casterChar: Model, startPos: Vector3, e
 	pLight.Parent = midAtt
 
 	-- 7. Visual Hit Effect on all pierced targets in path (Panel 3)
-	for _, desc in ipairs(Workspace:GetDescendants()) do
+	for _, desc in ipairs(HumanoidIndex.List()) do -- (models with a Humanoid: never the whole Workspace)
 		if desc:IsA("Model") and desc ~= casterChar and not desc:IsDescendantOf(casterChar) and not desc:FindFirstAncestorOfClass("Accessory") then
 			local hum = desc:FindFirstChildOfClass("Humanoid")
 			local root = (desc:FindFirstChild("HumanoidRootPart") or desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")) :: BasePart?
@@ -3514,7 +3516,7 @@ local function launchSingleSeekerMissile(casterChar: Model, sideOffset: number, 
 		local bestTarget: Model? = nil
 		local bestPart: BasePart? = nil
 
-		for _, desc in ipairs(Workspace:GetDescendants()) do
+		for _, desc in ipairs(HumanoidIndex.List()) do -- (models with a Humanoid: never the whole Workspace)
 			if desc:IsA("Model") and desc ~= casterChar and not desc:IsDescendantOf(casterChar) and not desc:FindFirstAncestorOfClass("Accessory") then
 				local hum = desc:FindFirstChildOfClass("Humanoid")
 				local root = (desc:FindFirstChild("HumanoidRootPart") or desc.PrimaryPart or desc:FindFirstChildWhichIsA("BasePart")) :: BasePart?
@@ -3623,7 +3625,7 @@ local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vecto
 		local rayParams = RaycastParams.new()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 		local ignoreList: { Instance } = { char }
-		for _, desc in ipairs(Workspace:GetDescendants()) do
+		for _, desc in ipairs(HumanoidIndex.List()) do -- (models with a Humanoid: never the whole Workspace)
 			if desc:IsA("Model") and (desc:FindFirstChildOfClass("Humanoid") or desc:FindFirstAncestorOfClass("Accessory")) then
 				table.insert(ignoreList, desc)
 			end
@@ -4285,7 +4287,7 @@ function SkillController.UseSkill(skillIndex: number)
 			local rayParams = RaycastParams.new()
 			rayParams.FilterType = Enum.RaycastFilterType.Exclude
 			local ignoreList: { Instance } = { char }
-			for _, desc in ipairs(Workspace:GetDescendants()) do
+			for _, desc in ipairs(HumanoidIndex.List()) do -- (models with a Humanoid: never the whole Workspace)
 				if desc:IsA("Model") and (desc:FindFirstChildOfClass("Humanoid") or desc:FindFirstAncestorOfClass("Accessory")) then
 					table.insert(ignoreList, desc)
 				end
@@ -4651,8 +4653,32 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Damage Output
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Numbers still on screen (newest last), so a flood of hits (a stack of
+-- Projectile + Ricochet tomes) adds onto a number nearby instead of making
+-- hundreds of new ones.
+type LiveNumber = { label: TextLabel, amount: number, pos: Vector3, at: number }
+local liveNumbers: { LiveNumber } = {}
+local MAX_NUMBERS = 30
+
 local function showDamageNumber(payload: any)
 	if typeof(payload) ~= "table" or typeof(payload.position) ~= "Vector3" or typeof(payload.amount) ~= "number" then
+		return
+	end
+	local now = os.clock()
+	for i = #liveNumbers, 1, -1 do
+		if now - liveNumbers[i].at > 0.8 or not liveNumbers[i].label.Parent then table.remove(liveNumbers, i) end
+	end
+	local crit = payload.crit == true
+	if #liveNumbers >= MAX_NUMBERS or not FxBudget.Allow(if crit then "dmgNumCrit" else "dmgNum", if crit then 15 else 25) then
+		-- Over budget: add it onto the freshest number close by (or let it go).
+		for i = #liveNumbers, 1, -1 do
+			local n = liveNumbers[i]
+			if now - n.at < 0.45 and (n.pos - payload.position).Magnitude < 5 then
+				n.amount += payload.amount
+				n.label.Text = `-{math.floor(n.amount)}`
+				return
+			end
+		end
 		return
 	end
 
@@ -4687,6 +4713,7 @@ local function showDamageNumber(payload: any)
 	number.TextStrokeColor3 = Color3.fromRGB(38, 10, 5)
 	number.TextStrokeTransparency = 0
 	number.Parent = billboard
+	table.insert(liveNumbers, { label = number, amount = payload.amount, pos = payload.position, at = now })
 
 	local fadeInfo = TweenInfo.new(0.72, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	TweenService:Create(billboard, fadeInfo, { StudsOffsetWorldSpace = billboard.StudsOffsetWorldSpace + Vector3.new(0, 3.2, 0) }):Play()

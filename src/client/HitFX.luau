@@ -23,6 +23,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Network = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Network"))
 local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
+local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
 
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
@@ -78,6 +79,7 @@ local function seq(...): NumberSequence
 end
 
 local function flashLight(pos: Vector3, color: Color3, brightness: number, range: number)
+	if not FxBudget.Light() then return end
 	local a = Instance.new("Attachment")
 	a.Parent = VariantFX.RootFor(currentAttacker)
 	a.WorldPosition = pos
@@ -296,6 +298,7 @@ end
 function HitFX.Init()
 	Network.GetRemoteEvent(Network.Remotes.RicochetFX).OnClientEvent:Connect(function(p: any)
 		if typeof(p) ~= "table" or typeof(p.from) ~= "Vector3" or typeof(p.to) ~= "Vector3" then return end
+		if not FxBudget.Allow("ricochetHop", 20) then return end
 		currentAttacker = if typeof(p.attacker) == "Instance" and p.attacker:IsA("Player") then p.attacker else nil
 		ricochetHop(p.from, p.to)
 		currentAttacker = nil
@@ -306,13 +309,16 @@ function HitFX.Init()
 		local dir = typeof(p.direction) == "Vector3" and p.direction or Vector3.new(0, 0, 1)
 		local crit = p.crit == true
 		local heavy = p.heavy == true
-		if style then
+		-- (a flood of hits, e.g. a stack of Projectile + Ricochet tomes: only so
+		-- many impact effects a second; crits and heavy hits get their own share)
+		local key = if crit or heavy then "impactBig" else "impact"
+		if style and FxBudget.Allow(key, if crit or heavy then 12 else 24) then
 			currentAttacker = if typeof(p.attacker) == "Instance" and p.attacker:IsA("Player") then p.attacker else nil
 			style({ pos = p.position, dir = dir, crit = crit, heavy = heavy,
 				scale = (heavy and 1.4 or 1) * (crit and 1.35 or 1) })
 			currentAttacker = nil
 		end
-		if typeof(p.model) == "Instance" and p.model:IsA("Model") then
+		if typeof(p.model) == "Instance" and p.model:IsA("Model") and FxBudget.Allow("hitFlash", 30) then
 			hitFlash(p.model, crit)
 		end
 		if p.attacker == player and (heavy or crit) then
