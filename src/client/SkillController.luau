@@ -23,6 +23,7 @@ local IsometricCamera = require(script.Parent:WaitForChild("IsometricCamera"))
 local DivineBeamChannel = require(script.Parent:WaitForChild("DivineBeamChannel"))
 local ClericVFX = require(script.Parent:WaitForChild("ClericVFX"))
 local IceMageVFX = require(script.Parent:WaitForChild("IceMageVFX"))
+local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
 local CastPoses = require(script.Parent:WaitForChild("CastPoses"))
 local ClericFlair = require(script.Parent:WaitForChild("ClericFlair"))
 local SkateController = require(script.Parent:WaitForChild("SkateController"))
@@ -4651,8 +4652,32 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Damage Output
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Numbers still on screen (newest last), so a flood of hits (a stack of
+-- Projectile + Ricochet tomes) adds onto a number nearby instead of making
+-- hundreds of new ones.
+type LiveNumber = { label: TextLabel, amount: number, pos: Vector3, at: number }
+local liveNumbers: { LiveNumber } = {}
+local MAX_NUMBERS = 30
+
 local function showDamageNumber(payload: any)
 	if typeof(payload) ~= "table" or typeof(payload.position) ~= "Vector3" or typeof(payload.amount) ~= "number" then
+		return
+	end
+	local now = os.clock()
+	for i = #liveNumbers, 1, -1 do
+		if now - liveNumbers[i].at > 0.8 or not liveNumbers[i].label.Parent then table.remove(liveNumbers, i) end
+	end
+	local crit = payload.crit == true
+	if #liveNumbers >= MAX_NUMBERS or not FxBudget.Allow(if crit then "dmgNumCrit" else "dmgNum", if crit then 15 else 25) then
+		-- Over budget: add it onto the freshest number close by (or let it go).
+		for i = #liveNumbers, 1, -1 do
+			local n = liveNumbers[i]
+			if now - n.at < 0.45 and (n.pos - payload.position).Magnitude < 5 then
+				n.amount += payload.amount
+				n.label.Text = `-{math.floor(n.amount)}`
+				return
+			end
+		end
 		return
 	end
 
@@ -4687,6 +4712,7 @@ local function showDamageNumber(payload: any)
 	number.TextStrokeColor3 = Color3.fromRGB(38, 10, 5)
 	number.TextStrokeTransparency = 0
 	number.Parent = billboard
+	table.insert(liveNumbers, { label = number, amount = payload.amount, pos = payload.position, at = now })
 
 	local fadeInfo = TweenInfo.new(0.72, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	TweenService:Create(billboard, fadeInfo, { StudsOffsetWorldSpace = billboard.StudsOffsetWorldSpace + Vector3.new(0, 3.2, 0) }):Play()

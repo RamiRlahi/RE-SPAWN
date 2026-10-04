@@ -27,6 +27,7 @@ local RunScope = require(game:GetService("ReplicatedStorage"):WaitForChild("Shar
 
 local Network = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Network"))
 local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
+local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
 local UltimateCameraChoreography = require(script.Parent:WaitForChild("UltimateCameraChoreography"))
 local SafeMove = require(script.Parent:WaitForChild("SafeMove"))
 
@@ -77,6 +78,8 @@ local SFX = {
 local function playSound(name: string, pos: Vector3?, volume: number, pitch: number?, fadeAfter: number?)
 	local list = SFX[name]
 	if not list or #list == 0 then return end
+	-- (a dozen shots in the same instant sound like one: no more than that)
+	if not FxBudget.Allow("gsSound:" .. name, 12) then return end
 	local sound = Instance.new("Sound")
 	sound.SoundId = list[math.random(1, #list)]
 	sound.Volume = volume
@@ -202,6 +205,7 @@ local function seq(...): NumberSequence
 end
 
 local function burst(owner: Player?, pos: Vector3, props: { [string]: any }, count: number, life: number?)
+	if not FxBudget.Allow("gsBurst", 30) then return end
 	local a = Instance.new("Attachment")
 	a.WorldPosition = pos
 	a.Parent = vfxRoot(owner)
@@ -216,6 +220,7 @@ local function burst(owner: Player?, pos: Vector3, props: { [string]: any }, cou
 end
 
 local function flash(owner: Player?, pos: Vector3, color: Color3, brightness: number, range: number, t: number)
+	if not FxBudget.Light() then return end
 	local a = Instance.new("Attachment")
 	a.WorldPosition = pos
 	a.Parent = vfxRoot(owner)
@@ -650,6 +655,9 @@ end
 -- A tracer from muzzle to `to`: bright core, brass glow, muzzle flash and
 -- gunpowder smoke. Final and Deadeye shots are bigger.
 local function drawShot(owner: Player?, from: Vector3, to: Vector3, final: boolean?, deadeye: boolean?)
+	-- (Projectile tomes fan out many bullets a shot: only so many tracers a
+	-- second; the big shots always draw)
+	if not (final or deadeye) and not FxBudget.Allow("gsTracer", 30) then return end
 	local root = vfxRoot(owner)
 	local len = (to - from).Magnitude
 	if len < 0.2 then return end
@@ -1077,6 +1085,7 @@ local function onSplit(msg: any)
 			end
 			local len = (to - from).Magnitude
 			if len < 0.2 then return end
+			if not FxBudget.Allow("gsTracer", 30) then return end
 			local mid = CFrame.lookAt((from + to) / 2, to)
 			local core = neon(root, { Size = Vector3.new(0.12, 0.12, len), CFrame = mid, Color = HOT, Transparency = 0.05 })
 			local glow = neon(root, { Size = Vector3.new(0.36, 0.36, len), CFrame = mid, Color = BRASS, Transparency = 0.6 })

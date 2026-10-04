@@ -8,7 +8,8 @@
 	    much fainter
 	  • particles fewer, fainter and smaller; dark smoke (which hides the mobs
 	    you're fighting) faded hard
-	  • beams and trails fainter, lights dimmer
+	  • beams and trails fainter, lights dimmer, and only so many effect
+	    lights alive at once (FxBudget): past that they're switched off
 	  • the effects worn on characters (auras, swing trails): their particles
 	    and trails only, never bodies, armour or capes
 
@@ -20,6 +21,8 @@
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
+
+local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
 
 local VfxDetail = {}
 
@@ -119,6 +122,8 @@ local function tone(inst: Instance, L: Level)
 		inst.Transparency = fadeSeq(inst.Transparency, L.beam)
 	elseif inst:IsA("Light") then
 		inst.Brightness *= L.light
+		-- (only so many effect lights at once, from any class: past that, off)
+		FxBudget.TrackLight(inst)
 	else
 		return
 	end

@@ -284,6 +284,33 @@ local IMPACT_PROFILES: { [string]: ImpactProfile } = {
 	["WORLDBREAKER EXECUTE"] = { kb = 44, lift = 20, stagger = 1.0, style = "slash", heavy = true },
 }
 
+-- How many effect messages a player's hits may send each second. The hits
+-- themselves (damage, knockback, stagger) are never limited; only their
+-- pictures are, so a flood of them (a stack of Projectile + Ricochet tomes)
+-- can't swamp the network and every client's frame rate.
+type Bucket = { tokens: number, at: number }
+local fxBuckets: { [Player]: { [string]: Bucket } } = {}
+Players.PlayerRemoving:Connect(function(p) fxBuckets[p] = nil end)
+local function fxAllowed(player: Player, key: string, perSecond: number): boolean
+	local mine = fxBuckets[player]
+	if not mine then
+		mine = {}
+		fxBuckets[player] = mine
+	end
+	local now = os.clock()
+	local cap = math.max(2, perSecond / 4)
+	local b = mine[key]
+	if not b then
+		b = { tokens = cap, at = now }
+		mine[key] = b
+	end
+	b.tokens = math.min(cap, b.tokens + (now - b.at) * perSecond)
+	b.at = now
+	if b.tokens < 1 then return false end
+	b.tokens -= 1
+	return true
+end
+
 local function applyImpact(player: Player, target: { character: Model, humanoid: Humanoid, rootPart: BasePart }, source: string, crit: boolean)
 	local profile = IMPACT_PROFILES[source]
 	if not profile then return end
@@ -312,6 +339,7 @@ local function applyImpact(player: Player, target: { character: Model, humanoid:
 		end
 	end
 
+	if not fxAllowed(player, if crit or profile.heavy then "impactBig" else "impact", if crit or profile.heavy then 15 else 30) then return end
 	Network.GetRemoteEvent(Network.Remotes.HitImpact):FireAllClients({
 		position = target.rootPart.Position,
 		direction = flatAway,
@@ -429,7 +457,9 @@ local function ricochet(player: Player, casterChar: Model, first: any, damage: n
 			hit[best.character] = true
 			dmg = math.max(1, math.floor(dmg * RICOCHET_DAMAGE))
 			local toPos = best.rootPart.Position
-			Network.GetRemoteEvent(Network.Remotes.RicochetFX):FireAllClients({ from = fromPos, to = toPos, attacker = player })
+			if fxAllowed(player, "ricochet", 25) then
+				Network.GetRemoteEvent(Network.Remotes.RicochetFX):FireAllClients({ from = fromPos, to = toPos, attacker = player })
+			end
 			dealDamage(player, best, dmg, source)
 			fromPos = toPos
 		end
