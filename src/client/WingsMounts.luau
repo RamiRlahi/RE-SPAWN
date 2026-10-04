@@ -14,12 +14,14 @@
 	           void disc) hover and are sat on, legs out in front
 
 	Every client builds them locally on every player (from the player's
-	"Wings" attribute and the character's "Riding" attribute), and stops
-	moving the ones far from the camera.
+	"Wings" attribute and the character's "Riding" attribute), joints them to
+	the character (Attach: drawn exactly with the body, no lag or jitter),
+	and drops the ones far from the camera.
 
 	  WingsMounts.Init()
 	  WingsMounts.Build(rewardId) → rig      (for the selection screens)
 	  WingsMounts.Pose(rig, cframe, t, move) (rig.world: the WorldRoot it lives in)
+	  WingsMounts.Attach(rig, basePart, offset) + Animate(rig, t, move)
 --]]
 
 local Players = game:GetService("Players")
@@ -43,8 +45,9 @@ local FIRE = "rbxasset://textures/particles/fire_main.dds"
 local FIRE_SPARK = "rbxasset://textures/particles/fire_sparks_main.dds"
 
 type Paint = { color: Color3, neon: boolean?, alpha: number? }
-type Piece = { parts: { BasePart }, offsets: { CFrame }, home: CFrame, anim: ((t: number, move: number) -> CFrame)? }
-export type Rig = { model: Model, pieces: { Piece }, world: WorldRoot?, allParts: { BasePart }, cfs: { CFrame }, kind: string }
+type Piece = { parts: { BasePart }, offsets: { CFrame }, home: CFrame, anim: ((t: number, move: number) -> CFrame)?, motor: Motor6D? }
+export type Rig = { model: Model, pieces: { Piece }, world: WorldRoot?, allParts: { BasePart }, cfs: { CFrame }, kind: string,
+	base: BasePart?, baseOff: CFrame? }
 
 local function rgb(r: number, g: number, b: number): Paint return { color = Color3.fromRGB(r, g, b) } end
 local function glow(r: number, g: number, b: number): Paint return { color = Color3.fromRGB(r, g, b), neon = true } end
@@ -1258,6 +1261,60 @@ function WingsMounts.Pose(rig: Rig, cf: CFrame, t: number, move: number)
 	world:BulkMoveTo(rig.allParts, rig.cfs, Enum.BulkMoveMode.FireCFrameChanged)
 end
 
+-- Fixed to a character instead (the game's own wings and mounts): every
+-- piece is welded to a pivot jointed to `base` by a Motor6D, so the rig is
+-- part of the character's assembly and is drawn exactly where the body is
+-- (moving anchored parts after it lags a frame behind and jitters while the
+-- camera turns); the animation is played through the joints' Transforms.
+local function makeLoose(p: BasePart)
+	p.Anchored, p.Massless = false, true
+	p.CanCollide, p.CanTouch, p.CanQuery = false, false, false
+end
+
+function WingsMounts.Attach(rig: Rig, base: BasePart, off: CFrame)
+	if rig.base ~= base then
+		rig.base = base
+		for _, piece in ipairs(rig.pieces) do
+			local motor = piece.motor
+			if not motor then
+				local pivot = Instance.new("Part")
+				pivot.Name = "Pivot"
+				pivot.Transparency, pivot.Size = 1, Vector3.one * 0.1
+				makeLoose(pivot)
+				pivot.CFrame = base.CFrame * off * piece.home
+				for k, part in ipairs(piece.parts) do
+					makeLoose(part)
+					local w = Instance.new("Weld")
+					w.Part0, w.Part1, w.C0 = pivot, part, piece.offsets[k]
+					w.Parent = part
+				end
+				pivot.Parent = rig.model
+				local m = Instance.new("Motor6D")
+				m.Part1 = pivot
+				m.Parent = pivot
+				piece.motor = m
+				motor = m
+			end
+			(motor :: Motor6D).Part0 = base
+		end
+		rig.baseOff = nil
+	end
+	if rig.baseOff ~= off then
+		rig.baseOff = off
+		for _, piece in ipairs(rig.pieces) do
+			if piece.motor then piece.motor.C0 = off * piece.home end
+		end
+	end
+end
+
+-- Play an attached rig's animation for time `t` and movement 0..1+.
+function WingsMounts.Animate(rig: Rig, t: number, move: number)
+	for _, piece in ipairs(rig.pieces) do
+		local m = piece.motor
+		if m then m.Transform = if piece.anim then piece.anim(t, move) else CFrame.identity end
+	end
+end
+
 -- ─── The riding pose ───────────────────────────────────────────────────────
 -- Seated astride: thighs forward and spread round the mount, knees bent so
 -- the shins hang down its sides, arms forward on the reins. Written over the
@@ -1374,16 +1431,16 @@ local function step()
 		if e.wings then
 			local torso = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
 			if torso and torso:IsA("BasePart") then
-				WingsMounts.Pose(e.wings, torso.CFrame * CFrame.new(0, 0.35, torso.Size.Z / 2 + 0.08), t, move)
+				WingsMounts.Attach(e.wings, torso, CFrame.new(0, 0.35, torso.Size.Z / 2 + 0.08))
+				WingsMounts.Animate(e.wings, t, move)
 			end
 		end
 		if e.mount then
 			-- feet on the ground under the rider (HipHeight was raised to ride)
 			local legs = if hum.RigType == Enum.HumanoidRigType.R6 then 2 else 0
-			local ground = root.Position.Y - root.Size.Y / 2 - legs - hum.HipHeight
-			local look = root.CFrame.LookVector
-			local yaw = CFrame.lookAt(Vector3.zero, Vector3.new(look.X, 0, look.Z))
-			WingsMounts.Pose(e.mount, CFrame.new(root.Position.X, ground, root.Position.Z) * yaw, t, move)
+			local sink = math.floor((root.Size.Y / 2 + legs + hum.HipHeight) * 1000 + 0.5) / 1000
+			WingsMounts.Attach(e.mount, root, CFrame.new(0, -sink, 0))
+			WingsMounts.Animate(e.mount, t, move)
 			local r = GachaRewards.Get(e.mountId :: string)
 			WingsMounts.Seat(char, RideData.IsFlat(r and r.look))
 		end
