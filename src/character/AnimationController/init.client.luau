@@ -9,6 +9,8 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RunScope = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("RunScope"))
 local Network = require(Shared:WaitForChild("Network"))
 local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
+local GachaRewards = require(Shared:WaitForChild("GachaRewards"))
+local RideData = require(Shared:WaitForChild("RideData"))
 
 local player = Players.LocalPlayer
 local character = script.Parent
@@ -78,6 +80,12 @@ local function speedMult(): number
 	local until_ = character:GetAttribute("IceSlowUntil")
 	if typeof(until_) == "number" and workspace:GetServerTimeNow() < until_ then
 		m *= tonumber(character:GetAttribute("IceSlow")) or 0.5
+	end
+	-- (riding a mount in the lobby: its speed boost, as MountManager sets it)
+	local riding = character:GetAttribute("Riding")
+	if typeof(riding) == "string" and player:GetAttribute("InHub") == true then
+		local r = GachaRewards.Get(riding)
+		if r then m *= RideData.SpeedByRarity[r.rarity] or 1.5 end
 	end
 	return m
 end
@@ -650,7 +658,13 @@ local function sprintToggles(): boolean
 	return player:GetAttribute("Setting_toggleSprint") ~= false
 end
 
+-- No sprinting in the lobby hub (only in a run).
+local function canSprint(): boolean
+	return player:GetAttribute("InHub") ~= true
+end
+
 local function setSprinting(on: boolean)
+	if on and not canSprint() then return end
 	if isSprinting == on then return end
 	isSprinting = on
 	if on then
@@ -684,6 +698,10 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 			performAttack()
 		end
 	end
+end)
+
+player:GetAttributeChangedSignal("InHub"):Connect(function()
+	if not canSprint() then setSprinting(false) end
 end)
 
 UserInputService.InputEnded:Connect(function(input)
