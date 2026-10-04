@@ -288,7 +288,7 @@ function RewardPreview.Build(reward: any): (Model, () -> ())
 						local look = root.CFrame.LookVector
 						WingsMounts.Pose(rig, CFrame.new(root.Position.X, ground, root.Position.Z)
 							* CFrame.lookAt(Vector3.zero, Vector3.new(look.X, 0, look.Z)), t, 0.6)
-						WingsMounts.Seat(model)
+						WingsMounts.Seat(model, RideData.IsFlat(reward.look))
 					end
 				end))
 			end

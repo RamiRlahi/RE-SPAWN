@@ -388,7 +388,7 @@ end
 -- (and off again; the choice stays for your next visit): the mouse locked to
 -- the screen's centre, the camera over your right shoulder. Your top half
 -- turns to where you aim; your legs keep walking where you're going (W A S
--- D), so you can strafe and look about. (Shift itself sprints in this game.)
+-- D), so you can strafe and look about. (Shift sprints in runs; not here.)
 -- It lets go by itself while a window is open (the map picker, the summon
 -- page, an invite, a player's card, the menus).
 local SHIFT_OFFSET = Vector3.new(1.75, 0, 0)
