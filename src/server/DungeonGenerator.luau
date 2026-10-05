@@ -1696,8 +1696,10 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 
 		-- 3b. Hades set dressing: a gold-inlaid floor medallion under the room
 		-- reward (combat rooms) and green-fire braziers in the corners.
-		if room.roomType == "Combat" or room.roomType == "Elite" or room.roomType == "Boss" then
-			local center = Vector3.new((room.gx + room.w / 2) * FLOOR_SIZE, room.floorY, (room.gz + room.d / 2) * FLOOR_SIZE)
+		-- (not on a map with its own centre pieces: one already lies there)
+		local ownCentre = (assets :: any).ownArt == true and #assets.centerPieces > 0
+		if not ownCentre and (room.roomType == "Combat" or room.roomType == "Elite" or room.roomType == "Boss") then
+			local center = Vector3.new((room.gx + (room.w - 1) / 2) * FLOOR_SIZE, room.floorY, (room.gz + (room.d - 1) / 2) * FLOOR_SIZE)
 			AtmosphereManager.PlaceFloorMedallion(center, 7, propsFolder)
 		end
 		if room.w >= 3 and room.d >= 3 then
@@ -1859,7 +1861,11 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 
 	-- 2. Floor Placement (Exact 12x12 Snapping at FLOOR_Y_OFFSET = 4 with Center Pieces)
 	local centerPieceGrid: { [string]: boolean } = {}
+	-- (a map with its own art lays ONE centre piece over each room's floor instead:
+	-- after the tiles, below)
+	local oneCentre = (assets :: any).ownArt == true and #assets.centerPieces > 0
 	for _, room in ipairs(rooms) do
+		if oneCentre then break end
 		local centerGX = room.gx + math.floor((room.w - 1) / 2)
 		local centerGZ = room.gz + math.floor((room.d - 1) / 2)
 		local patternChoice = rng:NextInteger(1, 4)
@@ -1938,6 +1944,21 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 			p.Material = Enum.Material.Cobblestone
 			p.Color = Color3.fromRGB(60, 60, 65)
 			p.Parent = floorsFolder
+		end
+	end
+
+	-- 2b. The map's own centre piece: one per room, over the floor tiles at the
+	-- room's middle (tiles are centred on gx * FLOOR_SIZE), raised a hair so the
+	-- two don't flicker. The room reward floats over it.
+	if oneCentre then
+		for _, room in ipairs(rooms) do
+			if room.w < 3 or room.d < 3 then continue end
+			local template = pickRandom(assets.centerPieces, rng)
+			if template then
+				local mid = Vector3.new((room.gx + (room.w - 1) / 2) * FLOOR_SIZE, room.floorY + 0.08, (room.gz + (room.d - 1) / 2) * FLOOR_SIZE)
+				local cf = CFrame.new(mid) * CFrame.Angles(0, math.rad(rng:NextInteger(0, 3) * 90), 0)
+				spawnInstance(template, cf, floorsFolder, true)
+			end
 		end
 	end
 
