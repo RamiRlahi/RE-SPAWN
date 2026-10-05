@@ -30,6 +30,8 @@ export type Map = {
 	lighting: Lighting,
 	endless: boolean?,      -- the Endless Abyss: no collapse, its leaderboard (Leaderboard.luau)
 	unlockFloor: number?,   -- your deepest floor must reach this to enter
+	assets: string?,        -- its own dungeon pieces: a folder in ReplicatedStorage (DungeonGenerator)
+	prison: boolean?,       -- the prison: spotlights hunt you, three sightings raise the alarm (Prison.luau)
 }
 
 local MapData = {}
@@ -37,17 +39,19 @@ local MapData = {}
 MapData.Maps = {
 	{
 		id = "crypt",
-		name = "The Sunken Crypt",
-		subtitle = "Where the dead do not rest",
+		name = "The Prison of Souls",
+		subtitle = "Stay out of the light",
 		rank = "C",
-		description = "Cold green halls of bone and grave dust. Zombies, ghouls and necromancers raising the fallen.",
-		color = Color3.fromRGB(110, 220, 170),
+		description = "A prison for the damned. Searchlights sweep every hall: be seen three times and the wardens send every inmate down the lifts after you. Shackled souls, jailers and executioners.",
+		color = Color3.fromRGB(120, 230, 210),
 		stone = Color3.fromRGB(200, 214, 210),
-		packs = { 1, 3, 4 },
+		packs = { 6 },
 		bosses = { "colossus", "witch" },
+		assets = "map:crypt assets",
+		prison = true,
 		lighting = {
-			tint = Color3.fromRGB(228, 248, 240),
-			saturation = 0.2,
+			tint = Color3.fromRGB(226, 242, 238),
+			saturation = 0.1,
 		},
 	},
 	{

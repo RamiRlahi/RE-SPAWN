@@ -113,7 +113,8 @@ function DungeonGenerator.BuildingRun(): string?
 	return building
 end
 
--- Asset Cache
+-- Asset Cache (the default set; a map with its own assets swaps in a merged
+-- set while its dungeon is built: see mapAssetSet)
 local assets = {
 	floors       = {} :: { Instance },
 	centerPieces = {} :: { Instance },
@@ -229,6 +230,114 @@ local function loadAssets()
 	print(`  • Barriers: { #assets.barriers }`)
 	print(`  • Rubble: { #assets.rubble }`)
 	print(`  • Cosmetics: { #assets.cosmetics } (Raised +3.2 studs near walls/center)`)
+end
+
+-- ── A map's own asset set ─────────────────────────────────────────────────────
+-- A map can bring its own pieces (MapData.assets: a folder in ReplicatedStorage,
+-- e.g. "map:crypt assets"): models named floor*, center*, wall*, pillar*,
+-- gate*/arch*, stair*, rubble*, barrier*, anything else a cosmetic (loose or in
+-- subfolders). They can be any size and built facing any way: each one is
+-- measured (its bounding box) and its pivot reset to what the generator places
+-- by: floors with their top at the standard floor top, walls / pillars / gates
+-- standing on the floor, a wall's length along its X. Walls are tiled by their
+-- own measured length. Pieces the map doesn't have come from the default set
+-- (stairs, rubble, barriers; not its walls, floors, pillars, gates or cosmetics).
+local FLOOR_TOP = FLOOR_Y_OFFSET + 0.5        -- where the standard floor's top is
+local WALL_BASE = WALL_Y_OFFSET - FLOOR_Y_OFFSET -- a wall's pivot sits this far above the floor
+
+type AssetSet = typeof(assets) & { wallLen: number, ownArt: boolean, bigPillars: boolean }
+local mapSets: { [string]: AssetSet } = {}
+local defaultAssets = assets
+local wallPieceLen = WALL_PIECE_LEN
+
+local function normalize(template: Instance, kind: string): Instance?
+	local model: Model
+	if template:IsA("Model") then
+		model = template:Clone()
+	elseif template:IsA("BasePart") then
+		model = Instance.new("Model")
+		model.Name = template.Name
+		local p = template:Clone()
+		p.Parent = model
+	else
+		return nil
+	end
+	-- (measured along the world's axes, whatever its saved pivot or PrimaryPart)
+	model.PrimaryPart = nil
+	model.WorldPivot = CFrame.new(model:GetPivot().Position)
+	local box, size = model:GetBoundingBox()
+	-- (lying along Z: turn it so its length runs along X)
+	local turn = if kind == "wall" and size.Z > size.X then CFrame.Angles(0, math.rad(90), 0) else CFrame.identity
+	local c = box.Position
+	local pivotY = if kind == "floor" then c.Y + size.Y / 2 - 0.5 else c.Y - size.Y / 2 + WALL_BASE
+	model.WorldPivot = CFrame.new(c.X, pivotY, c.Z) * turn
+	return model
+end
+
+local function kindOfAsset(name: string): string
+	local n = string.lower(name)
+	if string.find(n, "floor") or string.find(n, "center") then return if string.find(n, "center") then "center" else "floor" end
+	if string.find(n, "pillar") then return "pillar" end
+	if string.find(n, "gate") or string.find(n, "arch") then return "gate" end
+	if string.find(n, "wall") then return "wall" end
+	if string.find(n, "stair") then return "stair" end
+	if string.find(n, "rubble") then return "rubble" end
+	if string.find(n, "barrier") then return "barrier" end
+	return "cosmetic"
+end
+
+local function mapAssetSet(folderName: string): AssetSet?
+	if mapSets[folderName] then return mapSets[folderName] end
+	local root = ReplicatedStorage:FindFirstChild(folderName)
+	if not root then
+		warn(`[DungeonGenerator] map assets '{folderName}' not found: the default set is used`)
+		return nil
+	end
+	local set: any = {
+		floors = {}, centerPieces = {}, walls = {}, pillars = {}, gates = {},
+		barriers = {}, rubble = {}, stairs = {}, cosmetics = {},
+		wallLen = WALL_PIECE_LEN, ownArt = true, bigPillars = false,
+	}
+	local longest = 0
+	local function scan(parent: Instance, folderKind: string?)
+		for _, item in ipairs(parent:GetChildren()) do
+			if item:IsA("Folder") then
+				scan(item, kindOfAsset(item.Name))
+			elseif item:IsA("Model") or item:IsA("BasePart") then
+				local k = kindOfAsset(item.Name)
+				if k == "cosmetic" and folderKind then k = folderKind end
+				local list = ({
+					floor = set.floors, center = set.centerPieces, wall = set.walls, pillar = set.pillars, gate = set.gates,
+					stair = set.stairs, rubble = set.rubble, barrier = set.barriers, cosmetic = set.cosmetics,
+				})[k]
+				-- (stairs, rubble, barriers keep their own pivots: the generator places them like the defaults)
+				local piece = if k == "floor" or k == "center" then normalize(item, "floor")
+					elseif k == "wall" or k == "pillar" or k == "gate" then normalize(item, if k == "wall" then "wall" else "post")
+					else item
+				if piece and list then
+					table.insert(list, piece)
+					if k == "wall" then
+						local _, size = (piece :: Model):GetBoundingBox()
+						longest = math.max(longest, math.max(size.X, size.Z))
+					elseif k == "pillar" then
+						local _, size = (piece :: Model):GetBoundingBox()
+						if math.max(size.X, size.Z) > 6 then set.bigPillars = true end
+					end
+				end
+			end
+		end
+	end
+	scan(root, nil)
+	if longest > 0 then set.wallLen = longest end
+	-- (what the map lacks: the default stairs, rubble and barriers)
+	for _, k in ipairs({ "stairs", "rubble", "barriers" }) do
+		if #set[k] == 0 then set[k] = assets[k] end
+	end
+	if #set.floors == 0 then set.floors = assets.floors end
+	if #set.walls == 0 then set.walls = assets.walls; set.wallLen = WALL_PIECE_LEN end
+	print(`[DungeonGenerator] Map assets '{folderName}': {#set.floors} floors, {#set.centerPieces} centre pieces, {#set.walls} walls ({math.floor(set.wallLen)} long), {#set.pillars} pillars, {#set.gates} gates, {#set.cosmetics} cosmetics`)
+	mapSets[folderName] = set
+	return set
 end
 
 -- ── Geometry & Cloner Helpers ────────────────────────────────────────────────
@@ -1051,19 +1160,33 @@ local function constructPerimeterWallsAndPillars(
 		local length = vec.Magnitude
 		local tangent = vec.Unit
 
-		local numWalls = math.max(1, math.ceil(length / WALL_PIECE_LEN))
+		local ownArt = (assets :: any).ownArt == true
+		-- (a stretch shorter than the map's own wall: the standard short pieces,
+		-- or the long one would poke out across the doorways at its ends)
+		local short = ownArt and length < wallPieceLen
+		local pieceLen = if short then WALL_PIECE_LEN else wallPieceLen
+		local wallList = if short then defaultAssets.walls else assets.walls
+		local numWalls = math.max(1, math.ceil(length / pieceLen))
 		local step = length / numWalls
+		-- (a map's own long walls: the first flush with the segment's start, the
+		-- last with its end, the rest spread between, so none pokes past the
+		-- segment into a doorway; consecutive ones overlap a little)
+		local flush = ownArt and not short and numWalls > 1
 
 		local lastVaried = -10
 		for i = 1, numWalls do
-			local wallCenter = seg.p1 + tangent * ((i - 0.5) * step)
+			local wallCenter = if flush
+				then seg.p1 + tangent * (wallPieceLen / 2 + (i - 1) * (length - wallPieceLen) / (numWalls - 1))
+				else seg.p1 + tangent * ((i - 0.5) * step)
+			-- (overlapping pieces: every other one a hair further out, no flicker)
+			if flush and i % 2 == 0 then wallCenter += seg.normal * 0.06 end
 			if not isNearGate(wallCenter, 12) and not isBlockingStairOpening(wallCenter, seg.normal) then
 				local wallCF = CFrame.new(wallCenter) * CFrame.Angles(0, math.rad(seg.rotY), 0)
-				local wallPiece = pickRandom(assets.walls, rng)
+				local wallPiece = pickRandom(wallList, rng)
 				-- Architectural variation instead of one long flat wall: an
 				-- arched alcove set back into it, or a broken stretch with the
 				-- deeper wall behind showing, and pilasters at the joints.
-				local plain = wallPiece ~= nil and AtmosphereManager.WindowOpenings(wallPiece.Name) == nil
+				local plain = not ownArt and wallPiece ~= nil and AtmosphereManager.WindowOpenings(wallPiece.Name) == nil
 					and numWalls >= 3 and i > 1 and i < numWalls and i - lastVaried > 1
 					and not isNearGate(wallCenter, 22) and not isNearStair(wallCenter, 26)
 				local roll = rng:NextNumber()
@@ -1076,7 +1199,7 @@ local function constructPerimeterWallsAndPillars(
 				elseif wallPiece then
 					spawnInstance(wallPiece, wallCF, wallsFolder)
 					-- a pilaster at every other joint along a long wall
-					if i < numWalls and i % 2 == 0 and i - lastVaried > 1 and #assets.pillars > 0
+					if i < numWalls and i % 2 == 0 and i - lastVaried > 1 and #assets.pillars > 0 and not (assets :: any).bigPillars
 						and not isNearGate(wallCenter + tangent * step * 0.5, 16) and not isNearStair(wallCenter, 22) then
 						local at = wallCenter + tangent * (step * 0.5) - seg.normal * 0.6
 						spawnInstance(pickRandom(assets.pillars, rng) :: Instance, CFrame.new(at) * CFrame.Angles(0, math.rad(seg.rotY), 0), wallsFolder)
@@ -1670,6 +1793,9 @@ function DungeonGenerator.Generate(config: DungeonConfig?): (CFrame, CFrame, CFr
 	while buildLock do task.wait() end
 	buildLock = true
 	local ok, a, b, c = pcall(build, runId, cfg)
+	-- (back to the default set for the next build)
+	assets = defaultAssets
+	wallPieceLen = WALL_PIECE_LEN
 	building = nil
 	buildLock = false
 	if not ok then error(a) end
@@ -1686,6 +1812,12 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 	local rng = Random.new(seed)
 	RunScope.Set(runId, "RunLevel", level)
 	RunScope.Set(runId, "MapId", mapId)
+	-- The map's own pieces, if it has them (MapData.assets).
+	local own = map and map.assets and mapAssetSet(map.assets)
+	if own then
+		assets = own :: any
+		wallPieceLen = own.wallLen
+	end
 
 	-- Clean this run's previous level
 	DungeonGenerator.Clear(runId)
@@ -1901,8 +2033,9 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 	}
 	d.payload = mapPayload
 
-	-- The map's stone: its tint over every floor and wall.
-	if map then
+	-- The map's stone: its tint over every floor and wall (not over a map's
+	-- own pieces: their colours are already the art).
+	if map and not own then
 		local tint = map.stone
 		for _, f in ipairs({ floorsFolder, wallsFolder, stairsFolder }) do
 			for _, part in ipairs(f:GetDescendants()) do
@@ -1931,6 +2064,15 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 		local MobManager = require(script.Parent:WaitForChild("MobManager"))
 		MobManager.SpawnRoomMobs(rooms, runId)
 	end)
+	-- The prison: a searchlight hunting through every combat room (Prison.luau).
+	if map and map.prison then
+		local ok, err = pcall(function()
+			require(script.Parent:WaitForChild("Prison")).Setup(rooms, runId, propsFolder)
+		end)
+		if not ok then warn("[DungeonGenerator] prison:", err) end
+	else
+		RunScope.Set(runId, "Prison", nil)
+	end
 
 	print(`[DungeonGenerator] Dungeon ready for run {runId} ({if map then map.name else mapId}, level {level}, slot {slot}): {#rooms} rooms.`)
 	print(`  • Spawn: {d.spawn.Position}`)

@@ -137,6 +137,7 @@ pcall(function()
 	require(script:WaitForChild("ZombieAnimator")).Init()
 	require(script:WaitForChild("VfxDetail")).Init()
 	require(script:WaitForChild("PerfMode")).Init() -- low frame rate: shadows and scenery effects off
+	require(script:WaitForChild("PrisonFX")).Init() -- the prison map's searchlights and alarm
 	-- The lobby: party panel, invite prompts, its menu states.
 	require(script:WaitForChild("UI"):WaitForChild("LobbyHUD")).Init(if successUI then UIManager else nil)
 end)
