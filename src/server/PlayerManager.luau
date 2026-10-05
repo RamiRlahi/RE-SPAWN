@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
+local PlayerData = require(script.Parent:WaitForChild("PlayerData"))
 local AtmosphereManager = require(Shared:WaitForChild("AtmosphereManager"))
 local ClassData = require(Shared:WaitForChild("ClassData"))
 local ClassManager = require(script.Parent:WaitForChild("ClassManager"))
@@ -84,12 +85,29 @@ end
 function PlayerManager.Init()
 	AtmosphereManager.ApplyLobbyLighting()
 
-	-- Listen for settings save from client
+	-- Settings are saved on each player's account (PlayerData), so they follow
+	-- them to any server and device. Checked here (SettingsConfig.Sanitize):
+	-- only known settings of the right type are kept.
+	local lastSave: { [Player]: number } = {}
+	Players.PlayerRemoving:Connect(function(p) lastSave[p] = nil end)
 	local saveSettingsRemote = Network.GetRemoteEvent(Network.Remotes.SaveSettings)
 	saveSettingsRemote.OnServerEvent:Connect(function(player: Player, clientSettings: any)
-		if typeof(clientSettings) == "table" then
-			print(`[PlayerManager] Saved settings updated for {player.Name}`)
-		end
+		if typeof(clientSettings) ~= "table" then return end
+		local now = os.clock()
+		if now - (lastSave[player] or 0) < 0.5 then return end
+		lastSave[player] = now
+		local profile = PlayerData.Await(player, 10)
+		if not profile then return end
+		profile.settings = SettingsConfig.Sanitize(clientSettings) :: any
+		PlayerData.MarkDirty(player)
+	end)
+	-- The client asks for its saved settings as it starts.
+	local syncRemote = Network.GetRemoteEvent(Network.Remotes.SettingsSync)
+	syncRemote.OnServerEvent:Connect(function(player: Player)
+		local profile = PlayerData.Await(player, 15)
+		if not profile or not player.Parent then return end
+		local saved = if next(profile.settings) ~= nil then SettingsConfig.Sanitize(profile.settings) else nil
+		syncRemote:FireClient(player, saved)
 	end)
 
 	-- Handle sprint toggle from client

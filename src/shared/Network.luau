@@ -9,7 +9,8 @@ local Network = {}
 Network.Remotes = {
 	SelectClass    = "SelectClass",
 	ClassConfirmed = "ClassConfirmed",
-	SaveSettings   = "SaveSettings",
+	SaveSettings   = "SaveSettings",    -- client → server: the settings (saved on their account: PlayerData)
+	SettingsSync   = "SettingsSync",    -- client → server: ask for the saved settings; server → client: them (nil: none saved yet)
 	SpawnInChurch  = "SpawnInChurch",
 	PlayAnimation  = "PlayAnimation",   -- server → client: { idle, walk, sprint } config
 	SetSprint      = "SetSprint",       -- client → server: boolean (sprinting?)
@@ -41,6 +42,7 @@ Network.Remotes = {
 	RoomEvent           = "RoomEvent",       -- server → all clients: special-room feedback (pops, coins, bursts)
 	IceMageEvent        = "IceMageEvent",    -- server → all clients: { kind = "CloneShatter"|"Chill", ... }
 	GunslingerFX        = "GunslingerFX",
+	RangerArrows        = "RangerArrows",    -- server → clients: { kind = "fire", attacker, speed, shots = { key, origin, dir } } (to all but the shooter) / { kind = "hit", attacker, key, at, wall? }
 	BasicAttackFX       = "BasicAttackFX",   -- server → other clients: { attacker, classId, direction } (Ranger / Cleric / Ice Mage basic attacks, so everyone sees them)
 	FireKnightFX        = "FireKnightFX",    -- server → clients: Emberblade swings, charge, Phoenix Slam, Earthshaker, ignites, Overheat, Heart of the Inferno
 	FireKnightAim       = "FireKnightAim",   -- client → server: { target = Vector3 } where the Phoenix Slam lands

@@ -9,10 +9,12 @@ local CollectionService = game:GetService("CollectionService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local Debris = game:GetService("Debris")
+local RunService = game:GetService("RunService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local HumanoidIndex = require(Shared:WaitForChild("HumanoidIndex"))
+local RangerArrowData = require(Shared:WaitForChild("RangerArrowData"))
 local RunScope = require(Shared:WaitForChild("RunScope"))
 local SkillData = require(Shared:WaitForChild("SkillData"))
 local PlayerStats = require(script.Parent:WaitForChild("PlayerStats"))
@@ -599,6 +601,137 @@ local function applyRangerArrowKnockback(target: any, direction: Vector3, multip
 	if not target then return end
 	local pushDirection = (rotateFlatDirection(direction, 0) + Vector3.new(0, 0.12, 0)).Unit
 	target.rootPart:ApplyImpulse(pushDirection * (target.rootPart.AssemblyMass * 8 * multiplier))
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- The Ranger's basic arrows: real projectiles. Each one flies (SPEED studs/s,
+-- × Projectile Speed) and deals its damage when it reaches an enemy, or stops
+-- at a wall (or a low barrier: cover works). Clients draw them (RangerArrows):
+-- the shooter's straight away, everyone else's from one "fire" message per
+-- volley, and every client is told where each one landed ("hit").
+-- ─────────────────────────────────────────────────────────────────────────────
+type FlyingArrow = {
+	player: Player, char: Model, key: number, pos: Vector3, dir: Vector3,
+	speed: number, left: number, width: number, damage: number, knockback: number,
+}
+local flyingArrows: { FlyingArrow } = {}
+local arrowConn: RBXScriptConnection? = nil
+local arrowWallParams = RaycastParams.new()
+arrowWallParams.FilterType = Enum.RaycastFilterType.Include
+arrowWallParams.IgnoreWater = true
+local serverShot = 0
+
+local function arrowRemote(): RemoteEvent
+	return Network.GetRemoteEvent(Network.Remotes.RangerArrows)
+end
+
+local function stepArrows(dt: number)
+	local walls = {}
+	for _, c in ipairs(Workspace:GetChildren()) do
+		if c.Name == "GeneratedDungeon" then table.insert(walls, c) end
+	end
+	arrowWallParams.FilterDescendantsInstances = walls
+	local targetsOf: { [Model]: { any } } = {}
+	local bodyReach: { [Model]: number } = {} -- (lineReach without the arrow's width: once per enemy per step)
+	for i = #flyingArrows, 1, -1 do
+		local a = flyingArrows[i]
+		if not a.char.Parent or not a.player.Parent then
+			table.remove(flyingArrows, i)
+			continue
+		end
+		local move = math.min(a.speed * dt, a.left)
+		local from = a.pos
+		-- the first wall (or low barrier) along this step
+		local reach = move
+		local wall = if #walls > 0 then Workspace:Raycast(from, a.dir * move, arrowWallParams) else nil
+		if wall then reach = wall.Distance end
+		-- the first enemy along it, before the wall
+		local targets = targetsOf[a.char]
+		if not targets then
+			targets = getPotentialTargets(a.char)
+			targetsOf[a.char] = targets
+		end
+		local best, bestAlong = nil, reach + 0.5
+		for _, t in ipairs(targets) do
+			if t.humanoid.Health > 0 then
+				local p = t.rootPart.Position
+				local d = Vector3.new(p.X - from.X, 0, p.Z - from.Z)
+				-- (cheap first: near this step and on its level)
+				if math.abs(p.Y - from.Y) <= 9 and d.Magnitude <= move + 14 then
+					local along = d:Dot(a.dir)
+					if along >= -1 and along < bestAlong then
+						local body = bodyReach[t.character]
+						if not body then
+							body = lineReach(t, 0)
+							bodyReach[t.character] = body
+						end
+						if (d - a.dir * along).Magnitude <= body + a.width then
+							best, bestAlong = t, math.max(along, 0)
+						end
+					end
+				end
+			end
+		end
+		if best then
+			table.remove(flyingArrows, i)
+			dealDamage(a.player, best, a.damage, "VENOM ARROWS")
+			ricochet(a.player, a.char, best, a.damage, "VENOM ARROWS")
+			applyRangerArrowKnockback(best, a.dir, a.knockback)
+			if fxAllowed(a.player, "arrowHit", 40) then
+				arrowRemote():FireAllClients({ kind = "hit", attacker = a.player, key = a.key, at = best.rootPart.Position })
+			end
+		elseif wall then
+			table.remove(flyingArrows, i)
+			if fxAllowed(a.player, "arrowHit", 40) then
+				arrowRemote():FireAllClients({ kind = "hit", attacker = a.player, key = a.key, at = wall.Position, wall = true })
+			end
+		else
+			a.pos = from + a.dir * move
+			a.left -= move
+			if a.left <= 0.01 then table.remove(flyingArrows, i) end
+		end
+	end
+	if #flyingArrows == 0 and arrowConn then
+		arrowConn:Disconnect()
+		arrowConn = nil
+	end
+end
+
+-- Loose a volley (the fan: one arrow, plus one per Projectile tome) from
+-- `origin` toward `look`. `shot`: the shooter's volley number (they drew it
+-- already, with the same keys); nil: the server numbers it and tells them too.
+local function fireRangerVolley(player: Player, char: Model, origin: Vector3, look: Vector3, shot: number?)
+	local count = 1 + math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount")))
+	local speed = RangerArrowData.SPEED * math.max(0.2, PlayerStats.GetStat(player, "projectileSpeed"))
+	local width = RangerArrowData.WIDTH * PlayerStats.GetStat(player, "size")
+	local damage = math.floor(24 * PlayerStats.GetStat(player, "damage"))
+	local knockback = PlayerStats.GetStat(player, "knockback")
+	local predicted = shot ~= nil
+	if not shot then
+		serverShot += 1
+		shot = 900000 + serverShot % 90000
+	end
+	local targets = getPotentialTargets(char)
+	local positions = {}
+	for i, t in ipairs(targets) do positions[i] = t.rootPart.Position end
+	local shots = {}
+	for index, dir in ipairs(RangerArrowData.Directions(look, count)) do
+		dir = RangerArrowData.Assist(origin, dir, positions, function(i) return lineReach(targets[i], width) end)
+		local key = RangerArrowData.Key(shot :: number, index)
+		table.insert(flyingArrows, {
+			player = player, char = char, key = key, pos = origin, dir = dir,
+			speed = speed, left = RangerArrowData.RANGE, width = width, damage = damage, knockback = knockback,
+		})
+		table.insert(shots, { key = key, origin = origin, dir = dir })
+	end
+	if not arrowConn then arrowConn = RunService.Heartbeat:Connect(stepArrows) end
+	-- (everyone else draws them; the shooter already has, if it predicted)
+	if fxAllowed(player, "arrowFire", 20) then
+		local msg = { kind = "fire", attacker = player, speed = speed, shots = shots }
+		for _, other in ipairs(Players:GetPlayers()) do
+			if other ~= player or not predicted then arrowRemote():FireClient(other, msg) end
+		end
+	end
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -1550,40 +1683,11 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 			SkillManager.HandleMissileAttack(player, char)
 		end
 
-		local damage = math.floor(24 * PlayerStats.GetStat(player, "damage"))
-		local arrowOrigin = origin + Vector3.new(0, 1.2, 0)
-		local extraProjectiles = math.max(0, math.floor(PlayerStats.GetStat(player, "projectileCount")))
-		local projectileCount = 1 + extraProjectiles
-		-- Generous hit line, plus a little aim assist below: arrows are easy to land.
-		local hitWidth = 3.5 * PlayerStats.GetStat(player, "size")
-		local knockback = PlayerStats.GetStat(player, "knockback")
-		local projectileSpeed = PlayerStats.GetStat(player, "projectileSpeed")
-		local spreadStep = 8 -- 8 degrees between adjacent arrows
-		local totalSpread = (projectileCount - 1) * spreadStep
-		local startAngle = -totalSpread / 2
-		for index = 1, projectileCount do
-			local angle = startAngle + (index - 1) * spreadStep
-			local direction = rotateFlatDirection(flatLook, angle)
-			local target, hitDistance = damageFirstTargetOnLine(player, char, arrowOrigin, direction, 70, hitWidth, damage, "VENOM ARROWS")
-			if not target then
-				-- Aim assist: the nearest enemy within 10° of the shot.
-				local best, bestD = nil, 70
-				for _, t in ipairs(getPotentialTargets(char)) do
-					local d = t.rootPart.Position - arrowOrigin
-					local flatD = Vector3.new(d.X, 0, d.Z)
-					if flatD.Magnitude > 0.5 and flatD.Magnitude < bestD and flatD.Unit:Dot(direction) > math.cos(math.rad(10)) then
-						best, bestD = t, flatD.Magnitude
-					end
-				end
-				if best then
-					dealDamage(player, best, damage, "VENOM ARROWS")
-					ricochet(player, char, best, damage, "VENOM ARROWS")
-					target, hitDistance = best, bestD
-				end
-			end
-			applyRangerArrowKnockback(target, direction, knockback)
-			fireRangerArrowVisual(arrowOrigin, direction, hitDistance or 70, projectileSpeed)
-		end
+		-- Real arrows: they fly, and hit when they get there (a generous hit
+		-- line and a little aim assist: easy to land).
+		local shot = if typeof(payload) == "table" and typeof(payload.shot) == "number" and payload.shot == payload.shot
+			then math.clamp(math.floor(payload.shot), 0, 899999) else nil
+		fireRangerVolley(player, char, origin + Vector3.new(0, 1.2, 0), flatLook, shot)
 		return
 	end
 

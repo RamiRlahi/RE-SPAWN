@@ -82,6 +82,8 @@ local function applySettingsToRuntime(settings: any)
 	-- Read by IsometricCamera (top-down or a normal third-person camera).
 	player:SetAttribute("Setting_classicCamera", settings ~= nil and settings.classicCamera == true)
 	player:SetAttribute("Setting_lowDetailVFX", settings ~= nil and settings.lowDetailVFX == true)
+	-- Read by SkillController (ranged basic attacks firing by themselves).
+	player:SetAttribute("Setting_autoFire", not (settings and settings.autoFire == false))
 	-- Read by MusicController.
 	player:SetAttribute("Setting_musicVolume", if settings and typeof(settings.musicVolume) == "number" then settings.musicVolume else 0.6)
 	if settings and settings.keybinds then
@@ -301,6 +303,20 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 		end)
 	end
 	applySettingsToRuntime(currentSettings)
+
+	-- The settings saved on this account (PlayerData, via the server): they
+	-- replace the defaults as soon as they arrive.
+	local syncRemote = Network.GetRemoteEvent(Network.Remotes.SettingsSync)
+	syncRemote.OnClientEvent:Connect(function(saved: any)
+		if typeof(saved) ~= "table" then return end
+		currentSettings = SettingsConfig.Sanitize(saved)
+		applySettingsToRuntime(currentSettings)
+		if GameHUD then pcall(GameHUD.SetKeybinds, currentSettings.keybinds) end
+		if SettingsModal and settingsModalGroup then pcall(SettingsModal.Reload, settingsModalGroup, currentSettings) end
+		-- (the title screen's window holds its own copy: rebuilt)
+		pcall(buildMenuSettings)
+	end)
+	syncRemote:FireServer()
 
 	-- Start on Title Screen
 	if titleScreenGroup then

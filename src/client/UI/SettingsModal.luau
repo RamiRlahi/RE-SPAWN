@@ -610,6 +610,7 @@ function SettingsModal.Create(parent: GuiObject, currentSettings: any, callbacks
 	toggleRow(gp, 3, "Toggle Sprint", "toggleSprint", "Press to start / stop sprinting (off: hold).")
 	toggleRow(gp, 5, "Classic Camera", "classicCamera", "A third-person shift-lock camera instead of top-down.")
 	toggleRow(gp, 4, "Teammate Cinematics", "teammateCinematics", "Show teammates' ultimate cutscenes (off: your camera stays put).")
+	toggleRow(gp, 6, "Auto-Fire", "autoFire", "Ranged classes shoot the nearest enemy in the room by themselves (off: click to shoot).")
 
 	-- Reset to defaults, quietly under the tabs.
 	local reset = Instance.new("TextButton")
