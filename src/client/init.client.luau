@@ -12,6 +12,12 @@ local StarterGui = game:GetService("StarterGui")
 
 print("[Client] Initializing SoloProject Client...")
 
+-- Every word in the Arcade font (but the map's), from the start.
+do
+	local ok, err = pcall(function() require(script:WaitForChild("FontStyle")).Init() end)
+	if not ok then warn("[Client] FontStyle failed:", err) end
+end
+
 -- The loading screen first: it covers the start-up, loads the sky-kingdom
 -- menu scene, and keeps it loaded (rebuilding it if it ever goes missing).
 pcall(function()
@@ -23,6 +29,12 @@ VariantFX.Init() -- recolours ability VFX with each player's equipped VFX varian
 pcall(function()
 	require(script:WaitForChild("WingsMounts")).Init() -- everyone's wings and mounts, built and animated here
 end)
+do
+	local ok, err = pcall(function()
+		require(script:WaitForChild("MountController")).Init() -- B to ride; thrown off (and tumbling) when hit
+	end)
+	if not ok then warn("[Client] MountController failed:", err) end
+end
 pcall(function()
 	require(script:WaitForChild("SummonAnnouncer")).Init() -- others' Legendary wishes: a banner + a beam on them
 end)

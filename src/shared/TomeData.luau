@@ -54,8 +54,8 @@ local TomeData: { [string]: TomeDefinition } = {
 		effects = { { stat = "abilityCooldown", operation = "percent", value = 0.08, description = "-8% Ability Cooldowns" } },
 	},
 	damage = {
-		id = "damage", name = "Damage Tome", category = "Base", description = "+0.08× Damage",
-		effects = { { stat = "damage", operation = "multiplier", value = 0.08, description = "+0.08× Damage" } },
+		id = "damage", name = "Damage Tome", category = "Base", description = "+15% Damage",
+		effects = { { stat = "damage", operation = "multiplier", value = 0.15, description = "+15% Damage" } },
 	},
 	evasion = {
 		id = "evasion", name = "Evasion Tome", category = "Base", description = "+10% Evasion",

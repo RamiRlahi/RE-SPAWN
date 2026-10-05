@@ -1,10 +1,18 @@
 --!strict
 --[[
 	MusicController.luau
+<<<<<<< Updated upstream
 	Music: one track on the menu screens (title, class select, the campfire),
 	another walking the lobby plaza; in a run, a dark dungeon track (the two
 	take turns run to run), giving way to the drums of a horde event
 	(Horde.luau) while one is on.
+=======
+	Music outside the dungeon: one soundtrack for the menu screens (title,
+	class select, the campfire) and the lobby plaza alike, so walking from one
+	to the other it simply carries on (never starting over); in a run, only
+	the drums of a horde event (Horde.luau). Back from a run, the soundtrack
+	picks up where it was left.
+>>>>>>> Stashed changes
 	Tracks crossfade; the volume is the Music Volume setting.
 --]]
 
@@ -19,8 +27,7 @@ local player = Players.LocalPlayer
 local MusicController = {}
 
 local TRACKS = {
-	menu = "rbxassetid://9046506025",   -- "Imminent Closure (Underscore C)", APM
-	lobby = "rbxassetid://108830435742016", -- "Festival Night Tavern"
+	menu = "rbxassetid://9046506025",   -- "Imminent Closure (Underscore C)", APM: the menus and the lobby
 	horde = "rbxassetid://108019516023646", -- "Intense Epic Battle Drums"
 	dungeon1 = "rbxassetid://1837286563", -- "Dark Fantasy", APM
 	dungeon2 = "rbxassetid://1835356065", -- "Demon Dimension", APM
@@ -43,8 +50,8 @@ local dungeonTrack = "dungeon2"
 local wasInRun = false
 
 local function want(): string?
-	if player:GetAttribute("InHub") == true then return "lobby" end
-	if player:GetAttribute("InLobby") ~= false then return "menu" end
+	-- (the lobby plaza too: the same track, so it never restarts on the way in)
+	if player:GetAttribute("InHub") == true or player:GetAttribute("InLobby") ~= false then return "menu" end
 	if typeof(RunScope.Mine("HordeUntil")) == "number" then return "horde" end
 	return dungeonTrack
 end

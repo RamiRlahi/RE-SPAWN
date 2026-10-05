@@ -2,18 +2,23 @@
 --[[
 	RideData
 	How each mount rides (shared by MountManager on the server and
-	WingsMounts / RewardPreview on the clients): its size, how high its back
-	is, and how much faster its rider walks in the lobby.
+	WingsMounts / RewardPreview / the AnimationController on the clients):
+	its size, how high its back is, and how fast it carries you (faster than
+	running).
 
 	The rider sits ON the back (WingsMounts.Seat bends their legs astride, or
-	out in front on a flat platform), so they're lifted until their hips are
+	cross-legged on a flat platform), so they're lifted until their hips are
 	at the back's height.
 --]]
 
 local RideData = {}
 
--- Walk speed while riding, by the mount's rarity (the lobby's base is 16).
-RideData.SpeedByRarity = { Common = 1.5, Rare = 1.6, Epic = 1.7, Legendary = 1.8, Mythic = 1.9 }
+-- Speed while riding, by the mount's rarity (studs/s: walking is 16, running 34).
+RideData.SpeedByRarity = { Common = 40, Rare = 42, Epic = 44, Legendary = 46, Mythic = 48 }
+
+function RideData.Speed(rarity: string?): number
+	return (rarity and RideData.SpeedByRarity[rarity]) or 40
+end
 
 -- Model size: the rarer, the grander.
 RideData.Scale = {
@@ -32,7 +37,7 @@ RideData.Back = {
 	magic_carpet = 2.6, void_disc = 3.4, wishing_star = 3.2,
 }
 
--- Floating platforms: sat on with the legs out in front, not straddled.
+-- Floating platforms: sat on cross-legged, not straddled.
 RideData.Flat = { magic_carpet = true, void_disc = true, wishing_star = true }
 
 function RideData.ScaleOf(look: string?): number
@@ -50,7 +55,10 @@ end
 -- How much to raise a rider (HipHeight) whose legs are `legLen` long so they
 -- sit on the back with their legs bent round it.
 function RideData.SeatLift(look: string?, legLen: number): number
-	return math.max(0.2, RideData.BackHeight(look) - legLen * 0.85)
+	local lift = RideData.BackHeight(look) - legLen * 0.85
+	-- (cross-legged on a platform: the legs lie on top of it, not round it)
+	if RideData.IsFlat(look) then lift += 0.7 end
+	return math.max(0.2, lift)
 end
 
 -- (kept for older callers)

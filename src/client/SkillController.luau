@@ -32,6 +32,7 @@ local HitFX = require(script.Parent:WaitForChild("HitFX"))
 local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
 local XPOrbs = require(script.Parent:WaitForChild("XPOrbs"))
 local GunslingerController = require(script.Parent:WaitForChild("GunslingerController"))
+local AimStance = require(script.Parent:WaitForChild("AimStance"))
 local SwordsmanController = require(script.Parent:WaitForChild("SwordsmanController"))
 local BerserkerController = require(script.Parent:WaitForChild("BerserkerController"))
 local FireKnightController = require(script.Parent:WaitForChild("FireKnightController"))
@@ -4193,6 +4194,8 @@ function SkillController.UseSkill(skillIndex: number)
 
 	local char = player.Character
 	if not char then return end
+	-- (thrown off a mount: nothing till back on their feet)
+	if char:GetAttribute("Tumbling") == true then return end
 
 	-- Block casting any spells while using the 1st ability (Spin Attack)
 	if char:GetAttribute("IsSkill1Active") == true or char:GetAttribute("IsSpinAttackActive") == true then
@@ -4730,6 +4733,8 @@ local function performBasicAttack()
 	if RunScope.Mine("TomesPaused") == true then return end
 	local char = player.Character
 	if not char then return end
+	-- (thrown off a mount: nothing till back on their feet)
+	if char:GetAttribute("Tumbling") == true then return end
 	-- The revolver has its own ammo, fire rate and prediction.
 	if player:GetAttribute("SelectedClass") == "gunslinger" then
 		if char:GetAttribute("IsSkillCasting") ~= true then GunslingerController.Shoot(false) end
@@ -4804,6 +4809,8 @@ end
 -- Initialization & Event Connections
 -- ─────────────────────────────────────────────────────────────────────────────
 function SkillController.Init()
+	-- Every class: legs with WASD, the top half to the cursor.
+	AimStance.Init(getAimDirection)
 	GunslingerController.Init({
 		shake = triggerCameraShake,
 		fovPunch = triggerFOVPunch,

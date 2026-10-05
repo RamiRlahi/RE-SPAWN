@@ -249,14 +249,14 @@ end
 
 -- ── Arm poses (gun raised / fanning / roll flip) ────────────────────────────
 -- Applied every frame after the Animator, so they hold over any animation.
-type Pose = { aimUntil: number, fanUntil: number, rollStart: number, rollUntil: number, lowUntil: number, twist: number,
+type Pose = { aimUntil: number, fanUntil: number, rollStart: number, rollUntil: number, lowUntil: number,
 	tossAt: number, coinPart: BasePart?, coinPos: Vector3?, coinUntil: number, recoilAt: number }
 local poses: { [Model]: Pose } = {}
 
 local function poseOf(char: Model): Pose
 	local p = poses[char]
 	if not p then
-		p = { aimUntil = 0, fanUntil = 0, rollStart = 0, rollUntil = 0, lowUntil = 0, twist = 0, tossAt = -10, coinPart = nil, coinPos = nil, coinUntil = 0, recoilAt = -10 }
+		p = { aimUntil = 0, fanUntil = 0, rollStart = 0, rollUntil = 0, lowUntil = 0, tossAt = -10, coinPart = nil, coinPos = nil, coinUntil = 0, recoilAt = -10 }
 		poses[char] = p
 	end
 	return p
@@ -273,21 +273,6 @@ local function motor(char: Model, part: string, name: string): Motor6D?
 	return if m and m:IsA("Motor6D") then m else nil
 end
 
--- Adds a yaw (about the parent part's up axis, at the joint) on top of
--- whatever the Animator wrote this frame. If the Animator didn't touch the
--- joint since our last write, start again from its last animated value so
--- the twist never accumulates.
-local written: { [Motor6D]: CFrame } = setmetatable({}, { __mode = "k" }) :: any
-local animated: { [Motor6D]: CFrame } = setmetatable({}, { __mode = "k" }) :: any
-local function yawOver(m: Motor6D, yaw: number)
-	local cur = m.Transform
-	if written[m] ~= cur then animated[m] = cur end
-	local r = m.C0.Rotation
-	local out = r:Inverse() * CFrame.Angles(0, yaw, 0) * r * (animated[m] or cur)
-	m.Transform = out
-	written[m] = out
-end
-
 local function applyPoses()
 	local now = os.clock()
 	-- Every Gunslinger holding the revolver gets a pose entry, so the gun arm
@@ -301,6 +286,8 @@ local function applyPoses()
 			poses[char] = nil
 			continue
 		end
+		-- (thrown off a mount: the tumble poses the whole body)
+		if char:GetAttribute("Tumbling") then continue end
 		local rightR6 = motor(char, "Torso", "Right Shoulder")
 		local leftR6 = motor(char, "Torso", "Left Shoulder")
 		if now < p.coinUntil then
@@ -362,19 +349,6 @@ local function applyPoses()
 				if wrist then wrist.Transform = CFrame.identity end
 			end
 		end
-		if p.twist ~= 0 and now >= p.rollUntil then
-			-- Upper body turns to the cursor; legs stay on the move direction.
-			local root = motor(char, "HumanoidRootPart", "RootJoint")
-			if root then
-				yawOver(root, p.twist)
-				local rh, lh = motor(char, "Torso", "Right Hip"), motor(char, "Torso", "Left Hip")
-				if rh then yawOver(rh, -p.twist) end
-				if lh then yawOver(lh, -p.twist) end
-			else
-				local waist = motor(char, "UpperTorso", "Waist")
-				if waist then yawOver(waist, p.twist) end
-			end
-		end
 		local tossT = now - p.tossAt
 		if tossT < 0.42 then
 			-- Off hand flicks the coin up with the thumb, then drops back.
@@ -406,46 +380,6 @@ local function applyPoses()
 			end
 		end
 	end
-end
-
--- Legs follow movement, the upper body (and gun) follows the cursor.
--- Backpedalling keeps the legs on the movement axis; standing still, the
--- feet only turn once the cursor swings past ~80 degrees.
-local MAX_TWIST = math.rad(100)
-local function faceCursor(dt: number)
-	local char = player.Character
-	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-	local hum = char and char:FindFirstChildOfClass("Humanoid")
-	if not char or not root or not hum or not isGunslinger() then return end
-	local p = poseOf(char)
-	local now = os.clock()
-	-- (During High Noon the volley turns you toward each target instead.)
-	if player:GetAttribute("InLobby") ~= false or char:GetAttribute("IsUltActive") == true or now < p.rollUntil then
-		p.twist = 0
-		if not hum.AutoRotate and char:GetAttribute("IsUltActive") ~= true and now >= p.rollUntil then
-			hum.AutoRotate = true
-		end
-		return
-	end
-	hum.AutoRotate = false
-	local aim = deps.getAim(root)
-	aim = Vector3.new(aim.X, 0, aim.Z)
-	if aim.Magnitude < 0.01 then return end
-	aim = aim.Unit
-	local look = root.CFrame.LookVector
-	look = Vector3.new(look.X, 0, look.Z).Unit
-	local move = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)
-	local body = look
-	if move.Magnitude > 0.1 then
-		move = move.Unit
-		body = if move:Dot(aim) < -0.35 then -move else move
-	elseif look:Dot(aim) < math.cos(math.rad(80)) then
-		body = aim
-	end
-	local newLook = if look:Dot(body) < -0.95 then body else look:Lerp(body, math.min(1, dt * 14)).Unit
-	root.CFrame = CFrame.lookAt(root.Position, root.Position + newLook)
-	local l = root.CFrame:VectorToObjectSpace(aim)
-	p.twist = math.clamp(math.atan2(-l.X, -l.Z), -MAX_TWIST, MAX_TWIST)
 end
 
 -- ── High Noon standoff (local cinematic) ────────────────────────────────────
@@ -1310,6 +1244,123 @@ local function onRoll(msg: any)
 		Size = seq(0, 1, 1, 3), Transparency = seq(0, 0.5, 1, 1), Lifetime = NumberRange.new(0.4, 0.7), Speed = NumberRange.new(2, 5) }, 6)
 end
 
+-- ── Flashbangs (left behind by the roll) ───────────────────────────────────
+local FLASH_WHITE = Color3.fromRGB(255, 252, 235)
+
+-- The floor under a point.
+local function floorAt(pos: Vector3): Vector3
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local ignore: { Instance } = {}
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.Character then table.insert(ignore, p.Character) end
+	end
+	for _, name in ipairs({ "Mobs", "ClassFX", "WingsMounts" }) do
+		local f = Workspace:FindFirstChild(name)
+		if f then table.insert(ignore, f) end
+	end
+	params.FilterDescendantsInstances = ignore
+	local hit = Workspace:Raycast(pos + Vector3.new(0, 2, 0), Vector3.new(0, -14, 0), params)
+	return if hit then hit.Position else pos - Vector3.new(0, 3, 0)
+end
+
+local flashCans: { [Player]: { BasePart } } = {}
+
+-- Each flashbang tossed down where he rolled from: a little canister that
+-- tumbles to the floor, its light blinking faster as the fuse runs down.
+local function onFlashDrop(msg: any)
+	local owner = msg.attacker :: Player
+	local fuse = msg.fuse or 0.45
+	local cans = {}
+	for i, at in ipairs(msg.spots :: { Vector3 }) do
+		local floor = floorAt(at)
+		local can = neon(vfxRoot(owner), { Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.75, 0.38, 0.38),
+			Material = Enum.Material.Metal, Color = Color3.fromRGB(60, 64, 58),
+			CFrame = CFrame.new(at + Vector3.new(0, -0.8, 0)) * CFrame.Angles(0, math.random() * 6, math.rad(30)) })
+		local led = neon(can, { Shape = Enum.PartType.Ball, Size = Vector3.one * 0.18, Color = Color3.fromRGB(255, 50, 40),
+			CFrame = can.CFrame * CFrame.new(0.3, 0.17, 0) })
+		local w = Instance.new("WeldConstraint")
+		w.Part0, w.Part1 = can, led
+		w.Parent = led
+		led.Anchored = false
+		local rest = CFrame.new(floor + Vector3.new(0, 0.2, 0)) * CFrame.Angles(0, math.random() * 6, 0)
+		TweenService:Create(can, TweenInfo.new(0.22, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out), { CFrame = rest }):Play()
+		task.spawn(function()
+			local t0 = os.clock()
+			while can.Parent and os.clock() - t0 < fuse + 0.1 do
+				local left = math.max(fuse - (os.clock() - t0), 0.01)
+				led.Transparency = if led.Transparency == 0 then 0.8 else 0
+				task.wait(math.clamp(left * 0.35, 0.04, 0.12))
+			end
+		end)
+		cans[i] = can
+		Debris:AddItem(can, fuse + 1)
+	end
+	flashCans[owner] = cans
+	playSound("coinToss", msg.spots[1], 0.5, 0.7)
+end
+
+-- Dizzy stars wheeling over a stunned enemy's head.
+local function stunStars(owner: Player?, model: Model, seconds: number)
+	local head = model:FindFirstChild("Head") or model:FindFirstChild("HumanoidRootPart")
+	if not head or not head:IsA("BasePart") then return end
+	local stars = {}
+	for k = 1, 3 do
+		stars[k] = neon(vfxRoot(owner), { Shape = Enum.PartType.Ball, Size = Vector3.one * 0.32, Color = Color3.fromRGB(255, 230, 90) })
+	end
+	local t0 = os.clock()
+	local conn: RBXScriptConnection
+	conn = RunService.RenderStepped:Connect(function()
+		local t = os.clock() - t0
+		if t > seconds or not head.Parent then
+			conn:Disconnect()
+			for _, p in ipairs(stars) do p:Destroy() end
+			return
+		end
+		local top = head.Position + Vector3.new(0, head.Size.Y / 2 + 0.7, 0)
+		for k, p in ipairs(stars) do
+			local a = t * 5 + k * (math.pi * 2 / 3)
+			p.CFrame = CFrame.new(top + Vector3.new(math.cos(a) * 1.1, math.sin(a * 2) * 0.12, math.sin(a) * 1.1))
+			p.Transparency = if seconds - t < 0.3 then (1 - (seconds - t) / 0.3) else 0
+		end
+	end)
+end
+
+-- The bang: a white flash and a ring of light along the floor, a crack of
+-- sound, smoke; then the dazed stars on everyone it caught.
+local function onFlashBang(msg: any)
+	local owner = msg.attacker :: Player
+	local radius = msg.radius or 9
+	local cans = flashCans[owner]
+	flashCans[owner] = nil
+	if cans then for _, c in ipairs(cans) do if c.Parent then c:Destroy() end end end
+	local me = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	for _, at in ipairs(msg.spots :: { Vector3 }) do
+		local floor = floorAt(at)
+		local core = floor + Vector3.new(0, 1, 0)
+		local ball = neon(vfxRoot(owner), { Shape = Enum.PartType.Ball, Size = Vector3.one * 1.2, CFrame = CFrame.new(core), Color = FLASH_WHITE, Transparency = 0 })
+		TweenService:Create(ball, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = Vector3.one * radius * 1.1, Transparency = 1 }):Play()
+		Debris:AddItem(ball, 0.25)
+		local ring = neon(vfxRoot(owner), { Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.12, 1, 1),
+			CFrame = CFrame.new(floor + Vector3.new(0, 0.1, 0)) * CFrame.Angles(0, 0, math.rad(90)), Color = FLASH_WHITE, Transparency = 0.2 })
+		TweenService:Create(ring, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+			{ Size = Vector3.new(0.12, radius * 2, radius * 2), Transparency = 1 }):Play()
+		Debris:AddItem(ring, 0.4)
+		burst(owner, core, { Texture = TEX_SPARKLE, Color = ColorSequence.new(FLASH_WHITE, Color3.fromRGB(255, 230, 150)), LightEmission = 1,
+			Size = seq(0, 0.5, 1, 0), Lifetime = NumberRange.new(0.25, 0.5), Speed = NumberRange.new(14, 26) }, 24, 0.8)
+		gunSmoke(owner, core, 2)
+		flash(owner, core, FLASH_WHITE, 9, radius * 3, 0.35)
+		playSound("blast", core, 0.8, 1.7)
+		-- (caught close to one yourself: a jolt of the camera)
+		if me and (me.Position - core).Magnitude < radius then
+			deps.shake(0.25, 0.15)
+		end
+	end
+	for _, m in ipairs(msg.stunned or {}) do
+		if typeof(m) == "Instance" and m:IsA("Model") then stunStars(owner, m, msg.stun or 1.8) end
+	end
+end
+
 -- ── High Noon ───────────────────────────────────────────────────────────────
 local function crosshair(model: Model, big: boolean): BillboardGui?
 	local root = model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart
@@ -1564,6 +1615,8 @@ local HANDLERS: { [string]: (any) -> () } = {
 	end,
 	reload = onReload,
 	roll = onRoll,
+	flashDrop = onFlashDrop,
+	flashBang = onFlashBang,
 	highNoon = onHighNoon,
 	noonShot = onNoonShot,
 	noonEnd = onNoonEnd,
@@ -1605,7 +1658,6 @@ end
 function GunslingerController.Init(d: Deps)
 	deps = d
 	RunService.Stepped:Connect(applyPoses)
-	RunService.RenderStepped:Connect(faceCursor)
 	Network.GetRemoteEvent(Network.Remotes.GunslingerFX).OnClientEvent:Connect(function(msg: any)
 		if typeof(msg) ~= "table" then return end
 		local handler = HANDLERS[msg.kind]

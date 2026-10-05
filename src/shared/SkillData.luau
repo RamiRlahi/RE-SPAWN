@@ -126,8 +126,8 @@ SkillData.berserker = {
 		keybind = "F",
 		cooldown = 10.0,
 		damage = 30,
-		range = 24,
-		description = "Dash from enemy to enemy with ever faster slashes, then finish with a spinning cleave that throws them away. You take half damage during it.",
+		range = 30,
+		description = "Plant your feet and carve huge crimson crescents in front of you, each blow landing with a jolt, then finish with a spinning cleave that throws enemies away. You take half damage during it.",
 	},
 	[3] = {
 		name = "Bloodrage: Unchained",
@@ -264,7 +264,7 @@ SkillData.gunslinger = {
 		damage = 0,
 		dashDistance = 15,
 		duration = 0.26, -- roll time; i-frames last a little longer
-		description = "Roll a short distance with brief invulnerability, then fire one shot toward the cursor.",
+		description = "Roll a short distance with brief invulnerability, leaving a flashbang behind that stuns nearby enemies (not bosses; one more per Projectile Count), then fire one shot toward the cursor.",
 	},
 	[3] = {
 		name = "Deadeye Ricochet",
@@ -274,17 +274,17 @@ SkillData.gunslinger = {
 		damage = 26, -- per ricochet projectile
 		range = 24, -- coin throw distance
 		duration = 2.6, -- how long the coin hangs in the air
-		description = "Toss a spinning coin. Shoot it to split the bullet into ricochets that seek nearby enemies.",
+		description = "Toss a spinning coin. Shoot it to split the bullet into ricochets that seek every enemy in the room.",
 	},
 	[4] = {
 		name = "High Noon",
 		slot = 4,
 		keybind = "R",
 		cooldown = 40.0,
-		damage = 55, -- per marked target; the execution shot deals far more
+		damage = 165, -- per marked target (×3 of the old 55); the execution shot deals far more
 		range = 50,
 		duration = 3.7, -- standoff + volley + execution (mobs are frozen through it)
-		description = "Ultimate: time slows, enemies in range are marked, gunned down one by one, and the last is executed with a Deadeye shot.",
+		description = "Ultimate: time slows, every enemy in the room is marked, gunned down one by one, and the last is executed with a Deadeye shot.",
 	},
 }
 

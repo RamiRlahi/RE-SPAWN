@@ -382,7 +382,9 @@ end
 function PlayerStats.StartRun(player: Player)
 	-- Last run's tome counts (read by the client's Tab tome list).
 	for name in pairs(player:GetAttributes()) do
-		if string.sub(name, 1, 5) == "Tome_" or string.sub(name, 1, 4) == "Evo_" then player:SetAttribute(name, nil) end
+		if string.sub(name, 1, 5) == "Tome_" or string.sub(name, 1, 4) == "Evo_" or string.sub(name, 1, 11) == "ChaosBonus_" then
+			player:SetAttribute(name, nil)
+		end
 	end
 	local state: RunState = {
 		level = 1,
@@ -473,6 +475,23 @@ function PlayerStats.SpendGold(player: Player, amount: number): boolean
 	return true
 end
 
+-- A Chaos Tome's roll: one random stat tome's effect (ChaosBonus_<n>, which
+-- the tome's tooltip lists).
+local function rollChaos(player: Player, state: RunState)
+	local chaosPool: { string } = {}
+	for _, candidateId in ipairs(TomeData.Order) do
+		local candidate = TomeData.GetTome(candidateId)
+		if candidateId ~= "chaos" and candidateId ~= "cursed" and not TomeData.IsBoon(candidateId) and candidate and candidate.effects[1] and candidate.effects[1].value
+			and TomeData.IsForClass(candidateId, player:GetAttribute("SelectedClass")) then
+			table.insert(chaosPool, candidateId)
+		end
+	end
+	if #chaosPool == 0 then return end
+	local bonusId = chaosPool[math.random(1, #chaosPool)]
+	table.insert(state.chaosBoosts, bonusId)
+	player:SetAttribute(`ChaosBonus_{#state.chaosBoosts}`, bonusId)
+end
+
 -- Room rewards (treasure, shop, gambling): grant a tome outside the level-up
 -- flow. New tomes while slots remain, otherwise a level on an owned tome.
 -- `preferredId` (e.g. a shop's listed tome) is honoured when it fits.
@@ -495,6 +514,7 @@ function PlayerStats.GrantTome(player: Player, preferredId: string?): TomeData.T
 		table.insert(state.uniqueTomes, id)
 	end
 	state.tomeCounts[id] += 1
+	if id == "chaos" then rollChaos(player, state) end
 	player:SetAttribute(`Tome_{id}`, state.tomeCounts[id])
 	applyStats(player, state)
 	checkEvolutions(player, state)
@@ -562,19 +582,7 @@ function PlayerStats.Init()
 			table.insert(state.uniqueTomes, tomeId)
 		end
 		state.tomeCounts[tomeId] += 1
-		if tomeId == "chaos" then
-			local chaosPool: { string } = {}
-			for _, candidateId in ipairs(TomeData.Order) do
-				local candidate = TomeData.GetTome(candidateId)
-				if candidateId ~= "chaos" and candidateId ~= "cursed" and not TomeData.IsBoon(candidateId) and candidate and candidate.effects[1] and candidate.effects[1].value
-					and TomeData.IsForClass(candidateId, player:GetAttribute("SelectedClass")) then
-					table.insert(chaosPool, candidateId)
-				end
-			end
-			local bonusId = chaosPool[math.random(1, #chaosPool)]
-			table.insert(state.chaosBoosts, bonusId)
-			player:SetAttribute(`ChaosBonus_{#state.chaosBoosts}`, bonusId)
-		end
+		if tomeId == "chaos" then rollChaos(player, state) end
 		player:SetAttribute(`Tome_{tomeId}`, state.tomeCounts[tomeId])
 		applyStats(player, state)
 		checkEvolutions(player, state)

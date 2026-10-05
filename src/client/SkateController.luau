@@ -46,6 +46,13 @@ local function isIceMage(plr: Player?): boolean
 	return plr ~= nil and plr:GetAttribute("SelectedClass") == "ice_mage" and plr:GetAttribute("InLobby") ~= true
 end
 
+-- On a mount, or thrown off one: no skating (the mount carries you; the
+-- tumble moves and poses the body).
+local function skates(plr: Player): boolean
+	local char = plr.Character
+	return isIceMage(plr) and not (char and (char:GetAttribute("Riding") or char:GetAttribute("Tumbling")))
+end
+
 local function flat(v: Vector3): Vector3
 	return Vector3.new(v.X, 0, v.Z)
 end
@@ -489,7 +496,7 @@ function SkateController.Init()
 	local function refresh(plr: Player)
 		local char = plr.Character
 		if not char then return end
-		if isIceMage(plr) then
+		if skates(plr) then
 			task.spawn(attachSkater, char)
 		else
 			detachSkater(char)
@@ -504,7 +511,15 @@ function SkateController.Init()
 		end
 	end
 	local function hook(plr: Player)
-		plr.CharacterAdded:Connect(function() task.defer(refresh, plr) end)
+		local function watch(char: Model)
+			char:GetAttributeChangedSignal("Riding"):Connect(function() refresh(plr) end)
+			char:GetAttributeChangedSignal("Tumbling"):Connect(function() refresh(plr) end)
+		end
+		plr.CharacterAdded:Connect(function(char)
+			watch(char)
+			task.defer(refresh, plr)
+		end)
+		if plr.Character then watch(plr.Character) end
 		plr:GetAttributeChangedSignal("SelectedClass"):Connect(function() refresh(plr) end)
 		plr:GetAttributeChangedSignal("InLobby"):Connect(function() refresh(plr) end)
 		refresh(plr)

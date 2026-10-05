@@ -101,7 +101,7 @@ function WardrobeScreen.Open(kind: string, state: any, act: (any) -> ())
 	ornament(stage, 166, 600)
 	text(stage, if isWings then "CHOOSE YOUR WINGS" else "CHOOSE YOUR MOUNT", 28, S.GOLD_L,
 		{ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromOffset(W / 2, 184), Size = UDim2.fromOffset(700, 32) })
-	local note = text(stage, if isWings then "Worn everywhere." else "Ridden in the lobby: you walk much faster on a mount.", 20,
+	local note = text(stage, if isWings then "Worn everywhere." else "Press B to ride: faster than running. A hit throws you off.", 20,
 		Color3.fromRGB(200, 200, 220), { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromOffset(W / 2, 222), Size = UDim2.fromOffset(900, 24) })
 	note.TextTransparency = 0.2
 

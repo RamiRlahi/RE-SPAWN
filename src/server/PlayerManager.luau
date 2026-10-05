@@ -109,6 +109,15 @@ function PlayerManager.Init()
 		end
 	end)
 
+	-- The upper body's turn to the cursor (AimStance): onto the character, for
+	-- everyone else's client to pose it with.
+	Network.GetRemoteEvent(Network.Remotes.AimTwist).OnServerEvent:Connect(function(player: Player, twist: any)
+		if typeof(twist) ~= "number" or twist ~= twist then return end
+		local character = player.Character
+		if not character then return end
+		character:SetAttribute("AimTwist", math.floor(math.clamp(twist, -1.8, 1.8) * 100 + 0.5) / 100)
+	end)
+
 	-- Handle attack from client
 	local performAttackRemote = Network.GetRemoteEvent(Network.Remotes.PerformAttack)
 	performAttackRemote.OnServerEvent:Connect(function(player: Player, attackData: any)

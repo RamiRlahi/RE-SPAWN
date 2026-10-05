@@ -13,6 +13,10 @@ Network.Remotes = {
 	SpawnInChurch  = "SpawnInChurch",
 	PlayAnimation  = "PlayAnimation",   -- server → client: { idle, walk, sprint } config
 	SetSprint      = "SetSprint",       -- client → server: boolean (sprinting?)
+	AimTwist       = "AimTwist",        -- client → server: number (the upper body's turn to the cursor, radians; AimStance)
+	MountToggle    = "MountToggle",     -- client → server: boolean (ride / get off), from the mount key (B)
+	MountFX        = "MountFX",         -- server → clients: { kind = "thrown" } to a rider knocked off; { kind = "tumble", player, plan } to everyone else
+	TumblePlan     = "TumblePlan",      -- client → server: how the rider's tumble goes (TumbleData), for everyone else to see it
 	PerformAttack       = "PerformAttack",   -- client → server: { attackType, comboStep }
 	UseSkill            = "UseSkill",        -- client → server: { skillIndex, origin, direction }
 	SkillCooldownUpdate = "SkillCooldownUpdate", -- server → client: { skillIndex, duration }

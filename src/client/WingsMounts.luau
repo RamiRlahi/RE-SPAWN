@@ -6,12 +6,13 @@
 
 	  wings    two wings on the back that flap (harder while you move); each
 	           kind has its own shape, colours and particles
-	  mounts   ridden in the lobby (MountManager lifts the rider and speeds
-	           them up): legs walk in a gait matched to your speed, the head
+	  mounts   ridden (the mount key, B; MountManager lifts the rider, and
+	           it's faster than running), called and sent away in a puff of
+	           smoke: legs walk in a gait matched to your speed, the head
 	           bobs, the tail sways, the body breathes; spiders skitter,
 	           scorpions curl their sting, the serpent swims through the air,
 	           dragons beat their wings; floating platforms (carpet, star,
-	           void disc) hover and are sat on, legs out in front
+	           void disc) hover and are sat on cross-legged
 
 	Every client builds them locally on every player (from the player's
 	"Wings" attribute and the character's "Riding" attribute), joints them to
@@ -33,6 +34,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GachaRewards = require(Shared:WaitForChild("GachaRewards"))
 local BrickModels = require(script.Parent:WaitForChild("BrickModels"))
 local RideData = require(Shared:WaitForChild("RideData"))
+local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
 
 local Kit = BrickModels.Kit
 local WingsMounts = {}
@@ -62,6 +64,21 @@ end
 
 -- Bricks of `groups` (built round their own origin) become one moving piece
 -- of the rig, `scale` studs per brick, at `home` (studs, rig space).
+-- A running phase for a motion that goes faster as you move: it advances
+-- by (base + gain × move) per second. (Never t × rate: t is the game clock,
+-- so the slightest change in `move` -- every turn -- would throw the phase
+-- somewhere else entirely, and the wings and tails jittered.) Calling it
+-- again in the same frame gives the same phase.
+local function runner(base: number, gain: number): (number, number) -> number
+	local phase = 0
+	local last: number? = nil
+	return function(t: number, move: number): number
+		if last then phase += math.clamp(t - last, 0, 0.1) * (base + gain * move) end
+		last = t
+		return phase
+	end
+end
+
 local function addPiece(rig: Rig, groups: { any }, scale: number, home: CFrame, anim: ((number, number) -> CFrame)?): Piece
 	local m = Kit.render("piece", groups, true)
 	local piece: Piece = { parts = {}, offsets = {}, home = home, anim = anim }
@@ -180,6 +197,7 @@ local function addTrail(rig: Rig, piece: Piece, at: Vector3, width: number, colo
 	return tr
 end
 
+-- (Wings only: mounts cast no light, too many lights with a full server.)
 local function addLight(rig: Rig, piece: Piece, at: Vector3, color: Color3, range: number, brightness: number)
 	local p = addEmitterAnchor(rig, piece, at, Vector3.one * 0.1)
 	local l = Instance.new("PointLight")
@@ -378,12 +396,12 @@ local function addWings(rig: Rig, spec: WingSpec, scale: number, at: Vector3, sp
 	local rows = SHAPES[spec.shape]
 	local w, h = #rows[1], #rows
 	local out = {}
+	local flap = runner(speed, speed * 0.9) -- (both wings beat together)
 	for side = -1, 1, 2 do
 		local g = if side == 1 then right else left
 		local home = CFrame.new(at + Vector3.new(side * 0.15, 0, 0)) * CFrame.Angles(0, -side * math.rad(spread), 0)
 		local piece = addPiece(rig, { g }, scale, home, function(t: number, move: number): CFrame
-			local f = speed * (1 + move * 0.9)
-			local a = math.sin(t * f) * math.rad(amp * (0.6 + move * 0.7))
+			local a = math.sin(flap(t, move)) * math.rad(amp * (0.6 + move * 0.7))
 			return CFrame.Angles(0, -side * a * 0.35, side * a)
 		end)
 		if spec.fx then
@@ -407,14 +425,12 @@ local function buildWings(look: string): Rig
 	if look == "dragon" then palette.B = glow(255, 110, 40) end -- (veins of fire)
 	local main = addWings(rig, spec, s, Vector3.zero, 28, 3.6, 14, palette)
 	if tier >= 3 then
-		-- ribbons of light off the wingtips, and the wings light you up
-		for _, wi in ipairs(main) do addTrail(rig, wi.piece, wi.tip, 0.35 * grand, col, 0.6) end
-		addLight(rig, main[1].piece, Vector3.zero, col, 10, 1.4)
+		-- a soft glow on you (no ribbons off the wingtips: they jittered)
+		addLight(rig, main[1].piece, Vector3.zero, col, 6, 0.4)
 	end
 	if tier >= 4 then
 		-- a second, smaller pair beneath
-		local lower = addWings(rig, spec, s * 0.62, Vector3.new(0, -0.55, 0.05), 46, 3.1, 18, palette)
-		for _, wi in ipairs(lower) do addTrail(rig, wi.piece, wi.tip, 0.25 * grand, col, 0.45) end
+		addWings(rig, spec, s * 0.62, Vector3.new(0, -0.55, 0.05), 46, 3.1, 18, palette)
 	end
 	if look == "dragon" then
 		for _, wi in ipairs(main) do
@@ -460,7 +476,7 @@ local function buildWings(look: string): Rig
 		local orb = orbit(rig, CFrame.new(0, 1, 0.45), 2, 3.4, 0.5, V, function(i)
 			return if i == 1 then ball(1.6, glow(255, 210, 90)) else ball(1.4, glow(220, 225, 255))
 		end, 1.35, 0)
-		addLight(rig, orb[1], Vector3.zero, Color3.fromRGB(255, 190, 90), 12, 1.6)
+		addLight(rig, orb[1], Vector3.zero, Color3.fromRGB(255, 190, 90), 7, 0.5)
 	elseif look == "cosmic" then
 		-- a turning galaxy behind, planets circling, the wings full of stars
 		local gal = Kit.group()
@@ -666,8 +682,9 @@ local function buildQuad(look: string, q: Quad): Rig
 	if q.mane and q.tailLen > 0 then
 		Kit.set(tail, 0, math.floor((q.tailLen - 1) * (q.tailUp or 0.3)) - 1, q.tailLen - 1, q.mane.color, q.mane.neon)
 	end
+	local swish = runner(2, 3)
 	local tailPiece = addPiece(rig, { tail }, V, CFrame.new(0, (y1 - 1) * V, (zB + 1) * V), function(t: number, move: number): CFrame
-		return CFrame.Angles(math.sin(t * 2.2) * 0.08, math.sin(t * (2 + move * 3)) * 0.35, 0)
+		return CFrame.Angles(math.sin(t * 2.2) * 0.08, math.sin(swish(t, move)) * 0.35, 0)
 	end)
 	local glowC = q.glowC or q.eye.color
 
@@ -688,7 +705,6 @@ local function buildQuad(look: string, q: Quad): Rig
 		tailTip = Vector3.new(0, math.floor((q.tailLen - 1) * (q.tailUp or 0.3)) * V, (q.tailLen - 1) * V),
 		foot = Vector3.new(0, -q.legLen * V, 0) }
 	if tier >= 3 then
-		addLight(rig, headPiece, ctx.snout, q.eye.color, 12, 1.6)
 		if q.tailLen > 1 then addTrail(rig, tailPiece, ctx.tailTip, 0.45 * V / VOX_MOUNT, glowC, 0.6) end
 		local r = math.max(q.W, math.floor(q.L * 0.55)) + 2
 		spinRing(rig, CFrame.new(0, 0.12, 0), r, { color = glowC, neon = true }, 0.6, V, tier == 3)
@@ -799,9 +815,8 @@ local function buildScorpion(look: string): Rig
 	end)
 	fx(addEmitterAnchor(rig, tailPiece, Vector3.new(0, 9 * V, -1 * V), Vector3.one * 0.3), "drip", Color3.fromRGB(150, 255, 60))
 	addCrawlerLegs(rig, 3, 4, { -2, 0, 2 }, 3, 4, main, dark, V)
-	-- Epic: the sting trails venom light; spores circle; a toxic ring turns below
+	-- Epic: the sting trails venom; spores circle; a toxic ring turns below
 	addTrail(rig, tailPiece, Vector3.new(0, 9 * V, -1 * V), 0.6, Color3.fromRGB(150, 255, 60), 0.7)
-	addLight(rig, tailPiece, Vector3.new(0, 9 * V, -1 * V), Color3.fromRGB(150, 255, 60), 12, 1.8)
 	orbit(rig, CFrame.new(0, 7 * V, 0), 4, 4 * V, 1.1, V, function() return ball(1, glow(150, 255, 60)) end, 0.15, 0.3)
 	spinRing(rig, CFrame.new(0, 0.12, 0), 7, glow(150, 255, 60), 0.7, V, true)
 	fx(addEmitterAnchor(rig, bodyPiece, Vector3.new(0, 0.3, 0), Vector3.new(4 * V, 0.2, 6 * V)), "smoke", Color3.fromRGB(90, 200, 40))
@@ -847,17 +862,17 @@ local function buildSerpent(look: string): Rig
 	local headPiece = addPiece(rig, { head }, V, CFrame.new(0, (seatY - 1) * V, -2.5 * V), function(t: number, move: number): CFrame
 		return CFrame.new(0, math.sin(t * 1.6 + 0.4) * 0.15, 0) * CFrame.Angles(math.sin(t * 1.2) * 0.08, math.sin(t * 0.7) * 0.15, 0)
 	end)
-	addLight(rig, headPiece, Vector3.new(0, 0, -4 * V), Color3.fromRGB(200, 120, 255), 16, 2)
 	fx(addEmitterAnchor(rig, headPiece, Vector3.new(0, -1 * V, -8 * V), Vector3.one * 0.6), "smoke", Color3.fromRGB(170, 70, 255))
 	breath(rig, CFrame.new(0, (seatY - 2) * V, -11 * V), Color3.fromRGB(170, 60, 255), 5, 1.2, 1.2)
 
 	-- the body: segments spiralling behind
 	local N = 16
 	local spacing = 3.1 * V
+	local coil = runner(2, 1.6)
 	local function at(i: number, t: number, move: number): Vector3
 		local back = i * spacing
 		local r = 3.6 * V * math.min(1, i / 4)                     -- (calm under the rider, coiling further back)
-		local phi = t * (2 + move * 1.6) - i * 0.55
+		local phi = coil(t, move) - i * 0.55
 		local sway = math.sin(t * 0.8 + i * 0.25) * 0.8 * V
 		return Vector3.new(math.cos(phi) * r + sway, (seatY - 2) * V + math.sin(phi) * r - i * 0.12 * V, back)
 	end
@@ -892,7 +907,6 @@ local function buildSerpent(look: string): Rig
 		if i % 4 == 0 then fx(addEmitterAnchor(rig, piece, Vector3.zero, Vector3.one * (size * V)), "smoke", Color3.fromRGB(150, 60, 255)) end
 		if i % 5 == 0 then fx(addEmitterAnchor(rig, piece, Vector3.zero, Vector3.one * (size * V)), "sparks", Color3.fromRGB(210, 150, 255)) end
 		if i == N then addTrail(rig, piece, Vector3.new(0, 0, 2 * V), 1.4 * V / VOX_MOUNT, Color3.fromRGB(190, 90, 255), 0.9) end
-		if i == math.floor(N / 2) then addLight(rig, piece, Vector3.zero, Color3.fromRGB(170, 70, 255), 14, 1.4) end
 	end
 	-- void runes circling, rune rings below
 	orbit(rig, CFrame.new(0, seatY * V, 2 * V), 5, 5 * V, 0.6, V, function() return shard(rgb(40, 10, 70), glow(220, 150, 255)) end, 0.3, 0.4)
@@ -927,8 +941,9 @@ local function buildCarpet(look: string): Rig
 		return BLACK
 	end
 	-- (the cloth waves more the further from the middle)
+	local ripple = runner(3, 3)
 	local function wave(zc: number, t: number, move: number): CFrame
-		local ph = t * (3 + move * 3) + zc * 0.35
+		local ph = ripple(t, move) + zc * 0.35
 		local amp = (0.03 + 0.09 * math.abs(zc) / HZ) * (0.6 + math.min(move, 1.2) * 0.6)
 		return hover(t, move) * CFrame.new(0, math.sin(ph) * amp, 0) * CFrame.Angles(math.cos(ph) * amp * 0.35, 0, 0)
 	end
@@ -957,7 +972,6 @@ local function buildCarpet(look: string): Rig
 		if si == #strips then rear = piece end
 		if si == 3 then
 			fx(addEmitterAnchor(rig, piece, Vector3.new(0, -0.6, 0), Vector3.new(HX * 2 * V, 0.2, 7 * V)), "stars", Color3.fromRGB(255, 210, 90))
-			addLight(rig, piece, Vector3.new(0, -1, 0), Color3.fromRGB(255, 200, 110), 14, 1.4)
 		end
 	end
 	-- the top hat, on the back corner: it hops and tips now and then
@@ -1033,7 +1047,6 @@ local function buildStar(look: string): Rig
 	local starPiece = addPiece(rig, { g }, V, home, function(t: number, move: number): CFrame
 		return hover(t, move) * CFrame.Angles(0, t * 0.45, 0)
 	end)
-	addLight(rig, starPiece, Vector3.zero, Color3.fromRGB(255, 220, 110), 20, 2.2)
 	fx(addEmitterAnchor(rig, starPiece, Vector3.zero, Vector3.new(12 * V, 1, 12 * V)), "stars", Color3.fromRGB(255, 235, 140))
 	fx(addEmitterAnchor(rig, starPiece, Vector3.new(0, -1.5 * V, 0), Vector3.new(6 * V, 0.2, 6 * V)), "drip", Color3.fromRGB(255, 220, 90))
 	-- the rainbow, streaming from behind
@@ -1095,7 +1108,6 @@ local function buildVoidDisc(look: string): Rig
 	local portalPiece = addPiece(rig, { swirl }, V, home * CFrame.new(0, 0.05, 0), function(t: number, move: number): CFrame
 		return hover(t, move) * CFrame.Angles(0, -t * 0.9, 0)
 	end)
-	addLight(rig, portalPiece, Vector3.new(0, 1, 0), Color3.fromRGB(170, 80, 255), 18, 2.2)
 	local up = addEmitterAnchor(rig, portalPiece, Vector3.new(0, 0.6, 0), Vector3.new(11 * V, 0.2, 11 * V))
 	fx(up, "smoke", Color3.fromRGB(150, 60, 255))
 	fx(up, "stars", Color3.fromRGB(210, 150, 255))
@@ -1191,7 +1203,6 @@ local MOUNTS: { [string]: () -> Rig } = {
 			local c = addEmitterAnchor(rig, cloud, Vector3.zero, Vector3.new(6, 1.2, 6))
 			fx(c, "smoke", Color3.fromRGB(60, 70, 100))
 			fx(c, "sparks", Color3.fromRGB(150, 210, 255))
-			addLight(rig, cloud, Vector3.zero, Color3.fromRGB(140, 200, 255), 18, 1.8)
 			orbit(rig, CFrame.new(0, (ctx.y1 + 2) * ctx.V, 0), 3, 7 * ctx.V, 1.3, ctx.V, function() return ball(1.2, glow(170, 225, 255)) end, 0.25, 0.4)
 		end }) end,
 	death_knight_horse = function() return buildQuad("death_knight_horse", { L = 11, H = 5, W = 4, legLen = 5, headL = 4, headH = 2, headW = 3, snoutL = 2, neckUp = 4,
@@ -1214,8 +1225,7 @@ local MOUNTS: { [string]: () -> Rig } = {
 		glowC = Color3.fromRGB(255, 220, 130),
 		showy = function(rig, ctx)
 			-- a halo over its mane; orbs of light circling
-			local halo = spinRing(rig, CFrame.new(0, (ctx.y1 + 8) * ctx.V, (ctx.zF - 1) * ctx.V) * CFrame.Angles(math.rad(10), 0, 0), 4, glow(255, 230, 140), 0.8, ctx.V)
-			addLight(rig, halo, Vector3.zero, Color3.fromRGB(255, 220, 140), 14, 1.6)
+			spinRing(rig, CFrame.new(0, (ctx.y1 + 8) * ctx.V, (ctx.zF - 1) * ctx.V) * CFrame.Angles(math.rad(10), 0, 0), 4, glow(255, 230, 140), 0.8, ctx.V)
 			local orbs = orbit(rig, CFrame.new(0, (ctx.y1 + 3) * ctx.V, 0), 5, 6 * ctx.V, 0.6, ctx.V, function() return ball(1, glow(255, 240, 190)) end, 0.2, 0.4)
 			for _, o in ipairs(orbs) do addTrail(rig, o, Vector3.zero, 0.3, Color3.fromRGB(255, 220, 130), 0.5) end
 		end }) end,
@@ -1318,7 +1328,7 @@ end
 -- ─── The riding pose ───────────────────────────────────────────────────────
 -- Seated astride: thighs forward and spread round the mount, knees bent so
 -- the shins hang down its sides, arms forward on the reins. Written over the
--- walk / idle animation each frame (after the Animator has posed the joints).
+-- walk / idle animation each frame (in Stepped: after the Animator).
 local R15_POSE = {
 	LeftHip = CFrame.Angles(1.35, 0, 0) * CFrame.Angles(0, 0, -0.35),
 	RightHip = CFrame.Angles(1.35, 0, 0) * CFrame.Angles(0, 0, 0.35),
@@ -1332,17 +1342,25 @@ local R6_POSE = {
 	["Left Hip"] = CFrame.Angles(0, 0, -1.4), ["Right Hip"] = CFrame.Angles(0, 0, 1.4),
 	["Left Shoulder"] = CFrame.Angles(0, 0, -0.8), ["Right Shoulder"] = CFrame.Angles(0, 0, 0.8),
 }
--- On a floating platform: sat down, legs out in front, hands on the knees.
+-- On a floating platform: sat cross-legged, hands on the knees. R15: thighs
+-- out to the sides, shins folded in across each other. R6 (one rigid piece
+-- per leg): each leg flat and turned in so the feet cross in front, the right
+-- one tipped a little higher to lie over the left.
 local FLAT_R15 = {
-	LeftHip = CFrame.Angles(1.45, 0, 0) * CFrame.Angles(0, 0, -0.08),
-	RightHip = CFrame.Angles(1.45, 0, 0) * CFrame.Angles(0, 0, 0.08),
-	LeftKnee = CFrame.Angles(-0.2, 0, 0), RightKnee = CFrame.Angles(-0.2, 0, 0),
-	LeftAnkle = CFrame.Angles(-0.25, 0, 0), RightAnkle = CFrame.Angles(-0.25, 0, 0),
-	LeftShoulder = CFrame.Angles(0.55, 0, 0.1), RightShoulder = CFrame.Angles(0.55, 0, -0.1),
-	LeftElbow = CFrame.Angles(0.3, 0, 0), RightElbow = CFrame.Angles(0.3, 0, 0),
+	LeftHip = CFrame.Angles(0, 0.6, 0) * CFrame.Angles(1.5, 0, 0),
+	RightHip = CFrame.Angles(0, -0.6, 0) * CFrame.Angles(1.6, 0, 0),
+	LeftKnee = CFrame.Angles(0, 0, 2.3), RightKnee = CFrame.Angles(0, 0, -2.3),
+	LeftAnkle = CFrame.identity, RightAnkle = CFrame.identity,
+	LeftShoulder = CFrame.Angles(0.5, 0, 0.25), RightShoulder = CFrame.Angles(0.5, 0, -0.25),
+	LeftElbow = CFrame.Angles(0.35, 0, 0), RightElbow = CFrame.Angles(0.35, 0, 0),
 }
+-- (the hips also slide forward, FLAT_REACH studs: the legs crossed out in
+-- front of the body, not tucked under it. R6 hip joints are turned a
+-- quarter, so forward is +X on the right one and -X on the left.)
+local FLAT_REACH = 0.5
 local FLAT_R6 = {
-	["Left Hip"] = CFrame.Angles(0, 0, -1.5), ["Right Hip"] = CFrame.Angles(0, 0, 1.5),
+	["Left Hip"] = CFrame.new(-FLAT_REACH, 0, 0) * CFrame.Angles(0, -0.75, 0) * CFrame.Angles(0, 0, -1.5),
+	["Right Hip"] = CFrame.new(FLAT_REACH, 0, 0) * CFrame.Angles(0, 0.75, 0) * CFrame.Angles(0, 0, 1.62),
 	["Left Shoulder"] = CFrame.Angles(0, 0, -0.6), ["Right Shoulder"] = CFrame.Angles(0, 0, 0.6),
 }
 local motorCache: { [Model]: { Motor6D } } = setmetatable({}, { __mode = "k" }) :: any
@@ -1366,7 +1384,8 @@ function WingsMounts.Seat(character: Model, flat: boolean?)
 end
 
 -- ─── On every player ───────────────────────────────────────────────────────
-type Entry = { char: Model?, wingsId: string?, wings: Rig?, mountId: string?, mount: Rig? }
+type Entry = { char: Model?, wingsId: string?, wings: Rig?, mountId: string?, mount: Rig?, seat: boolean?, flat: boolean?,
+	move: number?, at: number? }
 local entries: { [Player]: Entry } = {}
 local folder: Folder? = nil
 local FAR = 170
@@ -1384,6 +1403,51 @@ local function drop(rig: Rig?)
 	if rig then rig.model:Destroy() end
 end
 
+-- A mount called or sent away (or thrown off): a puff of smoke and a
+-- sparkle in its rarity's colour where it stands.
+local POOF_COLOR = {
+	Common = Color3.fromRGB(235, 235, 235), Rare = Color3.fromRGB(110, 180, 255), Epic = Color3.fromRGB(190, 120, 255),
+	Legendary = Color3.fromRGB(255, 205, 90), Mythic = Color3.fromRGB(255, 90, 120),
+}
+local function poof(at: Vector3, mountId: string)
+	local r = GachaRewards.Get(mountId)
+	local color = (r and POOF_COLOR[r.rarity]) or POOF_COLOR.Common
+	local size = RideData.ScaleOf(r and r.look)
+	local anchor = Instance.new("Part")
+	anchor.Anchored, anchor.CanCollide, anchor.CanQuery, anchor.CanTouch = true, false, false, false
+	anchor.Transparency = 1
+	anchor.Size = Vector3.new(4, 2, 5) * size
+	anchor.CFrame = CFrame.new(at)
+	anchor.Parent = ClassFX.Folder()
+	local smoke = Instance.new("ParticleEmitter")
+	smoke.Texture = SMOKE
+	smoke.Color = ColorSequence.new(Color3.fromRGB(245, 245, 245), color:Lerp(Color3.new(1, 1, 1), 0.5))
+	smoke.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.6 * size), NumberSequenceKeypoint.new(1, 4 * size) })
+	smoke.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 1) })
+	smoke.Lifetime = NumberRange.new(0.45, 0.8)
+	smoke.Speed = NumberRange.new(4, 9)
+	smoke.SpreadAngle = Vector2.new(180, 180)
+	smoke.Drag = 5
+	smoke.RotSpeed = NumberRange.new(-90, 90)
+	smoke.Rate = 0
+	smoke.Parent = anchor
+	smoke:Emit(18)
+	local glint = Instance.new("ParticleEmitter")
+	glint.Texture = SPARK
+	glint.Color = ColorSequence.new(color)
+	glint.LightEmission = 1
+	glint.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 0) })
+	glint.Lifetime = NumberRange.new(0.4, 0.8)
+	glint.Speed = NumberRange.new(6, 14)
+	glint.SpreadAngle = Vector2.new(180, 180)
+	glint.Drag = 3
+	glint.Rate = 0
+	glint.Parent = anchor
+	glint:Emit(14)
+	ClassFX.Sound("poof", at, 0.6, 1)
+	task.delay(1.2, function() anchor:Destroy() end)
+end
+
 local function step()
 	local cam = Workspace.CurrentCamera
 	local camPos = if cam then cam.CFrame.Position else Vector3.zero
@@ -1397,7 +1461,10 @@ local function step()
 		local char = player.Character
 		local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		if char ~= e.char then
+		e.seat = false
+		-- (a character just arriving: what it has on was there all along, no poof)
+		local fresh = char ~= e.char
+		if fresh then
 			drop(e.wings); drop(e.mount)
 			e.wings, e.mount, e.wingsId, e.mountId = nil, nil, nil, nil
 			e.char = char
@@ -1414,18 +1481,29 @@ local function step()
 		local mid = char:GetAttribute("Riding")
 		mid = if typeof(mid) == "string" then mid else nil
 		if mid ~= e.mountId then
+			if not fresh and (root.Position - camPos).Magnitude < FAR then
+				-- (round the rider's legs, where the mount is)
+				poof(root.Position - Vector3.new(0, 1.5, 0), (mid or e.mountId) :: string)
+			end
 			drop(e.mount)
 			e.mountId = mid
 			e.mount = if mid then WingsMounts.Build(mid) else nil
 		end
 		local near = (root.Position - camPos).Magnitude < FAR and hum.Health > 0
+		-- (how fast they're going, eased: turning makes the speed flicker)
 		local v = root.AssemblyLinearVelocity
-		local move = math.clamp(Vector3.new(v.X, 0, v.Z).Magnitude / 16, 0, 1.6)
-		for _, rig in ipairs({ e.wings, e.mount }) do
-			if rig then
-				local want = if near then holder() else nil
-				if rig.model.Parent ~= want then rig.model.Parent = want end
-			end
+		local raw = math.clamp(Vector3.new(v.X, 0, v.Z).Magnitude / 16, 0, 1.6)
+		local dt = math.clamp(t - (e.at or t), 0, 0.1)
+		e.at = t
+		e.move = (e.move or raw) + (raw - (e.move or raw)) * math.min(1, dt * 8)
+		local move = e.move :: number
+		-- (each on its own: in a list, ipairs would stop at missing wings and
+		-- never place the mount. Your own wings are put away while the
+		-- settings are open: the settings shot frames you, and they'd cover it.)
+		local settingsShot = player == Players.LocalPlayer and player:GetAttribute("SettingsOpen") == true
+		for slot, rig in pairs({ wings = e.wings, mount = e.mount }) do
+			local want = if near and not (slot == "wings" and settingsShot) then holder() else nil
+			if rig.model.Parent ~= want then rig.model.Parent = want end
 		end
 		if not near then continue end
 		if e.wings then
@@ -1442,7 +1520,7 @@ local function step()
 			WingsMounts.Attach(e.mount, root, CFrame.new(0, -sink, 0))
 			WingsMounts.Animate(e.mount, t, move)
 			local r = GachaRewards.Get(e.mountId :: string)
-			WingsMounts.Seat(char, RideData.IsFlat(r and r.look))
+			e.seat, e.flat = true, RideData.IsFlat(r and r.look)
 		end
 	end
 	for player, e in pairs(entries) do
@@ -1453,9 +1531,21 @@ local function step()
 	end
 end
 
+-- The riders' pose goes on in Stepped: after the Animator has posed the
+-- joints for the frame (set any earlier and it's overwritten before it's seen).
+local function seatRiders()
+	for _, e in pairs(entries) do
+		if e.seat and e.char and e.char.Parent then WingsMounts.Seat(e.char, e.flat) end
+	end
+end
+
 function WingsMounts.Init()
 	RunService.RenderStepped:Connect(function()
 		local ok, err = pcall(step)
+		if not ok then warn("[WingsMounts]", err) end
+	end)
+	RunService.Stepped:Connect(function()
+		local ok, err = pcall(seatRiders)
 		if not ok then warn("[WingsMounts]", err) end
 	end)
 end

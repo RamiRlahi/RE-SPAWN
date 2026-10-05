@@ -15,15 +15,18 @@
 	  Q Ricochet    flips a coin straight up and shoots it at the top of its
 	                rise (free shot). A struck coin (or a Lucky Coin that
 	                survives and hangs, then gets hit again) splits into projectiles
-	                that seek enemies around the coin (extras loop back over
-	                the nearest targets rather than vanishing).
+	                that seek every enemy in the room, at least one each (extras
+	                loop back over the nearest targets rather than vanishing).
 	  E Fan         fires every remaining bullet in a quick, slightly spread
 	                burst (can hit coins too).
 	  Roll          brief invulnerability; the landing shot (sent by the
-	                client) skips the fire-rate check once.
-	  R High Noon   marks up to 8 enemies in range, shoots them one by one,
-	                then executes the toughest with a Deadeye shot. Mobs are
-	                frozen for the ult by SkillManager.
+	                client) skips the fire-rate check once. Leaves flashbangs
+	                behind (one, +1 per Projectile Count) that pop after a
+	                short fuse and stun every enemy near them but bosses.
+	  R High Noon   marks every enemy in the room (or in range, out of one),
+	                shoots them one by one, executing with a Deadeye shot at
+	                the end of each cylinder. Mobs are frozen for the ult's
+	                standoff by SkillManager.
 
 	State reaches clients as player attributes (GS_Ammo, GS_MaxAmmo,
 	GS_Deadeye, GS_ReloadEnd, GS_ReloadTime); effects go out on the
@@ -79,6 +82,10 @@ local FAN_SPREAD = 9              -- degrees either side
 
 local ROLL_IFRAMES = 0.42
 local ROLL_SHOT_WINDOW = 0.8
+local FLASH_FUSE = 0.45   -- seconds from the drop to the bang
+local FLASH_RADIUS = 9    -- studs (× Size)
+local FLASH_STUN = 1.8    -- seconds stunned (bosses aren't)
+local FLASH_TRAIL = 10    -- extra flashbangs spread this far along the roll
 
 local NOON_MAX_TIME = 20 -- safety cap on the volley (seconds)
 local NOON_RELOAD_MULT = 0.35 -- reloads during High Noon take 35% as long
@@ -253,16 +260,25 @@ end
 
 -- Split `count` projectiles from `from` toward enemies near it. Extra
 -- projectiles go round the nearest targets again (preferring `favour`, the
--- original target) instead of vanishing.
+-- original target) instead of vanishing. `opts.roomAt`: every enemy in the
+-- room at that spot is fair game (and gets one at least), not just those
+-- near `from`.
 local function splitProjectiles(player: Player, char: Model, from: Vector3, count: number, damage: number, opts: any)
 	opts = opts or {}
+	local bounds = if opts.roomAt and H.roomBoundsAt then H.roomBoundsAt(opts.roomAt) else nil
 	local near = {}
 	for _, t in ipairs(H.getPotentialTargets(char)) do
-		local d = (t.rootPart.Position - from).Magnitude
-		if d <= SPLIT_RADIUS and t.character ~= opts.exclude then
+		local p = t.rootPart.Position
+		local d = (p - from).Magnitude
+		local reach = if bounds
+			then p.X >= bounds.minX and p.X <= bounds.maxX and p.Z >= bounds.minZ and p.Z <= bounds.maxZ
+				and math.abs(p.Y - bounds.floorY) < 14
+			else d <= SPLIT_RADIUS
+		if reach and t.character ~= opts.exclude then
 			table.insert(near, { target = t, dist = d })
 		end
 	end
+	if bounds then count = math.max(count, #near) end
 	table.sort(near, function(a, b) return a.dist < b.dist end)
 	if opts.favour then
 		for i, n in ipairs(near) do
@@ -337,7 +353,9 @@ local function hitCoin(player: Player, char: Model, st: State, coin: Coin)
 	local survives = rng:NextNumber() < lucky
 	coin.alive = survives
 	fx({ kind = "coinHit", attacker = player, id = coin.id, pos = coin.pos, survives = survives })
-	splitProjectiles(player, char, coin.pos, count, dmg, { fromCoin = true })
+	-- (the room you're standing in: the coin itself is up in the air)
+	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	splitProjectiles(player, char, coin.pos, count, dmg, { fromCoin = true, roomAt = if root then root.Position else coin.pos })
 end
 
 -- ── A single bullet ─────────────────────────────────────────────────────────
@@ -575,7 +593,40 @@ local function fanTheHammer(player: Player, char: Model, st: State, dir: Vector3
 	end
 end
 
-local function roll(player: Player, char: Model, st: State, origin: Vector3, dir: Vector3)
+-- Flashbangs dropped where the roll starts (extras strewn along the roll):
+-- after the fuse each one bangs, stunning every enemy near it but bosses.
+local function flashbangs(player: Player, char: Model, origin: Vector3, dir: Vector3, config: any)
+	local n = 1 + math.max(0, math.floor(config.projectileCount or 0))
+	local radius = FLASH_RADIUS * (config.areaMultiplier or 1)
+	local side = Vector3.new(-dir.Z, 0, dir.X)
+	local spots = {}
+	for k = 1, n do
+		local along = if n == 1 then 0 else (k - 1) / (n - 1) * FLASH_TRAIL
+		local off = if k == 1 then 0 elseif k % 2 == 0 then 2.5 else -2.5
+		table.insert(spots, origin + dir * along + side * off)
+	end
+	fx({ kind = "flashDrop", attacker = player, spots = spots, fuse = FLASH_FUSE })
+	task.delay(FLASH_FUSE, function()
+		local stunned = {}
+		local seen: { [Model]: boolean } = {}
+		local untilT = os.clock() + FLASH_STUN
+		for _, at in ipairs(spots) do
+			for _, t in ipairs(H.getPotentialTargets(char)) do
+				local m = t.character
+				if not seen[m] and t.humanoid.Health > 0 and m:GetAttribute("IsBoss") ~= true
+					and (t.rootPart.Position - at).Magnitude <= radius then
+					seen[m] = true
+					m:SetAttribute("StaggerUntil", math.max(tonumber(m:GetAttribute("StaggerUntil")) or 0, untilT))
+					m:SetAttribute("StunnedUntil", untilT)
+					table.insert(stunned, m)
+				end
+			end
+		end
+		fx({ kind = "flashBang", attacker = player, spots = spots, radius = radius, stunned = stunned, stun = FLASH_STUN })
+	end)
+end
+
+local function roll(player: Player, char: Model, st: State, origin: Vector3, dir: Vector3, config: any)
 	local now = os.clock()
 	st.rolledAt = now
 	st.rollShotUsed = false
@@ -585,22 +636,37 @@ local function roll(player: Player, char: Model, st: State, origin: Vector3, dir
 	st.ammo = maxAmmo(player)
 	publish(player, st)
 	fx({ kind = "roll", attacker = player, from = origin, dir = dir }, player)
+	flashbangs(player, char, origin, dir, config)
 end
 
 -- High Noon: after the standoff, the Gunslinger auto-fires one bullet into
--- each enemy in range (nearest first, including ones that walk in), and
--- stops once every enemy in range has been shot once.
+-- each enemy in the room (nearest first, including ones that walk in), and
+-- stops once every one of them has been shot once.
 -- A faster fire rate and quick reloads; the last round of every cylinder is
 -- a crit "execution" shot. Mobs are frozen only for the standoff cutscene.
+-- Who High Noon reaches from `at`: every enemy in the room there, or (out
+-- of a room) everyone within `range`.
+local function noonReach(char: Model, at: Vector3, range: number): { any }
+	local bounds = if H.roomBoundsAt then H.roomBoundsAt(at) else nil
+	local out = {}
+	for _, t in ipairs(H.getPotentialTargets(char)) do
+		local p = t.rootPart.Position
+		local ok = if bounds
+			then p.X >= bounds.minX and p.X <= bounds.maxX and p.Z >= bounds.minZ and p.Z <= bounds.maxZ
+				and math.abs(p.Y - bounds.floorY) < 14
+			else (p - at).Magnitude <= range
+		if ok and t.humanoid.Health > 0 then table.insert(out, t) end
+	end
+	return out
+end
+
 local function highNoon(player: Player, char: Model, st: State, origin: Vector3, dir: Vector3, config: any)
 	local range = (config.range or 50) * (config.areaMultiplier or 1)
 	st.busyUntil = math.huge
-	-- Everyone in range gets marked during the standoff.
+	-- Everyone in the room gets marked during the standoff.
 	local marks = {}
-	for _, t in ipairs(H.getPotentialTargets(char)) do
-		if (t.rootPart.Position - origin).Magnitude <= range and t.humanoid.Health > 0 then
-			table.insert(marks, t.character)
-		end
+	for _, t in ipairs(noonReach(char, origin, range)) do
+		table.insert(marks, t.character)
 	end
 	fx({ kind = "highNoon", attacker = player, origin = origin, dir = dir, windup = NOON_WINDUP, marks = marks })
 
@@ -614,12 +680,11 @@ local function highNoon(player: Player, char: Model, st: State, origin: Vector3,
 			local hum = char:FindFirstChildOfClass("Humanoid")
 			local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 			if not hum or hum.Health <= 0 or not root then break end
-			-- Nearest enemies in range: one per shot, +1 per Projectile Count.
+			-- Nearest enemies in the room: one per shot, +1 per Projectile Count.
 			local near = {}
-			for _, t in ipairs(H.getPotentialTargets(char)) do
-				local d = (t.rootPart.Position - root.Position).Magnitude
-				if d <= range and t.humanoid.Health > 0 and not shot[t.character] then
-					table.insert(near, { target = t, dist = d })
+			for _, t in ipairs(noonReach(char, root.Position, range)) do
+				if not shot[t.character] then
+					table.insert(near, { target = t, dist = (t.rootPart.Position - root.Position).Magnitude })
 				end
 			end
 			if #near == 0 then break end
@@ -676,7 +741,7 @@ function GunslingerServer.OnSkill(player: Player, char: Model, skillIndex: numbe
 	if skillIndex == 1 then
 		fanTheHammer(player, char, st, dir, config)
 	elseif skillIndex == 2 then
-		roll(player, char, st, origin, dir)
+		roll(player, char, st, origin, dir, config)
 	elseif skillIndex == 3 then
 		throwCoins(player, char, st, origin, dir, targetPosition, config)
 	elseif skillIndex == 4 then

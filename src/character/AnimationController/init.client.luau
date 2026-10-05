@@ -81,13 +81,15 @@ local function speedMult(): number
 	if typeof(until_) == "number" and workspace:GetServerTimeNow() < until_ then
 		m *= tonumber(character:GetAttribute("IceSlow")) or 0.5
 	end
-	-- (riding a mount in the lobby: its speed boost, as MountManager sets it)
-	local riding = character:GetAttribute("Riding")
-	if typeof(riding) == "string" and player:GetAttribute("InHub") == true then
-		local r = GachaRewards.Get(riding)
-		if r then m *= RideData.SpeedByRarity[r.rarity] or 1.5 end
-	end
 	return m
+end
+
+-- Riding a mount (MountManager): its own speed, faster than running.
+local function rideSpeed(): number?
+	local riding = character:GetAttribute("Riding")
+	if typeof(riding) ~= "string" then return nil end
+	local r = GachaRewards.Get(riding)
+	return if r then RideData.Speed(r.rarity) else nil
 end
 
 local AirborneState = {
@@ -512,6 +514,8 @@ end
 local function performAttack()
 	if player:GetAttribute("InLobby") == true then return end
 	if humanoid.Health <= 0 then return end
+	-- (thrown off a mount: nothing till back on their feet)
+	if character:GetAttribute("Tumbling") == true then return end
 	if RunScope.Mine("TomesPaused") == true then return end
 
 	-- Block attacks while using the 1st ability (Spin Attack) or casting skills
@@ -752,6 +756,12 @@ function UpdateMovement()
 		return
 	end
 
+	-- Thrown off a mount: the tumble (Tumble) carries and poses the body.
+	if character:GetAttribute("Tumbling") == true then
+		stopSpeedSprintVFX()
+		return
+	end
+
 	-- Ultimates are a hard lock: no walking or running, locomotion cut to idle
 	-- so the ult's cast pose reads cleanly.
 	if character:GetAttribute("IsUltActive") == true then
@@ -783,7 +793,17 @@ function UpdateMovement()
 	local isMoving = humanoid.MoveDirection.Magnitude > 0
 	local isGrounded = not AirborneState[humanoid:GetState()]
 
-	if isMoving and isGrounded then
+	-- Riding: the mount's speed (sprinting means nothing up there); the
+	-- walk cycle under the seated pose.
+	local ride = rideSpeed()
+	if isMoving and isGrounded and ride then
+		humanoid.WalkSpeed = ride * speedMult()
+		stopSpeedSprintVFX()
+		if IdleTrack.IsPlaying then IdleTrack:Stop(0.25) end
+		if RunTrack.IsPlaying then RunTrack:Stop(0.25) end
+		if not WalkTrack.IsPlaying then WalkTrack:Play(0.25) end
+		WalkTrack:AdjustSpeed(1)
+	elseif isMoving and isGrounded then
 		if IdleTrack.IsPlaying then
 			IdleTrack:Stop(0.25)
 		end
@@ -812,7 +832,7 @@ function UpdateMovement()
 		if IdleTrack.IsPlaying then
 			IdleTrack:Stop(0.25)
 		end
-		if isSprinting then
+		if isSprinting and not ride then
 			if WalkTrack.IsPlaying then
 				WalkTrack:Stop(0.25)
 			end
@@ -832,7 +852,7 @@ function UpdateMovement()
 			WalkTrack:AdjustSpeed(0.25)
 		end
 	else
-		humanoid.WalkSpeed = WALK_SPEED * speedMult()
+		humanoid.WalkSpeed = (ride or WALK_SPEED) * speedMult()
 		stopSpeedSprintVFX()
 		playIdle()
 	end

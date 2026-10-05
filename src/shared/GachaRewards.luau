@@ -22,7 +22,7 @@
 	  cosmetic   — a title; copies become Relic Dust.
 	  wings      — wings worn on the back (cosmetic, animated); copies become
 	               Soul Shards.
-	  mount      — a mount ridden in the lobby (faster walking there only);
+	  mount      — a mount: press B to ride it (faster than running; a hit throws you off);
 	               copies become Soul Shards.
 
 	Effects use the same stat vocabulary as tomes and talents.
@@ -115,47 +115,47 @@ local R: { Reward } = {
 	{ id = "wings_cosmic", type = "wings", look = "cosmic", rarity = "Mythic", glyph = "CO", name = "Cosmic Wings",
 		accent = Color3.fromRGB(150, 90, 255), description = "Wings full of stars." },
 
-	-- ── Mounts (ridden in the lobby: faster walking; WingsMounts builds them) ──
+	-- ── Mounts (B to ride, faster than running; WingsMounts builds them) ──
 	{ id = "mount_dire_wolf", type = "mount", look = "dire_wolf", rarity = "Common", glyph = "DW", name = "Dire Wolf",
-		accent = Color3.fromRGB(120, 120, 130), description = "A grey wolf with a saddle. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(120, 120, 130), description = "A grey wolf with a saddle. Press B to ride it, faster than running." },
 	{ id = "mount_war_boar", type = "mount", look = "war_boar", rarity = "Common", glyph = "WB", name = "War Boar",
-		accent = Color3.fromRGB(120, 80, 50), description = "A tusked boar in war harness. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(120, 80, 50), description = "A tusked boar in war harness. Press B to ride it, faster than running." },
 	{ id = "mount_skeleton_horse", type = "mount", look = "skeleton_horse", rarity = "Common", glyph = "SH", name = "Skeleton Horse",
-		accent = Color3.fromRGB(230, 225, 205), description = "Bones held together by green fire. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(230, 225, 205), description = "Bones held together by green fire. Press B to ride it, faster than running." },
 	{ id = "mount_giant_spider", type = "mount", look = "giant_spider", rarity = "Rare", glyph = "GS", name = "Giant Spider",
-		accent = Color3.fromRGB(90, 40, 90), description = "Eight legs and too many eyes. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(90, 40, 90), description = "Eight legs and too many eyes. Press B to ride it, faster than running." },
 	{ id = "mount_frost_wolf", type = "mount", look = "frost_wolf", rarity = "Rare", glyph = "FW", name = "Frost Wolf",
-		accent = Color3.fromRGB(160, 215, 255), description = "A wolf carved from winter. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(160, 215, 255), description = "A wolf carved from winter. Press B to ride it, faster than running." },
 	{ id = "mount_dire_bear", type = "mount", look = "dire_bear", rarity = "Rare", glyph = "DB", name = "Dire Bear",
-		accent = Color3.fromRGB(90, 60, 40), description = "An armoured bear. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(90, 60, 40), description = "An armoured bear. Press B to ride it, faster than running." },
 	{ id = "mount_flame_ram", type = "mount", look = "flame_ram", rarity = "Rare", glyph = "FR", name = "Flame Ram",
-		accent = Color3.fromRGB(255, 140, 50), description = "Curled horns wreathed in fire. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(255, 140, 50), description = "Curled horns wreathed in fire. Press B to ride it, faster than running." },
 	{ id = "mount_venom_scorpion", type = "mount", look = "venom_scorpion", rarity = "Epic", glyph = "VS", name = "Venom Scorpion",
-		accent = Color3.fromRGB(110, 220, 60), description = "A scorpion with a glowing sting. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(110, 220, 60), description = "A scorpion with a glowing sting. Press B to ride it, faster than running." },
 	{ id = "mount_shadow_panther", type = "mount", look = "shadow_panther", rarity = "Epic", glyph = "SP", name = "Shadow Panther",
-		accent = Color3.fromRGB(150, 80, 255), description = "A panther made of shadow. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(150, 80, 255), description = "A panther made of shadow. Press B to ride it, faster than running." },
 	{ id = "mount_crystal_stag", type = "mount", look = "crystal_stag", rarity = "Epic", glyph = "CS", name = "Crystal Stag",
-		accent = Color3.fromRGB(150, 200, 255), description = "A stag with antlers of crystal. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(150, 200, 255), description = "A stag with antlers of crystal. Press B to ride it, faster than running." },
 	{ id = "mount_magma_lizard", type = "mount", look = "magma_lizard", rarity = "Epic", glyph = "ML", name = "Magma Lizard",
-		accent = Color3.fromRGB(255, 90, 30), description = "A lizard with cracks of magma. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(255, 90, 30), description = "A lizard with cracks of magma. Press B to ride it, faster than running." },
 	{ id = "mount_magic_carpet", type = "mount", look = "magic_carpet", rarity = "Epic", glyph = "MC", name = "Magician's Carpet",
-		accent = Color3.fromRGB(255, 200, 45), description = "A gold-fringed flying carpet with a top hat that keeps hopping. Sit on it in the lobby to move faster." },
+		accent = Color3.fromRGB(255, 200, 45), description = "A gold-fringed flying carpet with a top hat that keeps hopping. Press B to sit on it, faster than running." },
 	{ id = "mount_infernal_dragon", type = "mount", look = "infernal_dragon", rarity = "Legendary", glyph = "ID", name = "Infernal Dragon",
-		accent = Color3.fromRGB(230, 60, 30), description = "A dragon of fire. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(230, 60, 30), description = "A dragon of fire. Press B to ride it, faster than running." },
 	{ id = "mount_storm_wyvern", type = "mount", look = "storm_wyvern", rarity = "Legendary", glyph = "SW", name = "Storm Wyvern",
-		accent = Color3.fromRGB(70, 150, 255), description = "A wyvern trailing lightning. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(70, 150, 255), description = "A wyvern trailing lightning. Press B to ride it, faster than running." },
 	{ id = "mount_death_knight_horse", type = "mount", look = "death_knight_horse", rarity = "Legendary", glyph = "DK", name = "Death Knight Horse",
-		accent = Color3.fromRGB(60, 140, 255), description = "An armoured black steed with a blue-fire mane. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(60, 140, 255), description = "An armoured black steed with a blue-fire mane. Press B to ride it, faster than running." },
 	{ id = "mount_void_disc", type = "mount", look = "void_disc", rarity = "Legendary", glyph = "VD", name = "Void Disc",
-		accent = Color3.fromRGB(170, 80, 255), description = "An obsidian bowl holding a swirling portal. Sit on it in the lobby to move faster." },
+		accent = Color3.fromRGB(170, 80, 255), description = "An obsidian bowl holding a swirling portal. Press B to sit on it, faster than running." },
 	{ id = "mount_void_serpent", type = "mount", look = "void_serpent", rarity = "Mythic", glyph = "VS", name = "Void Serpent",
-		accent = Color3.fromRGB(170, 70, 255), description = "A void dragon whose long body coils and twirls through the air. You ride on its neck, behind the horns. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(170, 70, 255), description = "A void dragon whose long body coils and twirls through the air. You ride on its neck, behind the horns. Press B to ride it, faster than running." },
 	{ id = "mount_celestial_lion", type = "mount", look = "celestial_lion", rarity = "Mythic", glyph = "CL", name = "Celestial Lion",
-		accent = Color3.fromRGB(255, 220, 120), description = "A winged golden lion. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(255, 220, 120), description = "A winged golden lion. Press B to ride it, faster than running." },
 	{ id = "mount_eclipse_dragon", type = "mount", look = "eclipse_dragon", rarity = "Mythic", glyph = "ED", name = "Eclipse Dragon",
-		accent = Color3.fromRGB(255, 190, 70), description = "A black dragon crowned by an eclipse. Ride it in the lobby to move faster." },
+		accent = Color3.fromRGB(255, 190, 70), description = "A black dragon crowned by an eclipse. Press B to ride it, faster than running." },
 	{ id = "mount_wishing_star", type = "mount", look = "wishing_star", rarity = "Mythic", glyph = "WS", name = "Wishing Star",
-		accent = Color3.fromRGB(255, 220, 90), description = "A star fallen from the wish sky, trailing a rainbow. Sit on it in the lobby to move faster." },
+		accent = Color3.fromRGB(255, 220, 90), description = "A star fallen from the wish sky, trailing a rainbow. Press B to sit on it, faster than running." },
 
 	-- ── Materials ─────────────────────────────────────────────────────────────
 	{ id = "shard_pouch", type = "material", rarity = "Common", glyph = "SS", name = "Soul Shard Pouch",

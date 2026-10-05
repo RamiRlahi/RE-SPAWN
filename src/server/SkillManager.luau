@@ -24,6 +24,7 @@ local GunslingerServer = require(script.Parent:WaitForChild("GunslingerServer"))
 local SwordsmanServer = require(script.Parent:WaitForChild("SwordsmanServer"))
 local BerserkerServer = require(script.Parent:WaitForChild("BerserkerServer"))
 local FireKnightServer = require(script.Parent:WaitForChild("FireKnightServer"))
+local MountManager = require(script.Parent:WaitForChild("MountManager"))
 
 local PhysicsService = game:GetService("PhysicsService")
 
@@ -276,8 +277,8 @@ local IMPACT_PROFILES: { [string]: ImpactProfile } = {
 	["BERSERK CLEAVE"]     = { kb = 6,  lift = 0,  stagger = 0.35, style = "slash" },
 	["BERSERK SMASH"]      = { kb = 24, lift = 8,  stagger = 0.5,  style = "slash", heavy = true },
 	["RUPTURE"]            = { kb = 12, lift = 22, stagger = 0.8,  style = "slash", heavy = true },
-	["BLOODSTORM"]         = { kb = 3,  lift = 0,  stagger = 0.4,  style = "slash" },
-	["BLOODSTORM FINISH"]  = { kb = 38, lift = 8,  stagger = 0.7,  style = "slash", heavy = true },
+	["BLOODSTORM"]         = { kb = 16, lift = 4,  stagger = 0.5,  style = "slash", heavy = true },
+	["BLOODSTORM FINISH"]  = { kb = 46, lift = 12, stagger = 0.8,  style = "slash", heavy = true },
 	["BLOODRAGE PULSE"]    = { kb = 26, lift = 4,  stagger = 0.4,  style = "slash" },
 	["WORLDBREAKER"]       = { kb = 34, lift = 30, stagger = 1.2,  style = "slash", heavy = true },
 	["WORLDBREAKER EXECUTE"] = { kb = 44, lift = 20, stagger = 1.0, style = "slash", heavy = true },
@@ -1266,6 +1267,9 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 
 	-- Block skills in lobby
 	if player:GetAttribute("InLobby") ~= false then return end -- (only in a run: never in the lobby)
+	-- Thrown off a mount: nothing till back on their feet. Riding: casting gets them off.
+	if MountManager.IsTumbling(player) then return end
+	MountManager.Dismount(player)
 
 	-- Block skills while a tome/level-up selection is pausing the game.
 	if RunScope.Paused(player.Character) then
@@ -1453,6 +1457,9 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 	if not humanoid or not rootPart or humanoid.Health <= 0 then return end
 	if player:GetAttribute("InLobby") ~= false then return end -- (only in a run: never in the lobby)
 	if RunScope.Paused(player.Character) then return end
+	-- Thrown off a mount: nothing till back on their feet. Riding: attacking gets them off.
+	if MountManager.IsTumbling(player) then return end
+	MountManager.Dismount(player)
 	-- The Gunslinger's revolver has its own ammo, fire rate and roll shot.
 	if player:GetAttribute("SelectedClass") == "gunslinger" then
 		GunslingerServer.OnShoot(player, char, rootPart, payload)
@@ -1582,6 +1589,7 @@ function SkillManager.Init()
 		ricochet = ricochet,
 		reduceCooldown = reduceCooldown,
 		freezeMobs = MobManager.FreezeMobs,
+		roomBoundsAt = MobManager.RoomBoundsAt,
 	})
 	SwordsmanServer.Init({
 		getPotentialTargets = getPotentialTargets,

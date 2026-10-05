@@ -128,7 +128,7 @@ local ClassData: { [string]: ClassInfo } = {
 		abilities = {
 			{ name = "Greatsword", tag = "M1/Primary", description = "A heavy 3-hit chain: a diagonal cleave, a backhand, and an overhead smash that sends out a shockwave." },
 			{ name = "Rupture", tag = "Skill 1 (E)", description = "Leap to the cursor (up to 17 studs) and crash down: a crater, a spreading fracture and a shockwave that knocks enemies up. Empowered: bigger, with a second burst of crimson spikes." },
-			{ name = "Bloodstorm", tag = "Skill 2 (F)", description = "Dash between nearby enemies with ever faster slashes, red afterimages behind you, then a spinning cleave that throws them out. Half damage taken meanwhile. Empowered: more dashes, a bigger finish." },
+			{ name = "Bloodstorm", tag = "Skill 2 (F)", description = "Plant your feet and carve huge crimson crescents in front of you, each blow landing with a jolt and a shove, then a spinning cleave that throws them out. Half damage taken meanwhile. Empowered: more slashes, bigger ones, a bigger finish." },
 			{ name = "Bloodrage: Unchained", tag = "Skill 3 (Q)", description = "Plant the sword and roar: a crimson pulse, then faster, harder attacks for 8 s, red lightning and smoke pouring off you. Your next skill is Empowered." },
 			{ name = "Worldbreaker", tag = "Ultimate (R)", description = "Gather, launch into the sky and dive onto the aimed spot dragging a giant crimson blade: a cataclysmic impact, then a second explosion that executes the badly wounded." },
 		},
@@ -310,9 +310,9 @@ local ClassData: { [string]: ClassInfo } = {
 			{ name = "Six Shooter", tag = "M1/Primary", description = "Six rounds, then a reload. The sixth shot hits hardest." },
 			{ name = "Deadeye", tag = "Passive", description = "Clean consecutive hits fill Deadeye. Full meter: your next hit is a piercing critical shot." },
 			{ name = "Fan the Hammer", tag = "Skill 1 (E)", description = "Empty every bullet left in the cylinder in a blistering short-range burst." },
-			{ name = "Gunslinger's Roll", tag = "Skill 2 (F / Space)", description = "Roll with brief invulnerability, then fire one shot at the cursor as you land." },
-			{ name = "Deadeye Ricochet", tag = "Skill 3 (Q)", description = "Toss a spinning coin. Shoot it and the bullet splits into ricochets that seek nearby enemies." },
-			{ name = "High Noon", tag = "Ultimate (R)", description = "Time slows. Mark every enemy in range, gun them down one by one, then finish with a Deadeye execution." },
+			{ name = "Gunslinger's Roll", tag = "Skill 2 (F / Space)", description = "Roll with brief invulnerability, dropping a flashbang that stuns nearby enemies (not bosses; more with Projectile Count), then fire one shot at the cursor as you land." },
+			{ name = "Deadeye Ricochet", tag = "Skill 3 (Q)", description = "Toss a spinning coin. Shoot it and the bullet splits into ricochets that seek every enemy in the room." },
+			{ name = "High Noon", tag = "Ultimate (R)", description = "Time slows. Mark every enemy in the room, gun them down one by one, then finish with a Deadeye execution." },
 		},
 		equipment = {
 			name = "The Last Word & Outlaw's Coat",

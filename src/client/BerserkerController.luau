@@ -11,9 +11,11 @@
 	  • E Rupture: crouch (the floor cracks red), leap, hang with the blade
 	    overhead (debris pulled up below), crash: crimson flash, crater,
 	    spreading fracture, shockwave, lingering dust and embers.
-	  • F Bloodstorm: lean and drag the blade (a red streak ignites), then
-	    dash enemy to enemy, each dash faster, red afterimages and crescents,
-	    an impact freeze per hit, and a spinning cleave with a big shockwave.
+	  • F Bloodstorm: lean and drag the blade (a red streak ignites), then,
+	    rooted to the spot, huge crimson crescents carved out in front: each
+	    swing heaved round and hacked down, held a beat as it bites (the
+	    hit-stop), the floor cracking and rock flying where it lands, a jolt
+	    of the camera; then a spinning cleave with a big shockwave.
 	  • Q Bloodrage: Unchained: plant the sword, tremble, roar; a crimson pulse
 	    darkens the room and veins spread over the floor. While it lasts: eyes
 	    and armour cracks blaze, red lightning on the arms and blade, black
@@ -714,16 +716,19 @@ local function stormLeanPose(char: Model, t: number)
 	}, 0.1)
 end
 
--- A Bloodstorm cut: alternately a flat sweep and a diagonal hack.
-local function stormCutPose(char: Model, i: number, dur: number)
+-- A Bloodstorm swing, alternately from either side: the greatsword heaved
+-- high and far round, hacked across and down into a deep crouch with the
+-- whole body behind it, then held there a beat as it bites (the hit-stop).
+local function stormSwingPose(char: Model, i: number, dur: number, freeze: number)
 	local s = if i % 2 == 1 then 1 else -1
+	local hack = { Root = { 0, 0, 0, 0, -1.1, -0.45 }, W = { -28, -s * 60, 0 }, RS = { 30, -s * 70, 0 }, LS = { 35, -s * 50, 0 },
+		RH = { 38, 0, 10 }, LH = { -36, 0, -10 }, N = { 15, s * 15, 0 } }
 	CastPoses.play(char, {
-		{ dur = dur * 0.45, pose = { Root = { 0, 0, 0, 0, -0.7, 0 }, W = { -15, s * 55, 0 }, RS = { 70, s * 85, 0 }, LS = { 65, s * 95, 0 },
-			RH = { 30, 0, 8 }, LH = { -30, 0, -8 } } },
-		{ dur = dur * 0.55, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -0.9, -0.3 },
-			W = { if i % 2 == 0 then -30 else -10, -s * 55, 0 }, RS = { if i % 2 == 0 then 30 else 70, -s * 70, 0 },
-			LS = { if i % 2 == 0 then 30 else 65, -s * 50, 0 }, RH = { 35, 0, 8 }, LH = { -35, 0, -8 } } },
-	}, 0.15)
+		{ dur = dur * 0.62, style = Enum.EasingStyle.Sine, pose = { Root = { 0, 0, 0, 0, -0.5, 0.25 }, W = { 12, s * 70, 0 },
+			RS = { 140, s * 75, 0 }, LS = { 130, s * 90, 0 }, RH = { -15, 0, 8 }, LH = { 18, 0, -8 }, N = { 0, -s * 20, 0 } } },
+		{ dur = dur * 0.38, style = Enum.EasingStyle.Quart, pose = hack },
+		{ dur = freeze, pose = hack },
+	}, 0.2)
 end
 
 -- Unchained: the sword gripped in his right hand, raised out to the side,
@@ -1046,7 +1051,8 @@ local holdWeight: { [Model]: number } = {}
 local function holdStep(dt: number)
 	for _, p in ipairs(Players:GetPlayers()) do
 		local char = p.Character
-		if not (char and isBerserker(p) and char:FindFirstChild("Ragebringer")) or (char and char:GetAttribute("BR_OneHand")) then
+		-- (thrown off a mount: the tumble poses the whole body)
+		if not (char and isBerserker(p) and char:FindFirstChild("Ragebringer")) or (char and (char:GetAttribute("BR_OneHand") or char:GetAttribute("Tumbling"))) then
 			if char then holdWeight[char] = nil end
 			continue
 		end
@@ -1131,7 +1137,7 @@ end
 local function twoHandStep()
 	for _, p in ipairs(Players:GetPlayers()) do
 		local char = p.Character
-		if not (char and isBerserker(p)) or char:GetAttribute("BR_OneHand") then continue end
+		if not (char and isBerserker(p)) or char:GetAttribute("BR_OneHand") or char:GetAttribute("Tumbling") then continue end
 		local tool = char:FindFirstChild("Ragebringer")
 		local torso = char:FindFirstChild("Torso")
 		local rArm, lArm = char:FindFirstChild("Right Arm"), char:FindFirstChild("Left Arm")
@@ -1362,7 +1368,7 @@ local function ruptureLeap(char: Model, root: BasePart, dir: Vector3, cursor: Ve
 end
 
 -- ── F: Bloodstorm (caster) ──────────────────────────────────────────────────
--- Held still through the lean until the server's route arrives.
+-- Held to the spot from the lean to the last swing.
 local stormMover: Mover? = nil
 local stormToken = 0
 
@@ -1428,9 +1434,9 @@ function BerserkerController.OnCast(skillIndex: number, char: Model, root: BaseP
 		releaseAfter(char, RUPTURE.impact + 0.3)
 		return land
 	elseif skillIndex == 2 then
-		-- (the real length comes with the route; this is the fallback)
+		-- (the real length comes with the swings; this is the fallback)
 		busyUntil = os.clock() + 1.4
-		stormLeanPose(char, 0.3)
+		stormLeanPose(char, 0.35)
 		stormToken += 1
 		local my = stormToken
 		if stormMover then stormMover.stop(false) end
@@ -1584,41 +1590,38 @@ local function onRuptureEcho(msg: any)
 end
 
 -- F · Bloodstorm: the lean (a red streak ignites under him), then each
--- dash: red afterimages behind, a crimson crescent at every stop, faster
--- every time.
+-- swing on the spot: heave, hack, hold (the crescent itself comes with the
+-- blow, stormHit).
 local function onStorm(msg: any)
 	local char = charOf(msg.attacker)
 	local root = rootOf(char)
 	if not char or not root then return end
 	local mine = msg.attacker == player
-	local stops = msg.stops :: { any }
+	local swings = msg.swings :: { any }
 	local dir = msg.dir :: Vector3
+	local freeze = (msg.freeze :: number?) or 0.1
 	local start = root.Position
-	if not mine then stormLeanPose(char, 0.3) end
+	if not mine then stormLeanPose(char, 0.35) end
 	-- the drag: a streak igniting under him, sparks off the dragged blade
 	groundStreak(start - dir * 3, start + dir * 1, 0.8, 0.6)
 	sparks(start - dir * 2 - Vector3.new(0, 2, 0), 14, 10)
-	ClassFX.Sound("charge", root, 0.5, 1.6)
+	ClassFX.Sound("charge", root, 0.5, 1.2)
 	trail(char, (msg.finalAt :: number) + 0.3)
 
-	local prev = start
-	for i, s in ipairs(stops) do
-		local from = prev
-		local to = s.pos :: Vector3
-		prev = to
+	for i, s in ipairs(swings) do
 		local dur = (s.arrive :: number) - (s.leave :: number)
 		task.delay(s.leave, function()
 			if not char.Parent then return end
-			stormCutPose(char, i, dur + 0.08)
-			ClassFX.Afterimages(char, CRIMSON, 3, dur / 3)
-			SwordFX.Streak(from, to, 0.5 + i * 0.08, CRIMSON, 0.25, nil, CORE)
-			groundStreak(from, to, 0.5, 0.45)
-			ClassFX.Sound("whoosh", root, 0.7, 0.8 + i * 0.07)
+			stormSwingPose(char, i, dur, freeze)
+			-- (a heavy blade: a low whoosh as it comes round)
+			task.delay(dur * 0.55, function()
+				if root.Parent then ClassFX.Sound("whoosh", root, 0.8, 0.6 + i * 0.04) end
+			end)
 		end)
 	end
 
 	if not mine then return end
-	-- Our own body follows the route.
+	-- Our own body: held where it stands, facing the swing, till the cleave.
 	stormToken += 1
 	local m = stormMover
 	stormMover = nil
@@ -1626,48 +1629,39 @@ local function onStorm(msg: any)
 	local mv = m :: Mover
 	busyUntil = os.clock() + (msg.finalAt :: number) + 0.35
 	releaseAfter(char, (msg.finalAt :: number) + 0.3)
-	local route = {}
-	local p0 = start
-	for _, s in ipairs(stops) do
-		local to = standAt(s.pos, mv.stand)
-		table.insert(route, { from = p0, to = to, leave = s.leave, arrive = s.arrive })
-		p0 = to
-	end
-	timeline(msg.finalAt, function(t)
-		if not mv.alive() then return end
-		local at = start
-		for _, seg in ipairs(route) do
-			if t >= seg.arrive then
-				at = seg.to
-			elseif t >= seg.leave then
-				local a = (t - seg.leave) / (seg.arrive - seg.leave)
-				at = seg.from:Lerp(seg.to, easeOut(a))
-				mv.face(seg.to - seg.from)
-				break
-			else
-				break
-			end
-		end
-		mv.set(at)
-	end, function()
+	mv.set(standAt(start, mv.stand))
+	mv.face(dir)
+	task.delay((msg.finalAt :: number) + 0.2, function()
 		mv.stop(true)
 	end)
 end
 
--- Each Bloodstorm hit: the crescent, red sparks and a short impact freeze.
+-- Each Bloodstorm blow: a huge crimson crescent out in front, the floor
+-- cracking and rock thrown up where the blade lands, and (on a hit) a heavy
+-- crunch and a jolt of the camera.
 local function onStormHit(msg: any)
-	local char = charOf(msg.attacker)
-	local root = rootOf(char)
 	local pos = msg.pos :: Vector3
+	local dir = msg.dir :: Vector3
+	local r = msg.radius :: number
 	local i = msg.i :: number
-	local look = if root then CFrame.lookAt(pos, pos + root.CFrame.LookVector) else CFrame.new(pos)
-	local tilt = if i % 2 == 1 then CFrame.Angles(0, 0, 0) else CFrame.Angles(0, 0, math.rad(if i % 4 == 0 then 35 else -35))
-	slashRing(look * CFrame.new(0, 0.3, 0) * tilt, 6 + i * 0.5, 170, if i % 2 == 1 then 1 else -1, i >= 4)
+	local s = if i % 2 == 1 then 1 else -1
+	-- (alternately flat and a little diagonal, like the swings)
+	local tilt = CFrame.Angles(0, 0, math.rad(if i % 2 == 0 then s * 14 else s * 5))
+	slashRing(CFrame.lookAt(pos, pos + dir) * CFrame.new(0, 0.3, 0) * tilt, r, 170, s, i >= 3)
+	-- where the blade comes down: off to the side the swing ends on
+	local side = Vector3.new(-dir.Z, 0, dir.X)
+	local land = ground(pos + dir * r * 0.5 - side * s * r * 0.3)
+	cracks(land, r * 0.3, 5, 0.9)
+	fling(land + Vector3.new(0, 0.5, 0), 6, 22, 16, true)
+	smoke(land + Vector3.new(0, 1, 0), 6, 4)
 	if msg.hit then
-		sparks(pos, 22, 26)
-		fling(pos, 5, 18, 8)
-		ClassFX.Sound("swordHit", pos, 0.8, 0.85 + i * 0.05)
-		if msg.attacker == player then deps.shake(0.35, 0.06) end
+		sparks(pos + dir * r * 0.4, 26, 30)
+		ClassFX.Sound("swordHit", pos, 1, 0.62 + i * 0.03)
+		ClassFX.Sound("boom", pos, 0.45, 1.25)
+	end
+	if msg.attacker == player then
+		deps.shake(if msg.hit then 0.75 else 0.4, 0.12)
+		deps.fovPunch(if msg.hit then 3 else 1.5, 0.12)
 	end
 end
 
@@ -1683,14 +1677,17 @@ local function onStormFinal(msg: any)
 	slashRing(cf, r, 355, 1, true)
 	rimChips(root.Position, r, if msg.empowered then 24 else 16)
 	local g = Vector3.new(root.Position.X, FireFX.GroundY(root.Position), root.Position.Z)
-	shockwave(g, r * 1.3, char)
-	flipbook("shock", g + Vector3.new(0, 0.2, 0), r * 2.8, 1, seq(Color3.fromRGB(255, 120, 120), CRIMSON), 3)
-	smoke(g + Vector3.new(0, 1, 0), 12, 3)
+	shockwave(g, r * 1.1, char)
+	flipbook("shock", g + Vector3.new(0, 0.2, 0), r * 1.6, 1, seq(Color3.fromRGB(255, 120, 120), CRIMSON), 3)
+	cracks(g, r * 0.45, 8, 1.2)
+	fling(g + Vector3.new(0, 0.5, 0), 10, 30, 20, true)
+	smoke(g + Vector3.new(0, 1, 0), 12, 4)
 	sparks(root.Position, 30, 30)
 	ClassFX.Sound("swordHit", root, 1, 0.7)
 	ClassFX.Sound("whoosh", root, 1, 0.55)
+	ClassFX.Sound("boom", root, 0.7, 0.9)
 	if msg.attacker == player then
-		deps.shake(0.9, 0.25)
+		deps.shake(1.1, 0.3)
 		deps.fovPunch(6, 0.25)
 	end
 end

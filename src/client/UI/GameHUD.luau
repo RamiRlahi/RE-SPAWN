@@ -1317,13 +1317,16 @@ function GameHUD.Init()
 	})
 
 	createHealthBar(hudFrame)
-	-- Your tomes' logos, in a strip just above the health bar.
+	-- Your tomes down the left of the screen (under the minimap), your
+	-- relics down the right; hover one to read it.
 	pcall(function()
 		local TomeIcons = require(script.Parent:WaitForChild("TomeIcons"))
-		local row = TomeIcons.Row(hudFrame, 34)
-		row.AnchorPoint = Vector2.new(0, 1)
-		row.Position = UDim2.new(0, 70, 1, -(BOTTOM_MARGIN + EMBLEM_SIZE * math.sqrt(2) + 18))
-		row.ZIndex = 12
+		local tomes = TomeIcons.Column(hudFrame, 40, "tomes")
+		tomes.AnchorPoint = Vector2.new(0, 0)
+		tomes.Position = UDim2.new(0, 26, 0, 236)
+		local relics = TomeIcons.Column(hudFrame, 40, "relics")
+		relics.AnchorPoint = Vector2.new(1, 0)
+		relics.Position = UDim2.new(1, -26, 0, 236)
 	end)
 	createSkillBar(hudFrame)
 	createRunTimer(hudFrame)

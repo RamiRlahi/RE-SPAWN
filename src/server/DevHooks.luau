@@ -15,6 +15,11 @@
 	  horde|runId                a horde, now
 	  descend|runId              straight to the next floor
 	  extract|runId              the party extracts
+	  rides|userId               every pair of wings and every mount, owned
+	                             (their two sets marked done, no payout)
+	  gear|userId                every Armory weapon finish, aura and title, owned
+	  ride|userId|on             call the mount (on = 1) or send it away (0)
+	  hit|userId|damage          a hit on the player (thrown off a mount)
 --]]
 
 local Players = game:GetService("Players")
@@ -64,6 +69,55 @@ function DevHooks.Init()
 			local hook = DungeonGenerator.Hooks.extract
 			if hook then task.spawn(hook, a, {}) end
 			return hook ~= nil
+		elseif cmd == "rides" then
+			local p = plr(a)
+			local PlayerData = require(script.Parent:WaitForChild("PlayerData")) :: any
+			local GachaManager = require(script.Parent:WaitForChild("GachaManager")) :: any
+			local GachaRewards = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GachaRewards")) :: any
+			local prof = p and PlayerData.Get(p)
+			if not prof then return "no profile" end
+			local n = 0
+			for _, r in ipairs(GachaRewards.All) do
+				if (r.type == "wings" or r.type == "mount") and not prof.collection.cosmetics[r.id] then
+					prof.collection.cosmetics[r.id] = true
+					n += 1
+				end
+			end
+			prof.stats["set:set_skyborne"] = prof.stats["set:set_skyborne"] or 1
+			prof.stats["set:set_beastmaster"] = prof.stats["set:set_beastmaster"] or 1
+			PlayerData.MarkDirty(p)
+			GachaManager.Sync(p)
+			return `{n} granted`
+		elseif cmd == "gear" then
+			local p = plr(a)
+			local PlayerData = require(script.Parent:WaitForChild("PlayerData")) :: any
+			local LootManager = require(script.Parent:WaitForChild("LootManager")) :: any
+			local GearData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GearData")) :: any
+			local prof = p and PlayerData.Get(p)
+			if not prof then return "no profile" end
+			if typeof(prof.gear) ~= "table" then prof.gear = { owned = {}, equipped = {} } end
+			prof.gear.owned = prof.gear.owned or {}
+			prof.gear.equipped = prof.gear.equipped or {}
+			local n = 0
+			for _, item in ipairs(GearData.Items) do
+				if (prof.gear.owned[item.id] or 0) <= 0 then
+					prof.gear.owned[item.id] = 1
+					n += 1
+				end
+			end
+			PlayerData.MarkDirty(p)
+			LootManager.Sync(p)
+			return `{n} granted`
+		elseif cmd == "ride" then
+			local p = plr(a)
+			local MountManager = require(script.Parent:WaitForChild("MountManager")) :: any
+			if p then MountManager.Request(p, b == "1") end
+			return p and p.Character and p.Character:GetAttribute("Riding")
+		elseif cmd == "hit" then
+			local p = plr(a)
+			local hum = p and p.Character and p.Character:FindFirstChildOfClass("Humanoid")
+			if hum then hum:TakeDamage(tonumber(b) or 5) end
+			return hum and hum.Health
 		end
 		return "unknown command"
 	end

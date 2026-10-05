@@ -27,6 +27,7 @@ local DefaultKeybinds: { KeybindEntry } = {
 	{ action = "Skill3", displayName = "Skill 3 (Dash)", category = "Combat", defaultKey = "Q" },
 	{ action = "Ultimate", displayName = "Ultimate Ability", category = "Combat", defaultKey = "R" },
 	{ action = "Sprint", displayName = "Sprint", category = "Movement", defaultKey = "LeftShift" },
+	{ action = "Mount", displayName = "Mount", category = "Movement", defaultKey = "B" },
 	{ action = "Interact", displayName = "Interact", category = "General", defaultKey = "V" },
 	{ action = "OpenMenu", displayName = "Toggle Menu", category = "General", defaultKey = "M" },
 }
@@ -50,6 +51,7 @@ local DefaultSettings: PlayerSettings = {
 		["Skill3"] = "Q",
 		["Ultimate"] = "R",
 		["Sprint"] = "LeftShift",
+		["Mount"] = "B",
 		["Interact"] = "V",
 		["OpenMenu"] = "M",
 	},

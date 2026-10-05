@@ -41,7 +41,7 @@ LobbyManager.Init()
 local RunStats = require(script:WaitForChild("RunStats"))
 RunStats.Init()
 require(script:WaitForChild("LootManager")).Init()
-require(script:WaitForChild("MountManager")).Init() -- riding mounts in the lobby
+require(script:WaitForChild("MountManager")).Init() -- riding mounts (B), thrown off by hits
 require(script:WaitForChild("Corruption")).Init()
 require(script:WaitForChild("Horde")).Init()
 require(script:WaitForChild("Leaderboard")).Init()
