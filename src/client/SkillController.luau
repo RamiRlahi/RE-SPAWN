@@ -24,6 +24,7 @@ local DivineBeamChannel = require(script.Parent:WaitForChild("DivineBeamChannel"
 local ClericVFX = require(script.Parent:WaitForChild("ClericVFX"))
 local IceMageVFX = require(script.Parent:WaitForChild("IceMageVFX"))
 local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
+local RangerArrows = require(script.Parent:WaitForChild("RangerArrows"))
 local HumanoidIndex = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("HumanoidIndex"))
 local CastPoses = require(script.Parent:WaitForChild("CastPoses"))
 local ClericFlair = require(script.Parent:WaitForChild("ClericFlair"))
@@ -4823,9 +4824,20 @@ local function performBasicAttack()
 		if char:GetAttribute("IsMissileBuffActive") == true then
 			SkillController.LaunchMissile(char)
 		end
-		-- Fire server Remote for basic attack damage (the server spawns the arrow)
+		-- Fire server Remote for basic attack damage. The Ranger's arrows are
+		-- real projectiles (the server flies them): drawn here at once, with
+		-- the volley's number so the server's arrows are the same ones.
+		local payload: any = { direction = aimDirection }
+		if isRanger and aimDirection then
+			local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if root then
+				local shot = RangerArrows.NextShot()
+				payload.shot = shot
+				RangerArrows.FireLocal(shot, root.Position + Vector3.new(0, 1.2, 0), aimDirection)
+			end
+		end
 		local performAttackRemote = Network.GetRemoteEvent(Network.Remotes.PerformAttack)
-		performAttackRemote:FireServer({ direction = aimDirection })
+		performAttackRemote:FireServer(payload)
 	end
 
 	if isRanger then
@@ -4922,6 +4934,7 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 function SkillController.Init()
 	RunService.Heartbeat:Connect(autoFireStep)
+	RangerArrows.Init()
 	-- Every class: legs with WASD, the top half to the cursor.
 	AimStance.Init(getAimDirection)
 	GunslingerController.Init({
