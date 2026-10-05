@@ -420,6 +420,147 @@ local function dressWraith(model: Model)
 	end
 end
 
+-- ── The prison of souls (the crypt map) ─────────────────────────────────────
+local SOUL_TEAL = Color3.fromRGB(120, 230, 210)
+local IRON = Color3.fromRGB(62, 64, 72)
+local RUST = Color3.fromRGB(96, 66, 48)
+
+-- A Shackled Soul: a prisoner's ghost, pale teal and half there, an iron
+-- collar and manacles, an iron ball chained to its ankle dragging behind.
+local function dressShackled(model: Model)
+	strip(model)
+	for _, d in ipairs(model:GetChildren()) do
+		if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" then
+			d.Material = Enum.Material.SmoothPlastic
+			d.Color = SOUL_TEAL:Lerp(Color3.fromRGB(70, 120, 120), if d.Name == "Torso" then 0.35 else 0.15)
+			d.Transparency = 0.35
+		end
+	end
+	eyes(model, Color3.fromRGB(230, 255, 250), 0.22, 0.6, 0.14)
+	local head = bodyPart(model, "Head")
+	local torso = bodyPart(model, "Torso")
+	if torso then
+		piece(torso, CFrame.new(0, 1.02, 0), { Name = "Collar", Size = Vector3.new(1.3, 0.3, 1.3), Color = IRON, Material = Enum.Material.Metal })
+		piece(torso, CFrame.new(0, -0.2, -0.52), { Name = "Rags", Size = Vector3.new(1.9, 1.6, 0.08), Color = Color3.fromRGB(70, 90, 88),
+			Material = Enum.Material.Fabric, Transparency = 0.3 })
+		local wisp = Instance.new("ParticleEmitter")
+		wisp.Name = "SoulWisp"
+		wisp.Texture = "rbxasset://textures/particles/smoke_main.dds"
+		wisp.Color = ColorSequence.new(SOUL_TEAL, Color3.fromRGB(40, 80, 80))
+		wisp.LightEmission = 0.4
+		wisp.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.7), NumberSequenceKeypoint.new(1, 1) })
+		wisp.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.8), NumberSequenceKeypoint.new(1, 1.8) })
+		wisp.Lifetime = NumberRange.new(0.8, 1.2)
+		wisp.Speed = NumberRange.new(0.3, 1)
+		wisp.Acceleration = Vector3.new(0, 2, 0)
+		wisp.Rate = 5
+		wisp.Parent = torso
+	end
+	for _, n in ipairs({ "Left Arm", "Right Arm" }) do
+		local arm = bodyPart(model, n)
+		if arm then
+			piece(arm, CFrame.new(0, -0.75, 0), { Name = "Manacle", Size = Vector3.new(1.18, 0.34, 1.18), Color = IRON, Material = Enum.Material.Metal })
+		end
+	end
+	local leg = bodyPart(model, "Right Leg")
+	if leg then
+		piece(leg, CFrame.new(0, -0.8, 0), { Name = "Shackle", Size = Vector3.new(1.18, 0.3, 1.18), Color = IRON, Material = Enum.Material.Metal })
+		-- the chain trailing back to the ball
+		for i = 1, 4 do
+			piece(leg, CFrame.new(0, -0.9, 0.35 + i * 0.42) * CFrame.Angles(0, 0, if i % 2 == 0 then math.rad(90) else 0),
+				{ Name = "Chain", Size = Vector3.new(0.1, 0.24, 0.4), Color = IRON, Material = Enum.Material.Metal })
+		end
+		piece(leg, CFrame.new(0, -0.62, 2.45), { Name = "IronBall", Shape = Enum.PartType.Ball, Size = Vector3.new(1.05, 1.05, 1.05),
+			Color = Color3.fromRGB(44, 44, 50), Material = Enum.Material.Metal })
+	end
+	if head then
+		-- hollow, sunken face: a dark gaping mouth
+		piece(head, CFrame.new(0, -0.32, -0.6), { Name = "Mouth", Size = Vector3.new(0.34, 0.3, 0.06), Color = Color3.fromRGB(10, 30, 30) })
+	end
+end
+
+-- The Executioner: a hulking headsman in a black pointed hood with eye slits,
+-- a bare scarred chest under a leather apron, an enormous axe.
+local function dressExecutioner(model: Model)
+	strip(model)
+	local skin = Color3.fromRGB(150, 128, 112)
+	local hoodC = Color3.fromRGB(18, 16, 20)
+	local leather = Color3.fromRGB(64, 40, 28)
+	recolor(model, { "Left Arm", "Right Arm", "Torso" }, skin)
+	recolor(model, { "Left Leg", "Right Leg" }, Color3.fromRGB(34, 30, 32))
+	recolor(model, { "Head" }, hoodC, Enum.Material.Fabric)
+	local head = bodyPart(model, "Head")
+	local torso = bodyPart(model, "Torso")
+	if head then
+		-- the pointed hood, its eye slits glowing
+		piece(head, CFrame.new(0, 0.62, 0.05), { Name = "Hood", Size = Vector3.new(1.3, 0.5, 1.3), Color = hoodC, Material = Enum.Material.Fabric })
+		piece(head, CFrame.new(0, 1.05, 0.12) * CFrame.Angles(math.rad(-12), 0, 0), { Name = "HoodTip", Size = Vector3.new(0.8, 0.55, 0.8), Color = hoodC, Material = Enum.Material.Fabric })
+		piece(head, CFrame.new(0, 1.38, 0.24) * CFrame.Angles(math.rad(-20), 0, 0), { Name = "HoodTip", Size = Vector3.new(0.38, 0.4, 0.38), Color = hoodC, Material = Enum.Material.Fabric })
+		for _, side in ipairs({ -1, 1 }) do
+			piece(head, CFrame.new(side * 0.25, 0.12, -0.61), { Name = "EyeSlit", Size = Vector3.new(0.34, 0.09, 0.05), Color = Color3.fromRGB(255, 70, 50), Material = Enum.Material.Neon })
+		end
+		piece(torso or head, (if torso then CFrame.new(0, 1.1, 0) else CFrame.new(0, -0.7, 0)),
+			{ Name = "HoodDrape", Size = Vector3.new(2.3, 0.4, 1.35), Color = hoodC, Material = Enum.Material.Fabric })
+	end
+	if torso then
+		piece(torso, CFrame.new(0, -0.35, -0.53), { Name = "Apron", Size = Vector3.new(1.7, 1.6, 0.08), Color = leather, Material = Enum.Material.Leather })
+		piece(torso, CFrame.new(0, -1.25, -0.5), { Name = "Apron", Size = Vector3.new(1.5, 1.0, 0.08), Color = leather, Material = Enum.Material.Leather })
+		piece(torso, CFrame.new(0, -0.82, 0), { Name = "Belt", Size = Vector3.new(2.1, 0.36, 1.1), Color = Color3.fromRGB(40, 28, 22), Material = Enum.Material.Leather })
+		piece(torso, CFrame.new(0, 0.3, 0) * CFrame.Angles(0, 0, math.rad(-35)), { Name = "Scar", Size = Vector3.new(0.08, 1.6, 1.04), Color = Color3.fromRGB(120, 70, 66) })
+	end
+	for _, n in ipairs({ "Left Arm", "Right Arm" }) do
+		local arm = bodyPart(model, n)
+		if arm then
+			piece(arm, CFrame.new(0, -0.65, 0), { Name = "Bracer", Size = Vector3.new(1.1, 0.7, 1.1), Color = leather, Material = Enum.Material.Leather })
+		end
+	end
+	local arm = bodyPart(model, "Right Arm")
+	if arm then
+		local grip = CFrame.new(0, -1.05, 0) * CFrame.Angles(math.rad(-90), 0, 0) -- (+Y runs out of the fist)
+		piece(arm, grip * CFrame.new(0, 1.2, 0), { Name = "AxeHaft", Size = Vector3.new(0.3, 4.2, 0.3), Color = Color3.fromRGB(70, 48, 30), Material = Enum.Material.Wood })
+		piece(arm, grip * CFrame.new(0, 3.0, 0.75), { Name = "AxeBlade", Size = Vector3.new(0.18, 1.7, 1.5), Color = Color3.fromRGB(150, 150, 158), Material = Enum.Material.Metal })
+		piece(arm, grip * CFrame.new(0, 3.0, 1.52), { Name = "AxeEdge", Size = Vector3.new(0.1, 1.9, 0.12), Color = Color3.fromRGB(205, 205, 212), Material = Enum.Material.Metal })
+		piece(arm, grip * CFrame.new(0, 3.0, -0.25), { Name = "AxeBack", Size = Vector3.new(0.3, 0.5, 0.5), Color = IRON, Material = Enum.Material.Metal })
+		piece(arm, grip * CFrame.new(0, 3.0, 0.6), { Name = "AxeBlood", Size = Vector3.new(0.2, 0.5, 0.5), Color = Color3.fromRGB(110, 20, 20) })
+	end
+end
+
+-- The Jailer: an armoured warden, an iron kettle helm, a lantern of soul-fire
+-- in one hand and a coil of hooked chain in the other.
+local function dressJailer(model: Model)
+	strip(model)
+	recolor(model, { "Torso", "Left Arm", "Right Arm" }, Color3.fromRGB(58, 52, 50), Enum.Material.Fabric)
+	recolor(model, { "Left Leg", "Right Leg" }, Color3.fromRGB(40, 36, 36), Enum.Material.Fabric)
+	eyes(model, SOUL_TEAL, 0.22, 0.6, 0.14)
+	local head = bodyPart(model, "Head")
+	local torso = bodyPart(model, "Torso")
+	if head then
+		piece(head, CFrame.new(0, 0.55, 0), { Name = "Helm", Size = Vector3.new(1.3, 0.6, 1.3), Color = IRON, Material = Enum.Material.Metal })
+		piece(head, CFrame.new(0, 0.3, 0) * CFrame.Angles(0, 0, math.rad(90)), { Name = "HelmBrim", Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(0.12, 2.1, 2.1), Color = IRON, Material = Enum.Material.Metal })
+	end
+	if torso then
+		piece(torso, CFrame.new(0, 0.15, -0.08), { Name = "Breastplate", Size = Vector3.new(2.1, 1.6, 1.2), Color = IRON, Material = Enum.Material.Metal })
+		piece(torso, CFrame.new(0, -0.82, 0), { Name = "Belt", Size = Vector3.new(2.1, 0.32, 1.1), Color = RUST, Material = Enum.Material.Leather })
+		-- the keyring at the hip
+		piece(torso, CFrame.new(0.9, -1.05, -0.4), { Name = "Keys", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.08, 0.5, 0.5),
+			Color = Color3.fromRGB(190, 160, 80), Material = Enum.Material.Metal })
+	end
+	local left = bodyPart(model, "Left Arm")
+	if left then
+		piece(left, CFrame.new(0, -1.25, 0), { Name = "LanternRing", Size = Vector3.new(0.1, 0.5, 0.1), Color = IRON, Material = Enum.Material.Metal })
+		piece(left, CFrame.new(0, -1.85, 0), { Name = "Lantern", Size = Vector3.new(0.6, 0.75, 0.6), Color = IRON, Material = Enum.Material.Metal, Transparency = 0.2 })
+		piece(left, CFrame.new(0, -1.85, 0), { Name = "LanternFlame", Size = Vector3.new(0.36, 0.5, 0.36), Color = SOUL_TEAL, Material = Enum.Material.Neon })
+	end
+	local right = bodyPart(model, "Right Arm")
+	if right then
+		piece(right, CFrame.new(0, -1.15, 0), { Name = "ChainCoil", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.35, 1.0, 1.0),
+			Color = IRON, Material = Enum.Material.Metal })
+		piece(right, CFrame.new(0, -1.8, -0.2) * CFrame.Angles(math.rad(30), 0, 0), { Name = "Hook", Size = Vector3.new(0.14, 0.7, 0.14),
+			Color = Color3.fromRGB(150, 150, 160), Material = Enum.Material.Metal })
+	end
+end
+
 -- Slimes: the template's inner body is the coloured sphere, the outer one its
 -- glossy skin.
 local function slimeParts(model: Model): (BasePart?, BasePart?)
@@ -536,6 +677,22 @@ kinds.risen = {
 	dress = dressRisen,
 }
 
+kinds.shackled = {
+	name = "Shackled Soul", base = "Zombie", health = 0.6, damage = 0.9, xp = 0.8, color = SOUL_TEAL,
+	attrs = { WalkSpeed = 12, Damage = 9 },
+	dress = dressShackled,
+}
+kinds.executioner = {
+	name = "Executioner", base = "Zombie", health = 3.6, damage = 1, xp = 2.8, scale = 1.7, color = BLOOD,
+	attrs = { WalkSpeed = 7, Damage = 20, AttackCooldown = 1.8, AttackRange = 8, Unstaggerable = true },
+	dress = dressExecutioner, moves = { { id = "execute", every = { 4.5, 6.5 } } },
+}
+kinds.jailer = {
+	name = "Jailer", base = "Skeleton", health = 1.2, damage = 1, xp = 1.6, color = SOUL_TEAL,
+	attrs = { WalkSpeed = 10, Damage = 11, PreferredRange = 18, NoArrows = true },
+	dress = dressJailer, moves = { { id = "hook", every = { 4, 5.5 } } },
+}
+
 -- ── Room packs ──────────────────────────────────────────────────────────────
 -- Each room is one theme: a weighted draw of kinds, with caps so a room is
 -- never all brutes or all necromancers.
@@ -545,15 +702,17 @@ local PACKS: { { [string]: number } } = {
 	{ skeleton = 4, bonemage = 2, brute = 1, ghoul = 2 },                    -- the bone legion
 	{ wraith = 3, ghoul = 2, bonemage = 2, skeleton = 2, zombie = 1 },       -- the haunt
 	{ brute = 1, zombie = 3, skeleton = 3, magmaslime = 1, bonemage = 1 },   -- the warband
+	{ shackled = 5, jailer = 2, executioner = 1, wraith = 2, skeleton = 1 }, -- the prison of souls (6)
 }
-local CAPS: { [string]: number } = { brute = 2, necromancer = 1, bloatslime = 2, magmaslime = 3, bonemage = 3, wraith = 3 }
+local CAPS: { [string]: number } = { brute = 2, necromancer = 1, bloatslime = 2, magmaslime = 3, bonemage = 3, wraith = 3, executioner = 2, jailer = 3 }
 
 -- A run starts with the three starter mobs only; the rest join in over its
 -- first minutes, each from its own minute, slowly at first (`minutes`: the
 -- run's time).
-local STARTERS: { [string]: boolean } = { zombie = true, skeleton = true, slime = true }
+local STARTERS: { [string]: boolean } = { zombie = true, skeleton = true, slime = true, shackled = true }
 local JOINS_AT: { [string]: number } = {
 	ghoul = 2, bonemage = 3, magmaslime = 3, wraith = 5, bloatslime = 5, brute = 7, necromancer = 9,
+	jailer = 1, executioner = 1, -- (the prison's own: its life from the start)
 }
 local function share(id: string, minutes: number): number
 	if STARTERS[id] then return 1 end
@@ -1128,6 +1287,101 @@ MOVES.charge = function(m, v, d)
 	pose(m, { Root = { -12 }, RightArm = { 20 }, LeftArm = { 20 } }, 0.2)
 	hold(m, 1.1)
 	pose(m, nil, 0.3)
+	return true
+end
+
+-- The Executioner: the axe rises high over a long strip of floor in front of
+-- it (step out of it), then comes down along all of it.
+MOVES.execute = function(m, v, d)
+	if d > 16 then return false end
+	local dir = Vector3.new(v.root.Position.X - m.root.Position.X, 0, v.root.Position.Z - m.root.Position.Z)
+	if dir.Magnitude < 0.5 then dir = m.root.CFrame.LookVector end
+	dir = Vector3.new(dir.X, 0, dir.Z).Unit
+	local length, width = 15, 7
+	local origin = m.root.Position
+	halt(m)
+	face(m, origin + dir)
+	local tele = lane(origin, dir, length, width, 1.15, m.floorY, BLOOD)
+	pose(m, { Root = { -10 }, RightArm = { 178, 0, 8 }, LeftArm = { 165, 0, -8 } }, 0.45)
+	if not hold(m, 1.15) then
+		cancel(tele)
+		pose(m, nil, 0.2)
+		return true
+	end
+	pose(m, { Root = { 24 }, RightArm = { 35 }, LeftArm = { 35 } }, 0.08)
+	task.wait(0.08)
+	if not alive(m) then return true end
+	for _, vv in ipairs(victims()) do
+		local rel = Vector3.new(vv.root.Position.X - origin.X, 0, vv.root.Position.Z - origin.Z)
+		local along = rel:Dot(dir)
+		if along >= -1.5 and along <= length + 1 and (rel - dir * along).Magnitude <= width / 2 + 1
+			and math.abs(vv.root.Position.Y - origin.Y) < 8 then
+			strike(m, vv.char, power(m) * 1.8, origin)
+		end
+	end
+	local landAt = origin + dir * (length * 0.55)
+	shock(landAt, 7, BLOOD, m.floorY)
+	sparks(Vector3.new(landAt.X, m.floorY + 0.5, landAt.Z), Color3.fromRGB(255, 200, 150), 18, 22)
+	smokePuff(Vector3.new(landAt.X, m.floorY + 0.5, landAt.Z), Color3.fromRGB(110, 100, 95), 8)
+	-- the axe is stuck in the floor a moment: the time to hit back
+	hold(m, 1.1)
+	pose(m, nil, 0.35)
+	return true
+end
+
+-- The Jailer: a line of chain toward you, then the hook flies down it; caught,
+-- you're dragged up to its feet.
+local CHAIN_GREY = Color3.fromRGB(205, 205, 220)
+MOVES.hook = function(m, v, d)
+	if d < 9 or d > 28 then return false end
+	local dir = Vector3.new(v.root.Position.X - m.root.Position.X, 0, v.root.Position.Z - m.root.Position.Z).Unit
+	local length = math.min(d + 4, 30)
+	local eye = Vector3.new(m.root.Position.X, m.floorY + 2, m.root.Position.Z)
+	if Workspace:Raycast(eye, dir * length, sightParams(m)) then return false end
+	halt(m)
+	face(m, m.root.Position + dir)
+	local tele = lane(m.root.Position, dir, length, 3.2, 0.75, m.floorY, CHAIN_GREY)
+	pose(m, { RightArm = { 130, 0, 12 } }, 0.25)
+	if not hold(m, 0.75, true) then
+		cancel(tele)
+		pose(m, nil, 0.2)
+		return true
+	end
+	pose(m, { RightArm = { 85 } }, 0.06)
+	local from = m.root.Position + Vector3.new(0, 1, 0)
+	local chain = part({ Size = Vector3.new(0.22, 0.22, 0.5), CFrame = CFrame.lookAt(from, from + dir), Color = Color3.fromRGB(90, 92, 100),
+		Material = Enum.Material.Metal })
+	tween(chain, 0.14, { Size = Vector3.new(0.22, 0.22, length), CFrame = CFrame.lookAt(from + dir * (length / 2), from + dir * length) }, Enum.EasingStyle.Linear)
+	task.wait(0.14)
+	local caught: Victim? = nil
+	for _, vv in ipairs(victims()) do
+		local rel = Vector3.new(vv.root.Position.X - m.root.Position.X, 0, vv.root.Position.Z - m.root.Position.Z)
+		local along = rel:Dot(dir)
+		if along >= 0 and along <= length + 1 and (rel - dir * along).Magnitude <= 2.6
+			and (vv.char:GetAttribute("InvulnerableUntil") or 0) <= os.clock() then
+			caught = vv
+			break
+		end
+	end
+	if caught and alive(m) then
+		local c = caught :: Victim
+		strike(m, c.char, power(m) * 0.6, nil)
+		sparks(c.root.Position, CHAIN_GREY, 10, 14)
+		-- dragged in, to just in front of it
+		local start = c.root.Position
+		local goal = m.root.Position + dir * 4
+		goal = Vector3.new(goal.X, start.Y, goal.Z)
+		for i = 1, 8 do
+			if not c.root.Parent then break end
+			local p = start:Lerp(goal, i / 8)
+			c.root.CFrame = CFrame.new(p) * c.root.CFrame.Rotation
+			task.wait(0.035)
+		end
+	end
+	tween(chain, 0.15, { Size = Vector3.new(0.22, 0.22, 0.5), CFrame = CFrame.lookAt(from + dir * 0.25, from + dir) })
+	Debris:AddItem(chain, 0.2)
+	hold(m, 0.5)
+	pose(m, nil, 0.25)
 	return true
 end
 

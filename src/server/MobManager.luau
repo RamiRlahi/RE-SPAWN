@@ -1834,6 +1834,73 @@ local function spawnKind(kindId: string, cf: CFrame, near: Model?): Model?
 	return record.model
 end
 
+-- ── The prison's alarm (Prison.luau) ─────────────────────────────────────────
+-- Up to `max` mobs from the run's other rooms (planned now if they weren't yet;
+-- never the boss's, nor one already up and fighting, and every room keeps at
+-- least one) move into the room at `pos` (the nearest one if `pos` is in a
+-- corridor): their records join that room, not spawned yet. Returns them and
+-- that room.
+function MobManager.TakeForAlarm(runId: string, pos: Vector3, max: number): ({ any }, any?)
+	local target: RoomMobGroup? = nil
+	local bestD = math.huge
+	for _, g in ipairs(roomMobGroups) do
+		if g.runId == runId and g.room.roomType ~= "Boss" then
+			local room = g.room
+			local minX = room.gx * FLOOR_SIZE - FLOOR_SIZE * 0.5
+			local maxX = (room.gx + room.w - 1) * FLOOR_SIZE + FLOOR_SIZE * 0.5
+			local minZ = room.gz * FLOOR_SIZE - FLOOR_SIZE * 0.5
+			local maxZ = (room.gz + room.d - 1) * FLOOR_SIZE + FLOOR_SIZE * 0.5
+			local inside = pos.X >= minX and pos.X <= maxX and pos.Z >= minZ and pos.Z <= maxZ and math.abs(pos.Y - room.floorY) < 12
+			local c = Vector3.new((minX + maxX) / 2, room.floorY, (minZ + maxZ) / 2)
+			local d = if inside then -1 else (c - pos).Magnitude
+			if d < bestD then target, bestD = g, d end
+		end
+	end
+	if not target then return {}, nil end
+	local tg = target :: RoomMobGroup
+	-- the other rooms' waiting mobs
+	local pools: { { group: RoomMobGroup, free: { MobRecord }, left: number } } = {}
+	for _, g in ipairs(roomMobGroups) do
+		if g.runId == runId and g ~= tg and g.room.roomType ~= "Boss" then
+			if not g.planned then planRoom(g) end
+			local free, alive = {}, 0
+			for _, r in ipairs(g.mobs) do
+				if not r.defeated then
+					alive += 1
+					if not r.model and not r.isBoss then table.insert(free, r) end
+				end
+			end
+			if #free > 0 then table.insert(pools, { group = g, free = free, left = alive }) end
+		end
+	end
+	local taken: { MobRecord } = {}
+	local progress = true
+	while #taken < max and progress do
+		progress = false
+		for _, pool in ipairs(pools) do
+			if #taken >= max then break end
+			if #pool.free > 0 and pool.left > 1 then
+				local r = table.remove(pool.free, math.random(1, #pool.free)) :: MobRecord
+				local i = table.find(pool.group.mobs, r)
+				if i then table.remove(pool.group.mobs, i) end
+				pool.left -= 1
+				r.group = tg
+				table.insert(tg.mobs, r)
+				table.insert(taken, r)
+				progress = true
+			end
+		end
+	end
+	for _, pool in ipairs(pools) do updateEmblem(pool.group) end
+	updateEmblem(tg)
+	return taken, tg.room
+end
+
+-- Bring a record taken above into the world now (at its spawnCFrame).
+function MobManager.ActivateRecord(record: any)
+	activateMob(record)
+end
+
 local refreshStarted = false
 
 -- The rooms of run `runId`'s (new) level; its old rooms are dropped. One loop
