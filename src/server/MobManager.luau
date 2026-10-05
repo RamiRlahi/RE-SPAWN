@@ -1349,14 +1349,13 @@ end
 
 local function createEmblem(group: RoomMobGroup)
 	local room = group.room
-	local pos = Vector3.new((room.gx + room.w / 2) * FLOOR_SIZE, room.floorY, (room.gz + room.d / 2) * FLOOR_SIZE)
+	-- (tiles are centred on gx * FLOOR_SIZE: the room's middle is half a tile in from gx + w/2)
+	local pos = Vector3.new((room.gx + (room.w - 1) / 2) * FLOOR_SIZE, room.floorY, (room.gz + (room.d - 1) / 2) * FLOOR_SIZE)
 	local buffs = PlayerStats.RollRewardBuffs()
 	local color = TomeData.BlendColor(buffs)
 	local model = Instance.new("Model")
 	model.Name = "RoomReward"
 	local flat = CFrame.Angles(0, 0, math.rad(90))
-	local base = emblemPart(model, { Name = "Base", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.12, 6, 6),
-		CFrame = CFrame.new(pos + Vector3.new(0, 0.08, 0)) * flat, Color = EMBLEM_DIM, Transparency = 0.7 })
 	local orb = emblemPart(model, { Name = "Orb", Shape = Enum.PartType.Ball, Size = Vector3.one * 3.2,
 		CFrame = CFrame.new(pos + Vector3.new(0, ORB_Y, 0)), Color = EMBLEM_DIM, Transparency = 0.45 })
 	orb.CanQuery = true -- clickable
@@ -1394,7 +1393,7 @@ local function createEmblem(group: RoomMobGroup)
 		folder.Parent = Workspace
 	end
 	model.Parent = folder
-	local e = { model = model, orb = orb, core = core, base = base, beam = beam, light = light, sparks = sparks,
+	local e = { model = model, orb = orb, core = core, beam = beam, light = light, sparks = sparks,
 		pos = pos, color = color, buffs = buffs, charge = 0, charged = false, claimed = false }
 	group.emblem = e
 
@@ -1477,18 +1476,15 @@ local function updateEmblem(group: RoomMobGroup)
 	local color = e.color
 	e.orb.Color, e.orb.Transparency = color, 0.15
 	e.core.Color, e.core.Transparency = color:Lerp(Color3.new(1, 1, 1), 0.55), 0
-	e.base.Color, e.base.Transparency = color, 0.4
 	e.light.Color, e.light.Brightness, e.light.Range = color, 5, 28
 	e.sparks.Rate = 50
 	e.sparks:Emit(60)
-	-- Appear: the orb swells up from nothing, the beam and base flash in.
+	-- Appear: the orb swells up from nothing, the beam flashes in.
 	e.orb.Size = Vector3.one * 0.3
 	TweenService:Create(e.orb, TweenInfo.new(0.6, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = Vector3.one * 3.2 }):Play()
 	e.beam.Transparency, e.beam.Size = 0, Vector3.new(70, 3, 3)
 	TweenService:Create(e.beam, TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
 		{ Transparency = 0.25, Size = Vector3.new(70, 0.6, 0.6) }):Play()
-	e.base.Size = Vector3.new(0.12, 0.5, 0.5)
-	TweenService:Create(e.base, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), { Size = Vector3.new(0.12, 6, 6) }):Play()
 end
 
 -- Left-click a blazing reward: it shatters into sparks of its colour and
@@ -1542,7 +1538,6 @@ claimEmblem = function(group: RoomMobGroup, plr: Player)
 	task.delay(0.15, function()
 		TweenService:Create(e.beam, TweenInfo.new(0.6), { Size = Vector3.new(70, 0.1, 0.1), Transparency = 1 }):Play()
 	end)
-	TweenService:Create(e.base, TweenInfo.new(0.8), { Transparency = 1 }):Play()
 	local model = e.model
 	task.delay(1.5, function() model:Destroy() end)
 end
