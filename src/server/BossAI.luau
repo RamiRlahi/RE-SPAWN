@@ -12,7 +12,7 @@
 	  The Iron Warlord   (melee)  Ground Slam · Charge · Whirlwind
 	  The Hex Witch      (caster) Orb Nova · Hex Zones · Summon · Blink
 	  The Bone Colossus  (heavy)  Meteor Rain · Shockwave (jump it!) · Stomp Combo
-	  The Slime King     (slime)  Swallow · Goo Barrage · Split · Bounce
+	  The Fallen Angel   (void)   Dark Descent · Feather Storm · Void Cross · Shadow Dash
 
 	Bosses are not staggered by hits (MobManager / SkillManager), so a player
 	hitting non-stop can't lock them out of their moves.
@@ -39,6 +39,9 @@ local function setGroup(char: Model, group: string)
 	end
 end
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Network = require(Shared:WaitForChild("Network"))
 local DifficultyManager = require(script.Parent:WaitForChild("DifficultyManager"))
 
 local BossAI = {}
@@ -65,9 +68,9 @@ BossAI.Kinds = {
 		name = "★ The Bone Colossus", health = 4.5, damage = 1.4, xp = 3.5,
 		color = Color3.fromRGB(255, 170, 60), moves = { "meteors", "shockwave", "stomp" },
 	},
-	slime = {
-		name = "★ The Slime King", health = 4, damage = 1.1, xp = 3.5,
-		color = Color3.fromRGB(110, 235, 90), moves = { "swallow", "goo", "split", "bounce" },
+	fallen_angel = {
+		name = "★ Malakor, The Fallen Angel", health = 4.2, damage = 1.3, xp = 4,
+		color = Color3.fromRGB(175, 75, 255), moves = { "dark_descent", "feather_storm", "void_cross", "shadow_dash" },
 	},
 } :: { [string]: Kind }
 
@@ -620,124 +623,92 @@ local function puddle(b: Boss, center: Vector3, r: number, life: number)
 	end)
 end
 
-MOVES.swallow = function(b, target)
-	-- Lunge onto the target; if they're still there they are engulfed: held
-	-- inside the slime and digested for a moment, then spat out.
+local CELESTIAL_DARK = Color3.fromRGB(170, 70, 255)
+local VOID_CRIMSON = Color3.fromRGB(255, 45, 90)
+
+MOVES.dark_descent = function(b, target)
+	-- Malakor rises high into the air, casting a massive void circle beneath players,
+	-- then crashes down with dark thunder and radial shockwaves!
 	local spot = target.root.Position
-	local wind = if b.enraged then 0.4 else 0.55
-	telegraphCircle(spot, 5, wind, b.floorY)
+	local wind = if b.enraged then 0.45 else 0.7
+	telegraphCircle(spot, 12, wind, b.floorY)
 	face(b, spot)
+	local startPos = b.root.Position
+	hop(b, startPos + Vector3.new(0, 18, 0), 18, 0.35)
 	if not hold(b, wind) then return end
-	hop(b, spot, 6, 0.3)
-	shock(spot, 6, GOO, b.floorY)
-	local victim: Victim? = nil
-	for _, v in ipairs(victims()) do
-		if flatDist(v.root.Position, b.root.Position) <= 6
-			and (v.char:GetAttribute("InvulnerableUntil") or 0) <= os.clock()
-			and (v.char:GetAttribute("ParryUntil") or 0) <= os.clock() then
-			victim = v
-			break
-		end
-	end
-	if not victim then hold(b, 0.25) return end
-	local v = victim :: Victim
-	v.char:SetAttribute("Swallowed", true)
-	setGroup(v.char, SWALLOWED)
-	v.root.Anchored = true
-	scaleBoss(b, 1.25)
-	local held = if b.enraged then 2.2 else 1.6
-	local t0 = os.clock()
-	local lastBite = 0
-	while os.clock() - t0 < held and alive(b) and v.hum.Health > 0 and v.root.Parent do
-		v.root.CFrame = b.root.CFrame * CFrame.new(0, 0.5, 0)
-		if os.clock() - lastBite > 0.4 then
-			lastBite = os.clock()
-			v.hum:TakeDamage(dmg(b, 0.3))
-		end
-		RunService.Heartbeat:Wait()
-	end
-	-- Spit them out a few studs ahead, briefly untouchable.
-	scaleBoss(b, 1)
-	local out = b.root.Position + b.root.CFrame.LookVector * 9
-	if v.root.Parent then
-		v.root.CFrame = CFrame.new(out.X, groundAt(out, b) + 3.2, out.Z)
-		v.root.Anchored = false
-		v.char:SetAttribute("InvulnerableUntil", os.clock() + 1)
-	end
-	v.char:SetAttribute("Swallowed", nil)
-	setGroup(v.char, "Default")
-	puddle(b, out, 4, 3)
+	hop(b, Vector3.new(spot.X, b.floorY, spot.Z), 2, 0.22)
+	shock(spot, 14, CELESTIAL_DARK, b.floorY)
+	shock(spot, 8, VOID_CRIMSON, b.floorY)
+	blast(spot, 12, dmg(b, 1.2))
 	hold(b, 0.3)
 end
 
-MOVES.goo = function(b, _target)
-	-- Lob a barrage of goo balls around the players; each splats into a
-	-- burning puddle.
-	local count = if b.enraged then 12 else 8
-	for _ = 1, count do
+MOVES.feather_storm = function(b, _target)
+	-- Summons a volley of obsidian feather blades that target nearby players
+	local count = if b.enraged then 10 else 7
+	for i = 1, count do
 		local vs = victims()
 		if #vs == 0 then break end
 		local v = vs[math.random(1, #vs)]
-		local a = math.random() * math.pi * 2
-		local spot = v.root.Position + Vector3.new(math.cos(a), 0, math.sin(a)) * math.random(0, 8)
-		telegraphCircle(spot, 4, 0.5, b.floorY)
-		local from = b.root.Position + Vector3.new(0, 3, 0)
-		local ball = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 1.8, CFrame = CFrame.new(from), Color = GOO,
-			Material = Enum.Material.Glass, Transparency = 0.2 })
+		local a = (i / count) * math.pi * 2
+		local spawnPos = b.root.Position + Vector3.new(math.cos(a) * 6, 8, math.sin(a) * 6)
+		local targetPos = v.root.Position + Vector3.new(math.random(-3, 3), 0, math.random(-3, 3))
+		telegraphCircle(targetPos, 5, 0.4, b.floorY)
+		local blade = part({ Size = Vector3.new(0.6, 3, 0.6), CFrame = CFrame.lookAt(spawnPos, targetPos) * CFrame.Angles(math.rad(90), 0, 0),
+			Color = CELESTIAL_DARK, Material = Enum.Material.Neon })
 		task.spawn(function()
 			local t0 = os.clock()
-			while os.clock() - t0 < 0.5 do
-				local k = (os.clock() - t0) / 0.5
-				ball.CFrame = CFrame.new(from:Lerp(spot, k) + Vector3.new(0, math.sin(k * math.pi) * 14, 0))
+			while os.clock() - t0 < 0.38 do
+				local k = (os.clock() - t0) / 0.38
+				blade.CFrame = CFrame.lookAt(spawnPos:Lerp(targetPos, k), targetPos)
 				RunService.Heartbeat:Wait()
 			end
-			ball:Destroy()
-			blast(spot, 4, dmg(b, 0.5))
-			puddle(b, spot, 4, 4)
+			blade:Destroy()
+			blast(targetPos, 5, dmg(b, 0.55))
+			shock(targetPos, 5, CELESTIAL_DARK, b.floorY)
 		end)
 		if not hold(b, if b.enraged then 0.08 else 0.12) then return end
+	end
+	hold(b, 0.35)
+end
+
+MOVES.void_cross = function(b, _target)
+	-- Smites the arena in a massive cardinal cross of dark holy fire
+	local center = b.root.Position
+	local len = 42
+	local wid = 7
+	local wind = if b.enraged then 0.5 else 0.7
+	telegraphBeam(center, Vector3.new(1, 0, 0), len, wid, wind, b.floorY)
+	telegraphBeam(center, Vector3.new(-1, 0, 0), len, wid, wind, b.floorY)
+	telegraphBeam(center, Vector3.new(0, 0, 1), len, wid, wind, b.floorY)
+	telegraphBeam(center, Vector3.new(0, 0, -1), len, wid, wind, b.floorY)
+	if not hold(b, wind) then return end
+	shock(center, 9, VOID_CRIMSON, b.floorY)
+	for _, dir in ipairs({ Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0), Vector3.new(0, 0, 1), Vector3.new(0, 0, -1) }) do
+		for step = 1, 6 do
+			local p = center + dir * (step * 6.5)
+			blast(p, 4.5, dmg(b, 0.85))
+			shock(p, 4.5, CELESTIAL_DARK, b.floorY)
+		end
 	end
 	hold(b, 0.4)
 end
 
-MOVES.split = function(b, target)
-	-- Squash down and burst: a goo shockwave rolls out (jump it) and little
-	-- slimes pop off.
-	scaleBoss(b, 0.8)
-	telegraphCircle(b.root.Position, 5, 0.45, b.floorY)
-	if not hold(b, 0.45) then scaleBoss(b, 1) return end
-	scaleBoss(b, 1.15)
-	blast(b.root.Position, 7, dmg(b, 0.8))
-	MOVES.shockwaveOnce(b, target)
-	for i = #b.minions, 1, -1 do
-		local m = b.minions[i]
-		local h = m:FindFirstChildOfClass("Humanoid")
-		if not m.Parent or not h or h.Health <= 0 then table.remove(b.minions, i) end
-	end
-	local spawnN = math.min(if b.enraged then 4 else 3, 8 - #b.minions)
-	for i = 1, spawnN do
-		local a = (i / spawnN) * math.pi * 2
-		local pos = b.root.Position + Vector3.new(math.cos(a) * 8, 0, math.sin(a) * 8)
-		local m = deps.spawnMinion(Vector3.new(pos.X, b.floorY, pos.Z))
-		if m then table.insert(b.minions, m) end
-		puddle(b, pos, 3, 3)
-	end
-	scaleBoss(b, 1)
-	hold(b, 0.3)
-end
-
-MOVES.bounce = function(b, target)
-	-- A chain of fast hops chasing the target, each landing with a splash.
-	local hops = if b.enraged then 5 else 4
-	for _ = 1, hops do
-		local v = nearestVictim(b) or target
-		local spot = v.root.Position
-		telegraphCircle(spot, 6, 0.3, b.floorY)
-		if not hold(b, 0.3) then return end
-		hop(b, spot, 7, 0.28)
-		shock(spot, 7, GOO, b.floorY)
-		blast(spot, 6, dmg(b, 0.7))
-	end
+MOVES.shadow_dash = function(b, target)
+	-- High speed spectral wing dash across the arena
+	local dir = (target.root.Position - b.root.Position)
+	dir = Vector3.new(dir.X, 0, dir.Z)
+	if dir.Magnitude < 0.1 then dir = b.root.CFrame.LookVector end
+	dir = dir.Unit
+	local wind = if b.enraged then 0.3 else 0.45
+	telegraphBeam(b.root.Position, dir, 32, 7, wind, b.floorY)
+	face(b, b.root.Position + dir * 10)
+	if not hold(b, wind) then return end
+	local start = b.root.Position
+	local dest = start + dir * 32
+	hop(b, dest, 2, 0.22)
+	shock(dest, 8, VOID_CRIMSON, b.floorY)
+	blast(dest, 7, dmg(b, 0.9))
 	hold(b, 0.3)
 end
 
@@ -756,6 +727,41 @@ local function addAura(b: Boss)
 	light.Brightness = 2.5
 	light.Range = 18
 	light.Parent = b.root
+end
+
+local function dressFallenAngel(model: Model, root: BasePart)
+	local torso = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso") or root
+	local halo = Instance.new("Part")
+	halo.Name = "DarkHalo"
+	halo.Shape = Enum.PartType.Cylinder
+	halo.Size = Vector3.new(0.3, 3.2, 3.2)
+	halo.CFrame = root.CFrame * CFrame.new(0, 4.2, 0) * CFrame.Angles(0, 0, math.rad(90))
+	halo.Color = Color3.fromRGB(175, 75, 255)
+	halo.Material = Enum.Material.Neon
+	halo.CanCollide = false
+	halo.Anchored = false
+	halo.Parent = model
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = torso :: BasePart
+	weld.Part1 = halo
+	weld.Parent = halo
+
+	-- Dark Wings
+	for _, side in ipairs({ -1, 1 }) do
+		local wing = Instance.new("Part")
+		wing.Name = if side == 1 then "RightWing" else "LeftWing"
+		wing.Size = Vector3.new(0.4, 4, 7)
+		wing.CFrame = root.CFrame * CFrame.new(side * 2.8, 2, -1.8) * CFrame.Angles(math.rad(25), math.rad(side * 35), math.rad(side * -20))
+		wing.Color = Color3.fromRGB(35, 20, 50)
+		wing.Material = Enum.Material.SmoothPlastic
+		wing.CanCollide = false
+		wing.Anchored = false
+		wing.Parent = model
+		local wingWeld = Instance.new("WeldConstraint")
+		wingWeld.Part0 = torso :: BasePart
+		wingWeld.Part1 = wing
+		wingWeld.Parent = wing
+	end
 end
 
 local function enrage(b: Boss)
@@ -777,21 +783,34 @@ function BossAI.Attach(model: Model, kindId: string)
 	local hum = model:FindFirstChildOfClass("Humanoid")
 	local root = (model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart) :: BasePart?
 	if not kind or not hum or not root then return end
+	local runId = model:GetAttribute("RunId")
 	local b: Boss = {
 		model = model, hum = hum, root = root, kind = kind,
 		floorY = model:GetAttribute("FloorY") or (root.Position.Y - 3),
-		damage = kind.damage * DifficultyManager.GetMobScale(model:GetAttribute("RunId")).damage,
+		damage = kind.damage * DifficultyManager.GetMobScale(runId).damage,
 		enraged = false, minions = {},
 	}
 	addAura(b)
-	if kindId == "slime" then
-		-- Solid, not see-through (the model's goo parts are partly transparent).
-		for _, d in ipairs(model:GetDescendants()) do
-			if d:IsA("BasePart") and d ~= root and d.Transparency > 0 and d.Transparency < 0.95 then
-				d.Transparency = 0
+	if kindId == "fallen_angel" then
+		dressFallenAngel(model, root)
+	end
+
+	-- Cinematic Boss Intro Banner broadcast to all players in the run
+	task.spawn(function()
+		task.wait(0.3)
+		for _, p in ipairs(Players:GetPlayers()) do
+			if (runId == nil or p:GetAttribute("RunId") == runId) and p:GetAttribute("InLobby") == false then
+				Network.GetRemoteEvent(Network.Remotes.BossIntro):FireClient(p, {
+					name = kind.name,
+					color = kind.color,
+					kind = kindId,
+					pos = root.Position,
+				})
 			end
 		end
-	end
+		shock(root.Position, 20, kind.color, b.floorY)
+	end)
+
 	-- Never lost under the map: if the boss drops through the floor (a bad
 	-- landing, a shove), it's put back where it last stood on it.
 	task.spawn(function()

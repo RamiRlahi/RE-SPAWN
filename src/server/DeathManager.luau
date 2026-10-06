@@ -454,7 +454,8 @@ end
 -- (unless they're already giving up).
 function DeathManager.ReviveAllAt(at: Vector3, runId: string?)
 	for _, p in ipairs(Players:GetPlayers()) do
-		if p:GetAttribute("IsDead") == true and p:GetAttribute("GivingUp") ~= true and inDungeon(p)
+		if (p:GetAttribute("IsDead") == true or p:GetAttribute("Spectating") == true or p:GetAttribute("GivingUp") == true)
+			and inDungeon(p)
 			and (runId == nil or p:GetAttribute("RunId") == runId) then
 			task.spawn(reviveAt, p, at)
 		end

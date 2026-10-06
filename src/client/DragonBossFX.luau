@@ -838,6 +838,7 @@ local beamResult = Network.GetRemoteEvent(Network.Remotes.DragonBeamResult)
 local ARROW_ROT = { Up = 0, Right = 90, Down = 180, Left = -90 }
 local KEY_OF: { [Enum.KeyCode]: string } = {
 	[Enum.KeyCode.Up] = "Up", [Enum.KeyCode.Down] = "Down", [Enum.KeyCode.Left] = "Left", [Enum.KeyCode.Right] = "Right",
+	[Enum.KeyCode.W] = "Up", [Enum.KeyCode.S] = "Down", [Enum.KeyCode.A] = "Left", [Enum.KeyCode.D] = "Right",
 	[Enum.KeyCode.DPadUp] = "Up", [Enum.KeyCode.DPadDown] = "Down", [Enum.KeyCode.DPadLeft] = "Left", [Enum.KeyCode.DPadRight] = "Right",
 }
 local ACTION = "DragonShieldArrows"
@@ -1138,6 +1139,7 @@ local function startMinigame(token: number, keys: { string }, windup: number, du
 		if state == Enum.UserInputState.Begin then press(KEY_OF[input.KeyCode]) end
 		return Enum.ContextActionResult.Sink
 	end, false, 3000, Enum.KeyCode.Up, Enum.KeyCode.Down, Enum.KeyCode.Left, Enum.KeyCode.Right,
+		Enum.KeyCode.W, Enum.KeyCode.A, Enum.KeyCode.S, Enum.KeyCode.D,
 		Enum.KeyCode.DPadUp, Enum.KeyCode.DPadDown, Enum.KeyCode.DPadLeft, Enum.KeyCode.DPadRight)
 
 	local opened = false
@@ -1150,7 +1152,7 @@ local function startMinigame(token: number, keys: { string }, windup: number, du
 		end
 		if not opened then
 			opened = true
-			sub.Text = "PRESS THE ARROWS!"
+			sub.Text = "PRESS WASD OR ARROW KEYS!"
 			timer.BackgroundColor3 = GOLD
 			if u.step < #u.keys then styleTile(tiles[u.step + 1], "next") end
 		end
@@ -1443,6 +1445,12 @@ end
 function DragonBossFX.Init()
 	Network.GetRemoteEvent(Network.Remotes.DragonFX).OnClientEvent:Connect(onFX)
 	Network.GetRemoteEvent(Network.Remotes.DragonBeam).OnClientEvent:Connect(onBeam)
+	Network.GetRemoteEvent(Network.Remotes.BossIntro).OnClientEvent:Connect(function(data: any)
+		if typeof(data) ~= "table" then return end
+		local small = if data.kind == "fallen_angel" then "CELESTIAL SCOURGE" elseif data.kind == "warlord" then "WARLORD OF IRON" elseif data.kind == "colossus" then "ANCIENT TITAN" else "BOSS ENCOUNTER"
+		banner(small, data.name or "BOSS BATTLE", data.color or GOLD, 3.8)
+		shake(1.4, 0.35)
+	end)
 	task.spawn(function()
 		while true do
 			scanDragons()
