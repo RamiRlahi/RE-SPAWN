@@ -683,11 +683,15 @@ local function getCursorAim(rootPart: BasePart): Vector3
 	return flat.Magnitude > 0.5 and flat.Unit or rootPart.CFrame.LookVector
 end
 
-function IceMageVFX.playIceBeam(char: Model, range: number, duration: number, isLocal: boolean)
+function IceMageVFX.playIceBeam(char: Model, range: number, duration: number, isLocal: boolean, projectileCount: number?)
 	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not root then return end
 	local folder = vfxFolder("IceBeam")
 	refreshGroundFilter()
+
+	local numBeams = 1 + math.max(0, math.floor(projectileCount or 0))
+	local spreadDeg = if numBeams > 1 then math.clamp(12, 6, 60 / (numBeams - 1)) else 0
+	local startAngle = if numBeams > 1 then - (numBeams - 1) * spreadDeg * 0.5 else 0
 
 	local function beamLayer(name, size, color, material, transparency)
 		return newPart(folder, {
@@ -699,122 +703,149 @@ function IceMageVFX.playIceBeam(char: Model, range: number, duration: number, is
 			Transparency = transparency,
 		})
 	end
-	local halo = beamLayer("Halo", 4.6, ICE_BLUE, Enum.Material.Neon, 0.9)
-	local outer = beamLayer("Outer", 2.6, ICE_CYAN, Enum.Material.Neon, 0.72)
-	local shell = beamLayer("Shell", 1.7, ICE_PALE, Enum.Material.Glass, 0.45)
-	local core = beamLayer("Core", 0.85, ICE_WHITE, Enum.Material.Neon, 0)
 
-	-- Muzzle orb.
-	local orb = newPart(folder, { Shape = Enum.PartType.Ball, Size = Vector3.new(1.8, 1.8, 1.8), Color = ICE_WHITE, Material = Enum.Material.Neon })
-	local orbShell = newPart(folder, { Shape = Enum.PartType.Ball, Size = Vector3.new(3, 3, 3), Color = ICE_CYAN, Material = Enum.Material.Neon, Transparency = 0.75 })
-	local muzzleLight = Instance.new("PointLight")
-	muzzleLight.Color, muzzleLight.Brightness, muzzleLight.Range = ICE_CYAN, 4, 20
-	muzzleLight.Parent = orb
-
-	-- Frost flowing down the beam: particle lifetime is set each frame so the
-	-- stream ends exactly at the beam tip.
-	local hub = newPart(folder, { Size = Vector3.new(0.1, 0.1, 0.1), Transparency = 1 })
-	local flowAtt = Instance.new("Attachment")
-	flowAtt.Parent = hub
 	local FLOW_SPEED = 90
-	local flow = newEmitter(flowAtt, {
-		Texture = TEX_SPARKLE,
-		Color = colors(ICE_WHITE, ICE_CYAN),
-		Size = seq(0, 0.9, 0.5, 0.6, 1, 0.2),
-		Transparency = seq(0, 0, 1, 0.4),
-		Speed = NumberRange.new(FLOW_SPEED),
-		SpreadAngle = Vector2.new(4, 4),
-		EmissionDirection = Enum.NormalId.Front,
-		Rate = 160,
-		Rotation = NumberRange.new(0, 360),
-		RotSpeed = NumberRange.new(-360, 360),
-	})
-	local streak = newEmitter(flowAtt, {
-		Texture = TEX_STREAK,
-		Color = colors(ICE_WHITE, ICE_PALE),
-		Size = seq(0, 1.4, 1, 0.8),
-		Transparency = seq(0, 0.3, 1, 0.8),
-		Speed = NumberRange.new(FLOW_SPEED * 1.3),
-		SpreadAngle = Vector2.new(2, 2),
-		EmissionDirection = Enum.NormalId.Front,
-		Rate = 45,
-		Orientation = Enum.ParticleOrientation.VelocityParallel,
-	})
+	local beams = {}
 
-	-- Spiralling crystal rings that sweep along the beam.
-	local rings = {}
-	for r = 1, 3 do
-		local ringHub = newPart(folder, { Size = Vector3.new(0.1, 0.1, 0.1), Transparency = 1 })
-		local n = 6
-		for k = 1, n do
-			local a = (k / n) * math.pi * 2
-			local offs = CFrame.Angles(0, 0, a) * CFrame.new(0, 1.55, 0)
-			local shard = newPart(folder, {
-				ClassName = "WedgePart",
-				Size = Vector3.new(0.14, 0.55, 0.9),
-				Color = k % 2 == 0 and ICE_WHITE or ICE_CYAN,
-				Material = Enum.Material.Neon,
-				Transparency = 0.1,
-				Anchored = false,
-				Massless = true,
-				CFrame = offs,
-			})
-			shard.CFrame = ringHub.CFrame * offs
-			local wc = Instance.new("WeldConstraint")
-			wc.Part0, wc.Part1 = ringHub, shard
-			wc.Parent = shard
+	for b = 1, numBeams do
+		local deg = if numBeams > 1 then (startAngle + (b - 1) * spreadDeg) else 0
+
+		local halo = beamLayer("Halo", 4.6, ICE_BLUE, Enum.Material.Neon, 0.9)
+		local outer = beamLayer("Outer", 2.6, ICE_CYAN, Enum.Material.Neon, 0.72)
+		local shell = beamLayer("Shell", 1.7, ICE_PALE, Enum.Material.Glass, 0.45)
+		local core = beamLayer("Core", 0.85, ICE_WHITE, Enum.Material.Neon, 0)
+
+		-- Muzzle orb.
+		local orb = newPart(folder, { Shape = Enum.PartType.Ball, Size = Vector3.new(1.8, 1.8, 1.8), Color = ICE_WHITE, Material = Enum.Material.Neon })
+		local orbShell = newPart(folder, { Shape = Enum.PartType.Ball, Size = Vector3.new(3, 3, 3), Color = ICE_CYAN, Material = Enum.Material.Neon, Transparency = 0.75 })
+		local muzzleLight = Instance.new("PointLight")
+		muzzleLight.Color, muzzleLight.Brightness, muzzleLight.Range = ICE_CYAN, 4 / math.sqrt(numBeams), 20
+		muzzleLight.Parent = orb
+
+		-- Frost flowing down the beam
+		local hub = newPart(folder, { Size = Vector3.new(0.1, 0.1, 0.1), Transparency = 1 })
+		local flowAtt = Instance.new("Attachment")
+		flowAtt.Parent = hub
+		local flow = newEmitter(flowAtt, {
+			Texture = TEX_SPARKLE,
+			Color = colors(ICE_WHITE, ICE_CYAN),
+			Size = seq(0, 0.9, 0.5, 0.6, 1, 0.2),
+			Transparency = seq(0, 0, 1, 0.4),
+			Speed = NumberRange.new(FLOW_SPEED),
+			SpreadAngle = Vector2.new(4, 4),
+			EmissionDirection = Enum.NormalId.Front,
+			Rate = math.max(40, 160 / numBeams),
+			Rotation = NumberRange.new(0, 360),
+			RotSpeed = NumberRange.new(-360, 360),
+		})
+		local streak = newEmitter(flowAtt, {
+			Texture = TEX_STREAK,
+			Color = colors(ICE_WHITE, ICE_PALE),
+			Size = seq(0, 1.4, 1, 0.8),
+			Transparency = seq(0, 0.3, 1, 0.8),
+			Speed = NumberRange.new(FLOW_SPEED * 1.3),
+			SpreadAngle = Vector2.new(2, 2),
+			EmissionDirection = Enum.NormalId.Front,
+			Rate = math.max(15, 45 / numBeams),
+			Orientation = Enum.ParticleOrientation.VelocityParallel,
+		})
+
+		-- Spiralling crystal rings that sweep along the beam.
+		local rings = {}
+		for r = 1, 3 do
+			local ringHub = newPart(folder, { Size = Vector3.new(0.1, 0.1, 0.1), Transparency = 1 })
+			local n = 6
+			for k = 1, n do
+				local a = (k / n) * math.pi * 2
+				local offs = CFrame.Angles(0, 0, a) * CFrame.new(0, 1.55, 0)
+				local shard = newPart(folder, {
+					ClassName = "WedgePart",
+					Size = Vector3.new(0.14, 0.55, 0.9),
+					Color = k % 2 == 0 and ICE_WHITE or ICE_CYAN,
+					Material = Enum.Material.Neon,
+					Transparency = 0.1,
+					Anchored = false,
+					Massless = true,
+					CFrame = offs,
+				})
+				shard.CFrame = ringHub.CFrame * offs
+				local wc = Instance.new("WeldConstraint")
+				wc.Part0, wc.Part1 = ringHub, shard
+				wc.Parent = shard
+			end
+			rings[r] = { hub = ringHub, phase = (r - 1) / 3, spin = r % 2 == 0 and 5 or -6 }
 		end
-		rings[r] = { hub = ringHub, phase = (r - 1) / 3, spin = r % 2 == 0 and 5 or -6 }
-	end
 
-	-- Impact: crystalline burst growing at the stopping point.
-	local impact = newPart(folder, { Size = Vector3.new(0.1, 0.1, 0.1), Transparency = 1 })
-	local impactAtt = Instance.new("Attachment")
-	impactAtt.Parent = impact
-	local impactShards = newEmitter(impactAtt, {
-		Texture = TEX_SPARKLE,
-		Color = colors(ICE_WHITE, ICE_CYAN),
-		Size = seq(0, 1.1, 1, 0),
-		Lifetime = NumberRange.new(0.25, 0.5),
-		Speed = NumberRange.new(14, 30),
-		SpreadAngle = Vector2.new(70, 70),
-		EmissionDirection = Enum.NormalId.Back,
-		Acceleration = Vector3.new(0, -35, 0),
-		Rate = 110,
-		Rotation = NumberRange.new(0, 360),
-		RotSpeed = NumberRange.new(-500, 500),
-	})
-	local impactMist = newEmitter(impactAtt, {
-		Texture = TEX_SMOKE,
-		Color = colors(ICE_WHITE, ICE_PALE),
-		Size = seq(0, 2, 1, 5),
-		Transparency = seq(0, 0.6, 1, 1),
-		Lifetime = NumberRange.new(0.5, 0.8),
-		Speed = NumberRange.new(2, 5),
-		SpreadAngle = Vector2.new(180, 180),
-		LightEmission = 0.4,
-		Rate = 14,
-		Rotation = NumberRange.new(0, 360),
-	})
-	local impactLight = Instance.new("PointLight")
-	impactLight.Color, impactLight.Brightness, impactLight.Range = ICE_WHITE, 5, 22
-	impactLight.Parent = impact
-	local impactBloom = newPart(folder, { Shape = Enum.PartType.Ball, Size = Vector3.new(3, 3, 3), Color = ICE_WHITE, Material = Enum.Material.Neon, Transparency = 0.35 })
-	local impactCrystals = {}
-	for k = 1, 5 do
-		local c = makeCrystal(folder, CFrame.new(), 0.9, 2.2, true)
-		impactCrystals[k] = { hub = c, a = (k / 5) * math.pi * 2 }
-	end
+		-- Impact: crystalline burst growing at the stopping point.
+		local impact = newPart(folder, { Size = Vector3.new(0.1, 0.1, 0.1), Transparency = 1 })
+		local impactAtt = Instance.new("Attachment")
+		impactAtt.Parent = impact
+		local impactShards = newEmitter(impactAtt, {
+			Texture = TEX_SPARKLE,
+			Color = colors(ICE_WHITE, ICE_CYAN),
+			Size = seq(0, 1.1, 1, 0),
+			Lifetime = NumberRange.new(0.25, 0.5),
+			Speed = NumberRange.new(14, 30),
+			SpreadAngle = Vector2.new(70, 70),
+			EmissionDirection = Enum.NormalId.Back,
+			Acceleration = Vector3.new(0, -35, 0),
+			Rate = math.max(30, 110 / numBeams),
+			Rotation = NumberRange.new(0, 360),
+			RotSpeed = NumberRange.new(-500, 500),
+		})
+		local impactMist = newEmitter(impactAtt, {
+			Texture = TEX_SMOKE,
+			Color = colors(ICE_WHITE, ICE_PALE),
+			Size = seq(0, 2, 1, 5),
+			Transparency = seq(0, 0.6, 1, 1),
+			Lifetime = NumberRange.new(0.5, 0.8),
+			Speed = NumberRange.new(2, 5),
+			SpreadAngle = Vector2.new(180, 180),
+			LightEmission = 0.4,
+			Rate = math.max(5, 14 / numBeams),
+			Rotation = NumberRange.new(0, 360),
+		})
+		local impactLight = Instance.new("PointLight")
+		impactLight.Color, impactLight.Brightness, impactLight.Range = ICE_WHITE, 5 / math.sqrt(numBeams), 22
+		impactLight.Parent = impact
+		local impactBloom = newPart(folder, { Shape = Enum.PartType.Ball, Size = Vector3.new(3, 3, 3), Color = ICE_WHITE, Material = Enum.Material.Neon, Transparency = 0.35 })
+		local impactCrystals = {}
+		for k = 1, 5 do
+			local c = makeCrystal(folder, CFrame.new(), 0.9, 2.2, true)
+			impactCrystals[k] = { hub = c, a = (k / 5) * math.pi * 2 }
+		end
 
-	-- Frost streak along the floor under the beam.
-	local floorFrost = newPart(folder, { Size = Vector3.new(2.4, 0.06, 1), Color = ICE_PALE, Material = Enum.Material.Glass, Transparency = 0.45 })
+		-- Frost streak along the floor under the beam.
+		local floorFrost = newPart(folder, { Size = Vector3.new(2.4, 0.06, 1), Color = ICE_PALE, Material = Enum.Material.Glass, Transparency = 0.45 })
+
+		table.insert(beams, {
+			deg = deg,
+			halo = halo,
+			outer = outer,
+			shell = shell,
+			core = core,
+			orb = orb,
+			orbShell = orbShell,
+			hub = hub,
+			flow = flow,
+			streak = streak,
+			rings = rings,
+			impact = impact,
+			impactShards = impactShards,
+			impactMist = impactMist,
+			impactLight = impactLight,
+			impactBloom = impactBloom,
+			impactCrystals = impactCrystals,
+			floorFrost = floorFrost,
+			length = 0,
+			wasHitting = false,
+		})
+	end
 
 	local t0 = os.clock()
 	local lastT = t0
-	local length = 0
 	local roots = getEnemyRoots(char)
 	local lastScan = t0
-	local wasHitting = false
 	local active = true
 	local conn
 
@@ -831,19 +862,21 @@ function IceMageVFX.playIceBeam(char: Model, range: number, duration: number, is
 				char:SetAttribute("IsSkillCasting", false)
 				char:SetAttribute("AllowSkillMovement", false)
 			end
-			local tip = impact.Position
-			snowBurst(tip, 16, 20, 0.8)
+			for _, b in ipairs(beams) do
+				local tip = b.impact.Position
+				snowBurst(tip, 16, 20, 0.8)
+			end
 			fadeOut(folder, 0.3)
 			Debris:AddItem(folder, 0.5)
 			return
 		end
 
-		local dir
+		local centerDir
 		if isLocal then
-			dir = getCursorAim(root)
-			root.CFrame = CFrame.lookAt(root.Position, root.Position + dir)
+			centerDir = getCursorAim(root)
+			root.CFrame = CFrame.lookAt(root.Position, root.Position + centerDir)
 		else
-			dir = flatUnit(root.CFrame.LookVector)
+			centerDir = flatUnit(root.CFrame.LookVector)
 		end
 
 		if now - lastScan > 0.15 then
@@ -852,81 +885,88 @@ function IceMageVFX.playIceBeam(char: Model, range: number, duration: number, is
 		end
 
 		local hand = char:FindFirstChild("RightHand") or char:FindFirstChild("Right Arm")
-		local startPos = root.Position + Vector3.new(0, 1.1, 0) + dir * 2
+		local handPos = root.Position + Vector3.new(0, 1.1, 0)
 		if hand and hand:IsA("BasePart") then
-			startPos = Vector3.new(startPos.X, hand.Position.Y + 0.3, startPos.Z)
+			handPos = Vector3.new(handPos.X, hand.Position.Y + 0.3, handPos.Z)
 		end
-
-		-- Where does the beam want to end? First enemy, else wall, else max range.
-		local enemyDist, enemyRoot = firstEnemyOnLine(roots, root.Position, dir, range, 2.2)
-		local wall = Workspace:Raycast(startPos, dir * range, groundParams)
-		local targetLen = range
-		if wall then targetLen = wall.Distance end
-		local hitting = false
-		if enemyDist and enemyDist - 1 < targetLen then
-			targetLen = math.max(enemyDist - 1.2, 1)
-			hitting = true
-		end
-		-- Travels forward continuously, but snaps back the instant something is hit.
-		if targetLen > length then
-			length = math.min(targetLen, length + 240 * dt)
-		else
-			length = targetLen
-		end
-		if hitting and not wasHitting then
-			flashLight(startPos + dir * length, ICE_WHITE, 6, 24, 0.25)
-			shockwave(folder, startPos + dir * length, 0.5, 5, 0.3, ICE_WHITE, 0.25)
-		end
-		wasHitting = hitting and length >= targetLen - 0.01
 
 		local pulse = 1 + math.sin(elapsed * 22) * 0.1 + math.sin(elapsed * 57) * 0.04
 		local grow = math.clamp(elapsed / 0.12, 0.2, 1)
-		local mid = startPos + dir * (length * 0.5)
-		local basis = CFrame.lookAt(mid, mid + dir) * CFrame.Angles(0, math.rad(90), 0)
-		halo.CFrame, halo.Size = basis, Vector3.new(length, 4.6 * pulse * grow, 4.6 * pulse * grow)
-		outer.CFrame, outer.Size = basis, Vector3.new(length, 2.6 * pulse * grow, 2.6 * pulse * grow)
-		shell.CFrame, shell.Size = basis, Vector3.new(length, 1.7 * grow, 1.7 * grow)
-		core.CFrame, core.Size = basis, Vector3.new(length, 0.85 * pulse * grow, 0.85 * pulse * grow)
 
-		orb.CFrame = CFrame.new(startPos)
-		orb.Size = Vector3.one * (1.8 * pulse)
-		orbShell.CFrame = CFrame.new(startPos)
-		orbShell.Size = Vector3.one * (3 + math.sin(elapsed * 9) * 0.4)
+		for _, b in ipairs(beams) do
+			local dir = if b.deg ~= 0 then (CFrame.Angles(0, math.rad(b.deg), 0) * centerDir).Unit else centerDir
+			local startPos = handPos + dir * 2
 
-		hub.CFrame = CFrame.lookAt(startPos, startPos + dir)
-		flow.Lifetime = NumberRange.new(length / FLOW_SPEED)
-		streak.Lifetime = NumberRange.new(length / (FLOW_SPEED * 1.3))
+			-- Where does the beam want to end? First enemy, else wall, else max range.
+			local enemyDist, enemyRoot = firstEnemyOnLine(roots, root.Position, dir, range, 2.2)
+			local wall = Workspace:Raycast(startPos, dir * range, groundParams)
+			local targetLen = range
+			if wall then targetLen = wall.Distance end
+			local hitting = false
+			if enemyDist and enemyDist - 1 < targetLen then
+				targetLen = math.max(enemyDist - 1.2, 1)
+				hitting = true
+			end
 
-		for _, r in ipairs(rings) do
-			local f = ((elapsed * 0.9) + r.phase) % 1
-			local p = startPos + dir * (f * length)
-			r.hub.CFrame = CFrame.lookAt(p, p + dir) * CFrame.Angles(0, 0, elapsed * r.spin)
-		end
+			-- Travels forward continuously, but snaps back the instant something is hit.
+			if targetLen > b.length then
+				b.length = math.min(targetLen, b.length + 240 * dt)
+			else
+				b.length = targetLen
+			end
+			if hitting and not b.wasHitting then
+				flashLight(startPos + dir * b.length, ICE_WHITE, 6 / math.sqrt(numBeams), 24, 0.25)
+				shockwave(folder, startPos + dir * b.length, 0.5, 5, 0.3, ICE_WHITE, 0.25)
+			end
+			b.wasHitting = hitting and b.length >= targetLen - 0.01
 
-		local tip = startPos + dir * length
-		impact.CFrame = CFrame.lookAt(tip, tip + dir)
-		impactShards.Rate = hitting and 110 or 45
-		impactMist.Rate = hitting and 18 or 6
-		impactLight.Brightness = hitting and 6 or 3
-		impactBloom.CFrame = CFrame.new(tip)
-		local bloomSize = (hitting and 3.4 or 2.2) * (1 + math.sin(elapsed * 30) * 0.12)
-		impactBloom.Size = Vector3.one * bloomSize
-		for k, c in ipairs(impactCrystals) do
-			local vis = hitting
-			local a = c.a + elapsed * 2.5
-			local cf = CFrame.lookAt(tip, tip - dir) * CFrame.Angles(0, 0, a) * CFrame.Angles(math.rad(-65), 0, 0)
-			c.hub.CFrame = vis and cf or cf * CFrame.new(0, -50, 0)
-			for _, p in ipairs(c.hub:GetChildren()) do
-				if p:IsA("BasePart") then
-					p.LocalTransparencyModifier = vis and 0 or 1
+			local mid = startPos + dir * (b.length * 0.5)
+			local basis = CFrame.lookAt(mid, mid + dir) * CFrame.Angles(0, math.rad(90), 0)
+			b.halo.CFrame, b.halo.Size = basis, Vector3.new(b.length, 4.6 * pulse * grow, 4.6 * pulse * grow)
+			b.outer.CFrame, b.outer.Size = basis, Vector3.new(b.length, 2.6 * pulse * grow, 2.6 * pulse * grow)
+			b.shell.CFrame, b.shell.Size = basis, Vector3.new(b.length, 1.7 * grow, 1.7 * grow)
+			b.core.CFrame, b.core.Size = basis, Vector3.new(b.length, 0.85 * pulse * grow, 0.85 * pulse * grow)
+
+			b.orb.CFrame = CFrame.new(startPos)
+			b.orb.Size = Vector3.one * (1.8 * pulse)
+			b.orbShell.CFrame = CFrame.new(startPos)
+			b.orbShell.Size = Vector3.one * (3 + math.sin(elapsed * 9) * 0.4)
+
+			b.hub.CFrame = CFrame.lookAt(startPos, startPos + dir)
+			b.flow.Lifetime = NumberRange.new(math.max(0.01, b.length / FLOW_SPEED))
+			b.streak.Lifetime = NumberRange.new(math.max(0.01, b.length / (FLOW_SPEED * 1.3)))
+
+			for _, r in ipairs(b.rings) do
+				local f = ((elapsed * 0.9) + r.phase) % 1
+				local p = startPos + dir * (f * b.length)
+				r.hub.CFrame = CFrame.lookAt(p, p + dir) * CFrame.Angles(0, 0, elapsed * r.spin)
+			end
+
+			local tip = startPos + dir * b.length
+			b.impact.CFrame = CFrame.lookAt(tip, tip + dir)
+			b.impactShards.Rate = hitting and (110 / numBeams) or (45 / numBeams)
+			b.impactMist.Rate = hitting and (18 / numBeams) or (6 / numBeams)
+			b.impactLight.Brightness = hitting and (6 / math.sqrt(numBeams)) or (3 / math.sqrt(numBeams))
+			b.impactBloom.CFrame = CFrame.new(tip)
+			local bloomSize = (hitting and 3.4 or 2.2) * (1 + math.sin(elapsed * 30) * 0.12)
+			b.impactBloom.Size = Vector3.one * bloomSize
+			for k, c in ipairs(b.impactCrystals) do
+				local vis = hitting
+				local a = c.a + elapsed * 2.5
+				local cf = CFrame.lookAt(tip, tip - dir) * CFrame.Angles(0, 0, a) * CFrame.Angles(math.rad(-65), 0, 0)
+				c.hub.CFrame = vis and cf or cf * CFrame.new(0, -50, 0)
+				for _, p in ipairs(c.hub:GetChildren()) do
+					if p:IsA("BasePart") then
+						p.LocalTransparencyModifier = vis and 0 or 1
+					end
 				end
 			end
-		end
 
-		local gStart = groundAt(startPos, root.Position.Y - 3)
-		local gEnd = gStart + dir * length
-		floorFrost.Size = Vector3.new(2.6 * grow, 0.06, length)
-		floorFrost.CFrame = CFrame.lookAt((gStart + gEnd) * 0.5 + Vector3.new(0, 0.07, 0), gEnd + Vector3.new(0, 0.07, 0))
+			local gStart = groundAt(startPos, root.Position.Y - 3)
+			local gEnd = gStart + dir * b.length
+			b.floorFrost.Size = Vector3.new(2.6 * grow, 0.06, b.length)
+			b.floorFrost.CFrame = CFrame.lookAt((gStart + gEnd) * 0.5 + Vector3.new(0, 0.07, 0), gEnd + Vector3.new(0, 0.07, 0))
+		end
 	end)
 
 	if isLocal then shake(0.2, 0.2) end

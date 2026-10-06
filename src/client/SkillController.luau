@@ -4379,7 +4379,8 @@ function SkillController.UseSkill(skillIndex: number)
 			track.Priority = Enum.AnimationPriority.Action4
 			track:Play(0.06)
 		end
-		DivineBeamChannel.play(char, config.range or 48, config.duration or 5.0)
+		local projCount = math.max(0, math.floor(tonumber(player:GetAttribute("Stat_projectileCount")) or 0))
+		DivineBeamChannel.play(char, config.range or 48, config.duration or 5.0, projCount)
 	elseif classId == "cleric" and skillIndex == 1 then
 		-- Skill 1: Divine Touch (heal self or nearest low ally)
 		char:SetAttribute("AllowSkillMovement", true)
@@ -4420,113 +4421,6 @@ function SkillController.UseSkill(skillIndex: number)
 		if tRoot then
 			playClericHealVFX(tRoot.Position)
 		end
-	elseif classId == "cleric" and skillIndex == 2 then
-		-- Skill 2: Divine Beam (holy laser channel)
-		char:SetAttribute("AllowSkillMovement", false)
-		local track = getSkillTrack(char, 2)
-		if track then
-			track.Priority = Enum.AnimationPriority.Action4
-			track:Play(0.06)
-		end
-		DivineBeamChannel.play(char, config.range or 48, config.duration or 5.0)
-	elseif classId == "cleric" and skillIndex == 1 then
-		-- Skill 1: Divine Touch (heal self or nearest low ally)
-		char:SetAttribute("AllowSkillMovement", true)
-		local track = getSkillTrack(char, 1)
-		if track then
-			track.Priority = Enum.AnimationPriority.Action4
-			track:Play(0.08)
-		end
-		task.delay(0.45, function()
-			if char and char.Parent then
-				char:SetAttribute("IsSkillCasting", false)
-				char:SetAttribute("AllowSkillMovement", false)
-			end
-		end)
-
-		-- Pick the heal target: self, or the most-hurt nearby ally.
-		local healTarget = char
-		local bestFrac = 1.0
-		local myHum = char:FindFirstChildOfClass("Humanoid")
-		if myHum and myHum.MaxHealth > 0 then
-			bestFrac = myHum.Health / myHum.MaxHealth
-		end
-		for _, other in ipairs(Players:GetPlayers()) do
-			local oc = other.Character
-			if oc and oc ~= char and oc.Parent then
-				local oroot = oc:FindFirstChild("HumanoidRootPart")
-				local ohum = oc:FindFirstChildOfClass("Humanoid")
-				if oroot and ohum and ohum.Health > 0 and (oroot.Position - rootPart.Position).Magnitude <= 30 then
-					local frac = ohum.Health / math.max(ohum.MaxHealth, 1)
-					if frac < bestFrac then
-						bestFrac = frac
-						healTarget = oc
-					end
-				end
-			end
-		end
-		local tRoot = healTarget:FindFirstChild("HumanoidRootPart") or healTarget.PrimaryPart
-		if tRoot then
-			playClericHealVFX(tRoot.Position)
-		end
-	elseif classId == "cleric" and skillIndex == 2 then
-		-- Skill 2: Divine Beam (holy laser channel)
-		char:SetAttribute("AllowSkillMovement", false)
-		local track = getSkillTrack(char, 2)
-		if track then
-			track.Priority = Enum.AnimationPriority.Action4
-			track:Play(0.06)
-		end
-		DivineBeamChannel.play(char, config.range or 48, config.duration or 5.0)
-	elseif classId == "cleric" and skillIndex == 1 then
-		-- Skill 1: Divine Touch (heal self or nearest low ally)
-		char:SetAttribute("AllowSkillMovement", true)
-		local track = getSkillTrack(char, 1)
-		if track then
-			track.Priority = Enum.AnimationPriority.Action4
-			track:Play(0.08)
-		end
-		task.delay(0.45, function()
-			if char and char.Parent then
-				char:SetAttribute("IsSkillCasting", false)
-				char:SetAttribute("AllowSkillMovement", false)
-			end
-		end)
-
-		-- Pick the heal target: self, or the most-hurt nearby ally.
-		local healTarget = char
-		local bestFrac = 1.0
-		local myHum = char:FindFirstChildOfClass("Humanoid")
-		if myHum and myHum.MaxHealth > 0 then
-			bestFrac = myHum.Health / myHum.MaxHealth
-		end
-		for _, other in ipairs(Players:GetPlayers()) do
-			local oc = other.Character
-			if oc and oc ~= char and oc.Parent then
-				local oroot = oc:FindFirstChild("HumanoidRootPart")
-				local ohum = oc:FindFirstChildOfClass("Humanoid")
-				if oroot and ohum and ohum.Health > 0 and (oroot.Position - rootPart.Position).Magnitude <= 30 then
-					local frac = ohum.Health / math.max(ohum.MaxHealth, 1)
-					if frac < bestFrac then
-						bestFrac = frac
-						healTarget = oc
-					end
-				end
-			end
-		end
-		local tRoot = healTarget:FindFirstChild("HumanoidRootPart") or healTarget.PrimaryPart
-		if tRoot then
-			playClericHealVFX(tRoot.Position)
-		end
-	elseif classId == "cleric" and skillIndex == 2 then
-		-- Skill 2: Divine Beam (holy laser channel)
-		char:SetAttribute("AllowSkillMovement", false)
-		local track = getSkillTrack(char, 2)
-		if track then
-			track.Priority = Enum.AnimationPriority.Action4
-			track:Play(0.06)
-		end
-		DivineBeamChannel.play(char, config.range or 48, config.duration or 5.0)
 	elseif classId == "cleric" and skillIndex == 3 then
 		-- Skill 3: Radiant Ground (instant holy burst)
 		char:SetAttribute("AllowSkillMovement", true)
@@ -4585,7 +4479,8 @@ function SkillController.UseSkill(skillIndex: number)
 			-- Ice Beam: skate freely while channelling; the beam tracks the cursor
 			-- and the VFX clears the casting flags when it ends.
 			char:SetAttribute("AllowSkillMovement", true)
-			IceMageVFX.playIceBeam(char, config.range or 55, config.duration or 3, true)
+			local projCount = math.max(0, math.floor(tonumber(player:GetAttribute("Stat_projectileCount")) or 0))
+			IceMageVFX.playIceBeam(char, config.range or 55, config.duration or 3, true, projCount)
 		elseif skillIndex == 3 then
 			-- Ice Clone: the server spawns the clone; its VFX attach when it replicates.
 			char:SetAttribute("AllowSkillMovement", false)
@@ -5165,7 +5060,7 @@ function SkillController.Init()
    end
   end
  elseif classId == "cleric" and skillIndex == 2 then
-  DivineBeamChannel.play(char, payload.range or 48, 5.0)
+  DivineBeamChannel.play(char, payload.range or 48, 5.0, payload.projectileCount)
  elseif classId == "cleric" and skillIndex == 3 then
   ClericVFX.playRadiantGround(origin, 16 * (payload.areaMultiplier or 1))
   task.delay(0.24, ClericFlair.radiantGround, origin, 16 * (payload.areaMultiplier or 1))
@@ -5175,7 +5070,7 @@ function SkillController.Init()
 			if skillIndex == 1 then
 				task.delay(cfg.castDelay or 0, IceMageVFX.playIceSpikes, char, origin, direction, cfg.range or 42, cfg.projectileSpeed or 95, areaMult)
 			elseif skillIndex == 2 then
-				IceMageVFX.playIceBeam(char, cfg.range or 55, cfg.duration or 3, false)
+				IceMageVFX.playIceBeam(char, cfg.range or 55, cfg.duration or 3, false, payload.projectileCount)
 			elseif skillIndex == 4 then
 				IceMageVFX.playBlizzardReveal(char, cfg.castDelay or 1.5, CastPoses.ICE_BLIZZARD_EYES, false)
 				task.delay(cfg.castDelay or 0, IceMageVFX.playBlizzard, origin, (cfg.range or 48) * areaMult, cfg.duration or 6)
