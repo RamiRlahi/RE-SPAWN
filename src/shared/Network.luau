@@ -71,6 +71,8 @@ Network.Remotes = {
 	CodexState          = "CodexState",      -- server → client: { discovered = { [evoId] = true } }
 	RequestCodex        = "RequestCodex",    -- client → server: ask for a CodexState sync      -- server → client: the run's over for you: { result, floor, time, tier, stats, rewards, party }     -- server → run's players: { ready, total, readyIds, waiting = {names}, descending } at the floor's exit
 	ClaimReward         = "ClaimReward",     -- client → server: the room reward Model you left-clicked near     -- client → server: "respawn" | "menu"
+	DiscardTome         = "DiscardTome",      -- client → server: { tomeId, roomId } sacrifice one tome
+	DiscardTomeOffer    = "DiscardTomeOffer", -- server → client: { roomId, tomes } prompt player to choose a tome to discard
 }
 
 local function getFolder(): Folder

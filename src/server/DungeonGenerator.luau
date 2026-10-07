@@ -44,7 +44,7 @@ local STAIR_LENGTH      = 21    -- Horizontal stair length (21 studs)
 
 -- ── Types ────────────────────────────────────────────────────────────────────
 
-export type RoomType = "Start" | "Combat" | "Rest" | "Treasure" | "Shop" | "Gamble" | "Elite" | "Event" | "Boss" | "Cursed"
+export type RoomType = "Start" | "Combat" | "Rest" | "Treasure" | "Shop" | "Gamble" | "Elite" | "Event" | "Boss" | "Cursed" | "Purge"
 
 export type DungeonConfig = {
 	seed: number?,
@@ -758,6 +758,8 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 	local branchTypes: { RoomType } = { "Rest", "Treasure", "Shop", "Gamble", "Elite", "Event" }
 	-- (a cursed altar on some floors: a gamble with your health)
 	if rng:NextNumber() < 0.6 then table.insert(branchTypes, "Cursed") end
+	-- (a purge shrine on ~33% of floors: sacrifice a tome)
+	if rng:NextNumber() < 0.33 then table.insert(branchTypes, "Purge") end
 
 	for _, mainRoom in ipairs(rooms) do
 		if nextId > totalRooms then break end
@@ -1563,6 +1565,7 @@ local ROOM_SIGNS: { [string]: { text: string, sub: string, color: Color3 } } = {
 	Rest = { text = "MOONWELL", sub = "rest and heal", color = Color3.fromRGB(150, 200, 255) },
 	Gamble = { text = "GAMBLING DEN", sub = "risk your gold", color = Color3.fromRGB(255, 160, 80) },
 	Cursed = { text = "CURSED ALTAR", sub = "pay in health · take a relic", color = Color3.fromRGB(170, 70, 230) },
+	Purge = { text = "PURGE SHRINE", sub = "sacrifice a tome", color = Color3.fromRGB(200, 60, 80) },
 }
 
 local function roomSign(room: RoomData, parent: Instance)

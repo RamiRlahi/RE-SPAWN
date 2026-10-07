@@ -18,6 +18,7 @@ local SummonScreen = require(script.Parent:WaitForChild("SummonScreen"))
 local CoopScreen = require(script.Parent:WaitForChild("CoopScreen"))
 local SwordModel = require(Shared:WaitForChild("SwordModel"))
 local ClassLook = require(script.Parent.Parent:WaitForChild("ClassLook"))
+local AbilityPreview = require(script.Parent:WaitForChild("AbilityPreview"))
 local MenuBackdrop: any = nil
 pcall(function()
 	MenuBackdrop = require(script.Parent.Parent:WaitForChild("MenuBackdrop", 5) :: any)
@@ -885,9 +886,11 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 			abTag.Parent = abCard
 			UITheme.AddStroke(abTag, Color3.fromRGB(59, 16, 12), 1, 0.2)
 
+			local hasPreview = not locked and ab.videoId and ab.videoId ~= ""
+
 			local abName = Instance.new("TextLabel")
 			abName.Name = "Name"
-			abName.Size = UDim2.new(1, -124, 0, 18)
+			abName.Size = if hasPreview then UDim2.new(1, -204, 0, 18) else UDim2.new(1, -124, 0, 18)
 			abName.Position = UDim2.new(0, 114, 0, 8)
 			abName.BackgroundTransparency = 1
 			abName.Font = MenuStyle.Font
@@ -897,6 +900,43 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 			abName.TextXAlignment = Enum.TextXAlignment.Left
 			abName.Text = if locked then "???" else ab.name
 			abName.Parent = abCard
+
+			if hasPreview then
+				local prevBtn = Instance.new("TextButton")
+				prevBtn.Name = "PreviewButton"
+				prevBtn.Size = UDim2.fromOffset(76, 20)
+				prevBtn.AnchorPoint = Vector2.new(1, 0)
+				prevBtn.Position = UDim2.new(1, -8, 0, 7)
+				prevBtn.BackgroundColor3 = Color3.fromRGB(36, 26, 24)
+				prevBtn.BorderSizePixel = 0
+				prevBtn.Font = MenuStyle.Font
+				prevBtn.TextSize = 11
+				prevBtn.TextColor3 = accent
+				prevBtn.Text = "▶ PREVIEW"
+				prevBtn.ZIndex = 4
+				prevBtn.Parent = abCard
+
+				local prevCorner = Instance.new("UICorner")
+				prevCorner.CornerRadius = UDim.new(0, 4)
+				prevCorner.Parent = prevBtn
+
+				local prevStroke = Instance.new("UIStroke")
+				prevStroke.Color = accent
+				prevStroke.Thickness = 1
+				prevStroke.Transparency = 0.4
+				prevStroke.Parent = prevBtn
+
+				prevBtn.MouseEnter:Connect(function()
+					TweenService:Create(prevBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(56, 38, 32), TextColor3 = Color3.new(1, 1, 1) }):Play()
+				end)
+				prevBtn.MouseLeave:Connect(function()
+					TweenService:Create(prevBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(36, 26, 24), TextColor3 = accent }):Play()
+				end)
+				prevBtn.MouseButton1Click:Connect(function()
+					SoundManager.Play("Hover")
+					AbilityPreview.Show(ab.name, ab.tag, ab.videoId or "", accent, ab.description)
+				end)
+			end
 
 			local abDesc = Instance.new("TextLabel")
 			abDesc.Name = "Desc"

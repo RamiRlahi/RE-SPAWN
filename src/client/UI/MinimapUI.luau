@@ -64,6 +64,8 @@ local roomTypeColors = {
 	Elite    = Color3.fromRGB(155, 89, 182),   -- Purple
 	Event    = Color3.fromRGB(52, 152, 219),   -- Light Blue
 	Boss     = Color3.fromRGB(231, 76, 60),    -- Crimson
+	Cursed   = Color3.fromRGB(170, 70, 230),   -- Dark Violet
+	Purge    = Color3.fromRGB(200, 60, 80),    -- Ember Red
 }
 
 local MAP_SCALE = 3.2 -- pixels per 12-stud floor tile

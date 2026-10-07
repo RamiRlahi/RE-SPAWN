@@ -554,14 +554,91 @@ function PlayerStats.GetStat(player: Player, stat: string): number
 	return state and (state.stats[stat] or 0) or 0
 end
 
-function PlayerStats.RefreshCharacter(player: Player)
+function PlayerStats.GetHeldTomes(player: Player): { { id: string, count: number, name: string, description: string, category: string } }
 	local state = states[player]
-	if state then
-		applyStats(player, state)
+	local list = {}
+	if not state then return list end
+	for _, id in ipairs(state.uniqueTomes) do
+		local count = state.tomeCounts[id] or 0
+		if count > 0 then
+			local tome = TomeData.GetTome(id)
+			table.insert(list, {
+				id = id,
+				count = count,
+				name = (tome and tome.name) or id,
+				description = (tome and tome.description) or "",
+				category = (tome and tome.category) or "Base",
+			})
+		end
 	end
+	for _, id in ipairs(state.relics) do
+		local count = state.tomeCounts[id] or 0
+		if count > 0 then
+			local tome = TomeData.GetTome(id)
+			table.insert(list, {
+				id = id,
+				count = count,
+				name = (tome and tome.name) or id,
+				description = (tome and tome.description) or "",
+				category = (tome and tome.category) or "Relic",
+			})
+		end
+	end
+	return list
+end
+
+function PlayerStats.DiscardTome(player: Player, tomeId: string): (boolean, string?)
+	local state = states[player]
+	if not state or typeof(tomeId) ~= "string" then return false, "No state" end
+	local count = state.tomeCounts[tomeId]
+	if not count or count <= 0 then return false, "Tome not held" end
+
+	state.tomeCounts[tomeId] = count - 1
+	if state.tomeCounts[tomeId] <= 0 then
+		state.tomeCounts[tomeId] = nil
+		player:SetAttribute(`Tome_{tomeId}`, nil)
+		local uIdx = table.find(state.uniqueTomes, tomeId)
+		if uIdx then table.remove(state.uniqueTomes, uIdx) end
+		local rIdx = table.find(state.relics, tomeId)
+		if rIdx then table.remove(state.relics, rIdx) end
+	else
+		player:SetAttribute(`Tome_{tomeId}`, state.tomeCounts[tomeId])
+	end
+
+	if tomeId == "chaos" and #state.chaosBoosts > 0 then
+		local lastIdx = #state.chaosBoosts
+		player:SetAttribute(`ChaosBonus_{lastIdx}`, nil)
+		table.remove(state.chaosBoosts, lastIdx)
+	end
+
+	-- Check if any evolution was broken
+	for _, evo in ipairs(TomeData.Evolutions) do
+		if state.evolutions[evo.id] then
+			if (state.tomeCounts[evo.boon] or 0) < TomeData.MaxLevel(evo.boon) or (evo.with and (state.tomeCounts[evo.with] or 0) <= 0) then
+				state.evolutions[evo.id] = nil
+				player:SetAttribute(`Evo_{evo.id}`, nil)
+			end
+		end
+	end
+
+	applyStats(player, state)
+	local tome = TomeData.GetTome(tomeId)
+	return true, (tome and tome.name) or tomeId
 end
 
 function PlayerStats.Init()
+	Network.GetRemoteEvent(Network.Remotes.DiscardTome).OnServerEvent:Connect(function(player: Player, payload: any)
+		if typeof(payload) ~= "table" then return end
+		local tomeId = payload.tomeId
+		local roomId = payload.roomId
+		if typeof(tomeId) ~= "string" then return end
+		local SpecialRooms = require(script.Parent:WaitForChild("SpecialRooms")) :: any
+		if SpecialRooms.CanPurge and not SpecialRooms.CanPurge(player, roomId) then return end
+		local success, name = PlayerStats.DiscardTome(player, tomeId)
+		if success and SpecialRooms.OnPurged then
+			SpecialRooms.OnPurged(player, roomId, name or tomeId)
+		end
+	end)
 	Network.GetRemoteEvent(Network.Remotes.ChooseTome).OnServerEvent:Connect(function(player: Player, tomeId: any)
 		local state = states[player]
 		if not state or typeof(tomeId) ~= "string" or not state.pendingChoices then return end

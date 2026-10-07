@@ -27,6 +27,9 @@ end)
 TomeController.Init()
 VariantFX.Init() -- recolours ability VFX with each player's equipped VFX variant
 pcall(function()
+	require(script:WaitForChild("UI"):WaitForChild("PurgeScreen")).Init()
+end)
+pcall(function()
 	require(script:WaitForChild("WingsMounts")).Init() -- everyone's wings and mounts, built and animated here
 end)
 do

@@ -946,9 +946,126 @@ local function buildCursed(room: Room, folder: Folder, rng: Random)
 	end)
 end
 
+local PURGE = Color3.fromRGB(220, 60, 80)
+local PURGE_FLAME = Color3.fromRGB(255, 90, 40)
+local purgeTakenByRoom: { [number]: { [Player]: boolean } } = {}
+
+function SpecialRooms.CanPurge(player: Player, roomId: number): boolean
+	if not roomId or not purgeTakenByRoom[roomId] then return true end
+	return purgeTakenByRoom[roomId][player] ~= true
+end
+
+function SpecialRooms.OnPurged(player: Player, roomId: number, tomeName: string)
+	if roomId and purgeTakenByRoom[roomId] then
+		purgeTakenByRoom[roomId][player] = true
+	end
+	local _, root = playerHumanoid(player)
+	if root then
+		pop(root.Position + Vector3.new(0, 4, 0), "TOME PURGED: " .. string.upper(tomeName), PURGE)
+		burst(root.Position, PURGE, 1.5)
+	end
+end
+
+local function buildPurge(room: Room, folder: Folder, rng: Random)
+	local model = Instance.new("Model")
+	model.Name = `PurgeShrine_{room.id}`
+	model.Parent = folder
+	purgeTakenByRoom[room.id] = {}
+
+	local c = Vector3.new(room.centerWorld.X, room.floorY, room.centerWorld.Z)
+
+	-- Dark stone dais with crimson glowing runes
+	cyl(model, "ShrineRing", c + Vector3.new(0, 0.08, 0), 0.08, 16, PURGE, Enum.Material.Neon, { Transparency = 0.45, CanCollide = false })
+	cyl(model, "ShrineFloor", c + Vector3.new(0, 0.3, 0), 0.5, 13, Color3.fromRGB(24, 20, 22), Enum.Material.Basalt)
+	cyl(model, "ShrineInnerTier", c + Vector3.new(0, 0.6, 0), 0.6, 8, Color3.fromRGB(36, 28, 30), Enum.Material.Slate)
+
+	-- Central stone pedestal
+	local pedestal = part(model, {
+		Name = "Pedestal",
+		Size = Vector3.new(4, 3.2, 4),
+		CFrame = CFrame.new(c + Vector3.new(0, 2.2, 0)),
+		Color = Color3.fromRGB(30, 24, 26),
+		Material = Enum.Material.Slate,
+	})
+	part(model, {
+		Name = "PedestalCap",
+		Size = Vector3.new(4.8, 0.4, 4.8),
+		CFrame = CFrame.new(c + Vector3.new(0, 3.9, 0)),
+		Color = Color3.fromRGB(50, 35, 40),
+		Material = Enum.Material.Marble,
+	})
+
+	-- Burning Brazier
+	local brazier = part(model, {
+		Name = "PurgeBrazier",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(1.2, 3.2, 3.2),
+		CFrame = CFrame.new(c + Vector3.new(0, 4.6, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = Color3.fromRGB(20, 16, 18),
+		Material = Enum.Material.Metal,
+	})
+	fire(brazier, PURGE, PURGE_FLAME, 5)
+	sparkles(brazier, PURGE, 12, 2, 1.8)
+	pointLight(brazier, PURGE, 2.5, 24)
+
+	-- 4 Surrounding braziers / pillars with crimson flames
+	for i = 0, 3 do
+		local a = i * math.pi / 2 + math.pi / 4
+		local p = c + Vector3.new(math.cos(a) * 6.5, 0, math.sin(a) * 6.5)
+		part(model, {
+			Name = "Pillar",
+			Size = Vector3.new(1.4, 5.5, 1.4),
+			CFrame = CFrame.new(p + Vector3.new(0, 2.75, 0)),
+			Color = Color3.fromRGB(32, 24, 28),
+			Material = Enum.Material.Slate,
+		})
+		local flamePillar = part(model, {
+			Name = "PillarBrazier",
+			Size = Vector3.new(1.6, 0.6, 1.6),
+			CFrame = CFrame.new(p + Vector3.new(0, 5.8, 0)),
+			Color = Color3.fromRGB(20, 16, 18),
+			Material = Enum.Material.Metal,
+		})
+		fire(flamePillar, PURGE, PURGE_FLAME, 3)
+	end
+
+	local title, sub = billboard(model, pedestal, "PURGE SHRINE", PURGE, 7.5)
+	sub.Text = "Sacrifice one of your tomes to the flames."
+
+	local pr = prompt(pedestal, "Sacrifice a Tome", "Purge Shrine", 0.6)
+	pr.Triggered:Connect(function(player: Player)
+		if player:GetAttribute("InLobby") ~= false then return end
+		local takenMap = purgeTakenByRoom[room.id]
+		if takenMap and takenMap[player] then
+			local _, root = playerHumanoid(player)
+			if root then
+				pop(root.Position + Vector3.new(0, 4, 0), "ALREADY PURGED A TOME HERE", Color3.fromRGB(200, 180, 180))
+			end
+			return
+		end
+
+		local tomes = PlayerStats.GetHeldTomes(player)
+		if #tomes == 0 then
+			local _, root = playerHumanoid(player)
+			if root then
+				pop(root.Position + Vector3.new(0, 4, 0), "NO TOMES TO SACRIFICE", Color3.fromRGB(255, 100, 100))
+			end
+			return
+		end
+
+		Network.GetRemoteEvent(Network.Remotes.DiscardTomeOffer):FireClient(player, {
+			roomId = room.id,
+			tomes = tomes,
+		})
+	end)
+end
+
 function SpecialRooms.Build(room: Room, folder: Folder, rng: Random): boolean
 	if room.roomType == "Cursed" then
 		buildCursed(room, folder, rng)
+		return true
+	elseif room.roomType == "Purge" then
+		buildPurge(room, folder, rng)
 		return true
 	elseif room.roomType == "Rest" then
 		buildRest(room, folder, rng)
