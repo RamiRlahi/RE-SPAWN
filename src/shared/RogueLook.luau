@@ -2,18 +2,16 @@
 --[[
 	RogueLook.luau
 	The Rogue's gear, built in code:
-	  BuildDagger()   "Shadowfang": a black-and-crimson dagger held point
-	                  forward, with a red swing trail (DaggerTrail).
-	  Dress(char)     a deep hood over the head and a crimson scarf over the
-	                  mouth, welded on (tagged RogueLook so it can be removed).
+	  BuildDagger()   "Shadowfang": a plain steel combat knife held point
+	                  forward, with a white swing trail (DaggerTrail).
+	  BuildBlade()    the knife itself (the thrown one is the same).
+	  Dress(char)     nothing any more (no hood); clears an old one.
 --]]
 
 local RogueLook = {}
 
 local BLACK = Color3.fromRGB(18, 14, 20)
-local STEEL = Color3.fromRGB(70, 66, 78)
-local CRIMSON = Color3.fromRGB(200, 25, 45)
-local CLOTH = Color3.fromRGB(26, 20, 30)
+local WHITE = Color3.new(1, 1, 1)
 
 local function piece(parent: Instance, base: BasePart, name: string, size: Vector3, offset: CFrame, color: Color3, material: Enum.Material, props: { [string]: any }?): BasePart
 	local p = Instance.new("Part")
@@ -38,13 +36,63 @@ local function piece(parent: Instance, base: BasePart, name: string, size: Vecto
 	return p
 end
 
+local function wedge(parent: Instance, base: BasePart, name: string, size: Vector3, offset: CFrame, color: Color3, material: Enum.Material): BasePart
+	local w = Instance.new("WedgePart")
+	w.Name = name
+	w.Size = size
+	w.Color = color
+	w.Material = material
+	w.CanCollide, w.CanTouch, w.CanQuery, w.Massless, w.CastShadow = false, false, false, true, false
+	w.CFrame = base.CFrame * offset
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0, weld.Part1 = base, w
+	weld.Parent = w
+	w.Parent = parent
+	return w
+end
+
+-- "Shadowfang", built onto `base` (the handle: the blade runs out along its
+-- -Z, flat side up): a plain combat knife. A blade of worn steel with an
+-- angled point, a brighter bevel along the edge, a short black guard, a black
+-- grip with two steel rivets and a steel butt cap. No glow: it's just a knife.
+-- Returns the blade body (for the trail).
+local STEEL_DARK = Color3.fromRGB(118, 120, 128)
+local STEEL_BRIGHT = Color3.fromRGB(196, 198, 206)
+local GRIP = Color3.fromRGB(22, 22, 25)
+local TIP_R = CFrame.Angles(0, 0, math.rad(90))  -- a wedge laid flat, its straight side on +X
+function RogueLook.BuildBlade(parent: Instance, base: BasePart): BasePart
+	-- Grip, rivets, butt cap.
+	piece(parent, base, "Grip", Vector3.new(0.17, 0.2, 0.8), CFrame.new(0, 0, 0.25), GRIP, Enum.Material.SmoothPlastic)
+	for _, z in ipairs({ 0.05, 0.42 }) do
+		piece(parent, base, "Rivet", Vector3.new(0.06, 0.21, 0.06), CFrame.new(0, 0, z), STEEL_BRIGHT, Enum.Material.Metal)
+	end
+	piece(parent, base, "ButtCap", Vector3.new(0.19, 0.22, 0.1), CFrame.new(0, 0, 0.68), STEEL_DARK, Enum.Material.Metal)
+	-- Guard.
+	piece(parent, base, "Guard", Vector3.new(0.36, 0.24, 0.08), CFrame.new(0, 0, -0.18), GRIP, Enum.Material.Metal)
+	-- Blade: the body, the bevel along the edge (+X), the spine (-X).
+	local blade = piece(parent, base, "Blade", Vector3.new(0.24, 0.05, 1.3), CFrame.new(0, 0, -0.87), STEEL_DARK, Enum.Material.Metal,
+		{ Reflectance = 0.15 })
+	piece(parent, base, "Bevel", Vector3.new(0.09, 0.055, 1.3), CFrame.new(0.08, 0, -0.87), STEEL_BRIGHT, Enum.Material.Metal,
+		{ Reflectance = 0.3 })
+	-- The point: the edge runs on to it, the spine slopes in to meet it.
+	wedge(parent, base, "TipEdge", Vector3.new(0.05, 0.16, 0.5), CFrame.new(0.04, 0, -1.77) * TIP_R, STEEL_BRIGHT, Enum.Material.Metal)
+	wedge(parent, base, "TipSpine", Vector3.new(0.05, 0.08, 0.32), CFrame.new(-0.08, 0, -1.68) * TIP_R, STEEL_DARK, Enum.Material.Metal)
+	return blade
+end
+
+-- Where the fist holds the knife (handle space: +Z runs down the grip to
+-- the butt, +X toward the edge, +Y the flat). Nudge this to seat it better.
+local GRIP_AT = Vector3.new(0.04, 0.1, 0.32)
+
 function RogueLook.BuildDagger(): Tool
 	local tool = Instance.new("Tool")
 	tool.Name = "Shadowfang"
 	tool.RequiresHandle = true
 	tool.CanBeDropped = false
 	-- Held in the fist, the blade out of the hand (along the handle's -Z).
-	tool.Grip = CFrame.Angles(math.rad(-90), 0, 0)
+	-- GRIP_AT is the point of the handle (handle space) that sits in the fist:
+	-- the middle of the grip, not the guard, so the fist closes round it.
+	tool.Grip = CFrame.new(GRIP_AT) * CFrame.Angles(math.rad(-90), 0, 0)
 	tool:SetAttribute("BladeAxis", "-Z")
 
 	local handle = Instance.new("Part")
@@ -58,13 +106,7 @@ function RogueLook.BuildDagger(): Tool
 	handle.CFrame = CFrame.new(0, 50, 0)
 	handle.Parent = tool
 
-	piece(tool, handle, "Grip", Vector3.new(0.2, 0.2, 0.7), CFrame.new(0, 0, 0.2), BLACK, Enum.Material.Fabric)
-	piece(tool, handle, "Pommel", Vector3.one * 0.26, CFrame.new(0, 0, 0.6), CRIMSON, Enum.Material.Neon, { Shape = Enum.PartType.Ball })
-	piece(tool, handle, "Guard", Vector3.new(0.7, 0.12, 0.16), CFrame.new(0, 0, -0.18), STEEL, Enum.Material.Metal)
-	local blade = piece(tool, handle, "Blade", Vector3.new(0.24, 0.06, 1.5), CFrame.new(0, 0, -1.0), BLACK, Enum.Material.Metal,
-		{ Reflectance = 0.2 })
-	piece(tool, handle, "Edge", Vector3.new(0.05, 0.07, 1.4), CFrame.new(0.13, 0, -1.0), CRIMSON, Enum.Material.Neon)
-	piece(tool, handle, "Tip", Vector3.new(0.17, 0.06, 0.17), CFrame.new(0, 0, -1.78) * CFrame.Angles(0, math.rad(45), 0), BLACK, Enum.Material.Metal)
+	local blade = RogueLook.BuildBlade(tool, handle)
 
 	local a0 = Instance.new("Attachment")
 	a0.Name = "BladeBase"
@@ -72,7 +114,7 @@ function RogueLook.BuildDagger(): Tool
 	a0.Parent = blade
 	local a1 = Instance.new("Attachment")
 	a1.Name = "BladeTip"
-	a1.Position = Vector3.new(0, 0, -0.8)
+	a1.Position = Vector3.new(0, 0, -1.0)
 	a1.Parent = blade
 	local trail = Instance.new("Trail")
 	trail.Name = "DaggerTrail"
@@ -81,39 +123,21 @@ function RogueLook.BuildDagger(): Tool
 	trail.FaceCamera = true
 	trail.LightEmission = 1
 	trail.LightInfluence = 0
-	trail.Lifetime = 0.15
-	trail.Color = ColorSequence.new(Color3.fromRGB(255, 90, 100), CRIMSON)
+	trail.Lifetime = 0.2
+	trail.Color = ColorSequence.new(WHITE, Color3.fromRGB(120, 120, 126))
 	trail.Transparency = NumberSequence.new(0.15, 1)
 	trail.Enabled = false
 	trail.Parent = blade
 	return tool
 end
 
--- The hood and scarf. Safe to call again (the old ones go first).
+-- The hood. Safe to call again (the old ones go first).
+-- The Rogue wears no hood (the hair shows; the scarf over the mouth is
+-- RogueScarf's, on the client). This only takes off anything an older
+-- version put on.
 function RogueLook.Dress(character: Model)
 	for _, d in ipairs(character:GetChildren()) do
 		if d:GetAttribute("RogueLook") then d:Destroy() end
-	end
-	local head = character:FindFirstChild("Head") :: BasePart?
-	if not head then return end
-	local folder = Instance.new("Model")
-	folder.Name = "RogueHood"
-	folder:SetAttribute("RogueLook", true)
-	folder.Parent = character
-	local s = head.Size.Y
-	-- Hood: a shell over the top and back of the head, a peak at the front.
-	piece(folder, head, "Hood", Vector3.new(1.32, 1.12, 1.25) * s, CFrame.new(0, 0.12 * s, 0.1 * s), CLOTH, Enum.Material.Fabric)
-	piece(folder, head, "HoodPeak", Vector3.new(1.15, 0.22, 0.4) * s, CFrame.new(0, 0.5 * s, -0.45 * s) * CFrame.Angles(math.rad(-20), 0, 0),
-		CLOTH, Enum.Material.Fabric)
-	piece(folder, head, "HoodBack", Vector3.new(1.0, 1.0, 0.5) * s, CFrame.new(0, -0.35 * s, 0.6 * s), CLOTH, Enum.Material.Fabric)
-	-- Scarf over the mouth and nose, its tail trailing down the back.
-	piece(folder, head, "Scarf", Vector3.new(1.08, 0.42, 1.08) * s, CFrame.new(0, -0.3 * s, 0), CRIMSON, Enum.Material.Fabric)
-	piece(folder, head, "ScarfTail", Vector3.new(0.35, 1.3, 0.12) * s, CFrame.new(0.3 * s, -0.95 * s, 0.62 * s) * CFrame.Angles(math.rad(12), 0, 0),
-		CRIMSON, Enum.Material.Fabric)
-	-- Eyes glinting red in the shadow of the hood.
-	for _, side in ipairs({ -1, 1 }) do
-		piece(folder, head, "Eye", Vector3.new(0.16, 0.07, 0.05) * s, CFrame.new(side * 0.2 * s, 0.07 * s, -0.6 * s),
-			Color3.fromRGB(255, 50, 60), Enum.Material.Neon)
 	end
 end
 

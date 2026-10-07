@@ -453,14 +453,14 @@ function DeathManager.EndRun(player: Player, result: string)
 	toMenu(player, result)
 end
 
--- The Cleric's Divine Ascent: every fallen player in the run who hasn't
--- given up stands back up beside them (party or not: it used to ask the
--- party, so teammates who never sent an invite stayed dead). Returns how
--- many rose.
+-- The Cleric's Divine Ascent: every fallen player still in the run stands
+-- back up beside them, even one who gave up and is spectating (party or
+-- not: it used to ask the party, so teammates who never sent an invite
+-- stayed dead). Returns how many rose.
 function DeathManager.ReviveParty(caster: Player, at: Vector3): number
 	local n = 0
 	for _, m in ipairs(runMates(caster)) do
-		if m ~= caster and m:GetAttribute("IsDead") == true and m:GetAttribute("GivingUp") ~= true and inDungeon(m) then
+		if m ~= caster and m:GetAttribute("IsDead") == true and inDungeon(m) then
 			n += 1
 			task.spawn(reviveAt, m, at)
 		end

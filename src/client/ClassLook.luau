@@ -20,6 +20,8 @@ local RevolverModel = require(Shared:WaitForChild("RevolverModel"))
 local SwordModel = require(Shared:WaitForChild("SwordModel"))
 local BerserkerLook = require(Shared:WaitForChild("BerserkerLook"))
 local RogueLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RogueLook"))
+local RogueScarf = require(script.Parent:WaitForChild("RogueScarf"))
+local Players = game:GetService("Players")
 local WeaponSling = require(Shared:WaitForChild("WeaponSling"))
 local GearLook = require(Shared:WaitForChild("GearLook"))
 local ClothCape = require(script.Parent:WaitForChild("ClothCape"))
@@ -66,8 +68,9 @@ end
 -- Remove everything a previous Apply added.
 function ClassLook.Clear(character: Model)
 	for _, d in ipairs(character:GetDescendants()) do
-		if d:GetAttribute(TAG) and d.Parent then d:Destroy() end
+		if (d:GetAttribute(TAG) or d:GetAttribute("RogueLook")) and d.Parent then d:Destroy() end
 	end
+	RogueScarf.Track(character, false)
 end
 
 export type Options = {
@@ -104,6 +107,12 @@ function ClassLook.Apply(character: Model, classId: string, opts: Options?)
 	ClassLook.Clear(character)
 	if not ClassData.IsPlayable(classId) then return end
 	local o = opts or {}
+	-- The Rogue's hood and wind-blown scarf (on players they come from
+	-- RogueServer / RogueScarf already).
+	if classId == "rogue" and not Players:GetPlayerFromCharacter(character) then
+		RogueLook.Dress(character)
+		RogueScarf.Track(character, true)
+	end
 	local backWeld: Weld? = nil -- a slung weapon, eased out past the armor once it's on
 
 	local tool = buildWeapon(classId)

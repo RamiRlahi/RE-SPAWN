@@ -130,22 +130,22 @@ SkillData.berserker = {
 		description = "Plant your feet and carve huge crimson crescents in front of you, each blow landing with a jolt, then finish with a spinning cleave that throws enemies away. You take half damage during it.",
 	},
 	[3] = {
-		name = "Bloodrage: Unchained",
+		name = "Crimson Charge",
 		slot = 3,
 		keybind = "Q",
-		cooldown = 22.0,
-		damage = 30,
-		duration = 8,
-		description = "Force your body past its limits: a crimson pulse, then +35% attack speed and +25% damage for 8 seconds. Your next skill is Empowered.",
+		cooldown = 12.0,
+		damage = 40,
+		range = 28,
+		description = "Charge headlong at the aim, untouchable the whole way: every enemy in your path is cut and thrown aside, and a burst at the end blows everything near away. Your next skill is Empowered.",
 	},
 	[4] = {
-		name = "Worldbreaker",
+		name = "Beast Awakening",
 		slot = 4,
 		keybind = "R",
-		cooldown = 40.0,
+		cooldown = 4.0, -- (it needs a full Rage meter: that's the real wait)
 		damage = 160,
-		range = 34,
-		description = "Ultimate: gather, launch into the sky and dive onto the target area dragging a giant crimson blade. A delayed second explosion executes badly wounded enemies.",
+		duration = 12,
+		description = "Ultimate (full Rage): abandon your humanity. Your body tears open into a monster, the sword cast aside, and a roar blows everything near away. For 12 seconds you fight as the BEAST: claws instead of a sword, and every skill becomes a new one (Beast Slam, Carnage, Beast Charge), harder hitting and twice as fast to recharge.",
 	},
 }
 
@@ -338,8 +338,8 @@ SkillData.rogue = {
 		keybind = "E",
 		cooldown = 6.0,
 		damage = 34,
-		range = 40, -- how far the dagger flies
-		projectileSpeed = 110,
+		range = 75, -- how far the dagger flies
+		projectileSpeed = 150,
 		duration = 4.0, -- how long the dagger waits to be stepped to
 		description = "Throw a dagger: it sticks in the first enemy it hits and marks them. Press again to Shadow Step to it, appearing behind a marked enemy for bonus damage. Works while invisible.",
 	},
@@ -347,11 +347,12 @@ SkillData.rogue = {
 		name = "Dash",
 		slot = 2,
 		keybind = "F",
-		cooldown = 8.0,
+		cooldown = 8.0, -- per charge
+		charges = 4, -- up to four dashes back to back; each recharges in `cooldown`
 		damage = 30,
 		dashDistance = 22,
 		width = 5,
-		description = "Dash instantly in the aimed direction, slashing through every enemy on the way and applying the Shadow Mark.",
+		description = "Dash instantly in the aimed direction, slashing through every enemy on the way and applying the Shadow Mark. Holds 4 charges.",
 	},
 	[3] = {
 		name = "Invisibility",
@@ -367,10 +368,10 @@ SkillData.rogue = {
 		slot = 4,
 		keybind = "R",
 		cooldown = 60.0,
-		damage = 26, -- per shadow slash; the final burst deals far more
+		damage = 12, -- per shadow slash: ten waves a second, each cutting every enemy in range; the final burst deals 9×
 		duration = 4.0,
 		range = 24,
-		description = "Ultimate: ascend into the shadow realm, untargetable for 4 seconds while shadow slashes strike enemies around you, then release a burst that deals huge damage and marks everything hit.",
+		description = "Ultimate: ascend into the shadow realm, untargetable for 4 seconds while shadow slashes cut every enemy around you ten times a second, then release a burst that deals huge damage and marks everything hit.",
 	},
 }
 

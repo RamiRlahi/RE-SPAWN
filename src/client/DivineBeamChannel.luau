@@ -5,6 +5,7 @@ local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
+local BeamFan = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("BeamFan"))
 
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
@@ -141,17 +142,23 @@ function DivineBeamChannel.play(char, range, duration, projectileCount)
 	holder.Parent = VariantFX.Root()
 
 	local length = range
-	local numBeams = 1 + math.max(0, math.floor(projectileCount or 0))
-	local spreadDeg = if numBeams > 1 then math.clamp(12, 6, 60 / (numBeams - 1)) else 0
-	local startAngle = if numBeams > 1 then - (numBeams - 1) * spreadDeg * 0.5 else 0
+	-- (a beam per projectile, fanning out into a ring the same as the
+	-- server's: BeamFan. Past a few, most are drawn plain: just the glow.)
+	local angles = BeamFan.Angles(projectileCount)
+	local numBeams = #angles
+	local detailed = math.min(numBeams, BeamFan.FULL)
 
 	local beams = {}
 	for b = 1, numBeams do
-		local deg = if numBeams > 1 then (startAngle + (b - 1) * spreadDeg) else 0
-		local halo = makeCylinder(holder, "BeamHalo", length, 4.2, HOLY_AMBER, 0.86)
+		local deg = angles[b]
 		local outer = makeCylinder(holder, "BeamGlow", length, 2.2, HOLY_GOLD, 0.55)
-		local mid = makeCylinder(holder, "BeamMid", length, 1.35, HOLY_YELLOW, 0.32)
 		local core = makeCylinder(holder, "BeamCore", length, 0.8, Color3.fromRGB(255, 255, 255), 0.05)
+		if not BeamFan.Detailed(b, numBeams) then
+			table.insert(beams, { deg = deg, outer = outer, core = core })
+			continue
+		end
+		local halo = makeCylinder(holder, "BeamHalo", length, 4.2, HOLY_AMBER, 0.86)
+		local mid = makeCylinder(holder, "BeamMid", length, 1.35, HOLY_YELLOW, 0.32)
 
 		local hub = makeAnchor(holder, "BeamHub")
 		local tip = makeAnchor(holder, "BeamTip")
@@ -177,21 +184,21 @@ function DivineBeamChannel.play(char, range, duration, projectileCount)
 
 		local muzzleLight = Instance.new("PointLight")
 		muzzleLight.Color = HOLY_GOLD
-		muzzleLight.Brightness = 3.5 / math.sqrt(numBeams)
+		muzzleLight.Brightness = 3.5 / math.sqrt(detailed)
 		muzzleLight.Range = 22
 		muzzleLight.Shadows = false
 		muzzleLight.Parent = hub
 
 		local tipLight = Instance.new("PointLight")
 		tipLight.Color = HOLY_YELLOW
-		tipLight.Brightness = 4.5 / math.sqrt(numBeams)
+		tipLight.Brightness = 4.5 / math.sqrt(detailed)
 		tipLight.Range = 26
 		tipLight.Shadows = false
 		tipLight.Parent = tip
 
 		local flowAtt = Instance.new("Attachment")
 		flowAtt.Parent = hub
-		local flowPE = makeEmitter(flowAtt, math.max(40, 140 / numBeams), 1.6, 110, HOLY_WHITE)
+		local flowPE = makeEmitter(flowAtt, math.max(40, 140 / detailed), 1.6, 110, HOLY_WHITE)
 		flowPE.SpreadAngle = Vector2.new(6, 6)
 		flowPE.EmissionDirection = Enum.NormalId.Front
 		flowPE.Lifetime = NumberRange.new(0.5, 0.9)
@@ -199,7 +206,7 @@ function DivineBeamChannel.play(char, range, duration, projectileCount)
 		-- golden sparks streaming backwards off the beam
 		local sparkAtt = Instance.new("Attachment")
 		sparkAtt.Parent = tip
-		local sparkPE = makeEmitter(sparkAtt, math.max(30, 90 / numBeams), 0.9, 34, HOLY_YELLOW)
+		local sparkPE = makeEmitter(sparkAtt, math.max(30, 90 / detailed), 0.9, 34, HOLY_YELLOW)
 		sparkPE.SpreadAngle = Vector2.new(30, 30)
 		sparkPE.EmissionDirection = Enum.NormalId.Back
 		sparkPE.Lifetime = NumberRange.new(0.45, 0.85)
@@ -208,7 +215,7 @@ function DivineBeamChannel.play(char, range, duration, projectileCount)
 		-- impact bloom at the far end
 		local impactAtt = Instance.new("Attachment")
 		impactAtt.Parent = tip
-		local impactPE = makeEmitter(impactAtt, math.max(35, 120 / numBeams), 2.0, 26, HOLY_GOLD)
+		local impactPE = makeEmitter(impactAtt, math.max(35, 120 / detailed), 2.0, 26, HOLY_GOLD)
 		impactPE.SpreadAngle = Vector2.new(180, 180)
 		impactPE.Lifetime = NumberRange.new(0.25, 0.5)
 
@@ -259,10 +266,12 @@ function DivineBeamChannel.play(char, range, duration, projectileCount)
 			active = false
 			if conn then conn:Disconnect() end
 			for _, b in ipairs(beams) do
-				b.flowPE.Enabled = false
-				b.sparkPE.Enabled = false
-				b.impactPE.Enabled = false
-				b.trail.Enabled = false
+				if b.trail then
+					b.flowPE.Enabled = false
+					b.sparkPE.Enabled = false
+					b.impactPE.Enabled = false
+					b.trail.Enabled = false
+				end
 			end
 			for _, d in ipairs(holder:GetDescendants()) do
 				if d:IsA("BasePart") and not string.find(d.Name, "BeamHub") and not string.find(d.Name, "BeamTip") then
@@ -316,14 +325,15 @@ function DivineBeamChannel.play(char, range, duration, projectileCount)
 			local endPos = startPos + bDir * length
 
 			local beamBasis = CFrame.lookAt(midPos, midPos + bDir) * CFrame.Angles(0, math.rad(90), 0)
-			b.halo.CFrame = beamBasis
-			b.halo.Size = Vector3.new(length, 4.2 * pulse, 4.2 * pulse)
 			b.outer.CFrame = beamBasis
 			b.outer.Size = Vector3.new(length, 2.2 * pulse, 2.2 * pulse)
-			b.mid.CFrame = beamBasis
-			b.mid.Size = Vector3.new(length, 1.35 * pulse, 1.35 * pulse)
 			b.core.CFrame = beamBasis
 			b.core.Size = Vector3.new(length, 0.8 * pulse, 0.8 * pulse)
+			if not b.halo then continue end -- (a plain beam: that's all of it)
+			b.halo.CFrame = beamBasis
+			b.halo.Size = Vector3.new(length, 4.2 * pulse, 4.2 * pulse)
+			b.mid.CFrame = beamBasis
+			b.mid.Size = Vector3.new(length, 1.35 * pulse, 1.35 * pulse)
 
 			b.hub.CFrame = CFrame.lookAt(startPos, startPos + bDir)
 			b.tip.CFrame = CFrame.lookAt(endPos, endPos + bDir)

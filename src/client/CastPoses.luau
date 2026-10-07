@@ -472,7 +472,11 @@ local ULT_PREVIEW_POSES: { [string]: Pose } = {
 	-- stands it there), both hands folded on the hilt, looking straight ahead, feet
 	-- together. The arms are aimed so the hands meet at the grip.
 	swordsman = { RS = { 67.9, -4, -42.8 }, LS = { 67.9, 4, 42.8 },
-		W = { -4, 0, 0 }, N = { 4, 0, 0 } },
+		W = { -4, 0, 0 }, N = { 4, 0, 0 } },	-- The assassin's stance: crouched low and turned side-on, the dagger held
+	-- out low in front, the off hand drawn back, head down, eyes up.
+	rogue = { Root = { 0, 0, 0, 0, -0.7, 0 }, W = { -24, 28, 0 }, N = { -14, -24, 0 },
+		RS = { 62, 0, 22 }, RE = { 55, 0, 0 }, LS = { -28, 0, -48 }, LE = { 40, 0, 0 },
+		RH = { -32, 0, 8 }, LH = { 34, 0, -10 }, RK = { 40, 0, 0 }, LK = { 55, 0, 0 } },
 }
 
 function CastPoses.holdUltPreview(char: Model?, classId: string): boolean

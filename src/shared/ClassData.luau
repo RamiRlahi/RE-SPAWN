@@ -130,8 +130,8 @@ local ClassData: { [string]: ClassInfo } = {
 			{ name = "Greatsword", tag = "M1/Primary", description = "A heavy 3-hit chain: a diagonal cleave, a backhand, and an overhead smash that sends out a shockwave.", videoId = "" },
 			{ name = "Rupture", tag = "Skill 1 (E)", description = "Leap to the cursor (up to 17 studs) and crash down: a crater, a spreading fracture and a shockwave that knocks enemies up. Empowered: bigger, with a second burst of crimson spikes.", videoId = "" },
 			{ name = "Bloodstorm", tag = "Skill 2 (F)", description = "Plant your feet and carve huge crimson crescents in front of you, each blow landing with a jolt and a shove, then a spinning cleave that throws them out. Half damage taken meanwhile. Empowered: more slashes, bigger ones, a bigger finish.", videoId = "" },
-			{ name = "Bloodrage: Unchained", tag = "Skill 3 (Q)", description = "Plant the sword and roar: a crimson pulse, then faster, harder attacks for 8 s, red lightning and smoke pouring off you. Your next skill is Empowered.", videoId = "" },
-			{ name = "Worldbreaker", tag = "Ultimate (R)", description = "Gather, launch into the sky and dive onto the aimed spot dragging a giant crimson blade: a cataclysmic impact, then a second explosion that executes the badly wounded.", videoId = "" },
+			{ name = "Crimson Charge", tag = "Skill 3 (Q)", description = "Charge headlong at the aim, untouchable the whole way: every enemy in your path is cut and thrown aside, and a burst at the end blows everything near away. Your next skill is Empowered.", videoId = "" },
+			{ name = "Beast Awakening", tag = "Ultimate (R)", description = "Fill your Rage (hit, cleave crowds, kill, take hits), then abandon your humanity: a roar, and for 12 s you are the BEAST. Claws: claw, claw, claw, a brutal maul. Beast Slam: a huge leap, a crash on all fours, three shockwave rings. Carnage: three enormous claw swipes that bleed and launch. Beast Charge: tear through everything on all fours, then hurl the biggest one into the rest.", videoId = "" },
 		},
 		equipment = {
 			name = "Ragebringer",
@@ -140,7 +140,7 @@ local ClassData: { [string]: ClassInfo } = {
 			description = "A blackened greatsword whose edge glows with the rage of every battle it has seen.",
 			stats = {
 				["Max Health"] = "260 HP",
-				["Bloodrage"] = "0 – 100",
+				["Rage"] = "0 – 100",
 				["Attack Speed"] = "+25% at full rage",
 			},
 		},
@@ -421,13 +421,13 @@ local PlayableClasses: { [string]: boolean } = {
 -- Array order for Carousel / UI display: playable classes first, locked after.
 local ClassOrder: { string } = {
 	"heavy_knight",
+	"rogue",
 	"ranger",
 	"cleric",
 	"ice_mage",
 	"gunslinger",
 	"swordsman",
 	"berserker",
-	"rogue",
 	"brawler",
 	"sorcerer",
 }

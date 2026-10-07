@@ -16,17 +16,22 @@
 	    swing heaved round and hacked down, held a beat as it bites (the
 	    hit-stop), the floor cracking and rock flying where it lands, a jolt
 	    of the camera; then a spinning cleave with a big shockwave.
-	  • Q Bloodrage: Unchained: plant the sword, tremble, roar; a crimson pulse
-	    darkens the room and veins spread over the floor. While it lasts: eyes
-	    and armour cracks blaze, red lightning on the arms and blade, black
-	    smoke off the shoulders, glowing footsteps, a persistent blade
-	    afterimage. The NEXT skill is Empowered (bigger and more violent).
-	  • R Worldbreaker: kneel and gather (stones lift, red motes pulled in),
-	    launch in a crimson spiral, hang as time slows, dive dragging a giant
-	    blade: a white-red flash, a towering column, radial fissures, rings and
-	    flying rock; then a delayed second explosion, smoke and embers.
-	  • The Unchained gauge above the skill bar ("EMPOWERED" while the next
-	    skill is charged).
+	  • Q Crimson Charge: a low lean (the floor splits under him), then a
+	    headlong charge at the aim in a red streak, untouchable, enemies in
+	    the path thrown aside; a crimson burst at the end blows the rest away.
+	    The NEXT skill is Empowered (bigger and more violent).
+	  • R Beast Awakening (a full Rage meter): he freezes, red lightning tears
+	    out of him as the body distorts, the sword is flung aside to stick in
+	    the floor, then the roar (a shockwave, the world flashing red). As the
+	    BEAST (12 s; the body itself is the server's: BerserkerLook.DressBeast)
+	    he hunches and bounds, lands heavy, and the blazing look runs: claws
+	    (three red gashes a rake, then the maul), Beast Slam (an enormous leap,
+	    a crash on all fours, three rings rolling out), Carnage (three huge
+	    claw swipes, the last a rake down), Beast Charge (a gallop on all fours,
+	    the biggest one hoisted overhead and hurled). Then down on one knee,
+	    the sword reforming in his hand.
+	  • The Rage meter above the skill bar ("RAGE FULL" when R is ready), the
+	    beast's timer while it lasts.
 --]]
 
 local Players = game:GetService("Players")
@@ -44,6 +49,7 @@ local FireFX = require(script.Parent:WaitForChild("FireFX"))
 local UltimateCameraChoreography = require(script.Parent:WaitForChild("UltimateCameraChoreography"))
 local SwordFX = require(script.Parent:WaitForChild("SwordFX"))
 local SafeMove = require(script.Parent:WaitForChild("SafeMove"))
+local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
 
 local player = Players.LocalPlayer
 
@@ -52,18 +58,29 @@ local BerserkerController = {}
 -- ── Tuning (mirrors BerserkerServer) ────────────────────────────────────────
 local SWING_INTERVAL = 0.48
 local COMBO_RESET = 1.2
-local UNCHAIN_SPEED = 0.35
-local UNCHAIN_WINDUP = 1.1
+-- Crimson Charge: the lean, then the run (mirrors BerserkerServer).
+local CHARGE = { windup = 0.18, run = 0.45 }
+local CHARGE_DIST = 28
 local RUPTURE = { crouch = 0.32, rise = 0.3, hang = 0.18, fall = 0.14 }
 RUPTURE.impact = RUPTURE.crouch + RUPTURE.rise + RUPTURE.hang + RUPTURE.fall
 local RUPTURE_RANGE = 17 -- the furthest leap (to the cursor)
 local RUPTURE_HEIGHT = 9
-local WB = { gather = 1.4, ascend = 0.5, hang = 0.4, dive = 0.22, pull = 0.8 }
-WB.impact = WB.gather + WB.ascend + WB.hang + WB.dive
-WB.second = WB.impact + 0.6
-WB.total = WB.second + WB.pull
-local WB_RANGE = 34
-local WB_HEIGHT = 24
+-- Rage and the Beast Awakening, and the beast's kit (mirrors BerserkerServer).
+local RAGE_MAX = 100
+local BEAST = { freeze = 0.45, mutate = 1.15, roar = 0.5 }
+BEAST.change = BEAST.freeze + BEAST.mutate
+BEAST.total = BEAST.change + BEAST.roar
+local BEAST_TIME = 12
+local BEAST_REVERT = 1.2
+local CLAW_INTERVAL = 0.34
+local CLAW_RESET = 1.0
+local SLAM = { crouch = 0.2, rise = 0.42, hang = 0.12, fall = 0.16 }
+SLAM.impact = SLAM.crouch + SLAM.rise + SLAM.hang + SLAM.fall
+local SLAM_RANGE = 26
+local SLAM_HEIGHT = 30
+local CARNAGE = { 0.22, 0.5, 0.88 }
+local BCHARGE = { crouch = 0.15, run = 0.6, grab = 0.45, throw = 0.25 }
+local BCHARGE_DIST = 38
 
 local CRIMSON = Color3.fromRGB(205, 14, 30)
 local BLOOD = Color3.fromRGB(120, 6, 16)
@@ -88,8 +105,13 @@ local function isBerserker(p: Player?): boolean
 	return (p or player):GetAttribute("SelectedClass") == "berserker"
 end
 
-local function unchainedLeft(p: Player): number
-	return (tonumber(p:GetAttribute("BR_UnchainedUntil")) or 0) - Workspace:GetServerTimeNow()
+-- Seconds of Beast Form left (the blazing look runs while it lasts).
+local function beastLeft(p: Player): number
+	return (tonumber(p:GetAttribute("BR_BeastUntil")) or 0) - Workspace:GetServerTimeNow()
+end
+
+local function rageOf(p: Player): number
+	return tonumber(p:GetAttribute("BR_Rage")) or 0
 end
 
 local function rootOf(char: Model?): BasePart?
@@ -731,48 +753,218 @@ local function stormSwingPose(char: Model, i: number, dur: number, freeze: numbe
 	}, 0.2)
 end
 
--- Unchained: the sword gripped in his right hand, raised out to the side,
--- the free fist clenched, chest thrown out, head back, yelling (two-handed
--- grip released meanwhile: BR_OneHand).
-local function unchainPose(char: Model, windup: number)
-	char:SetAttribute("BR_OneHand", true)
+-- Crimson Charge: down low and leaning in, the greatsword dragged behind;
+-- then driving forward.
+local function chargePose(char: Model)
 	CastPoses.play(char, {
-		{ dur = 0.22, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -0.5, 0 }, W = { -20, 0, 0 }, RS = { 60, 0, 40 },
-			LS = { 30, 0, -30 }, RH = { 20, 0, 12 }, LH = { -15, 0, -12 }, N = { 20, 0, 0 } } },
-		{ dur = windup * 0.45, pose = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { -30, 0, 0 }, RS = { 70, 0, 50 }, LS = { 45, 0, -50 },
-			RH = { 25, 0, 14 }, LH = { -18, 0, -14 }, N = { 25, 0, 0 } }, wobble = TREMBLE(7) },
-		{ dur = windup * 0.33, style = Enum.EasingStyle.Back, pose = { Root = { 0, 0, 0, 0, -0.3, 0 }, W = { 20, 0, 0 },
-			RS = { 150, 0, 45 }, LS = { 60, 0, -75 }, RH = { 15, 0, 16 }, LH = { -10, 0, -16 }, N = { -45, 0, 0 } }, wobble = TREMBLE(4) },
-		{ dur = 0.5, pose = { Root = { 0, 0, 0, 0, -0.3, 0 }, W = { 18, 0, 0 }, RS = { 150, 0, 45 }, LS = { 60, 0, -75 },
-			RH = { 15, 0, 16 }, LH = { -10, 0, -16 }, N = { -42, 0, 0 } }, wobble = TREMBLE(3) },
-	}, 0.35)
-	task.delay(windup + 0.85, function() char:SetAttribute("BR_OneHand", nil) end)
+		{ dur = CHARGE.windup, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { -30, 0, 0 },
+			RS = { -50, 0, 35 }, LS = { -20, 0, -25 }, RH = { 35, 0, 8 }, LH = { -35, 0, -8 }, N = { 30, 0, 0 } } },
+		{ dur = CHARGE.run, pose = { Root = { 0, 0, 0, 0, -0.4, 0 }, W = { -45, 0, 0 },
+			RS = { -70, 0, 40 }, LS = { -30, 0, -30 }, RH = { 45, 0, 6 }, LH = { -40, 0, -6 }, N = { 40, 0, 0 } } },
+	}, 0.25)
 end
 
--- Worldbreaker: down on one knee gripping the blade; the launch with it
--- raised; the hang high overhead; the dive; then pulling it free.
-local function wbPose(char: Model)
+-- ── The beast's poses ───────────────────────────────────────────────────────
+-- The awakening: he grips the sword and freezes; trembling, he doubles over
+-- as the body distorts; then he throws his head back and roars.
+local function awakenPose(char: Model)
+	char:SetAttribute("BR_OneHand", true)
 	CastPoses.play(char, {
-		-- (the red-moon shot: planted wide, the greatsword heaved straight up
-		-- in both hands, head tipped back toward it)
-		{ dur = 0.25, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { 6, 0, 0 }, RS = { 112, 0, 0 },
-			LS = { 112, 0, 0 }, RH = { 0, 0, 24 }, LH = { 0, 0, -24 }, N = { -25, 0, 0 } } },
-		{ dur = WB.gather - 0.25, pose = { Root = { 0, 0, 0, 0, -0.7, 0 }, W = { 8, 0, 0 }, RS = { 116, 0, 0 }, LS = { 116, 0, 0 },
-			RH = { 0, 0, 26 }, LH = { 0, 0, -26 }, N = { -30, 0, 0 } }, wobble = TREMBLE(2.5) },
-		{ dur = WB.ascend, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0 }, W = { 18, 0, 0 }, RS = { 175, 0, 0 },
-			LS = { 170, 0, 0 }, RH = { -55, 0, 6 }, LH = { -30, 0, -6 }, N = { -30, 0, 0 } } },
-		{ dur = WB.hang, pose = { Root = { 0, 0, 0 }, W = { 30, 0, 0 }, RS = { 200, 0, 0 }, LS = { 195, 0, 0 },
-			RH = { -40, 0, 8 }, LH = { -10, 0, -8 }, N = { -20, 0, 0 } } },
-		{ dur = WB.dive, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -1.4, -0.5 }, W = { -50, 0, 0 },
-			RS = { 20, 0, 0 }, LS = { 20, 0, 0 }, RH = { 50, 0, 14 }, LH = { -45, 0, -14 }, N = { 25, 0, 0 } } },
-		{ dur = WB.second - WB.impact + 0.2, pose = { Root = { 0, 0, 0, 0, -1.4, -0.5 }, W = { -45, 0, 0 }, RS = { 18, 0, 0 },
-			LS = { 18, 0, 0 }, RH = { 45, 0, 14 }, LH = { -40, 0, -14 } } },
-		-- (slowly hauling the blade free)
-		{ dur = WB.pull, style = Enum.EasingStyle.Quad, pose = { Root = { 0, 0, 0, 0, -0.5, 0 }, W = { 5, 0, 0 }, RS = { 70, 0, 0 },
-			LS = { 70, 0, 0 }, RH = { 15, 0, 8 }, LH = { -10, 0, -8 }, N = { -5, 0, 0 } } },
+		{ dur = BEAST.freeze, pose = { Root = { 0, 0, 0, 0, -0.2, 0 }, W = { -8, 0, 0 }, RS = { 40, 0, 10 }, LS = { 40, 0, -10 }, N = { -10, 0, 0 } },
+			wobble = TREMBLE(2) },
+		{ dur = BEAST.mutate * 0.6, pose = { Root = { 0, 0, 0, 0, -0.9, 0 }, W = { -35, 0, 0 }, RS = { -20, 0, 40 }, LS = { -20, 0, -40 },
+			RH = { 30, 0, 10 }, LH = { -30, 0, -10 }, N = { 25, 0, 0 } }, wobble = TREMBLE(9) },
+		{ dur = BEAST.mutate * 0.4, pose = { Root = { 0, 0, 0, 0, -1.0, 0 }, W = { -50, 0, 0 }, RS = { -40, 0, 60 }, LS = { -40, 0, -60 },
+			RH = { 40, 0, 10 }, LH = { -40, 0, -10 }, N = { 35, 0, 0 } }, wobble = TREMBLE(14) },
+		{ dur = BEAST.roar, style = Enum.EasingStyle.Back, pose = { Root = { 0, 0, 0, 0, -0.3, 0 }, W = { 25, 0, 0 }, RS = { 60, 0, 95 },
+			LS = { 60, 0, -95 }, RH = { 10, 0, 14 }, LH = { -10, 0, -14 }, N = { -50, 0, 0 } }, wobble = TREMBLE(5) },
+	}, 0.4)
+	task.delay(BEAST.total + 0.5, function() char:SetAttribute("BR_OneHand", nil) end)
+end
+
+-- The claws: a rake right to left, one back left to right, one high to low,
+-- then the maul: both claws raised overhead and brought down with the whole
+-- body behind them.
+local CLAW_SWING = {
+	[1] = { wind = { W = { -10, 35, 0 }, RS = { 70, 0, 110 }, LS = { 20, 0, -15 } },
+		hit = { W = { -20, -30, 0 }, RS = { 85, -60, 20 }, LS = { 15, 0, -20 } } },
+	[2] = { wind = { W = { -10, -35, 0 }, LS = { 70, 0, -110 }, RS = { 20, 0, 15 } },
+		hit = { W = { -20, 30, 0 }, LS = { 85, 60, -20 }, RS = { 15, 0, 20 } } },
+	[3] = { wind = { W = { -5, 25, 0 }, RS = { 150, 0, 40 }, LS = { 60, 0, -40 } },
+		hit = { W = { -30, -20, 0 }, RS = { 40, -40, 10 }, LS = { 90, 20, -30 } } },
+	[4] = { wind = { Root = { 0, 0, 0, 0, 0.2, 0 }, W = { 18, 0, 0 }, RS = { 175, 0, 25 }, LS = { 175, 0, -25 }, N = { -20, 0, 0 } },
+		hit = { Root = { 0, 0, 0, 0, -1.0, 0 }, W = { -55, 0, 0 }, RS = { 40, 0, 15 }, LS = { 40, 0, -15 }, RH = { 45, 0, 8 },
+			LH = { -35, 0, -8 }, N = { 30, 0, 0 } } },
+}
+
+local function clawPose(char: Model, step: number)
+	local c = CLAW_SWING[step] or CLAW_SWING[1]
+	local heavy = step == 4
+	CastPoses.play(char, {
+		{ dur = if heavy then 0.14 else 0.07, style = Enum.EasingStyle.Quart, pose = c.wind },
+		{ dur = if heavy then 0.1 else 0.08, style = Enum.EasingStyle.Quart, pose = c.hit },
+		{ dur = if heavy then 0.16 else 0.08, pose = c.hit },
+	}, 0.2)
+end
+
+-- Down on all fours: the body flat and low, claws on the floor, head up.
+local ALL_FOURS = { Root = { 0, 0, 0, 0, -1.3, 0 }, W = { -75, 0, 0 }, N = { 55, 0, 0 }, RS = { 80, 0, 12 }, LS = { 80, 0, -12 },
+	RH = { 55, 0, 6 }, LH = { 55, 0, -6 } }
+
+-- Beast Charge: drop to all fours and gallop (a bounding wobble).
+local function allFoursPose(char: Model, dur: number)
+	CastPoses.play(char, {
+		{ dur = 0.12, style = Enum.EasingStyle.Quart, pose = ALL_FOURS },
+		{ dur = math.max(dur - 0.12, 0.05), pose = ALL_FOURS, wobble = function(t: number)
+			local s = math.sin(t * 22)
+			return { W = { s * 8, 0, 0 }, RS = { s * 35, 0, 0 }, LS = { -s * 35, 0, 0 }, RH = { -s * 30, 0, 0 }, LH = { s * 30, 0, 0 } }
+		end },
+	}, 0.25)
+end
+
+-- Beast Slam: crouched on all fours, then stretched out as he launches, a
+-- tuck at the top, and down on all fours in the crash.
+local function beastSlamPose(char: Model)
+	CastPoses.play(char, {
+		{ dur = SLAM.crouch, pose = ALL_FOURS },
+		{ dur = SLAM.rise, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0 }, W = { 15, 0, 0 }, RS = { 170, 0, 20 },
+			LS = { 170, 0, -20 }, RH = { -30, 0, 6 }, LH = { -30, 0, -6 }, N = { -20, 0, 0 } } },
+		{ dur = SLAM.hang, pose = { Root = { 0, 0, 0 }, W = { -25, 0, 0 }, RS = { 120, 0, 30 }, LS = { 120, 0, -30 },
+			RH = { 60, 0, 6 }, LH = { 60, 0, -6 }, N = { 20, 0, 0 } } },
+		{ dur = SLAM.fall, style = Enum.EasingStyle.Quart, pose = ALL_FOURS },
+		{ dur = 0.35, pose = ALL_FOURS },
+	}, 0.35)
+end
+
+-- Carnage: three claws (across, back, a rake down), timed to land with the
+-- server's CARNAGE.
+local CARNAGE_SWING = {
+	{ wind = { W = { -10, 40, 0 }, RS = { 90, 0, 100 }, LS = { 30, 0, -20 } },
+		hit = { W = { -20, -40, 0 }, RS = { 90, -80, 0 }, LS = { 20, 0, -20 } } },
+	{ wind = { W = { -10, -40, 0 }, LS = { 90, 0, -100 }, RS = { 30, 0, 20 } },
+		hit = { W = { -20, 40, 0 }, LS = { 90, 80, 0 }, RS = { 20, 0, 20 } } },
+	{ wind = { Root = { 0, 0, 0, 0, 0.2, 0 }, W = { 15, 25, 0 }, RS = { 170, 0, 60 }, LS = { 150, 0, -30 }, N = { -15, 0, 0 } },
+		hit = { Root = { 0, 0, 0, 0, -1.0, 0 }, W = { -50, -25, 0 }, RS = { 30, -30, 0 }, LS = { 40, 20, 0 }, RH = { 45, 0, 8 },
+			LH = { -35, 0, -8 }, N = { 25, 0, 0 } } },
+}
+
+local function carnagePose(char: Model)
+	local stages = {}
+	local t = 0
+	for i, at in ipairs(CARNAGE) do
+		local hitDur = if i == 3 then 0.14 else 0.1
+		table.insert(stages, { dur = math.max(at - t - hitDur, 0.05), style = Enum.EasingStyle.Quart, pose = CARNAGE_SWING[i].wind })
+		table.insert(stages, { dur = hitDur, style = Enum.EasingStyle.Quart, pose = CARNAGE_SWING[i].hit })
+		t = at
+	end
+	table.insert(stages, { dur = 0.25, pose = CARNAGE_SWING[3].hit })
+	CastPoses.play(char, stages, 0.3)
+end
+
+-- The grab: the victim hoisted overhead in both claws; the throw: hurled
+-- forward and down.
+local function grabPose(char: Model)
+	CastPoses.play(char, {
+		{ dur = 0.15, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -0.4, 0 }, W = { 10, 0, 0 }, RS = { 170, 0, 20 },
+			LS = { 170, 0, -20 }, N = { -25, 0, 0 } } },
+		{ dur = BCHARGE.grab - 0.15, pose = { Root = { 0, 0, 0, 0, -0.3, 0 }, W = { 15, 0, 0 }, RS = { 175, 0, 15 }, LS = { 175, 0, -15 },
+			N = { -30, 0, 0 } }, wobble = TREMBLE(3) },
+	}, 0.2)
+end
+
+local function throwPose(char: Model)
+	CastPoses.play(char, {
+		{ dur = 0.12, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -0.7, 0 }, W = { -45, 0, 0 }, RS = { 60, 0, 10 },
+			LS = { 60, 0, -10 }, RH = { 35, 0, 8 }, LH = { -30, 0, -8 }, N = { 20, 0, 0 } } },
+		{ dur = BCHARGE.throw, pose = { Root = { 0, 0, 0, 0, -0.7, 0 }, W = { -40, 0, 0 }, RS = { 50, 0, 10 }, LS = { 50, 0, -10 },
+			RH = { 35, 0, 8 }, LH = { -30, 0, -8 } } },
+	}, 0.3)
+end
+
+-- The change ends: down on one knee as the body shrinks back.
+local function revertPose(char: Model)
+	CastPoses.play(char, {
+		{ dur = 0.25, style = Enum.EasingStyle.Quart, pose = CastPoses.kneelOnOneKnee(25) },
+		{ dur = BEAST_REVERT - 0.25, pose = CastPoses.kneelOnOneKnee(15), wobble = TREMBLE(3) },
 	}, 0.4)
 end
 
+-- ── The beast's body (every Berserker in Beast Form, every client) ──────────
+-- Out of his attacks the beast never stands like a man: hunched forward,
+-- head thrust out, arms hanging long; running, he leans right into it and
+-- bounds, now and then a claw dropping to the ground mid-stride. Layered on
+-- the walk / idle animation (attack poses take over while they play).
+local beastMotors: { [Model]: any } = {}
+local beastWeight: { [Model]: number } = {}
+
+local function beastPosture(speed: number, t: number, phase: number): { [string]: { number } }
+	local bob = math.sin(t * 9 + phase) * 4 * speed
+	-- (mid-sprint, now and then, the right claw drops toward the ground)
+	local touch = if speed > 0.7 then math.max(0, math.sin(t * 2.3 + phase)) ^ 6 else 0
+	return {
+		Root = { 0, 0, 0, 0, -0.35 - 0.25 * speed, 0 },
+		W = { -22 - 20 * speed + bob - 12 * touch, 0, 0 },
+		N = { 18 + 10 * speed, 0, 0 },
+		RS = { 25 + 45 * touch, 0, 12 },
+		LS = { 25, 0, -12 },
+	}
+end
+
+local function beastStep(dt: number)
+	local now = os.clock()
+	for _, p in ipairs(Players:GetPlayers()) do
+		local char = p.Character
+		if not char then continue end
+		local on = beastLeft(p) > 0 and char:GetAttribute("Tumbling") ~= true
+		local w = math.clamp((beastWeight[char] or 0) + (if on then dt else -dt) * 4, 0, 1)
+		beastWeight[char] = if w > 0 then w else nil
+		if w <= 0 or CastPoses.isPlaying(char) then continue end
+		local motors = beastMotors[char]
+		if not motors then
+			motors = CastPoses.resolveMotors(char)
+			beastMotors[char] = motors
+		end
+		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		local v = if root then root.AssemblyLinearVelocity else Vector3.zero
+		local speed = math.clamp(Vector3.new(v.X, 0, v.Z).Magnitude / 22, 0, 1)
+		local combined: { [Motor6D]: CFrame } = {}
+		for key, val in pairs(beastPosture(speed, now, (p.UserId % 7) * 0.9)) do
+			local m = motors[key]
+			if m and m.motor.Parent then
+				local cf = CFrame.identity:Lerp(CastPoses.poseCF(val), w)
+				combined[m.motor] = (combined[m.motor] or CFrame.identity) * (m.basis:Inverse() * cf * m.basis)
+			end
+		end
+		for motor, cf in pairs(combined) do motor.Transform = motor.Transform * cf end
+	end
+	for char in pairs(beastMotors) do
+		if not char.Parent or not beastWeight[char] then beastMotors[char] = nil end
+	end
+end
+
+-- The beast lands heavy: dust thrown out, the floor cracking, a thud.
+local function watchLandings()
+	local function hook(p: Player, char: Model)
+		local hum = char:WaitForChild("Humanoid", 10) :: Humanoid?
+		if not hum then return end
+		hum.StateChanged:Connect(function(_, new)
+			if new ~= Enum.HumanoidStateType.Landed or beastLeft(p) <= 0 then return end
+			local root = rootOf(char)
+			if not root then return end
+			local g = Vector3.new(root.Position.X, FireFX.GroundY(root.Position), root.Position.Z)
+			smoke(g + Vector3.new(0, 0.5, 0), 6, 2.4)
+			fling(g + Vector3.new(0, 0.3, 0), 5, 12, 8, true)
+			cracks(g, 3, 5, 0.9)
+			if p == player then deps.shake(0.45, 0.15) end
+		end)
+	end
+	local function watch(p: Player)
+		p.CharacterAdded:Connect(function(c) hook(p, c) end)
+		if p.Character then task.spawn(hook, p, p.Character) end
+	end
+	for _, p in ipairs(Players:GetPlayers()) do watch(p) end
+	Players.PlayerAdded:Connect(watch)
+end
 
 -- ── The Unchained look (every Berserker, every client) ──────────────────────
 -- Unchained: an outline and a red aura flowing off him, black smoke off the
@@ -916,7 +1108,7 @@ local function refreshLook(p: Player)
 		looks[p] = built
 		L = built
 	end
-	local level = if unchainedLeft(p) > 0 then 2 elseif p:GetAttribute("BR_Empowered") == true then 1 else 0
+	local level = if beastLeft(p) > 0 then 2 elseif p:GetAttribute("BR_Empowered") == true then 1 else 0
 	if level == L.level then return end
 	L.level = level
 	local on = level == 2
@@ -966,6 +1158,9 @@ local function unchainedStep(now: number)
 				local side = root.CFrame.RightVector * 0.5 * L.stepSide
 				local g = Vector3.new(root.Position.X, FireFX.GroundY(root.Position), root.Position.Z) + side
 				cracks(g, 2.2, 4, 0.9)
+				-- (the beast's tread: dust off every step, and you feel your own)
+				smoke(g + Vector3.new(0, 0.4, 0), 2, 1.6)
+				if L.char == player.Character then deps.shake(0.12, 0.08) end
 			end
 		end
 	end
@@ -976,7 +1171,7 @@ local hud: ScreenGui? = nil
 local gaugeBack: Frame? = nil
 local fill: Frame? = nil
 local label: TextLabel? = nil
-local unchainedFor = 8
+local unchainedFor = BEAST_TIME
 
 local function buildHud()
 	local g = Instance.new("ScreenGui")
@@ -1019,21 +1214,23 @@ local function buildHud()
 	label = l
 end
 
+-- The Rage meter (full: R awakens the beast), and as the beast its timer.
 local function refreshHud()
 	if not hud then return end
-	local left = unchainedLeft(player)
+	local left = beastLeft(player)
+	local rage = rageOf(player)
 	local empowered = player:GetAttribute("BR_Empowered") == true
 	hud.Enabled = isBerserker() and player:GetAttribute("InLobby") == false and player:GetAttribute("SettingsOpen") ~= true
-		and (left > 0 or empowered)
 	if fill then
-		fill.Size = UDim2.fromScale(math.clamp(left / unchainedFor, 0, 1), 1)
-		fill.BackgroundColor3 = if empowered then HOT else CRIMSON
+		fill.Size = UDim2.fromScale(if left > 0 then math.clamp(left / unchainedFor, 0, 1) else math.clamp(rage / RAGE_MAX, 0, 1), 1)
+		fill.BackgroundColor3 = if left > 0 or rage >= RAGE_MAX then HOT else CRIMSON
 	end
-	if gaugeBack then gaugeBack.BackgroundTransparency = if left > 0 then 0 else 1 end
+	if gaugeBack then gaugeBack.BackgroundTransparency = 0 end
 	if label then
-		label.Text = if left > 0 and empowered then "UNCHAINED  ·  NEXT SKILL EMPOWERED"
-			elseif left > 0 then "UNCHAINED"
-			else "NEXT SKILL EMPOWERED"
+		label.Text = if left > 0 then "BEAST FORM"
+			elseif rage >= RAGE_MAX then "RAGE FULL  ·  R: BEAST AWAKENING"
+			elseif empowered then `RAGE {math.floor(rage)}  ·  NEXT SKILL EMPOWERED`
+			else `RAGE {math.floor(rage)}`
 	end
 end
 
@@ -1224,13 +1421,48 @@ local function comboVFX(char: Model, step: number, dir: Vector3)
 	end
 end
 
+-- ── The beast's claws ───────────────────────────────────────────────────────
+-- Every rake is three parallel red gashes torn through the air (the middle
+-- one white-hot); the maul's picture comes with its hit (onMaul).
+local function clawMarks(cf: CFrame, radius: number, span: number, sweep: number, heavy: boolean?)
+	for k = -1, 1 do
+		task.delay((k + 1) * 0.015, arc, cf * CFrame.new(0, k * (if heavy then 0.8 else 0.55), 0), radius * (1 - math.abs(k) * 0.06), span,
+			if k == 0 then HOT else CRIMSON, if heavy then 0.55 else 0.32, if heavy then 0.38 else 0.28, sweep, 0.08)
+	end
+end
+
+local function clawVFX(char: Model, step: number, dir: Vector3)
+	local root = rootOf(char)
+	if not root then return end
+	local look = CFrame.lookAt(root.Position, root.Position + dir)
+	if step == 1 then
+		task.delay(0.08, clawMarks, look * CFrame.new(0, 0.5, 0) * CFrame.Angles(0, 0, math.rad(-15)), 9, 150, 1)
+	elseif step == 2 then
+		task.delay(0.08, clawMarks, look * CFrame.new(0, 0.5, 0) * CFrame.Angles(0, 0, math.rad(15)), 9, 150, -1)
+	elseif step == 3 then
+		task.delay(0.08, clawMarks, look * CFrame.new(0, 0.8, 0) * CFrame.Angles(0, 0, math.rad(-60)), 9, 140, 1)
+	end
+end
+
 function BerserkerController.Basic(char: Model, root: BasePart): boolean
 	local now = os.clock()
 	if now < busyUntil or char:GetAttribute("IsSkillCasting") == true then return true end
 	local speed = math.max(tonumber(player:GetAttribute("Stat_basicAttackSpeed")) or 1, 0.1)
-		* (if unchainedLeft(player) > 0 then 1 + UNCHAIN_SPEED else 1)
+	if beastLeft(player) > 0 then
+		-- The beast: claw, claw, claw, maul.
+		if now - lastSwing < CLAW_INTERVAL / speed then return true end
+		localStep = if now - lastSwing > CLAW_RESET or localStep > 4 then 1 else (localStep % 4) + 1
+		lastSwing = now
+		local dir = flatDir(deps.getAim(root), root.CFrame.LookVector)
+		root.CFrame = CFrame.lookAt(root.Position, root.Position + dir)
+		clawPose(char, localStep)
+		clawVFX(char, localStep, dir)
+		ClassFX.Sound("whoosh", root, 0.8, if localStep == 4 then 0.55 else 0.75)
+		Network.GetRemoteEvent(Network.Remotes.PerformAttack):FireServer({ direction = dir })
+		return true
+	end
 	if now - lastSwing < SWING_INTERVAL / speed then return true end
-	localStep = if now - lastSwing > COMBO_RESET then 1 else (localStep % 3) + 1
+	localStep = if now - lastSwing > COMBO_RESET or localStep > 3 then 1 else (localStep % 3) + 1
 	lastSwing = now
 	local dir = flatDir(deps.getAim(root), root.CFrame.LookVector)
 	root.CFrame = CFrame.lookAt(root.Position, root.Position + dir)
@@ -1367,66 +1599,145 @@ local function ruptureLeap(char: Model, root: BasePart, dir: Vector3, cursor: Ve
 	return land
 end
 
+-- ── Q: Crimson Charge (caster) ──────────────────────────────────────────────
+-- A short step back as he leans in, then the run (short of walls), his feet
+-- on the floor all the way.
+local function chargeRun(char: Model, root: BasePart, dir: Vector3)
+	local mv = holdBody(char, root)
+	if not mv then return end
+	local m = mv :: Mover
+	local origin = root.Position
+	local dist = SafeMove.ClampDash(root, dir, CHARGE_DIST)
+	local stop = standAt(origin + dir * dist, m.stand)
+	m.face(dir)
+	timeline(CHARGE.windup + CHARGE.run, function(t)
+		if not m.alive() then return end
+		if t < CHARGE.windup then
+			m.set(origin - dir * 0.6 * (t / CHARGE.windup))
+		else
+			m.set(standAt(origin:Lerp(stop, easeOut((t - CHARGE.windup) / CHARGE.run)), m.stand))
+		end
+	end, function()
+		m.set(stop)
+		m.stop(true)
+	end)
+end
+
 -- ── F: Bloodstorm (caster) ──────────────────────────────────────────────────
 -- Held to the spot from the lean to the last swing.
 local stormMover: Mover? = nil
 local stormToken = 0
 
--- ── R: Worldbreaker (caster) ────────────────────────────────────────────────
-local function wbLand(origin: Vector3, dir: Vector3, cursor: Vector3?): Vector3
-	if cursor then
-		local d = Vector3.new(cursor.X - origin.X, 0, cursor.Z - origin.Z)
-		return origin + (if d.Magnitude > WB_RANGE then d.Unit * WB_RANGE else d)
-	end
-	return origin + dir * 14
-end
-
+-- ── The beast's moves (caster) ──────────────────────────────────────────────
 local IsometricCamera: any = nil
 pcall(function() IsometricCamera = require(script.Parent:WaitForChild("IsometricCamera")) end)
 
-local wbLanding: Vector3? = nil -- (where our own dive lands: the blow is drawn there)
+local slamLanding: Vector3? = nil -- (where our own Beast Slam lands: the crash is drawn there)
 
-local function worldbreakerFlight(char: Model, root: BasePart, landAt: Vector3)
+-- E · Beast Slam: crouched on all fours, an enormous leap at the cursor (not
+-- through walls), a crash.
+local function beastSlamLeap(char: Model, root: BasePart, dir: Vector3, cursor: Vector3?): Vector3?
+	local mv = holdBody(char, root)
+	if not mv then return nil end
+	local m = mv :: Mover
+	local origin = root.Position
+	local want = 12
+	if cursor then
+		want = math.min(Vector3.new(cursor.X - origin.X, 0, cursor.Z - origin.Z).Magnitude, SLAM_RANGE)
+	end
+	local dist = SafeMove.ClampDash(root, dir, want)
+	local land = standAt(origin + dir * dist, m.stand)
+	local mid = origin:Lerp(land, 0.5)
+	local apex = Vector3.new(mid.X, math.max(origin.Y, land.Y) + SLAM_HEIGHT, mid.Z)
+	local apex2 = apex + (land - origin) * 0.12 + Vector3.new(0, 0.8, 0)
+	m.face(dir)
+	-- (the camera keeps the floor in view while he's up there)
+	if IsometricCamera then pcall(IsometricCamera.SetFocusYLock, origin.Y + 7) end
+	local T = SLAM
+	timeline(T.impact, function(t)
+		if not m.alive() then return end
+		if t < T.crouch then
+			m.set(origin)
+		elseif t < T.crouch + T.rise then
+			m.set(origin:Lerp(apex, easeOut((t - T.crouch) / T.rise)))
+		elseif t < T.crouch + T.rise + T.hang then
+			m.set(apex:Lerp(apex2, (t - T.crouch - T.rise) / T.hang))
+		else
+			m.set(apex2:Lerp(land, easeIn((t - T.crouch - T.rise - T.hang) / T.fall)))
+		end
+	end, function()
+		m.set(land)
+		m.stop(true)
+		if IsometricCamera then pcall(IsometricCamera.SetFocusYLock, nil) end
+	end)
+	slamLanding = land
+	return land
+end
+
+-- Q · Beast Charge: a gallop on all fours (short of walls), then held there
+-- through the grab and the throw.
+local function beastChargeRun(char: Model, root: BasePart, dir: Vector3)
 	local mv = holdBody(char, root)
 	if not mv then return end
 	local m = mv :: Mover
 	local origin = root.Position
-	local top = origin + Vector3.new(0, WB_HEIGHT, 0)
-	local top2 = top + Vector3.new(0, 1.2, 0)
-	-- (the floor under the landing spot, probed from well above it)
-	local land = Vector3.new(landAt.X, FireFX.GroundY(Vector3.new(landAt.X, origin.Y + 20, landAt.Z)) + m.stand, landAt.Z)
-	wbLanding = land
-	m.face(Vector3.new(land.X - origin.X, 0, land.Z - origin.Z))
-	-- (the camera keeps the floor in view while he's up there)
-	if IsometricCamera then pcall(IsometricCamera.SetFocusYLock, origin.Y + 7) end
-	timeline(WB.impact, function(t)
+	local dist = SafeMove.ClampDash(root, dir, BCHARGE_DIST)
+	local stop = standAt(origin + dir * dist, m.stand)
+	m.face(dir)
+	timeline(BCHARGE.crouch + BCHARGE.run, function(t)
 		if not m.alive() then return end
-		if t < WB.gather then
+		if t < BCHARGE.crouch then
 			m.set(origin)
-		elseif t < WB.gather + WB.ascend then
-			m.set(origin:Lerp(top, easeOut((t - WB.gather) / WB.ascend)))
-		elseif t < WB.gather + WB.ascend + WB.hang then
-			m.set(top:Lerp(top2, (t - WB.gather - WB.ascend) / WB.hang))
 		else
-			m.set(top2:Lerp(land, easeIn((t - WB.gather - WB.ascend - WB.hang) / WB.dive)))
+			m.set(standAt(origin:Lerp(stop, (t - BCHARGE.crouch) / BCHARGE.run), m.stand))
 		end
 	end, function()
-		m.set(land)
-		if root.Parent then root.CFrame = CFrame.new(land) * root.CFrame.Rotation end
-		m.stop(true)
-		if IsometricCamera then pcall(IsometricCamera.SetFocusYLock, nil) end
+		m.set(stop)
+		task.delay(BCHARGE.grab + BCHARGE.throw, function() m.stop(true) end)
 	end)
 end
 
+-- As the beast, the skills are the beast's: E Beast Slam, F Carnage, Q Beast
+-- Charge (R does nothing: CanCast).
+local function beastCast(skillIndex: number, char: Model, root: BasePart, dir: Vector3, cursor: Vector3?): Vector3?
+	if skillIndex == 1 then
+		busyUntil = os.clock() + SLAM.impact + 0.45
+		beastSlamPose(char)
+		local land = beastSlamLeap(char, root, dir, cursor)
+		releaseAfter(char, SLAM.impact + 0.4)
+		return land
+	elseif skillIndex == 2 then
+		busyUntil = os.clock() + CARNAGE[3] + 0.35
+		carnagePose(char)
+		local mv = holdBody(char, root)
+		if mv then mv.face(dir) end
+		task.delay(CARNAGE[3] + 0.3, function() if mv then mv.stop(true) end end)
+		releaseAfter(char, CARNAGE[3] + 0.3)
+	elseif skillIndex == 3 then
+		local total = BCHARGE.crouch + BCHARGE.run + BCHARGE.grab + BCHARGE.throw
+		busyUntil = os.clock() + total + 0.1
+		allFoursPose(char, BCHARGE.crouch + BCHARGE.run)
+		beastChargeRun(char, root, dir)
+		releaseAfter(char, total)
+	end
+	return nil
+end
+
 -- ── Public: skills ──────────────────────────────────────────────────────────
-function BerserkerController.CanCast(_skillIndex: number): boolean
-	return os.clock() >= busyUntil
+function BerserkerController.CanCast(skillIndex: number): boolean
+	if os.clock() < busyUntil then return false end
+	-- The awakening needs a full Rage meter (and not while already the beast).
+	if skillIndex == 4 then return beastLeft(player) <= 0 and rageOf(player) >= RAGE_MAX end
+	return true
 end
 
 function BerserkerController.OnCast(skillIndex: number, char: Model, root: BasePart, aimDir: Vector3, _config: any, cursor: Vector3?): Vector3?
 	local dir = flatDir(aimDir, root.CFrame.LookVector)
 	root.CFrame = CFrame.lookAt(root.Position, root.Position + dir)
 	char:SetAttribute("AllowSkillMovement", false)
+	if beastLeft(player) > 0 then
+		return beastCast(skillIndex, char, root, dir, cursor)
+	end
 	if skillIndex == 1 then
 		busyUntil = os.clock() + RUPTURE.impact + 0.3
 		rupturePose(char)
@@ -1450,18 +1761,17 @@ function BerserkerController.OnCast(skillIndex: number, char: Model, root: BaseP
 			end
 		end)
 	elseif skillIndex == 3 then
-		busyUntil = os.clock() + UNCHAIN_WINDUP + 0.2
-		unchainPose(char, UNCHAIN_WINDUP)
-		local mv = holdBody(char, root)
-		task.delay(UNCHAIN_WINDUP, function() if mv then mv.stop(true) end end)
-		releaseAfter(char, UNCHAIN_WINDUP + 0.15)
+		busyUntil = os.clock() + CHARGE.windup + CHARGE.run + 0.15
+		chargePose(char)
+		chargeRun(char, root, dir)
+		releaseAfter(char, CHARGE.windup + CHARGE.run + 0.1)
 	elseif skillIndex == 4 then
-		busyUntil = os.clock() + WB.total
-		wbPose(char)
-		local land = wbLand(root.Position, dir, cursor)
-		worldbreakerFlight(char, root, land)
-		releaseAfter(char, WB.total)
-		return land
+		-- The awakening: held to the spot through the change and the roar.
+		busyUntil = os.clock() + BEAST.total + 0.1
+		awakenPose(char)
+		local mv = holdBody(char, root)
+		task.delay(BEAST.total, function() if mv then mv.stop(true) end end)
+		releaseAfter(char, BEAST.total + 0.05)
 	end
 	return nil
 end
@@ -1472,34 +1782,17 @@ end
 function BerserkerController.PlayUltCutscene(char: Model, dir: Vector3)
 	local root = rootOf(char)
 	if not root then return end
-	local START = { -11.5, -3.8, -1.1 }   -- { forward, right, up } from him (wide enough for the whole blade and the moon)
-	local FOCUS = 7
-	UltimateCameraChoreography.PlayCloseUp(char, dir, WB.gather, nil, nil, {
-		startOffset = START,
-		endOffset = { -10, -3.3, -1.3 },
-		focusHeight = FOCUS,
-		fovStart = 66,
+	-- Close on him, low and in front, as the change takes him; pulled back
+	-- for the roar. The world goes dark and red.
+	UltimateCameraChoreography.PlayCloseUp(char, dir, BEAST.total, nil, nil, {
+		startOffset = { 7.5, -1.5, 0.6 },
+		endOffset = { 11, -2.5, 1.4 },
+		focusHeight = 2.2,
+		fovStart = 50,
 		fovEnd = 62,
 	})
-	local f = flatDir(dir, root.CFrame.LookVector)
-	local right = f:Cross(Vector3.yAxis)
-	local cam = root.Position + f * START[1] + right * START[2] + Vector3.new(0, START[3], 0)
-	local look = ((root.Position + Vector3.new(0, FOCUS + 3, 0)) - cam).Unit
-	local at = cam + look * 140
-	local moon = ClassFX.Neon({ Shape = Enum.PartType.Ball, Size = Vector3.one * 70, CFrame = CFrame.new(at),
-		Color = Color3.fromRGB(150, 8, 18), Transparency = 1 })
-	local halo = ClassFX.Neon({ Shape = Enum.PartType.Ball, Size = Vector3.one * 84, CFrame = CFrame.new(at + look * 4),
-		Color = Color3.fromRGB(230, 30, 40), Transparency = 1 })
-	TweenService:Create(moon, TweenInfo.new(0.35), { Transparency = 0.05 }):Play()
-	TweenService:Create(halo, TweenInfo.new(0.35), { Transparency = 0.82 }):Play()
-	task.delay(WB.gather, function()
-		for _, p in ipairs({ moon, halo }) do
-			TweenService:Create(p, TweenInfo.new(0.3), { Transparency = 1 }):Play()
-			Debris:AddItem(p, 0.35)
-		end
-	end)
-	tint("BerserkerBloodMoon", { Brightness = -0.06, Saturation = 0.25, Contrast = 0.25, TintColor = Color3.fromRGB(255, 120, 120) },
-		WB.gather, 0.25, 0.35)
+	tint("BerserkerAwakening", { Brightness = -0.12, Saturation = 0.2, Contrast = 0.35, TintColor = Color3.fromRGB(255, 110, 110) },
+		BEAST.total, 0.3, 0.5)
 end
 
 -- ── Server moments (BerserkerFX) ────────────────────────────────────────────
@@ -1692,62 +1985,194 @@ local function onStormFinal(msg: any)
 	end
 end
 
--- Q · Unchained: the planted blade cracks the floor, red energy leaks off
--- his trembling shoulders, then the roar.
-local function onUnchainWindup(msg: any)
+-- Q · Crimson Charge: the floor splits under his lean, then he tears down
+-- the path in a red streak (afterimages, embers); the burst at the end.
+local function onCharge(msg: any)
 	local char = charOf(msg.attacker)
 	local root = rootOf(char)
 	if not char or not root then return end
-	local w = msg.windup :: number
-	if msg.attacker ~= player then unchainPose(char, w) end
-	local g = Vector3.new(root.Position.X, FireFX.GroundY(root.Position), root.Position.Z) + (msg.dir :: Vector3) * 2
-	task.delay(w * 0.68, function()
-		cracks(g - (msg.dir :: Vector3) * 2, 3, 6, 1.2)
+	if msg.attacker ~= player then chargePose(char) end
+	local T = msg.t
+	local dir = msg.dir :: Vector3
+	local from = msg.from :: Vector3
+	local g0 = Vector3.new(from.X, FireFX.GroundY(from), from.Z)
+	trail(char, T.windup + T.run + 0.3)
+	cracks(g0, 3, 6, 1)
+	groundFlash(g0, 4)
+	ClassFX.Sound("charge", root, 0.7, 1.3)
+	task.delay(T.windup, function()
+		if not root.Parent then return end
+		smoke(g0 + Vector3.new(0, 0.5, 0), 8, 2.4)
+		fling(g0 + Vector3.new(0, 0.3, 0), 5, 14, 8, true)
+		ClassFX.Sound("whoosh", root, 1, 0.7)
+		if msg.attacker == player then deps.fovPunch(8, 0.3) end
+		-- the streak and the afterimages, drawn where he actually goes
+		local last = root.Position
+		for k = 1, 5 do
+			task.delay(T.run * k / 5, function()
+				if not root.Parent then return end
+				local now = root.Position
+				groundStreak(last, now, 3, 0.7)
+				SwordFX.Streak(last + Vector3.new(0, 0.5, 0), now + Vector3.new(0, 0.5, 0), 0.4, CRIMSON, 0.3, nil, HOT)
+				sparks(now, 6, 10)
+				last = now
+			end)
+		end
 	end)
-	-- energy leaking out as he trembles
-	for k = 1, 6 do
-		task.delay(0.2 + k * (w * 0.6 / 6), function()
-			if not root.Parent then return end
-			sparks(root.Position + Vector3.new(0, 1, 0), 8 + k * 2, 6 + k)
-			if k % 2 == 0 then
-				local a = math.random() * math.pi * 2
-				bolt(root.Position + Vector3.new(0, 1.2, 0), root.Position + Vector3.new(math.cos(a) * 2.5, 1 + math.random() * 2, math.sin(a) * 2.5), 0.12, 0.1)
-			end
-		end)
-	end
-	task.delay(w * 0.68, function()
-		if root.Parent then ClassFX.Sound("charge", root, 0.9, 0.55) end
+	-- (the look's EMPOWERED state arrives with the burst)
+	task.delay(T.windup + T.run + 0.2, function()
+		local p = msg.attacker :: Player
+		if p and p.Parent then pcall(refreshLook, p) end
+		refreshHud()
 	end)
 end
 
--- The pulse: a crimson ring bursts out, the room darkens, veins spread
--- across the floor; then he's Unchained (the look takes over).
-local function onUnchained(msg: any)
+-- The burst at the end of the charge: a crimson shockwave, the floor
+-- cracking, rocks thrown out.
+local function onChargeEnd(msg: any)
+	local pos = msg.pos :: Vector3
+	local r = msg.radius :: number
+	local g = Vector3.new(pos.X, FireFX.GroundY(pos), pos.Z)
+	shockwave(g, r, charOf(msg.attacker))
+	blast(g, r * 0.5)
+	cracks(g, r, 10, 1.6)
+	fling(g + Vector3.new(0, 0.3, 0), 8, 22, 12, true)
+	smoke(g + Vector3.new(0, 0.5, 0), 10, 3)
+	ClassFX.Sound("boom", pos, 0.8, 0.8)
+	if msg.attacker == player then
+		deps.shake(0.9, 0.3)
+		deps.fovPunch(6, 0.25)
+	end
+end
+
+-- ── Beast Form: the server's moments ────────────────────────────────────────
+-- M1 · the claws, seen by everyone else (ours were drawn on the click).
+local function onClaw(msg: any)
+	if msg.attacker == player then return end
+	local char = charOf(msg.attacker)
+	if not char then return end
+	clawPose(char, msg.step)
+	clawVFX(char, msg.step, msg.dir)
+end
+
+-- The maul lands: three gashes torn straight down, the floor bursting.
+local function onMaul(msg: any)
+	local pos = msg.pos :: Vector3
+	local dir = msg.dir :: Vector3
+	local r = msg.radius :: number
+	local char = charOf(msg.attacker)
+	clawMarks(CFrame.lookAt(pos, pos + dir) * CFrame.new(0, 1.2, -1) * CFrame.Angles(0, 0, math.rad(-85)), r * 0.55, 120, 1, true)
+	eruption(pos, r * 0.55, 0.6, char)
+	ClassFX.Sound("rockHit", pos, 0.9, 0.7)
+	if msg.attacker == player then
+		deps.shake(0.7, 0.18)
+		deps.fovPunch(4, 0.15)
+	end
+end
+
+-- R · the awakening: he freezes, sparks crawling over him; the body
+-- distorts (red lightning tearing out of it, the floor splitting, smoke
+-- pouring off); the sword is cast aside; then the roar (onRoar).
+local function onAwaken(msg: any)
+	local char = charOf(msg.attacker)
+	local root = rootOf(char)
+	if not char or not root then return end
+	local mine = msg.attacker == player
+	local T = msg.t
+	if not mine then awakenPose(char) end
+	local g = Vector3.new(root.Position.X, FireFX.GroundY(root.Position), root.Position.Z)
+	ClassFX.Sound("charge", root, 1, 0.45)
+	sparks(root.Position + Vector3.new(0, 1, 0), 18, 6)
+	-- the distortion
+	local n = 10
+	for k = 1, n do
+		task.delay(T.freeze + (k - 1) * (T.mutate / n), function()
+			if not root.Parent then return end
+			local a = math.random() * math.pi * 2
+			local from = root.Position + Vector3.new(0, 1 + math.random(), 0)
+			bolt(from, from + Vector3.new(math.cos(a) * (3 + k * 0.3), math.random() * 3 - 0.5, math.sin(a) * (3 + k * 0.3)), 0.16 + k * 0.01, 0.12)
+			sparks(from, 6 + k, 8 + k)
+			if k % 3 == 0 then
+				cracks(g, 2 + k * 0.5, 5, 1.6)
+				smoke(g + Vector3.new(0, 1, 0), 4, 2 + k * 0.2)
+			end
+			if mine then deps.shake(0.15 + k * 0.05, 0.12) end
+		end)
+	end
+	if near(root.Position, 70) then
+		tint("BerserkerChange", { Brightness = -0.1, Saturation = -0.3, Contrast = 0.3, TintColor = Color3.fromRGB(255, 150, 150) }, T.mutate, T.freeze, 0.2)
+	end
+	-- The sword, cast aside: flung away to stick in the floor beside him.
+	task.delay(T.change - 0.05, function()
+		local tool = char:FindFirstChild("Ragebringer")
+		if not (tool and root.Parent) then return end
+		local copy = Instance.new("Model")
+		copy.Name = "CastAsideSword"
+		for _, d in ipairs(tool:GetDescendants()) do
+			if d:IsA("BasePart") and d.Transparency < 1 then
+				local c = d:Clone()
+				for _, j in ipairs(c:GetChildren()) do
+					if j:IsA("JointInstance") or j:IsA("WeldConstraint") or j:IsA("Attachment") or j:IsA("Trail") then j:Destroy() end
+				end
+				c.Anchored, c.CanCollide, c.CanQuery, c.CanTouch = true, false, false, false
+				c.Parent = copy
+			end
+		end
+		if #copy:GetChildren() == 0 then copy:Destroy() return end
+		copy.Parent = ClassFX.Folder()
+		local start = copy:GetPivot()
+		local side = root.CFrame.RightVector * (if math.random() < 0.5 then 1 else -1)
+		local stuck = CFrame.new(ground(root.Position + side * 7 - root.CFrame.LookVector * 2) + Vector3.new(0, 2.2, 0))
+			* CFrame.Angles(math.rad(180 + math.random(-15, 15)), math.random() * 6, 0)
+		local v = Instance.new("CFrameValue")
+		v.Value = start
+		v.Changed:Connect(function(cf) if copy.Parent then copy:PivotTo(cf) end end)
+		TweenService:Create(v, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Value = stuck }):Play()
+		task.delay(0.36, function()
+			v:Destroy()
+			if not copy.Parent then return end
+			local gp = ground(stuck.Position)
+			cracks(gp, 2, 4, 1.2)
+			smoke(gp + Vector3.new(0, 0.5, 0), 3, 1.5)
+		end)
+		task.delay(BEAST_TIME * 0.6, function()
+			for _, p in ipairs(copy:GetChildren()) do
+				if p:IsA("BasePart") then TweenService:Create(p, TweenInfo.new(0.6), { Transparency = 1 }):Play() end
+			end
+			Debris:AddItem(copy, 0.7)
+		end)
+	end)
+end
+
+-- The roar: a red shockwave bursts out, the world flashes, the floor
+-- splits wide, rock is thrown; he is the BEAST.
+local function onRoar(msg: any)
 	local char = charOf(msg.attacker)
 	local pos = msg.pos :: Vector3
 	local r = msg.radius :: number
-	unchainedFor = msg.duration or unchainedFor
 	local g = Vector3.new(pos.X, FireFX.GroundY(pos), pos.Z)
 	shockwave(g, r, char)
+	task.delay(0.12, function() shockwave(g, r * 1.4, char) end)
 	flipbook("shock", g + Vector3.new(0, 0.2, 0), r * 2.6, 1, seq(Color3.fromRGB(255, 110, 110), CRIMSON), 3)
 	blast(g, r * 0.5)
-	-- crimson veins creeping out over the floor
-	cracks(g, r * 1.4, 14, 2.6)
-	task.delay(0.15, function() cracks(g, r * 0.9, 10, 2.2) end)
-	for i = 1, 6 do
-		local a = i / 6 * math.pi * 2 + math.random() * 0.4
-		bolt(pos + Vector3.new(0, 1.5, 0), g + Vector3.new(math.cos(a) * r * 0.5, 0.3, math.sin(a) * r * 0.5), 0.2, 0.2)
+	cracks(g, r * 1.3, 18, 2.8)
+	fling(g + Vector3.new(0, 0.5, 0), 14, 30, 20, true)
+	smoke(g + Vector3.new(0, 1, 0), 12, 4)
+	for i = 1, 8 do
+		local a = i / 8 * math.pi * 2 + math.random() * 0.3
+		bolt(pos + Vector3.new(0, 1.5, 0), g + Vector3.new(math.cos(a) * r * 0.6, 0.3, math.sin(a) * r * 0.6), 0.22, 0.22)
 	end
-	ClassFX.Sound("boom", pos, 0.8, 0.7)
-	if near(pos, 70) then
-		tint("BerserkerPulse", { Brightness = -0.22, Saturation = -0.4, Contrast = 0.3, TintColor = Color3.fromRGB(255, 170, 170) }, 0.25, 0.06, 0.6)
+	ClassFX.Sound("boom", pos, 1, 0.5)
+	ClassFX.Sound("charge", pos, 0.8, 0.35)
+	if near(pos, 80) then
+		screenFlash(0.35)
+		tint("BerserkerRoar", { Brightness = -0.2, Saturation = -0.3, Contrast = 0.4, TintColor = Color3.fromRGB(255, 140, 140) }, 0.3, 0.05, 0.7)
+		deps.shake(if msg.attacker == player then 1.6 else 0.8, 0.5)
 	end
 	if msg.attacker == player then
-		deps.shake(0.9, 0.3)
-		deps.fovPunch(8, 0.3)
-		if char then popWord(char, "UNCHAINED", 30) end
+		deps.fovPunch(12, 0.4)
+		if char then popWord(char, "BEAST AWAKENING", 34) end
 	end
-	-- (refresh now rather than on the next look tick)
 	task.defer(function()
 		local p = msg.attacker :: Player
 		if p and p.Parent then pcall(refreshLook, p) end
@@ -1755,153 +2180,236 @@ local function onUnchained(msg: any)
 	end)
 end
 
--- R · Worldbreaker: kneeling, the floor's fragments lift and red motes
--- pour in; the launch in a crimson spiral; the hang (time slows); the dive
--- with a giant blade of red energy dragged behind.
-local function onWorldbreaker(msg: any)
+-- The change ends: down on one knee, red mist boiling off him as he
+-- shrinks, the sword reforming in his hand in a streak of light.
+local function onRevert(msg: any)
 	local char = charOf(msg.attacker)
 	local root = rootOf(char)
 	if not char or not root then return end
-	local mine = msg.attacker == player
-	local T = msg.t
-	local from = msg.from :: Vector3
-	local land = msg.land :: Vector3
-	local big = if msg.empowered then 1.3 else 1
-	if not mine then wbPose(char) end
-	trail(char, T.impact + 0.3)
-	local g0 = Vector3.new(from.X, FireFX.GroundY(from), from.Z)
-	-- Phase 1 · the gathering
-	local releaseStones = liftDebris(g0, 13, 22, 5, T.gather * 0.9)
-	cracks(g0, 14, 16, T.gather + 0.8)
-	-- the red spiral winding up round the raised blade
-	do
-		local last: { Vector3 }? = nil
-		local angle = 0
-		local t0 = os.clock()
-		local conn: RBXScriptConnection
-		conn = RunService.RenderStepped:Connect(function(dt)
-			local k = os.clock() - t0
-			if not root.Parent or k > T.gather then
-				conn:Disconnect()
-				return
-			end
-			angle += dt * 9
-			local h = 2.5 + (k * 9) % 9
-			-- (back to the bottom: start a fresh coil, no streak down)
-			if last and h < last[1].Y - root.Position.Y - 1 then last = nil end
-			last = spiralStep(root.Position + Vector3.new(0, h, 0) + root.CFrame.LookVector * 1.2, angle, 1.6, last)
-		end)
-	end
-	motesIn(function() return if root.Parent then root.Position else from end, 14, 40, T.gather)
-	cracks(g0, 5, 8, T.gather + 0.6)
-	groundFlash(g0, 7)
-	ClassFX.Sound("charge", root, 0.9, 0.6)
-	-- Phase 2 · ascension: a burst off the floor, then the spiral
-	task.delay(T.gather, function()
+	local T = msg.t :: number
+	revertPose(char)
+	smoke(root.Position, 12, 3)
+	sparks(root.Position + Vector3.new(0, 1, 0), 20, 10)
+	task.delay(T * 0.55, function()
 		if not root.Parent then return end
-		releaseStones()
-		blast(g0, 6)
-		shockwave(g0, 10, char)
-		flipbook("shock", g0 + Vector3.new(0, 0.2, 0), 22, 1, seq(Color3.fromRGB(255, 120, 120), CRIMSON), 3)
-		smoke(g0 + Vector3.new(0, 1, 0), 14, 3.5)
-		ClassFX.Sound("boom", g0, 0.8, 1.1)
-		ClassFX.Sound("whoosh", root, 1, 0.45)
-		if mine then
-			deps.fovPunch(12, 0.4)
-			deps.shake(0.7, 0.2)
-		end
-		local last: { Vector3 }? = nil
-		local angle = 0
-		local t0 = os.clock()
-		local conn: RBXScriptConnection
-		conn = RunService.RenderStepped:Connect(function(dt)
-			local k = os.clock() - t0
-			if not root.Parent or k > T.ascend + 0.1 then
-				conn:Disconnect()
-				return
-			end
-			angle += dt * 22
-			last = spiralStep(root.Position - Vector3.new(0, 1.5, 0), angle, 2.2 * big, last)
-		end)
+		local arm = char:FindFirstChild("Right Arm") :: BasePart?
+		local hand = if arm then arm.Position - arm.CFrame.UpVector * 1.2 else root.Position
+		SwordFX.Streak(hand, hand + root.CFrame.LookVector * 6 + Vector3.new(0, 2, 0), 0.5, HOT, 0.4, nil, CRIMSON)
+		groundFlash(Vector3.new(root.Position.X, FireFX.GroundY(root.Position), root.Position.Z), 4)
+		ClassFX.Sound("charge", root, 0.6, 1.1)
+		if msg.attacker == player then deps.shake(0.4, 0.15) end
 	end)
-	-- Phase 3 · the hang: time slows, the blade raised overhead
-	task.delay(T.gather + T.ascend, function()
-		if not root.Parent then return end
-		if mine or near(root.Position, 90) then
-			tint("BerserkerSlow", { Brightness = -0.08, Saturation = -0.55, Contrast = 0.2, TintColor = Color3.fromRGB(255, 205, 205) },
-				T.hang, 0.08, 0.15)
-		end
-		sparks(root.Position + Vector3.new(0, 3, 0), 20, 8)
-		ClassFX.Sound("charge", root, 0.7, 1.2)
-	end)
-	-- the dive, dragging the giant blade
-	task.delay(T.gather + T.ascend + T.hang - 0.05, function()
-		if not root.Parent then return end
-		local update, remove = energyBlade(1.1 * big)
-		local t0 = os.clock()
-		local conn: RBXScriptConnection
-		conn = RunService.RenderStepped:Connect(function()
-			if not root.Parent or os.clock() - t0 > T.dive + 0.08 then
-				conn:Disconnect()
-				remove()
-				return
-			end
-			update(root.CFrame)
-		end)
-		SwordFX.Streak(root.Position, land, 1.6, CRIMSON, 0.35, 10, CORE)
-		ClassFX.Afterimages(char, CRIMSON, 4, 0.04)
-		ClassFX.Sound("whoosh", root, 1, 0.4)
+	task.defer(function()
+		local p = msg.attacker :: Player
+		if p and p.Parent then pcall(refreshLook, p) end
+		refreshHud()
 	end)
 end
 
--- The blow: a white-red flash, a towering crimson column, the crater and
--- radial fissures, several rings racing out, rock flung at every height.
-local function onWbImpact(msg: any)
-	local pos = if msg.attacker == player and wbLanding then wbLanding else msg.pos :: Vector3
-	local r = msg.radius :: number
+-- E · Beast Slam: the crouch splits the floor; the launch blasts it; chunks
+-- of floor torn up where he'll land.
+local function onBeastSlam(msg: any)
 	local char = charOf(msg.attacker)
+	local root = rootOf(char)
+	if not char or not root then return end
+	if msg.attacker ~= player then beastSlamPose(char) end
+	local T = msg.t
+	local origin = root.Position
+	local g0 = Vector3.new(origin.X, FireFX.GroundY(origin), origin.Z)
+	cracks(g0, 4, 8, 1.2)
+	groundFlash(g0, 6)
+	ClassFX.Sound("charge", root, 0.6, 0.8)
+	task.delay(T.crouch, function()
+		if not root.Parent then return end
+		smoke(g0 + Vector3.new(0, 0.5, 0), 12, 3)
+		shockwave(g0, 9, char)
+		fling(g0 + Vector3.new(0, 0.3, 0), 10, 22, 16, true)
+		for i = 1, 5 do
+			local off = Vector3.new(math.cos(i * 1.3), 0, math.sin(i * 1.3)) * 1.2
+			SwordFX.Streak(origin + off - Vector3.new(0, 2, 0), origin + off + Vector3.new(0, SLAM_HEIGHT * 0.8, 0), 0.45, CRIMSON, 0.4, nil, CORE)
+		end
+		ClassFX.Sound("whoosh", root, 1, 0.5)
+		if msg.attacker == player then deps.fovPunch(8, 0.3) end
+	end)
+	task.delay(T.crouch + T.rise * 0.5, function()
+		local landG = (msg.land :: Vector3?) or origin
+		landG = Vector3.new(landG.X, FireFX.GroundY(landG), landG.Z)
+		local release = liftDebris(landG, 10, 14, 1, T.rise * 0.5 + T.hang + T.fall)
+		task.delay(T.rise * 0.5 + T.hang + T.fall, release)
+	end)
+end
+
+-- The crash on all fours: a white-red flash, a crater, everything under him
+-- crushed.
+local function onBeastSlamImpact(msg: any)
+	local pos = if msg.attacker == player and slamLanding then slamLanding else msg.pos :: Vector3
+	local r = msg.radius :: number
 	local g = Vector3.new(pos.X, FireFX.GroundY(pos), pos.Z)
-	if msg.attacker == player or near(pos, 70) then screenFlash(if msg.attacker == player then 0.85 else 0.5) end
 	crimsonImpact(g, r, true)
-	groundFlash(g, r)
-	shards(g, r * 0.85, if msg.empowered then 26 else 20, 2, 4.5, 1.2)
-	cracks(g, r * 1.5, 18, 3)
-	for i = 0, 2 do
-		task.delay(i * 0.12, function()
-			shockwave(g, r * (1 + i * 0.35), char)
-			flipbook("shock", g + Vector3.new(0, 0.2 + i * 0.05, 0), r * (2.2 + i * 0.8), 1,
-				seq(Color3.fromRGB(255, 120, 120), CRIMSON), 3)
-		end)
-	end
-	linger(g, r * 0.8, 3)
-	ClassFX.Sound("quake", pos, 1, 0.85, 2.2)
-	ClassFX.Sound("boom", pos, 1, 0.65)
+	eruption(g, r, 1.4, charOf(msg.attacker))
+	linger(g, r * 0.8, 2.5)
+	ClassFX.Sound("boom", pos, 1, 0.55)
+	if near(pos, 80) then screenFlash(0.25) end
 	if msg.attacker == player then
-		deps.shake(2, 0.5)
-		deps.fovPunch(14, 0.45)
-	elseif near(pos, 90) then
-		deps.shake(0.9, 0.4)
+		deps.shake(1.5, 0.35)
+		deps.fovPunch(10, 0.3)
+	elseif near(pos, 80) then
+		deps.shake(0.6, 0.25)
 	end
 end
 
--- The delayed second explosion: the crater bursts again, wider; smoke and
--- embers rise, and he hauls the blade free.
-local function onWbSecond(msg: any)
-	local pos = if msg.attacker == player and wbLanding then wbLanding else msg.pos :: Vector3
+-- The three rings rolling out: knocked back, launched (spikes burst up),
+-- then a last great wave over the whole area.
+local function onBeastRing(msg: any)
+	local pos = if msg.attacker == player and slamLanding then slamLanding else msg.pos :: Vector3
 	local r = msg.radius :: number
+	local i = msg.i :: number
 	local g = Vector3.new(pos.X, FireFX.GroundY(pos), pos.Z)
-	groundFlash(g, r * 1.2)
-	cracks(g, r * 1.3, 14, 2.4)
-	shards(g, r * 0.9, 26, 2, 4.5, 1.1)
-	shockwave(g, r * 1.2, charOf(msg.attacker))
-	flipbook("shock", g + Vector3.new(0, 0.3, 0), r * 3, 1, seq(Color3.fromRGB(255, 120, 120), CRIMSON), 3)
-	linger(g, r * 0.9, 3.5)
-	ClassFX.Sound("boom", pos, 1, 0.55)
-	if msg.attacker == player then
-		deps.shake(1.2, 0.35)
-	elseif near(pos, 80) then
-		deps.shake(0.6, 0.3)
+	shockwave(g, r, charOf(msg.attacker))
+	flipbook("shock", g + Vector3.new(0, 0.2, 0), r * 2.1, 1, seq(Color3.fromRGB(255, 120, 120), CRIMSON), 2.5)
+	cracks(g, r, 8 + i * 4, 1.4)
+	if i == 2 then shards(g, r * 0.9, 16, 2, 4.5, 0.9) end
+	fling(g + Vector3.new(0, 0.4, 0), 6 + i * 3, 20 + i * 4, 14 + i * 3, true)
+	ClassFX.Sound("rockHit", pos, 0.8, 0.9 - i * 0.1)
+	if msg.attacker == player then deps.shake(0.9 - i * 0.15, 0.2) end
+end
+
+-- F · Carnage: the claws (poses); each swipe's gashes come with its hit.
+local function onCarnage(msg: any)
+	if msg.attacker == player then return end
+	local char = charOf(msg.attacker)
+	if char then carnagePose(char) end
+end
+
+-- Each swipe: three huge gashes across the front (the last a great rake
+-- down, the floor torn open where it lands).
+local function onCarnageHit(msg: any)
+	local pos = msg.pos :: Vector3
+	local dir = msg.dir :: Vector3
+	local r = msg.radius :: number
+	local i = msg.i :: number
+	local look = CFrame.lookAt(pos, pos + dir)
+	if i == 1 then
+		clawMarks(look * CFrame.new(0, 0.6, 0) * CFrame.Angles(0, 0, math.rad(-8)), r, 170, 1, true)
+	elseif i == 2 then
+		clawMarks(look * CFrame.new(0, 0.6, 0) * CFrame.Angles(0, 0, math.rad(8)), r, 170, -1, true)
+	else
+		clawMarks(look * CFrame.new(0, 1.2, 0) * CFrame.Angles(0, 0, math.rad(-55)), r, 150, 1, true)
+		local land = ground(pos + dir * r * 0.55)
+		cracks(land, r * 0.4, 10, 1.4)
+		shards(land, r * 0.35, 10, 1.5, 3.5, 0.8)
+		fling(land + Vector3.new(0, 0.5, 0), 10, 26, 18, true)
+		flipbook("shock", land + Vector3.new(0, 0.2, 0), r * 1.2, 1, seq(Color3.fromRGB(255, 120, 120), CRIMSON), 3)
 	end
+	sparks(pos + dir * r * 0.4, 14 + i * 6, 24)
+	ClassFX.Sound("swordHit", pos, 0.9, 0.55 + i * 0.05)
+	if msg.attacker == player then
+		deps.shake(0.45 + i * 0.2, 0.14)
+		deps.fovPunch(2 + i * 2, 0.14)
+	end
+end
+
+-- Bleeding: blood dripping off them for a while.
+local function onBleed(msg: any)
+	local m = msg.model
+	if typeof(m) ~= "Instance" or not m:IsA("Model") or not FxBudget.Allow("berserkerBleed", 6) then return end
+	local root = m:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root then return end
+	local e = Instance.new("ParticleEmitter")
+	e.Name = "BeastBleed"
+	e.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	e.Color = ColorSequence.new(Color3.fromRGB(200, 10, 20), Color3.fromRGB(90, 0, 8))
+	e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 0.1) })
+	e.Lifetime = NumberRange.new(0.5, 0.8)
+	e.Speed = NumberRange.new(1, 3)
+	e.SpreadAngle = Vector2.new(60, 60)
+	e.Acceleration = Vector3.new(0, -30, 0)
+	e.Rate = 18
+	e.Parent = root
+	Debris:AddItem(e, tonumber(msg.duration) or 2.5)
+end
+
+-- Q · Beast Charge: a red streak and dust torn up down the path he gallops.
+local function onBeastCharge(msg: any)
+	local char = charOf(msg.attacker)
+	local root = rootOf(char)
+	if not char or not root then return end
+	local T = msg.t
+	if msg.attacker ~= player then allFoursPose(char, T.crouch + T.run) end
+	local from = msg.from :: Vector3
+	local g0 = Vector3.new(from.X, FireFX.GroundY(from), from.Z)
+	cracks(g0, 3, 6, 1)
+	ClassFX.Sound("charge", root, 0.7, 0.9)
+	task.delay(T.crouch, function()
+		if not root.Parent then return end
+		smoke(g0 + Vector3.new(0, 0.5, 0), 8, 2.6)
+		fling(g0 + Vector3.new(0, 0.3, 0), 6, 16, 8, true)
+		ClassFX.Sound("whoosh", root, 1, 0.55)
+		if msg.attacker == player then deps.fovPunch(10, 0.35) end
+		local last = root.Position
+		for k = 1, 6 do
+			task.delay(T.run * k / 6, function()
+				if not root.Parent then return end
+				local now = root.Position
+				groundStreak(last, now, 4, 0.8)
+				SwordFX.Streak(last + Vector3.new(0, 0.6, 0), now + Vector3.new(0, 0.6, 0), 0.6, CRIMSON, 0.35, nil, HOT)
+				smoke(Vector3.new(now.X, FireFX.GroundY(now), now.Z) + Vector3.new(0, 0.4, 0), 2, 1.8)
+				cracks(Vector3.new(now.X, FireFX.GroundY(now), now.Z), 2, 3, 0.8)
+				last = now
+				if msg.attacker == player then deps.shake(0.25, 0.08) end
+			end)
+		end
+	end)
+end
+
+-- The grab: the biggest one hoisted overhead, red lightning crackling off it.
+local function onBeastGrab(msg: any)
+	local char = charOf(msg.attacker)
+	local root = rootOf(char)
+	if not char or not root then return end
+	grabPose(char)
+	local m = msg.model
+	local vr = if typeof(m) == "Instance" then m:FindFirstChild("HumanoidRootPart") :: BasePart? else nil
+	ClassFX.Sound("rockHit", root, 0.8, 0.6)
+	for k = 1, 4 do
+		task.delay((k - 1) * 0.1, function()
+			if vr and vr.Parent and root.Parent then
+				bolt(root.Position + Vector3.new(0, 2, 0), vr.Position, 0.18, 0.12)
+				sparks(vr.Position, 8, 10)
+			end
+		end)
+	end
+end
+
+-- The throw: hurled forward, a red streak trailing the body.
+local function onBeastThrow(msg: any)
+	local char = charOf(msg.attacker)
+	if char then throwPose(char) end
+	local m = msg.model
+	local vr = if typeof(m) == "Instance" then m:FindFirstChild("HumanoidRootPart") :: BasePart? else nil
+	if not vr then return end
+	ClassFX.Sound("whoosh", vr, 1, 0.5)
+	if msg.attacker == player then deps.shake(0.6, 0.2) end
+	local last = vr.Position
+	for k = 1, 10 do
+		task.delay(k * 0.08, function()
+			if not vr.Parent then return end
+			local now = vr.Position
+			SwordFX.Streak(last, now, 0.8, CRIMSON, 0.3, nil, HOT)
+			if k % 3 == 0 then smoke(now, 2, 2) end
+			last = now
+		end)
+	end
+end
+
+-- The thrown body bowling another over.
+local function onThrowHit(msg: any)
+	if not FxBudget.Allow("berserkerThrowHit", 8) then return end
+	local pos = msg.pos :: Vector3
+	sparks(pos, 16, 20)
+	local g = Vector3.new(pos.X, FireFX.GroundY(pos), pos.Z)
+	shockwave(g, 5, nil)
+	ClassFX.Sound("rockHit", pos, 0.7, 1)
 end
 
 -- The Unchained charge spent on a skill: a burst off his body.
@@ -1928,11 +2436,23 @@ local HANDLERS: { [string]: (any) -> () } = {
 	storm = onStorm,
 	stormHit = onStormHit,
 	stormFinal = onStormFinal,
-	unchainWindup = onUnchainWindup,
-	unchained = onUnchained,
-	worldbreaker = onWorldbreaker,
-	wbImpact = onWbImpact,
-	wbSecond = onWbSecond,
+	charge = onCharge,
+	chargeEnd = onChargeEnd,
+	claw = onClaw,
+	maul = onMaul,
+	awaken = onAwaken,
+	roar = onRoar,
+	revert = onRevert,
+	beastSlam = onBeastSlam,
+	beastSlamImpact = onBeastSlamImpact,
+	beastRing = onBeastRing,
+	carnage = onCarnage,
+	carnageHit = onCarnageHit,
+	bleed = onBleed,
+	beastCharge = onBeastCharge,
+	beastGrab = onBeastGrab,
+	beastThrow = onBeastThrow,
+	throwHit = onThrowHit,
 	empowered = onEmpowered,
 }
 
@@ -1940,7 +2460,7 @@ function BerserkerController.Init(d: Deps)
 	deps = d
 	buildHud()
 	refreshHud()
-	for _, a in ipairs({ "BR_UnchainedUntil", "BR_Empowered", "SelectedClass", "InLobby", "SettingsOpen" }) do
+	for _, a in ipairs({ "BR_BeastUntil", "BR_Rage", "BR_Empowered", "SelectedClass", "InLobby", "SettingsOpen" }) do
 		player:GetAttributeChangedSignal(a):Connect(refreshHud)
 	end
 	player.CharacterAdded:Connect(function()
@@ -1955,8 +2475,8 @@ function BerserkerController.Init(d: Deps)
 		local now = os.clock()
 		unchainedStep(now)
 		-- (the gauge drains while Unchained)
-		if hud and hud.Enabled and unchainedLeft(player) > 0 and fill then
-			fill.Size = UDim2.fromScale(math.clamp(unchainedLeft(player) / unchainedFor, 0, 1), 1)
+		if hud and hud.Enabled and beastLeft(player) > 0 and fill then
+			fill.Size = UDim2.fromScale(math.clamp(beastLeft(player) / unchainedFor, 0, 1), 1)
 		end
 	end)
 	-- Both hands on the greatsword: the idle hold, then the two-handed grip
@@ -1964,7 +2484,9 @@ function BerserkerController.Init(d: Deps)
 	CastPoses.addPostHook(function(dt)
 		holdStep(dt)
 		twoHandStep()
+		beastStep(dt)
 	end)
+	watchLandings()
 	task.spawn(function()
 		while true do
 			task.wait(0.25)
@@ -1978,8 +2500,8 @@ function BerserkerController.Init(d: Deps)
 					looks[p] = nil
 				end
 			end
-			-- (Unchained running out: the gauge hides)
-			if hud and hud.Enabled and unchainedLeft(player) <= 0 then refreshHud() end
+			-- (the beast's timer running out: back to the Rage meter)
+			if hud and hud.Enabled then refreshHud() end
 		end
 	end)
 	Network.GetRemoteEvent(Network.Remotes.BerserkerFX).OnClientEvent:Connect(function(msg: any)

@@ -17,6 +17,7 @@ local HumanoidIndex = require(Shared:WaitForChild("HumanoidIndex"))
 local RangerArrowData = require(Shared:WaitForChild("RangerArrowData"))
 local RunScope = require(Shared:WaitForChild("RunScope"))
 local SkillData = require(Shared:WaitForChild("SkillData"))
+local BeamFan = require(Shared:WaitForChild("BeamFan"))
 local PlayerStats = require(script.Parent:WaitForChild("PlayerStats"))
 local RunStats = require(script.Parent:WaitForChild("RunStats"))
 local AllyManager = require(script.Parent:WaitForChild("AllyManager"))
@@ -289,9 +290,19 @@ local IMPACT_PROFILES: { [string]: ImpactProfile } = {
 	["RUPTURE"]            = { kb = 12, lift = 22, stagger = 0.8,  style = "slash", heavy = true },
 	["BLOODSTORM"]         = { kb = 16, lift = 4,  stagger = 0.5,  style = "slash", heavy = true },
 	["BLOODSTORM FINISH"]  = { kb = 46, lift = 12, stagger = 0.8,  style = "slash", heavy = true },
-	["BLOODRAGE PULSE"]    = { kb = 26, lift = 4,  stagger = 0.4,  style = "slash" },
-	["WORLDBREAKER"]       = { kb = 34, lift = 30, stagger = 1.2,  style = "slash", heavy = true },
-	["WORLDBREAKER EXECUTE"] = { kb = 44, lift = 20, stagger = 1.0, style = "slash", heavy = true },
+	["CRIMSON CHARGE"]     = { kb = 0,  lift = 0,  stagger = 0.5,  style = "slash", heavy = true },
+	-- Berserker, Beast Form
+	["BEAST ROAR"]         = { kb = 0,  lift = 6,  stagger = 1.0,  style = "slash", heavy = true },
+	["BEAST CLAW"]         = { kb = 5,  lift = 0,  stagger = 0.3,  style = "slash" },
+	["BEAST MAUL"]         = { kb = 18, lift = 4,  stagger = 0.9,  style = "slash", heavy = true },
+	["BEAST SLAM"]         = { kb = 0,  lift = 6,  stagger = 1.6,  style = "slash", heavy = true },
+	["BEAST QUAKE"]        = { kb = 40, lift = 6,  stagger = 0.6,  style = "slash", heavy = true },
+	["BEAST UPHEAVAL"]     = { kb = 8,  lift = 48, stagger = 0.9,  style = "slash", heavy = true },
+	["BEAST TREMOR"]       = { kb = 46, lift = 10, stagger = 0.6,  style = "slash", heavy = true },
+	["CARNAGE"]            = { kb = 8,  lift = 0,  stagger = 0.35, style = "slash", heavy = true },
+	["CARNAGE FINISH"]     = { kb = 40, lift = 34, stagger = 1.0,  style = "slash", heavy = true },
+	["BEAST CHARGE"]       = { kb = 0,  lift = 0,  stagger = 0.6,  style = "slash", heavy = true },
+	["BEAST THROW"]        = { kb = 0,  lift = 0,  stagger = 0.8,  style = "slash", heavy = true },
 }
 
 -- How many effect messages a player's hits may send each second. The hits
@@ -1112,8 +1123,8 @@ local function executeClericDivineBeam(player: Player, casterChar: Model, origin
 	local halfWidth = math.max(0.5, (config.width or 3.0) * (config.areaMultiplier or 1) * 0.5)
 	local TICK = 0.5
 	local perHit = damage * TICK / math.max(duration, 0.001)
-	local numBeams = 1 + math.max(0, math.floor(config.projectileCount or 0))
-	local spreadDeg = if numBeams > 1 then math.clamp(12, 6, 60 / (numBeams - 1)) else 0
+	-- (a beam per projectile, fanning out into a ring: BeamFan)
+	local angles = BeamFan.Angles(config.projectileCount)
 
 	-- Channeled holy laser: tick damage for the full channel, tracking the caster's facing
 	-- (the client rotates the character to face the cursor, so LookVector IS the aim).
@@ -1129,14 +1140,8 @@ local function executeClericDivineBeam(player: Player, casterChar: Model, origin
 			flatDir = flatDir.Unit
 
 			local beamDirs = {}
-			if numBeams <= 1 then
-				table.insert(beamDirs, flatDir)
-			else
-				local startAngle = - (numBeams - 1) * spreadDeg * 0.5
-				for i = 1, numBeams do
-					local deg = startAngle + (i - 1) * spreadDeg
-					table.insert(beamDirs, rotateFlatDirection(flatDir, deg))
-				end
+			for _, deg in ipairs(angles) do
+				table.insert(beamDirs, if deg == 0 then flatDir else rotateFlatDirection(flatDir, deg))
 			end
 
 			local damagedThisTick = {}
@@ -1316,8 +1321,8 @@ local function executeIceBeam(player: Player, casterChar: Model, origin: Vector3
 	local width = (config.width or 3) * (config.areaMultiplier or 1) * 0.5 + 0.5
 	local TICK = 0.25
 	local perHit = config.damage * TICK / math.max(duration, 0.001)
-	local numBeams = 1 + math.max(0, math.floor(config.projectileCount or 0))
-	local spreadDeg = if numBeams > 1 then math.clamp(12, 6, 60 / (numBeams - 1)) else 0
+	-- (a beam per projectile, fanning out into a ring: BeamFan)
+	local angles = BeamFan.Angles(config.projectileCount)
 
 	task.spawn(function()
 		local t0 = os.clock()
@@ -1325,9 +1330,7 @@ local function executeIceBeam(player: Player, casterChar: Model, origin: Vector3
 			local root = casterChar.Parent and casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
 			if not root then break end
 
-			local startAngle = if numBeams > 1 then - (numBeams - 1) * spreadDeg * 0.5 else 0
-			for i = 1, numBeams do
-				local deg = if numBeams > 1 then (startAngle + (i - 1) * spreadDeg) else 0
+			for _, deg in ipairs(angles) do
 				local bDir = rotateFlatDirection(root.CFrame.LookVector, deg)
 				local target = damageFirstTargetOnLine(player, casterChar, root.Position, bDir, range, width, perHit, "ICE BEAM")
 				if target then
@@ -1533,8 +1536,12 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 		if not RogueServer.CanUseSkill(player, skillIndex) then return end
 		if RogueServer.TryRecast(player, char, skillIndex) then return end
 	end
-	-- Berserker: nothing mid-leap, mid-Bloodstorm or mid-Worldbreaker.
-	if classId == "berserker" and not BerserkerServer.CanUseSkill(player, skillIndex) then return end
+	-- Berserker: nothing mid-move; the Beast Awakening needs a full Rage meter;
+	-- as the beast, his skills recharge faster.
+	if classId == "berserker" then
+		if not BerserkerServer.CanUseSkill(player, skillIndex) then return end
+		effectiveConfig.cooldown *= BerserkerServer.CooldownMult(player)
+	end
 	-- Fire Knight: nothing mid-charge / mid-guard / mid-slam / mid-awakening.
 	if classId == "heavy_knight" and not FireKnightServer.CanUseSkill(player, skillIndex) then return end
 
@@ -1579,6 +1586,12 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	Boons.OnAbility(player)
 	cooldownLengths[player] = cooldownLengths[player] or {}
 	cooldownLengths[player][skillIndex] = effectiveConfig.cooldown
+	-- (the client timed the cast on the base cooldown: tell it the beast's)
+	if classId == "berserker" and BerserkerServer.CooldownMult(player) ~= 1 then
+		Network.GetRemoteEvent(Network.Remotes.SkillCooldownUpdate):FireClient(player, {
+			skillIndex = skillIndex, cooldown = effectiveConfig.cooldown, elapsed = 0,
+		})
+	end
 
 	-- Direction and origin extraction
 	local clientOrigin = typeof(payload.origin) == "Vector3" and payload.origin or rootPart.Position
@@ -1696,7 +1709,7 @@ ultCutscene = function(classId: string, config: any): number
 	if classId == "gunslinger" then return 1.4 end
 	if classId == "swordsman" then return SwordsmanServer.STORM_WINDUP end
 	if classId == "rogue" then return RogueServer.REALM_WINDUP end
-	if classId == "berserker" then return BerserkerServer.GATHER_TIME end -- Worldbreaker's gathering
+	if classId == "berserker" then return BerserkerServer.GATHER_TIME end -- the Beast Awakening
 	if classId == "heavy_knight" then return FireKnightServer.AWAKEN end
 	return 1.0 -- Ranger close-up
 end
@@ -1839,6 +1852,8 @@ function SkillManager.Init()
 	RogueServer.Init({
 		getPotentialTargets = getPotentialTargets,
 		dealDamage = dealDamage,
+		fxAllowed = fxAllowed,
+		lineReach = lineReach,
 		reduceCooldown = reduceCooldown,
 		cooldownLeft = function(player: Player, skillIndex: number): number
 			local fullAt = chargesFullAt[player] and chargesFullAt[player][skillIndex]

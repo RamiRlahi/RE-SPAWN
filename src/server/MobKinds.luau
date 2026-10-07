@@ -15,6 +15,9 @@
 	  Magma Slime  (Slime)     rushes you and EXPLODES (kill it first to defuse it)
 	  Bloat Slime  (Slime)     big and slow: SPLITS into three slimelings when it dies
 	  Necromancer  (Skeleton)  keeps away, RAISES the dead and throws soul bolts
+	  Bombardier   (Skeleton)  keeps far back, LOBS a volley of three bombs onto rings round you
+	  Grave Sniper (Skeleton)  across the room: a red AIM LINE tracks you, locks, then a piercing shot
+	  Ogre Crusher (Zombie)    huge and slow: hammer QUAKE, an inner slam then an outer ring (jump it)
 
 	Every move is telegraphed on the floor first (a ring in the kind's colour
 	filling up), and hitting a caster or a crouching ghoul mid-windup
@@ -693,18 +696,140 @@ kinds.jailer = {
 	dress = dressJailer, moves = { { id = "hook", every = { 4, 5.5 } } },
 }
 
+-- The Bone Bombardier: a skeleton sapper in a leather harness, a sack of
+-- black powder bombs on its back and one lit in its hand.
+local function dressBombardier(model: Model)
+	local bow = model:FindFirstChild("Bow")
+	if bow then bow:Destroy() end
+	strip(model, true)
+	local leather = Color3.fromRGB(78, 52, 34)
+	local powder = Color3.fromRGB(28, 26, 30)
+	eyes(model, EMBER, 0.22, 0.6, 0.14)
+	local torso = bodyPart(model, "Torso")
+	local head = bodyPart(model, "Head")
+	if torso then
+		piece(torso, CFrame.Angles(0, 0, math.rad(-38)), { Name = "Bandolier", Size = Vector3.new(0.38, 2.7, 1.08), Color = leather, Material = Enum.Material.Leather })
+		piece(torso, CFrame.new(0, -0.85, 0), { Name = "Belt", Size = Vector3.new(2.1, 0.32, 1.1), Color = leather, Material = Enum.Material.Leather })
+		piece(torso, CFrame.new(0, 0.1, 0.95), { Name = "BombSack", Size = Vector3.new(1.6, 1.8, 0.9), Color = Color3.fromRGB(96, 80, 56), Material = Enum.Material.Fabric })
+		for i, x in ipairs({ -0.45, 0.1, 0.5 }) do
+			piece(torso, CFrame.new(x, 1.05 + (i % 2) * 0.12, 0.95), { Name = "SackBomb", Shape = Enum.PartType.Ball,
+				Size = Vector3.one * 0.6, Color = powder, Material = Enum.Material.Metal })
+		end
+		for _, x in ipairs({ -0.6, -0.2, 0.2, 0.6 }) do
+			piece(torso, CFrame.new(x, -0.85, -0.58), { Name = "Charge", Size = Vector3.new(0.22, 0.38, 0.12), Color = Color3.fromRGB(150, 40, 30) })
+		end
+	end
+	if head then
+		piece(head, CFrame.new(0, 0.48, 0), { Name = "Cap", Size = Vector3.new(1.3, 0.36, 1.3), Color = leather, Material = Enum.Material.Leather })
+		piece(head, CFrame.new(0, 0.1, -0.62), { Name = "Goggles", Size = Vector3.new(1.0, 0.24, 0.1), Color = Color3.fromRGB(50, 40, 30), Material = Enum.Material.Metal })
+	end
+	local arm = bodyPart(model, "Right Arm")
+	if arm then
+		local bomb = piece(arm, CFrame.new(0, -1.25, -0.1), { Name = "HeldBomb", Shape = Enum.PartType.Ball, Size = Vector3.one * 0.85,
+			Color = powder, Material = Enum.Material.Metal })
+		piece(arm, CFrame.new(0, -0.78, -0.1), { Name = "Fuse", Size = Vector3.new(0.08, 0.3, 0.08), Color = EMBER, Material = Enum.Material.Neon })
+		local spark = Instance.new("ParticleEmitter")
+		spark.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		spark.Color = ColorSequence.new(Color3.fromRGB(255, 220, 140), EMBER)
+		spark.LightEmission = 1
+		spark.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.2), NumberSequenceKeypoint.new(1, 0) })
+		spark.Lifetime = NumberRange.new(0.2, 0.4)
+		spark.Speed = NumberRange.new(2, 4)
+		spark.SpreadAngle = Vector2.new(60, 60)
+		spark.Rate = 10
+		spark.Parent = bomb
+	end
+end
+
+-- The Grave Sniper: a hooded skeleton with a long bone rifle and a red lens.
+local function dressSniper(model: Model)
+	local bow = model:FindFirstChild("Bow")
+	if bow then bow:Destroy() end
+	strip(model, true)
+	local cloak = Color3.fromRGB(46, 30, 30)
+	hood(model, cloak, Color3.fromRGB(120, 30, 30))
+	eyes(model, BLOOD, 0.22, 0.62, 0.13)
+	local torso = bodyPart(model, "Torso")
+	if torso then
+		piece(torso, CFrame.new(0, -0.2, 0.6), { Name = "Cloak", Size = Vector3.new(2.2, 2.6, 0.14), Color = cloak, Material = Enum.Material.Fabric })
+		piece(torso, CFrame.Angles(0, 0, math.rad(38)), { Name = "Strap", Size = Vector3.new(0.3, 2.7, 1.06), Color = Color3.fromRGB(60, 40, 28), Material = Enum.Material.Leather })
+	end
+	local arm = bodyPart(model, "Right Arm")
+	if arm then
+		local grip = CFrame.new(0, -1.05, 0) * CFrame.Angles(math.rad(-90), 0, 0) -- (+Y runs out of the fist)
+		piece(arm, grip * CFrame.new(0, 1.6, 0), { Name = "RifleBarrel", Size = Vector3.new(0.22, 4.4, 0.22), Color = Color3.fromRGB(220, 212, 188) })
+		piece(arm, grip * CFrame.new(0, -0.1, 0.12), { Name = "RifleStock", Size = Vector3.new(0.3, 1.2, 0.5), Color = Color3.fromRGB(70, 48, 30), Material = Enum.Material.Wood })
+		piece(arm, grip * CFrame.new(0, 0.9, -0.32), { Name = "Scope", Size = Vector3.new(0.24, 1.0, 0.24), Color = IRON, Material = Enum.Material.Metal })
+		piece(arm, grip * CFrame.new(0, 1.42, -0.32), { Name = "Lens", Size = Vector3.new(0.2, 0.06, 0.2), Color = BLOOD, Material = Enum.Material.Neon })
+	end
+end
+
+-- The Ogre Crusher: a hulking ogre with a slab of stone on a haft for a hammer.
+local function dressCrusher(model: Model)
+	strip(model)
+	local skin = Color3.fromRGB(122, 104, 74)
+	local hide = Color3.fromRGB(70, 50, 36)
+	recolor(model, { "Head", "Left Arm", "Right Arm", "Torso" }, skin)
+	recolor(model, { "Left Leg", "Right Leg" }, hide, Enum.Material.Leather)
+	eyes(model, Color3.fromRGB(255, 150, 40), 0.26, 0.6, 0.14)
+	local torso = bodyPart(model, "Torso")
+	local head = bodyPart(model, "Head")
+	if torso then
+		piece(torso, CFrame.new(0, 0.15, -0.05), { Name = "Belly", Size = Vector3.new(2.2, 1.6, 1.3), Color = skin })
+		piece(torso, CFrame.new(0, -0.85, 0), { Name = "Belt", Size = Vector3.new(2.3, 0.45, 1.4), Color = hide, Material = Enum.Material.Leather })
+		piece(torso, CFrame.new(0, -0.85, -0.72), { Name = "Skull", Size = Vector3.new(0.6, 0.6, 0.3), Color = Color3.fromRGB(225, 215, 185) })
+		piece(torso, CFrame.new(0.55, 0.9, 0) * CFrame.Angles(0, 0, math.rad(15)), { Name = "Pelt", Size = Vector3.new(1.3, 0.5, 1.4), Color = Color3.fromRGB(90, 70, 50), Material = Enum.Material.Fabric })
+	end
+	if head then
+		piece(head, CFrame.new(0, -0.3, -0.55), { Name = "Jaw", Size = Vector3.new(1.15, 0.45, 0.3), Color = skin })
+		for _, side in ipairs({ -1, 1 }) do
+			piece(head, CFrame.new(side * 0.32, -0.12, -0.72) * CFrame.Angles(math.rad(-15), 0, 0),
+				{ Name = "Tusk", Size = Vector3.new(0.14, 0.42, 0.14), Color = Color3.fromRGB(235, 225, 195) })
+		end
+		piece(head, CFrame.new(0, 0.62, 0), { Name = "Topknot", Size = Vector3.new(0.4, 0.5, 0.4), Color = Color3.fromRGB(30, 24, 20), Material = Enum.Material.Fabric })
+	end
+	for _, n in ipairs({ "Left Arm", "Right Arm" }) do
+		local a = bodyPart(model, n)
+		if a then piece(a, CFrame.new(0, -0.6, 0), { Name = "Wrap", Size = Vector3.new(1.1, 0.6, 1.1), Color = hide, Material = Enum.Material.Leather }) end
+	end
+	local arm = bodyPart(model, "Right Arm")
+	if arm then
+		local grip = CFrame.new(0, -1.05, 0) * CFrame.Angles(math.rad(-90), 0, 0)
+		piece(arm, grip * CFrame.new(0, 1.3, 0), { Name = "HammerHaft", Size = Vector3.new(0.4, 3.8, 0.4), Color = Color3.fromRGB(80, 56, 34), Material = Enum.Material.Wood })
+		piece(arm, grip * CFrame.new(0, 3.4, 0), { Name = "HammerHead", Size = Vector3.new(2.4, 1.5, 1.5), Color = Color3.fromRGB(96, 92, 98), Material = Enum.Material.Slate })
+		piece(arm, grip * CFrame.new(0, 3.4, 0), { Name = "HammerBand", Size = Vector3.new(0.3, 1.6, 1.6), Color = IRON, Material = Enum.Material.Metal })
+	end
+end
+
+kinds.bombardier = {
+	name = "Bone Bombardier", base = "Skeleton", health = 0.9, damage = 1, xp = 1.6, color = EMBER,
+	attrs = { WalkSpeed = 9, Damage = 12, PreferredRange = 38, NoArrows = true },
+	dress = dressBombardier, moves = { { id = "mortar", every = { 3.6, 5 } } },
+}
+kinds.sniper = {
+	name = "Grave Sniper", base = "Skeleton", health = 0.75, damage = 1, xp = 1.8, color = BLOOD,
+	attrs = { WalkSpeed = 9, Damage = 12, PreferredRange = 46, NoArrows = true },
+	dress = dressSniper, moves = { { id = "snipe", every = { 4.5, 6 } } },
+}
+kinds.crusher = {
+	name = "Ogre Crusher", base = "Zombie", health = 4.4, damage = 1, xp = 3, scale = 1.9, color = Color3.fromRGB(255, 150, 40),
+	attrs = { WalkSpeed = 7, Damage = 24, AttackCooldown = 2, AttackRange = 8.5, Unstaggerable = true },
+	dress = dressCrusher, moves = { { id = "quake", every = { 6, 8 } } },
+}
+
 -- ── Room packs ──────────────────────────────────────────────────────────────
 -- Each room is one theme: a weighted draw of kinds, with caps so a room is
 -- never all brutes or all necromancers.
 local PACKS: { { [string]: number } } = {
 	{ zombie = 4, ghoul = 3, skeleton = 2, wraith = 1, necromancer = 1 },   -- the crypt
 	{ slime = 3, magmaslime = 3, bloatslime = 2, ghoul = 1 },               -- the slime pit
-	{ skeleton = 4, bonemage = 2, brute = 1, ghoul = 2 },                    -- the bone legion
+	{ skeleton = 4, bonemage = 2, brute = 1, ghoul = 2, sniper = 1 },                    -- the bone legion
 	{ wraith = 3, ghoul = 2, bonemage = 2, skeleton = 2, zombie = 1 },       -- the haunt
-	{ brute = 1, zombie = 3, skeleton = 3, magmaslime = 1, bonemage = 1 },   -- the warband
+	{ brute = 1, zombie = 3, skeleton = 3, magmaslime = 1, bonemage = 1, bombardier = 1, crusher = 1 },   -- the warband
 	{ shackled = 5, jailer = 2, executioner = 1, wraith = 2, skeleton = 1 }, -- the prison of souls (6)
+	{ skeleton = 3, zombie = 2, bombardier = 2, sniper = 2, crusher = 1 },  -- the siege (7)
 }
-local CAPS: { [string]: number } = { brute = 2, necromancer = 1, bloatslime = 2, magmaslime = 3, bonemage = 3, wraith = 3, executioner = 2, jailer = 3 }
+local CAPS: { [string]: number } = { crusher = 1, sniper = 2, bombardier = 2, brute = 2, necromancer = 1, bloatslime = 2, magmaslime = 3, bonemage = 3, wraith = 3, executioner = 2, jailer = 3 }
 
 -- A run starts with the three starter mobs only; the rest join in over its
 -- first minutes, each from its own minute, slowly at first (`minutes`: the
@@ -712,6 +837,7 @@ local CAPS: { [string]: number } = { brute = 2, necromancer = 1, bloatslime = 2,
 local STARTERS: { [string]: boolean } = { zombie = true, skeleton = true, slime = true, shackled = true }
 local JOINS_AT: { [string]: number } = {
 	ghoul = 2, bonemage = 3, magmaslime = 3, wraith = 5, bloatslime = 5, brute = 7, necromancer = 9,
+	bombardier = 3, sniper = 4, crusher = 6,
 	jailer = 1, executioner = 1, -- (the prison's own: its life from the start)
 }
 local function share(id: string, minutes: number): number
@@ -1602,6 +1728,173 @@ MOVES.bolt = function(m, v, d)
 	end)
 	hold(m, 0.25)
 	pose(m, nil, 0.25)
+	return true
+end
+
+-- Bombardier: lights its fuse, then lobs a volley of three bombs, each onto
+-- a ring that fills until it lands (at you and either side of you).
+MOVES.mortar = function(m, v, d)
+	if d < 12 or d > 58 then return false end
+	halt(m)
+	face(m, v.root.Position)
+	pose(m, { RightArm = { 170, 0, 10 }, Root = { 10 } }, 0.25)
+	if not hold(m, 0.45, true) then
+		pose(m, nil, 0.2)
+		return true
+	end
+	local target = Vector3.new(v.root.Position.X, m.floorY, v.root.Position.Z)
+	local vel = v.root.AssemblyLinearVelocity
+	local lead = Vector3.new(vel.X, 0, vel.Z) * 0.5 -- (where you'll be, roughly)
+	local side = (target - m.root.Position)
+	side = Vector3.new(-side.Z, 0, side.X)
+	side = if side.Magnitude > 0.1 then side.Unit else Vector3.xAxis
+	local spots = { target + lead, target + side * 6 + lead * 0.5, target - side * 6 + lead * 0.5 }
+	local r = 4
+	local damage = power(m) * 1.3
+	local owner = m
+	for i, spot in ipairs(spots) do
+		local flight = 1.0 + (i - 1) * 0.18
+		local from = m.root.Position + Vector3.new(0, 3, 0)
+		ring(spot, r, flight, m.floorY, EMBER)
+		local bomb = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 1.1, CFrame = CFrame.new(from),
+			Color = Color3.fromRGB(30, 28, 32), Material = Enum.Material.Metal })
+		bomb:AddTag("EnemyProjectile")
+		local fuse = part({ Size = Vector3.one * 0.3, CFrame = CFrame.new(from + Vector3.new(0, 0.6, 0)), Color = EMBER })
+		task.spawn(function()
+			local t0 = os.clock()
+			local peak = 9 + flatDist(from, spot) * 0.25
+			while bomb.Parent do
+				local a = math.min((os.clock() - t0) / flight, 1)
+				local pos = from:Lerp(spot + Vector3.new(0, 0.6, 0), a) + Vector3.new(0, math.sin(a * math.pi) * peak, 0)
+				bomb.CFrame = CFrame.new(pos) * CFrame.Angles(a * 8, a * 5, 0)
+				fuse.CFrame = CFrame.new(pos + Vector3.new(0, 0.6, 0))
+				if a >= 1 then break end
+				RunService.Heartbeat:Wait()
+			end
+			bomb:Destroy()
+			fuse:Destroy()
+			shock(spot, r, EMBER, owner.floorY)
+			sparks(spot + Vector3.new(0, 1, 0), EMBER, 12, 16)
+			smokePuff(spot + Vector3.new(0, 1, 0), Color3.fromRGB(60, 52, 48), 6)
+			if owner.model.Parent then blast(owner, Vector3.new(spot.X, owner.floorY + 3, spot.Z), r, damage) end
+		end)
+		hold(m, 0.18)
+	end
+	hold(m, 0.3)
+	pose(m, nil, 0.3)
+	return true
+end
+
+-- Grave Sniper: a red aim line tracks you, then locks (it flashes white),
+-- then a piercing shot runs down all of it. Step off the line once it locks.
+MOVES.snipe = function(m, v, d)
+	if d < 14 or d > 72 then return false end
+	local params = sightParams(m)
+	local eyeY = m.floorY + 3
+	local function lineTo(pos: Vector3): (Vector3, number)
+		local from = Vector3.new(m.root.Position.X, eyeY, m.root.Position.Z)
+		local dir = Vector3.new(pos.X - from.X, 0, pos.Z - from.Z)
+		dir = if dir.Magnitude > 0.1 then dir.Unit else m.root.CFrame.LookVector
+		local hit = Workspace:Raycast(from, dir * 80, params)
+		return dir, if hit then hit.Distance else 80
+	end
+	-- No shot through walls: only fire with a clear line to you.
+	local _, reach = lineTo(v.root.Position)
+	if reach < flatDist(m.root.Position, v.root.Position) - 1 then return false end
+	halt(m)
+	pose(m, { RightArm = { 90, 0, 0 }, LeftArm = { 90, 0, 40 }, Neck = { 0, -10, 0 } }, 0.25)
+	local beam = part({ Size = Vector3.new(0.18, 0.18, 1), Color = BLOOD, Transparency = 0.35 })
+	local dir, len = lineTo(v.root.Position)
+	local function place()
+		local from = Vector3.new(m.root.Position.X, eyeY - 0.6, m.root.Position.Z) + dir * 1.5
+		beam.Size = Vector3.new(beam.Size.X, beam.Size.Y, math.max(len - 1.5, 1))
+		beam.CFrame = CFrame.lookAt(from, from + dir) * CFrame.new(0, 0, -(len - 1.5) / 2)
+	end
+	-- Tracking (1.1s): the line follows you.
+	local t0 = os.clock()
+	while os.clock() - t0 < 1.1 do
+		if not alive(m) or staggered(m) then
+			beam:Destroy()
+			pose(m, nil, 0.2)
+			return true
+		end
+		if v.root.Parent then
+			dir, len = lineTo(v.root.Position)
+			face(m, m.root.Position + dir)
+		end
+		place()
+		RunService.Heartbeat:Wait()
+	end
+	-- Locked (0.4s): it stops following and flashes.
+	beam.Color = Color3.new(1, 1, 1)
+	beam.Size = Vector3.new(0.3, 0.3, beam.Size.Z)
+	place()
+	if not hold(m, 0.4, true) then
+		beam:Destroy()
+		pose(m, nil, 0.2)
+		return true
+	end
+	beam:Destroy()
+	-- The shot: a bright streak down the whole line, hitting all on it.
+	local from = Vector3.new(m.root.Position.X, eyeY - 0.6, m.root.Position.Z)
+	local streak = part({ Size = Vector3.new(0.9, 0.9, len), Color = BLOOD,
+		CFrame = CFrame.lookAt(from, from + dir) * CFrame.new(0, 0, -len / 2), Transparency = 0.05 })
+	tween(streak, 0.3, { Size = Vector3.new(0.05, 0.05, len), Transparency = 1 })
+	Debris:AddItem(streak, 0.35)
+	sparks(from + dir * len, BLOOD, 10, 14)
+	local damage = power(m) * 2.2
+	for _, vv in ipairs(victims()) do
+		local rel = Vector3.new(vv.root.Position.X - from.X, 0, vv.root.Position.Z - from.Z)
+		local along = rel:Dot(dir)
+		if along > 0 and along <= len and (rel - dir * along).Magnitude <= 1.8 and math.abs(vv.root.Position.Y - eyeY) < 6 then
+			strike(m, vv.char, damage, from)
+		end
+	end
+	pose(m, { RightArm = { 110, 0, 0 }, Root = { 8 } }, 0.08) -- (recoil)
+	hold(m, 0.5)
+	pose(m, nil, 0.3)
+	return true
+end
+
+-- Ogre Crusher: hammer raised high (a long wind-up), slammed down: the inner
+-- ring hits hard, then a second ring rolls outward from it. Get out of the
+-- first, then jump or step in past the second.
+MOVES.quake = function(m, v, d)
+	if d > 14 then return false end
+	local inner, outer = 9, 17
+	local c = Vector3.new(m.root.Position.X, m.floorY, m.root.Position.Z)
+	halt(m)
+	face(m, v.root.Position)
+	local tele = ring(c, inner, 1.25, m.floorY, Color3.fromRGB(255, 150, 40))
+	pose(m, { RightArm = { 175, 0, -10 }, LeftArm = { 175, 0, 10 }, Root = { 14 } }, 0.5)
+	if not hold(m, 1.25) then
+		cancel(tele)
+		pose(m, nil, 0.2)
+		return true
+	end
+	pose(m, { RightArm = { 40 }, LeftArm = { 40 }, Root = { -24 } }, 0.08)
+	hold(m, 0.08)
+	shock(c, inner, Color3.fromRGB(255, 150, 40), m.floorY)
+	smokePuff(c + Vector3.new(0, 1, 0), Color3.fromRGB(120, 110, 100), 10)
+	sparks(c + Vector3.new(0, 0.5, 0), Color3.fromRGB(200, 180, 150), 18, 18)
+	blast(m, c + Vector3.new(0, 3, 0), inner, power(m) * 1.8)
+	-- The second ring: a band, inner..outer, warned then rolling out.
+	local band = ring(c, outer, 0.55, m.floorY, Color3.fromRGB(255, 90, 40))
+	if not hold(m, 0.55) then
+		cancel(band)
+		pose(m, nil, 0.2)
+		return true
+	end
+	shock(c, outer, Color3.fromRGB(255, 90, 40), m.floorY)
+	local damage = power(m) * 1.0
+	for _, vv in ipairs(victims()) do
+		local dist = flatDist(vv.root.Position, c)
+		-- (a jump clears it: it rolls along the floor)
+		local grounded = vv.root.Position.Y - m.floorY < 5
+		if dist > inner - 1 and dist <= outer and grounded then strike(m, vv.char, damage, c) end
+	end
+	hold(m, 1.0) -- (stuck in the floor: a moment to punish it)
+	pose(m, nil, 0.4)
 	return true
 end
 

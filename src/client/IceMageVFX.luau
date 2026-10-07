@@ -22,6 +22,7 @@ local Lighting = game:GetService("Lighting")
 local UserInputService = game:GetService("UserInputService")
 local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
 local HumanoidIndex = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("HumanoidIndex"))
+local BeamFan = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("BeamFan"))
 
 local player = Players.LocalPlayer
 
@@ -689,9 +690,12 @@ function IceMageVFX.playIceBeam(char: Model, range: number, duration: number, is
 	local folder = vfxFolder("IceBeam")
 	refreshGroundFilter()
 
-	local numBeams = 1 + math.max(0, math.floor(projectileCount or 0))
-	local spreadDeg = if numBeams > 1 then math.clamp(12, 6, 60 / (numBeams - 1)) else 0
-	local startAngle = if numBeams > 1 then - (numBeams - 1) * spreadDeg * 0.5 else 0
+	-- (a beam per projectile, fanning out into a ring the same as the
+	-- server's: BeamFan. Past a few, most are drawn plain: the glow and where
+	-- it stops.)
+	local angles = BeamFan.Angles(projectileCount)
+	local numBeams = #angles
+	local detailed = math.min(numBeams, BeamFan.FULL)
 
 	local function beamLayer(name, size, color, material, transparency)
 		return newPart(folder, {
@@ -708,18 +712,23 @@ function IceMageVFX.playIceBeam(char: Model, range: number, duration: number, is
 	local beams = {}
 
 	for b = 1, numBeams do
-		local deg = if numBeams > 1 then (startAngle + (b - 1) * spreadDeg) else 0
+		local deg = angles[b]
 
-		local halo = beamLayer("Halo", 4.6, ICE_BLUE, Enum.Material.Neon, 0.9)
 		local outer = beamLayer("Outer", 2.6, ICE_CYAN, Enum.Material.Neon, 0.72)
-		local shell = beamLayer("Shell", 1.7, ICE_PALE, Enum.Material.Glass, 0.45)
 		local core = beamLayer("Core", 0.85, ICE_WHITE, Enum.Material.Neon, 0)
+		local impactBloom = newPart(folder, { Shape = Enum.PartType.Ball, Size = Vector3.new(3, 3, 3), Color = ICE_WHITE, Material = Enum.Material.Neon, Transparency = 0.35 })
+		if not BeamFan.Detailed(b, numBeams) then
+			table.insert(beams, { deg = deg, outer = outer, core = core, impactBloom = impactBloom, length = 0, wallLen = range, nextProbe = 0 })
+			continue
+		end
+		local halo = beamLayer("Halo", 4.6, ICE_BLUE, Enum.Material.Neon, 0.9)
+		local shell = beamLayer("Shell", 1.7, ICE_PALE, Enum.Material.Glass, 0.45)
 
 		-- Muzzle orb.
 		local orb = newPart(folder, { Shape = Enum.PartType.Ball, Size = Vector3.new(1.8, 1.8, 1.8), Color = ICE_WHITE, Material = Enum.Material.Neon })
 		local orbShell = newPart(folder, { Shape = Enum.PartType.Ball, Size = Vector3.new(3, 3, 3), Color = ICE_CYAN, Material = Enum.Material.Neon, Transparency = 0.75 })
 		local muzzleLight = Instance.new("PointLight")
-		muzzleLight.Color, muzzleLight.Brightness, muzzleLight.Range = ICE_CYAN, 4 / math.sqrt(numBeams), 20
+		muzzleLight.Color, muzzleLight.Brightness, muzzleLight.Range = ICE_CYAN, 4 / math.sqrt(detailed), 20
 		muzzleLight.Parent = orb
 
 		-- Frost flowing down the beam
@@ -734,7 +743,7 @@ function IceMageVFX.playIceBeam(char: Model, range: number, duration: number, is
 			Speed = NumberRange.new(FLOW_SPEED),
 			SpreadAngle = Vector2.new(4, 4),
 			EmissionDirection = Enum.NormalId.Front,
-			Rate = math.max(40, 160 / numBeams),
+			Rate = math.max(40, 160 / detailed),
 			Rotation = NumberRange.new(0, 360),
 			RotSpeed = NumberRange.new(-360, 360),
 		})
@@ -746,7 +755,7 @@ function IceMageVFX.playIceBeam(char: Model, range: number, duration: number, is
 			Speed = NumberRange.new(FLOW_SPEED * 1.3),
 			SpreadAngle = Vector2.new(2, 2),
 			EmissionDirection = Enum.NormalId.Front,
-			Rate = math.max(15, 45 / numBeams),
+			Rate = math.max(15, 45 / detailed),
 			Orientation = Enum.ParticleOrientation.VelocityParallel,
 		})
 
@@ -789,7 +798,7 @@ function IceMageVFX.playIceBeam(char: Model, range: number, duration: number, is
 			SpreadAngle = Vector2.new(70, 70),
 			EmissionDirection = Enum.NormalId.Back,
 			Acceleration = Vector3.new(0, -35, 0),
-			Rate = math.max(30, 110 / numBeams),
+			Rate = math.max(30, 110 / detailed),
 			Rotation = NumberRange.new(0, 360),
 			RotSpeed = NumberRange.new(-500, 500),
 		})
@@ -802,13 +811,12 @@ function IceMageVFX.playIceBeam(char: Model, range: number, duration: number, is
 			Speed = NumberRange.new(2, 5),
 			SpreadAngle = Vector2.new(180, 180),
 			LightEmission = 0.4,
-			Rate = math.max(5, 14 / numBeams),
+			Rate = math.max(5, 14 / detailed),
 			Rotation = NumberRange.new(0, 360),
 		})
 		local impactLight = Instance.new("PointLight")
-		impactLight.Color, impactLight.Brightness, impactLight.Range = ICE_WHITE, 5 / math.sqrt(numBeams), 22
+		impactLight.Color, impactLight.Brightness, impactLight.Range = ICE_WHITE, 5 / math.sqrt(detailed), 22
 		impactLight.Parent = impact
-		local impactBloom = newPart(folder, { Shape = Enum.PartType.Ball, Size = Vector3.new(3, 3, 3), Color = ICE_WHITE, Material = Enum.Material.Neon, Transparency = 0.35 })
 		local impactCrystals = {}
 		for k = 1, 5 do
 			local c = makeCrystal(folder, CFrame.new(), 0.9, 2.2, true)
@@ -863,8 +871,7 @@ function IceMageVFX.playIceBeam(char: Model, range: number, duration: number, is
 				char:SetAttribute("AllowSkillMovement", false)
 			end
 			for _, b in ipairs(beams) do
-				local tip = b.impact.Position
-				snowBurst(tip, 16, 20, 0.8)
+				if b.impact then snowBurst(b.impact.Position, 16, 20, 0.8) end
 			end
 			fadeOut(folder, 0.3)
 			Debris:AddItem(folder, 0.5)
@@ -898,10 +905,14 @@ function IceMageVFX.playIceBeam(char: Model, range: number, duration: number, is
 			local startPos = handPos + dir * 2
 
 			-- Where does the beam want to end? First enemy, else wall, else max range.
+			-- (the plain beams look for walls ten times a second, not every frame)
 			local enemyDist, enemyRoot = firstEnemyOnLine(roots, root.Position, dir, range, 2.2)
-			local wall = Workspace:Raycast(startPos, dir * range, groundParams)
-			local targetLen = range
-			if wall then targetLen = wall.Distance end
+			if b.halo or now >= b.nextProbe then
+				local wall = Workspace:Raycast(startPos, dir * range, groundParams)
+				b.wallLen = if wall then wall.Distance else range
+				b.nextProbe = now + 0.1
+			end
+			local targetLen = b.wallLen
 			local hitting = false
 			if enemyDist and enemyDist - 1 < targetLen then
 				targetLen = math.max(enemyDist - 1.2, 1)
@@ -914,18 +925,23 @@ function IceMageVFX.playIceBeam(char: Model, range: number, duration: number, is
 			else
 				b.length = targetLen
 			end
-			if hitting and not b.wasHitting then
-				flashLight(startPos + dir * b.length, ICE_WHITE, 6 / math.sqrt(numBeams), 24, 0.25)
+			if hitting and not b.wasHitting and b.halo then
+				flashLight(startPos + dir * b.length, ICE_WHITE, 6 / math.sqrt(detailed), 24, 0.25)
 				shockwave(folder, startPos + dir * b.length, 0.5, 5, 0.3, ICE_WHITE, 0.25)
 			end
 			b.wasHitting = hitting and b.length >= targetLen - 0.01
 
 			local mid = startPos + dir * (b.length * 0.5)
 			local basis = CFrame.lookAt(mid, mid + dir) * CFrame.Angles(0, math.rad(90), 0)
-			b.halo.CFrame, b.halo.Size = basis, Vector3.new(b.length, 4.6 * pulse * grow, 4.6 * pulse * grow)
 			b.outer.CFrame, b.outer.Size = basis, Vector3.new(b.length, 2.6 * pulse * grow, 2.6 * pulse * grow)
-			b.shell.CFrame, b.shell.Size = basis, Vector3.new(b.length, 1.7 * grow, 1.7 * grow)
 			b.core.CFrame, b.core.Size = basis, Vector3.new(b.length, 0.85 * pulse * grow, 0.85 * pulse * grow)
+			local tip = startPos + dir * b.length
+			b.impactBloom.CFrame = CFrame.new(tip)
+			local bloomSize = (hitting and 3.4 or 2.2) * (1 + math.sin(elapsed * 30) * 0.12)
+			b.impactBloom.Size = Vector3.one * bloomSize
+			if not b.halo then continue end -- (a plain beam: that's all of it)
+			b.halo.CFrame, b.halo.Size = basis, Vector3.new(b.length, 4.6 * pulse * grow, 4.6 * pulse * grow)
+			b.shell.CFrame, b.shell.Size = basis, Vector3.new(b.length, 1.7 * grow, 1.7 * grow)
 
 			b.orb.CFrame = CFrame.new(startPos)
 			b.orb.Size = Vector3.one * (1.8 * pulse)
@@ -942,14 +958,10 @@ function IceMageVFX.playIceBeam(char: Model, range: number, duration: number, is
 				r.hub.CFrame = CFrame.lookAt(p, p + dir) * CFrame.Angles(0, 0, elapsed * r.spin)
 			end
 
-			local tip = startPos + dir * b.length
 			b.impact.CFrame = CFrame.lookAt(tip, tip + dir)
-			b.impactShards.Rate = hitting and (110 / numBeams) or (45 / numBeams)
-			b.impactMist.Rate = hitting and (18 / numBeams) or (6 / numBeams)
-			b.impactLight.Brightness = hitting and (6 / math.sqrt(numBeams)) or (3 / math.sqrt(numBeams))
-			b.impactBloom.CFrame = CFrame.new(tip)
-			local bloomSize = (hitting and 3.4 or 2.2) * (1 + math.sin(elapsed * 30) * 0.12)
-			b.impactBloom.Size = Vector3.one * bloomSize
+			b.impactShards.Rate = hitting and (110 / detailed) or (45 / detailed)
+			b.impactMist.Rate = hitting and (18 / detailed) or (6 / detailed)
+			b.impactLight.Brightness = hitting and (6 / math.sqrt(detailed)) or (3 / math.sqrt(detailed))
 			for k, c in ipairs(b.impactCrystals) do
 				local vis = hitting
 				local a = c.a + elapsed * 2.5

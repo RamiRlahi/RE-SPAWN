@@ -8,7 +8,9 @@
 	                the centre), flame vents that erupt on a telegraphed cycle,
 	                and broken stone pillars to hide behind.
 	  Combat rooms  (about a third of them) spike traps: a grate that glows
-	                and rattles, then shoots its spikes up.
+	                and rattles, then shoots its spikes up; some rooms get blade
+	                sweepers instead or as well (a low blade turning round a post:
+	                jump it or keep out of its circle).
 
 	One server loop checks every player in the run against the live hazards:
 	lava burns while you stand in it, vents and spikes hit once per eruption.
@@ -34,11 +36,15 @@ local WARN = Color3.fromRGB(255, 60, 40)
 local LAVA_DPS = 28          -- per second standing in lava
 local VENT_DAMAGE = 30
 local SPIKE_DAMAGE = 24
+local SWEEP_DAMAGE = 22
+local SWEEP_LEN = 8.5     -- the blade's reach from the post
+local SWEEP_HEIGHT = 1.1  -- low enough to jump
 
 type Lava = { kind: "lava", center: Vector3, radius: number, floorY: number, part: BasePart }
 type Vent = { kind: "vent", center: Vector3, radius: number, floorY: number, active: boolean, hit: { [Player]: boolean } }
 type Spike = { kind: "spike", center: Vector3, half: number, floorY: number, active: boolean, hit: { [Player]: boolean } }
-type Hazard = Lava | Vent | Spike
+type Sweep = { kind: "sweep", center: Vector3, radius: number, floorY: number, phase: number, spin: number, last: { [Player]: number } }
+type Hazard = Lava | Vent | Spike | Sweep
 
 local hazards: { any } = {}
 -- (each hazard belongs to the run whose dungeon was being built: runs are
@@ -202,6 +208,43 @@ local function spikeTrap(folder: Instance, center: Vector3, rng: Random)
 	end)
 end
 
+-- ── Blade sweepers ──────────────────────────────────────────────────────────
+-- An iron post with a long blade arm turning low over the floor: a red
+-- stripe runs along its edge. Jump it, or keep out of its circle. Its angle
+-- is a pure function of the clock (`phase + spin * t`), so the damage loop
+-- needs no state from the part.
+local function sweeper(folder: Instance, center: Vector3, rng: Random)
+	local m = Instance.new("Model")
+	m.Name = "BladeSweeper"
+	m.Parent = folder
+	local len = SWEEP_LEN
+	part(m, { Name = "Base", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.4, len * 2 + 1, len * 2 + 1),
+		CFrame = CFrame.new(center + Vector3.new(0, 0.08, 0)) * FLAT, Color = Color3.fromRGB(34, 30, 34),
+		Material = Enum.Material.Slate, Transparency = 0.35 })
+	local post = part(m, { Name = "Post", Shape = Enum.PartType.Cylinder, Size = Vector3.new(3, 1.6, 1.6),
+		CFrame = CFrame.new(center + Vector3.new(0, 1.5, 0)) * FLAT, Color = Color3.fromRGB(60, 58, 66), Material = Enum.Material.Metal })
+	post.CanCollide = true
+	local arm = part(m, { Name = "Blade", Size = Vector3.new(len, 0.5, 1.1), Color = Color3.fromRGB(170, 170, 180), Material = Enum.Material.Metal })
+	local edge = part(m, { Name = "Edge", Size = Vector3.new(len, 0.2, 0.15), Color = WARN, Material = Enum.Material.Neon })
+	local sweep: Sweep = { kind = "sweep", center = center, radius = len + 0.5, floorY = center.Y,
+		phase = rng:NextNumber(0, math.pi * 2), spin = (if rng:NextNumber() < 0.5 then -1 else 1) * rng:NextNumber(1.3, 1.9),
+		last = {} }
+	(sweep :: any).runId = buildingRun
+	table.insert(hazards, sweep :: any)
+	local y = center.Y + SWEEP_HEIGHT
+	local conn: RBXScriptConnection
+	conn = RunService.Heartbeat:Connect(function()
+		if not m.Parent then
+			conn:Disconnect()
+			return
+		end
+		local a = sweep.phase + sweep.spin * os.clock()
+		local rot = CFrame.new(center.X, y, center.Z) * CFrame.Angles(0, a, 0)
+		arm.CFrame = rot * CFrame.new(len / 2 + 0.6, 0, 0)
+		edge.CFrame = rot * CFrame.new(len / 2 + 0.6, 0, -0.6 * math.sign(sweep.spin))
+	end)
+end
+
 -- ── Pillars (cover) ─────────────────────────────────────────────────────────
 local function pillar(folder: Instance, center: Vector3, rng: Random)
 	local h = rng:NextNumber(6, 10) -- broken stumps: low enough for the dragon's wings to pass over
@@ -270,21 +313,33 @@ function Hazards.BuildTraps(room: Room, folder: Instance, rng: Random)
 	local f = Instance.new("Folder")
 	f.Name = "Traps"
 	f.Parent = folder
-	local n = rng:NextInteger(3, 6)
+	-- The room's theme: spikes, blades, or a few of each.
+	local theme = rng:NextNumber()
+	local spikes = if theme < 0.45 then rng:NextInteger(3, 6) elseif theme < 0.75 then 0 else rng:NextInteger(2, 3)
+	local blades = if theme < 0.45 then 0 elseif theme < 0.75 then rng:NextInteger(2, 3) else rng:NextInteger(1, 2)
 	local placed: { Vector3 } = {}
-	local tries = 0
-	while #placed < n and tries < 60 do
-		tries += 1
-		local p = Vector3.new(rng:NextNumber(minX + 14, maxX - 14), room.floorY, rng:NextNumber(minZ + 14, maxZ - 14))
-		-- Keep clear of the centre (the reward) and of each other.
-		local ok = (Vector3.new(p.X - cx, 0, p.Z - cz)).Magnitude > 12
-		for _, o in ipairs(placed) do
-			if (p - o).Magnitude < 10 then ok = false end
+	local function place(gap: number, margin: number): Vector3?
+		for _ = 1, 40 do
+			local p = Vector3.new(rng:NextNumber(minX + margin, maxX - margin), room.floorY, rng:NextNumber(minZ + margin, maxZ - margin))
+			-- Keep clear of the centre (the reward) and of each other.
+			local ok = (Vector3.new(p.X - cx, 0, p.Z - cz)).Magnitude > 12 + gap / 2
+			for _, o in ipairs(placed) do
+				if (p - o).Magnitude < gap then ok = false end
+			end
+			if ok then
+				table.insert(placed, p)
+				return p
+			end
 		end
-		if ok then
-			table.insert(placed, p)
-			spikeTrap(f, p, rng)
-		end
+		return nil
+	end
+	for _ = 1, blades do
+		local p = place(SWEEP_LEN * 2 + 4, SWEEP_LEN + 6)
+		if p then sweeper(f, p, rng) end
+	end
+	for _ = 1, spikes do
+		local p = place(10, 14)
+		if p then spikeTrap(f, p, rng) end
 	end
 end
 
@@ -316,6 +371,23 @@ local function step(dt: number)
 					h.hit[plr] = true
 					hum:TakeDamage(VENT_DAMAGE)
 					root.AssemblyLinearVelocity += Vector3.new(0, 38, 0)
+				end
+			elseif h.kind == "sweep" then
+				local d = flat.Magnitude
+				if d <= h.radius and d >= 0.8 and pos.Y - h.floorY < 4.6 and now - (h.last[plr] or 0) > 0.8 then
+					-- The blade's direction now vs. yours from the post.
+					local a = h.phase + h.spin * now
+					local blade = Vector3.new(math.cos(a), 0, -math.sin(a))
+					local u = flat / d
+					local side = blade:Cross(u).Y
+					local ahead = blade:Dot(u)
+					if ahead > 0 and math.abs(side) * d <= 1.6 then
+						h.last[plr] = now
+						hum:TakeDamage(SWEEP_DAMAGE)
+						-- knocked along the way it's turning
+						local push = Vector3.new(0, 1, 0):Cross(blade) * math.sign(h.spin)
+						root.AssemblyLinearVelocity = push * 40 + Vector3.new(0, 18, 0)
+					end
 				end
 			elseif h.kind == "spike" then
 				if h.active and not h.hit[plr] and math.abs(flat.X) <= h.half and math.abs(flat.Z) <= h.half then

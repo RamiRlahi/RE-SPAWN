@@ -146,6 +146,10 @@ end)
 pcall(function()
 	require(script:WaitForChild("AngelAttackFX")).Init()
 end)
+-- The Rogue's wind-blown scarf, on every Rogue.
+pcall(function()
+	require(script:WaitForChild("RogueScarf")).Init()
+end)
 -- Cloth capes on every Sword Master and armored Fire Knight in the world.
 pcall(function()
 	require(script:WaitForChild("ClassCapes")).Init()

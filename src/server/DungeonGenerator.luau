@@ -2419,22 +2419,34 @@ function DungeonGenerator.NextLevel(runId: string)
 		local base = spawnCF.Position + offset
 		local hit = Workspace:Raycast(base + Vector3.new(0, 20, 0), Vector3.new(0, -60, 0), params)
 		local y = if hit then hit.Position.Y + 3.5 else spawnCF.Position.Y + 5
+		local standCF = CFrame.new(base.X, y, base.Z) * spawnCF.Rotation
 		if r.root.Parent then
-			r.root.CFrame = CFrame.new(base.X, y, base.Z) * spawnCF.Rotation
+			r.root.CFrame = standCF
 			r.root.AssemblyLinearVelocity = Vector3.zero
 		end
-	end
-	-- Hold everyone on the new floor a moment longer, so their game has
-	-- received the new level before they can fall (or they'd drop straight
-	-- through a floor that hasn't arrived yet).
-	task.delay(1.5, function()
-		for _, r in ipairs(runners) do
-			if r.root.Parent then
-				r.root.AssemblyLinearVelocity = Vector3.zero
-				r.root.Anchored = false
+		-- Hold them on the new floor until their game has it (streamed in round
+		-- the spawn), or they'd drop straight through a floor that hasn't
+		-- arrived yet. A fixed wait wasn't enough when the network was busy
+		-- (taking the lift mid-horde, dozens of mobs replicating): they fell
+		-- under the map. Still falling after that? Back on the floor.
+		task.spawn(function()
+			local t0 = os.clock()
+			pcall(function() r.player:RequestStreamAroundAsync(standCF.Position, 8) end)
+			task.wait(math.max(0.6, 1.5 - (os.clock() - t0)))
+			local char = r.root.Parent :: Model?
+			if not char then return end
+			r.root.AssemblyLinearVelocity = Vector3.zero
+			r.root.Anchored = false
+			for _ = 1, 16 do
+				task.wait(0.5)
+				if r.root.Parent ~= char or r.player.Character ~= char then return end
+				if r.root.Position.Y < standCF.Position.Y - 25 then
+					r.root.AssemblyLinearVelocity = Vector3.zero
+					char:PivotTo(standCF)
+				end
 			end
-		end
-	end)
+		end)
+	end
 	-- Anyone who was dead joins the party on the new level.
 	pcall(function()
 		local DeathManager = require(script.Parent:WaitForChild("DeathManager"))

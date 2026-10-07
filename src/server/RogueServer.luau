@@ -22,12 +22,14 @@
 	  Q Invisibility    6 s unseen ("Hidden": mobs lose you), faster. Attacking
 	                    or taking damage ends it. Enhanced: 9 s.
 	  R Shadow Realm    4 s untargetable in the shadow realm while slashes
-	                    strike enemies round you, then a burst that hits and
-	                    Marks everything near. Enhanced: longer, harder.
+	                    cut every enemy round you ten times a second, then a
+	                    burst that hits and Marks everything near. Enhanced:
+	                    longer, harder.
 --]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Network = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Network"))
@@ -40,9 +42,9 @@ local RogueServer = {}
 local SWING_INTERVAL = 0.26  -- seconds between combo hits at 1× attack speed
 local COMBO_RESET = 0.9
 local COMBO = {
-	[1] = { range = 9, dot = 0.25, damage = 15, source = "DAGGER" },
-	[2] = { range = 9, dot = 0.25, damage = 15, source = "DAGGER" },
-	[3] = { range = 11, dot = 0.7, damage = 24, source = "DAGGER STAB" },
+	[1] = { range = 18, dot = 0.25, damage = 15, source = "DAGGER" },
+	[2] = { range = 18, dot = 0.25, damage = 15, source = "DAGGER" },
+	[3] = { range = 22, dot = 0.7, damage = 24, source = "DAGGER STAB" },
 }
 local ENERGY_MAX = 100
 local ENERGY_PER_HIT = 5
@@ -52,7 +54,9 @@ local KILL_SPEED = 1.25      -- move speed after a kill…
 local KILL_SPEED_TIME = 2    -- …for this long
 local HIDDEN_SPEED = 1.3     -- move speed while invisible
 local STEP_BONUS = 1.6       -- Shadow Step backstab: × the dagger's damage
-local REALM_TICK = 0.22      -- seconds between Shadow Realm slashes
+local REALM_TICK = 0.1       -- seconds between Shadow Realm slash waves (each cuts every enemy in range)
+local REALM_ENERGY = 2       -- Shadow Energy per wave that lands (per hit, the realm would refill it at once)
+local REALM_BURST = 9        -- the closing burst: × a slash's damage
 
 type Target = { character: Model, humanoid: Humanoid, rootPart: BasePart }
 type Dagger = { pos: Vector3, stuck: Target?, expires: number, landsAt: number, damage: number }
@@ -137,15 +141,16 @@ local function mark(t: Target, seconds: number?)
 	fx({ kind = "mark", model = t.character, duration = dur })
 end
 
--- One hit from the Rogue: the mark's bonus, energy, the speed on a kill.
--- (`damage` already carries the Damage stat: skill configs come scaled.)
-local function hit(player: Player, st: State, t: Target, damage: number, source: string, opts: any?): number?
+-- One hit from the Rogue: the mark's bonus, energy (`energy`, or the usual
+-- per hit), the speed on a kill. (`damage` already carries the Damage stat:
+-- skill configs come scaled.)
+local function hit(player: Player, st: State, t: Target, damage: number, source: string, opts: any?, energy: number?): number?
 	if t.humanoid.Health <= 0 then return nil end
 	local amount = damage
 	if marked(t) then amount *= 1 + MARK_BONUS end
 	local dealt = H.dealDamage(player, t, amount, source, opts)
 	if dealt then
-		gain(player, st, ENERGY_PER_HIT)
+		gain(player, st, energy or ENERGY_PER_HIT)
 		if t.humanoid.Health <= 0 then
 			st.speedUntil = os.clock() + KILL_SPEED_TIME
 			refreshSpeed(player, st)
@@ -261,41 +266,79 @@ local function throwDagger(player: Player, char: Model, st: State, origin: Vecto
 	local range = (config.range or 40) * (if enhanced then 1.2 else 1)
 	local speed = config.projectileSpeed or 110
 	local length = clearDistance(char, origin, dir, range)
-	local line = onLine(char, origin, dir, length, 2.6 * (config.areaMultiplier or 1))
+	local width = 2.6 * (config.areaMultiplier or 1)
 	local damage = (config.damage or 34) * (if enhanced then 1.4 else 1)
-	-- Normally it stops in the first enemy; enhanced, it goes through them all.
-	local stuck: Target? = nil
-	local stopAt = length
-	local struck: { { t: Target, along: number } } = {}
-	if #line > 0 then
-		if enhanced then
-			struck = line
-		else
-			struck = { line[1] }
-			stuck = line[1].t
-			stopAt = math.max(1, line[1].along)
+	local life = config.duration or 4
+	-- The picture starts on a guess (the first enemy on the line now); the
+	-- flight below decides, and corrects the clients if it differs.
+	local line = onLine(char, origin, dir, length, width)
+	local guess: Target? = if not enhanced and #line > 0 then line[1].t else nil
+	local guessAt = if guess then math.max(1, line[1].along) else length
+	local mine: Dagger = { pos = origin + dir * guessAt, stuck = nil, landsAt = math.huge, expires = math.huge, damage = damage }
+	st.dagger = mine
+	fx({ kind = "dagger", attacker = player, from = origin, to = mine.pos, stuck = guess and guess.character,
+		travel = guessAt / speed, life = life, enhanced = enhanced })
+
+	-- The flight: it really travels the line, and the first body it reaches
+	-- stops it (enhanced: it cuts through every one on the way). Judged as
+	-- it flies, not where everyone stood when it was thrown: a mob stepping
+	-- into its path, or a big one whose body (not its middle) is in the way,
+	-- stops it too.
+	local reach: { [Model]: number } = {}
+	local struck: { [Model]: boolean } = {}
+	local function land(at: number, on: Target?)
+		mine.pos = origin + dir * at
+		mine.stuck = on
+		mine.landsAt = os.clock()
+		mine.expires = os.clock() + life
+		if on ~= guess or math.abs(at - guessAt) > 3 then
+			fx({ kind = "daggerStop", attacker = player, to = mine.pos, stuck = on and on.character })
 		end
-	end
-	local landPos = origin + dir * stopAt
-	local travel = stopAt / speed
-	st.dagger = { pos = landPos, stuck = stuck, landsAt = os.clock() + travel,
-		expires = os.clock() + travel + (config.duration or 4), damage = damage }
-	fx({ kind = "dagger", attacker = player, from = origin, to = landPos, stuck = stuck and stuck.character,
-		travel = travel, life = config.duration or 4, enhanced = enhanced })
-	for _, s in ipairs(struck) do
-		task.delay(math.max(0, s.along) / speed, function()
-			if not char.Parent then return end
-			hit(player, st, s.t, damage, "SHADOW DAGGER")
-			mark(s.t, if enhanced then MARK_TIME * 1.5 else MARK_TIME)
+		-- (gone when it expires unless stepped to)
+		task.delay(life, function()
+			if st.dagger == mine then
+				st.dagger = nil
+				fx({ kind = "daggerGone", attacker = player })
+			end
 		end)
 	end
-	-- (gone when it expires unless stepped to)
-	local mine = st.dagger
-	task.delay(travel + (config.duration or 4), function()
-		if st.dagger == mine then
-			st.dagger = nil
-			fx({ kind = "daggerGone", attacker = player })
+	task.spawn(function()
+		local flown = 0
+		while flown < length do
+			local dt = RunService.Heartbeat:Wait()
+			if not char.Parent or st.dagger ~= mine then return end -- (gone, or thrown again)
+			local from = flown
+			flown = math.min(length, flown + speed * dt)
+			-- every enemy whose body this stretch of the flight passes through, nearest first
+			local passed: { { t: Target, along: number } } = {}
+			for _, t in ipairs(H.getPotentialTargets(char)) do
+				if struck[t.character] then continue end
+				local d = t.rootPart.Position - origin
+				local along = Vector3.new(d.X, 0, d.Z):Dot(dir)
+				local r = reach[t.character]
+				if not r then
+					r = H.lineReach(t, width)
+					reach[t.character] = r
+				end
+				if along >= from - r and along <= flown + r then
+					local c = origin + dir * math.clamp(along, from, flown)
+					if Vector3.new(t.rootPart.Position.X - c.X, 0, t.rootPart.Position.Z - c.Z).Magnitude <= r then
+						table.insert(passed, { t = t, along = math.max(1, along) })
+					end
+				end
+			end
+			table.sort(passed, function(a, b) return a.along < b.along end)
+			for _, e in ipairs(passed) do
+				struck[e.t.character] = true
+				hit(player, st, e.t, damage, "SHADOW DAGGER")
+				mark(e.t, if enhanced then MARK_TIME * 1.5 else MARK_TIME)
+				if not enhanced then
+					land(math.min(e.along, flown), e.t)
+					return
+				end
+			end
 		end
+		land(length, nil)
 	end)
 end
 
@@ -380,12 +423,18 @@ local function realm(player: Player, char: Model, st: State, config: any, enhanc
 			task.wait(REALM_TICK)
 			local r = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 			if not r then break end
-			local near = inArc(char, r.Position, Vector3.zero, range, -1)
-			if #near > 0 then
-				local t = near[math.random(1, #near)]
-				hit(player, st, t, damage, "SHADOW REALM")
-				fx({ kind = "realmSlash", attacker = player, pos = t.rootPart.Position })
+			-- Every wave cuts every enemy in range (a damage number each); the
+			-- cuts drawn over them are budgeted.
+			local landed = false
+			for _, t in ipairs(inArc(char, r.Position, Vector3.zero, range, -1)) do
+				if hit(player, st, t, damage, "SHADOW REALM", nil, 0) then
+					landed = true
+					if H.fxAllowed(player, "realmSlash", 14) then
+						fx({ kind = "realmSlash", attacker = player, pos = t.rootPart.Position })
+					end
+				end
 			end
+			if landed then gain(player, st, REALM_ENERGY) end
 		end
 		if not char.Parent then return end
 		-- The burst: everything near takes a heavy hit and is Marked.
@@ -393,7 +442,7 @@ local function realm(player: Player, char: Model, st: State, config: any, enhanc
 		local at = if r then r.Position else center
 		fx({ kind = "realmBurst", attacker = player, pos = at, range = range })
 		for _, t in ipairs(inArc(char, at, Vector3.zero, range, -1)) do
-			hit(player, st, t, damage * 4, "SHADOW BURST")
+			hit(player, st, t, damage * REALM_BURST, "SHADOW BURST")
 			mark(t)
 		end
 		if st.hiddenUntil <= 0 then char:SetAttribute("Hidden", nil) end
