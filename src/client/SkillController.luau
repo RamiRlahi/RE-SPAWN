@@ -102,7 +102,16 @@ local function getHUD()
 end
 
 -- Active cooldowns: activeCooldowns[slotIndex] = { startTime: number, duration: number }
-local activeCooldowns: { [number]: { startTime: number, duration: number } } = {}
+-- For a skill with charges, `duration` is the time until every charge is
+-- back, and `per` the recharge of one charge.
+local activeCooldowns: { [number]: { startTime: number, duration: number, per: number? } } = {}
+-- How many charges are ready: all of them when nothing is recharging.
+local function chargesReady(cd: { startTime: number, duration: number, per: number? }?, charges: number, now: number): number
+	if not cd or not cd.per then return charges end
+	local remaining = math.max(0, cd.duration - (now - cd.startTime))
+	return charges - math.ceil(remaining / cd.per - 1e-3)
+end
+local lastCharges: { [number]: number } = {}
 
 -- Loaded animation tracks per skill index
 local currentLoadedCharacter: Model? = nil
@@ -4227,16 +4236,25 @@ function SkillController.UseSkill(skillIndex: number)
 	-- Check Cooldown
 	local now = os.clock()
 	local active = activeCooldowns[skillIndex]
-	if active and (now - active.startTime) < active.duration then
-		-- Still on cooldown
-		return
-	end
+	local charges = (config :: any).charges
+	if charges and charges > 1 then
+		-- A charge skill: needs one charge; each use queues one more recharge.
+		if chargesReady(active, charges, now) < 1 then return end
+		local remaining = if active then math.max(0, active.duration - (now - active.startTime)) else 0
+		local per = if active and active.per then active.per else config.cooldown
+		activeCooldowns[skillIndex] = { startTime = now, duration = remaining + per, per = per }
+	else
+		if active and (now - active.startTime) < active.duration then
+			-- Still on cooldown
+			return
+		end
 
-	-- Start local cooldown
-	activeCooldowns[skillIndex] = {
-		startTime = now,
-		duration = config.cooldown,
-	}
+		-- Start local cooldown
+		activeCooldowns[skillIndex] = {
+			startTime = now,
+			duration = config.cooldown,
+		}
+	end
 
 	-- Calculate Aim Direction
 	local cursorPosition = getCursorWorldPosition(rootPart)
@@ -4536,7 +4554,26 @@ local function updateCooldowns()
 	local now = os.clock()
 	for slot = 1, 4 do
 		local cd = activeCooldowns[slot]
-		if cd then
+		if cd and cd.per then
+			-- Charges: the count on the slot, and the dark sweep only while
+			-- none is ready (counting down the next one).
+			local classId = player:GetAttribute("SelectedClass")
+			local config = typeof(classId) == "string" and SkillData.GetSkill(classId, slot)
+			local charges = (config and (config :: any).charges) or 1
+			local remaining = math.max(0, cd.duration - (now - cd.startTime))
+			local ready = chargesReady(cd, charges, now)
+			local nextIn = remaining - (charges - ready - 1) * cd.per
+			if typeof(hud.SetSkillCharges) == "function" then hud.SetSkillCharges(slot, ready, charges) end
+			if typeof(hud.SetSkillCooldown) == "function" then
+				if ready < 1 then
+					hud.SetSkillCooldown(slot, nextIn, cd.per)
+				elseif lastCharges[slot] ~= ready then
+					hud.SetSkillCooldown(slot, 0, cd.per)
+				end
+			end
+			lastCharges[slot] = ready
+			if remaining <= 0 then activeCooldowns[slot] = nil end
+		elseif cd then
 			local elapsed = now - cd.startTime
 			local remaining = math.max(0, cd.duration - elapsed)
 			if typeof(hud.SetSkillCooldown) == "function" then
@@ -4546,6 +4583,13 @@ local function updateCooldowns()
 			if remaining <= 0 then
 				activeCooldowns[slot] = nil
 			end
+		elseif lastCharges[slot] then
+			-- (all charges back)
+			local classId = player:GetAttribute("SelectedClass")
+			local config = typeof(classId) == "string" and SkillData.GetSkill(classId, slot)
+			local charges = (config and (config :: any).charges) or 1
+			if typeof(hud.SetSkillCharges) == "function" then hud.SetSkillCharges(slot, charges, charges) end
+			lastCharges[slot] = nil
 		end
 	end
 end
@@ -4953,6 +4997,7 @@ function SkillController.Init()
 			activeCooldowns[payload.skillIndex] = {
 				startTime = os.clock() - (tonumber(payload.elapsed) or 0),
 				duration = payload.cooldown,
+				per = tonumber(payload.per), -- (a charge skill)
 			}
 		end
 	end)

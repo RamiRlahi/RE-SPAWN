@@ -414,6 +414,20 @@ local function dash(root: BasePart, dir: Vector3, dist: number, t: number)
 	end)
 end
 
+-- An instant dash: there in the same frame (walls and ledges still stop it).
+local function blink(root: BasePart, dir: Vector3, dist: number)
+	local stand = SafeMove.StandHeight(root)
+	local start = root.CFrame
+	dist = math.min(SafeMove.ClampDash(root, dir, dist), SafeMove.ClampToFloor(root, dir, dist))
+	root.CFrame = start + dir * dist
+	root.AssemblyLinearVelocity = Vector3.new(0, math.max(root.AssemblyLinearVelocity.Y, 0), 0)
+	SafeMove.SnapToFloor(root, stand)
+	if not SafeMove.HasFloor(root) then
+		root.CFrame = start
+		root.AssemblyLinearVelocity = Vector3.zero
+	end
+end
+
 function SwordsmanController.OnCast(skillIndex: number, char: Model, root: BasePart, aimDir: Vector3, config: any)
 	local hum = char:FindFirstChildOfClass("Humanoid")
 	local empowered = momentum() >= MOMENTUM_MAX
@@ -423,13 +437,15 @@ function SwordsmanController.OnCast(skillIndex: number, char: Model, root: BaseP
 	if skillIndex == 1 then
 		-- Sword Rush.
 		char:SetAttribute("AllowSkillMovement", false)
+		-- Instant: a blink with afterimages left along the way (three
+		-- charges, so it can be chained: SkillData `charges`).
 		local dist = (config.dashDistance or 20) * (if empowered then 1.5 else 1)
-		local t = if empowered then 0.26 else 0.2
+		local t = 0.08
 		if hum then hum.AutoRotate = false end
-		dash(root, dir, dist, t)
-		rushPose(char, t)
-		trail(char, t + 0.25)
-		ClassFX.Afterimages(char, PALE, 5, t / 5)
+		ClassFX.Afterimages(char, PALE, 4, 0.01)
+		blink(root, dir, dist)
+		rushPose(char, 0.12)
+		trail(char, 0.3)
 		busyUntil = os.clock() + t
 		releaseAfter(char, t + 0.05)
 		task.delay(t + 0.05, function() if hum then hum.AutoRotate = true end end)

@@ -101,6 +101,10 @@ end
 local playerCooldowns: { [Player]: { [number]: number } } = {}
 -- cooldownLengths[player][skillIndex] = that cast's effective cooldown
 local cooldownLengths: { [Player]: { [number]: number } } = {}
+-- Charge skills (SkillData `charges`): chargesFullAt[player][skillIndex] =
+-- when every charge is back. Each use pushes it one recharge later; a use
+-- needs it no more than (charges - 1) recharges away.
+local chargesFullAt: { [Player]: { [number]: number } } = {}
 
 -- Character visibility storage for skill 3 (Phoenix Dash invisibility)
 local savedTransparencies: { [Model]: { [Instance]: number } } = {}
@@ -1536,6 +1540,21 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 
 	local lastUsed = playerCooldowns[player][skillIndex] or 0
 	local cdBuffer = 0.12 -- 120ms leeway for latency
+	local charges = (config :: any).charges
+	if charges and charges > 1 then
+		chargesFullAt[player] = chargesFullAt[player] or {}
+		local fullAt = math.max(chargesFullAt[player][skillIndex] or 0, now)
+		local per = effectiveConfig.cooldown
+		if fullAt - now > (charges - 1) * per + cdBuffer then
+			Network.GetRemoteEvent(Network.Remotes.SkillCooldownUpdate):FireClient(player, {
+				skillIndex = skillIndex, cooldown = fullAt - now, per = per,
+			})
+			return
+		end
+		chargesFullAt[player][skillIndex] = fullAt + per
+		-- (the plain check below lets it through)
+		lastUsed = -math.huge
+	end
 	if now - lastUsed < (effectiveConfig.cooldown - cdBuffer) then
 		-- The client thought it was ready (e.g. its timer drifted): resync
 		-- its cooldown to ours instead of silently eating the cast.
@@ -1645,10 +1664,19 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 
 	-- Confirm Cooldown to Caster
 	local cdRemote = Network.GetRemoteEvent(Network.Remotes.SkillCooldownUpdate)
-	cdRemote:FireClient(player, {
-		skillIndex = skillIndex,
-		cooldown = effectiveConfig.cooldown,
-	})
+	local fullAt = chargesFullAt[player] and chargesFullAt[player][skillIndex]
+	if (config :: any).charges and (config :: any).charges > 1 and fullAt then
+		cdRemote:FireClient(player, {
+			skillIndex = skillIndex,
+			cooldown = math.max(0, fullAt - os.clock()),
+			per = effectiveConfig.cooldown,
+		})
+	else
+		cdRemote:FireClient(player, {
+			skillIndex = skillIndex,
+			cooldown = effectiveConfig.cooldown,
+		})
+	end
 
 	print(`[SkillManager] {player.Name} successfully cast Skill {skillIndex} ({config.name})`)
 end
@@ -1758,6 +1786,16 @@ end
 
 -- Take `seconds` off a skill's remaining cooldown and tell the caster.
 local function reduceCooldown(player: Player, skillIndex: number, seconds: number)
+	-- (a charge skill: its recharge queue gets shorter)
+	local fullAt = chargesFullAt[player] and chargesFullAt[player][skillIndex]
+	local length0 = cooldownLengths[player] and cooldownLengths[player][skillIndex]
+	if fullAt and length0 then
+		chargesFullAt[player][skillIndex] = fullAt - seconds
+		Network.GetRemoteEvent(Network.Remotes.SkillCooldownUpdate):FireClient(player, {
+			skillIndex = skillIndex, cooldown = math.max(0, fullAt - seconds - os.clock()), per = length0,
+		})
+		return
+	end
 	local last = playerCooldowns[player] and playerCooldowns[player][skillIndex]
 	local length = cooldownLengths[player] and cooldownLengths[player][skillIndex]
 	if not last or not length then return end
@@ -1818,11 +1856,13 @@ function SkillManager.Init()
 	Network.GetRemoteEvent(Network.Remotes.SelectClass).OnServerEvent:Connect(function(player: Player)
 		playerCooldowns[player] = nil
 		cooldownLengths[player] = nil
+		chargesFullAt[player] = nil
 	end)
 
 	Players.PlayerRemoving:Connect(function(player: Player)
 		playerCooldowns[player] = nil
 		cooldownLengths[player] = nil
+		chargesFullAt[player] = nil
 		basicAttackTimes[player] = nil
 	end)
 

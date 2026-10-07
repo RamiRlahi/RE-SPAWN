@@ -582,7 +582,23 @@ local function createSkillSlot(parent: Frame, index: number, keybind: string): {
 		ZIndex = 17,
 	})
 
+	-- Charges left (skills with SkillData `charges`), top-right of the ring.
+	local chargesLabel = makeLabel({
+		Name = "ChargesLabel",
+		Parent = slotContainer,
+		Text = "",
+		FontFace = SERIF_BOLD,
+		TextSize = 16,
+		TextColor = C.Gold,
+		ZIndex = 18,
+		StrokeTransparency = 0.2,
+	})
+	chargesLabel.AnchorPoint = Vector2.new(1, 0)
+	chargesLabel.Position = UDim2.new(1, 2, 0, -2)
+	chargesLabel.Size = UDim2.fromOffset(22, 18)
+
 	local slot = {
+		chargesLabel = chargesLabel,
 		frame = slotContainer,
 		ring = ring,
 		innerCircle = innerCircle,
@@ -1397,6 +1413,14 @@ function GameHUD.SetSkillCooldown(skillIndex: number, remaining: number, total: 
 		slot.cooldownText.Text = string.format("%.1f", remaining)
 		slot.glowStroke.Transparency = 1
 	end
+end
+
+-- Charges ready on a charge skill (Sword Rush): "3", "2"… (blank when full).
+function GameHUD.SetSkillCharges(skillIndex: number, ready: number, max: number)
+	local slot = skillSlots[skillIndex]
+	if not slot or not slot.chargesLabel then return end
+	local text = if ready >= max then "" else tostring(math.max(0, ready))
+	if slot.chargesLabel.Text ~= text then slot.chargesLabel.Text = text end
 end
 
 -- Set skill keybind labels on HUD
