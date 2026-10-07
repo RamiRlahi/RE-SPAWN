@@ -662,7 +662,8 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 				if char and char.Parent then
 					local hum = char:FindFirstChildOfClass("Humanoid")
 					local pr = char:FindFirstChild("HumanoidRootPart")
-					if hum and pr and hum.Health > 0 then
+					-- (an invisible Rogue: lost)
+					if hum and pr and hum.Health > 0 and char:GetAttribute("Hidden") ~= true then
 						local d = (pr.Position - mobPos).Magnitude
 						if d < closestDist then
 							closestDist = d
@@ -1125,7 +1126,7 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 					if char and char.Parent then
 						local hum = char:FindFirstChildOfClass("Humanoid")
 						local pRoot = char:FindFirstChild("HumanoidRootPart")
-						if hum and pRoot and hum.Health > 0 then
+						if hum and pRoot and hum.Health > 0 and char:GetAttribute("Hidden") ~= true then
 							local dist = (pRoot.Position - mobPos).Magnitude
 							if dist < closestDist then
 								closestDist = dist

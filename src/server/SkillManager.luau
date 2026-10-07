@@ -25,6 +25,7 @@ local MobKinds = require(script.Parent:WaitForChild("MobKinds"))
 local Boons = require(script.Parent:WaitForChild("Boons"))
 local GunslingerServer = require(script.Parent:WaitForChild("GunslingerServer"))
 local SwordsmanServer = require(script.Parent:WaitForChild("SwordsmanServer"))
+local RogueServer = require(script.Parent:WaitForChild("RogueServer"))
 local BerserkerServer = require(script.Parent:WaitForChild("BerserkerServer"))
 local FireKnightServer = require(script.Parent:WaitForChild("FireKnightServer"))
 local MountManager = require(script.Parent:WaitForChild("MountManager"))
@@ -1527,6 +1528,11 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	end
 	-- Swordsman: nothing mid-Whirlwind / mid-Blade Storm.
 	if classId == "swordsman" and not SwordsmanServer.CanUseSkill(player, skillIndex) then return end
+	-- Rogue: nothing mid-Shadow Realm; E with a dagger out is the Shadow Step (no cooldown).
+	if classId == "rogue" then
+		if not RogueServer.CanUseSkill(player, skillIndex) then return end
+		if RogueServer.TryRecast(player, char, skillIndex) then return end
+	end
 	-- Berserker: nothing mid-leap, mid-Bloodstorm or mid-Worldbreaker.
 	if classId == "berserker" and not BerserkerServer.CanUseSkill(player, skillIndex) then return end
 	-- Fire Knight: nothing mid-charge / mid-guard / mid-slam / mid-awakening.
@@ -1617,6 +1623,8 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 		GunslingerServer.OnSkill(player, char, skillIndex, origin, direction, targetPosition, effectiveConfig)
 	elseif classId == "swordsman" then
 		SwordsmanServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig)
+	elseif classId == "rogue" then
+		RogueServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig)
 	elseif classId == "berserker" then
 		BerserkerServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig,
 			if typeof(targetPosition) == "Vector3" then targetPosition else nil)
@@ -1687,6 +1695,7 @@ ultCutscene = function(classId: string, config: any): number
 	if classId == "ice_mage" then return config.castDelay or 1.5 end
 	if classId == "gunslinger" then return 1.4 end
 	if classId == "swordsman" then return SwordsmanServer.STORM_WINDUP end
+	if classId == "rogue" then return RogueServer.REALM_WINDUP end
 	if classId == "berserker" then return BerserkerServer.GATHER_TIME end -- Worldbreaker's gathering
 	if classId == "heavy_knight" then return FireKnightServer.AWAKEN end
 	return 1.0 -- Ranger close-up
@@ -1712,6 +1721,11 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 	-- The Swordsman's 4-hit combo, Momentum and its own swing speed.
 	if player:GetAttribute("SelectedClass") == "swordsman" then
 		SwordsmanServer.OnBasic(player, char, rootPart, payload)
+		return
+	end
+	-- The Rogue's dagger combo and Shadow Energy.
+	if player:GetAttribute("SelectedClass") == "rogue" then
+		RogueServer.OnBasic(player, char, rootPart, payload)
 		return
 	end
 	-- The Berserker's greatsword chain and Bloodrage.
@@ -1821,6 +1835,20 @@ function SkillManager.Init()
 		dealDamage = dealDamage,
 		setParryHook = MobManager.SetParryHook,
 		roomBoundsAt = MobManager.RoomBoundsAt,
+	})
+	RogueServer.Init({
+		getPotentialTargets = getPotentialTargets,
+		dealDamage = dealDamage,
+		reduceCooldown = reduceCooldown,
+		cooldownLeft = function(player: Player, skillIndex: number): number
+			local fullAt = chargesFullAt[player] and chargesFullAt[player][skillIndex]
+			if fullAt then return math.max(0, fullAt - os.clock()) end
+			local last = playerCooldowns[player] and playerCooldowns[player][skillIndex]
+			local length = cooldownLengths[player] and cooldownLengths[player][skillIndex]
+			if not last or not length then return 0 end
+			return math.max(0, length - (os.clock() - last))
+		end,
+		addIncomingHook = MobManager.AddIncomingHook,
 	})
 	BerserkerServer.Init({
 		getPotentialTargets = getPotentialTargets,

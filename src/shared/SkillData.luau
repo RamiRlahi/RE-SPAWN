@@ -331,6 +331,49 @@ SkillData.swordsman = {
 	},
 }
 
+SkillData.rogue = {
+	[1] = {
+		name = "Shadow Dagger",
+		slot = 1,
+		keybind = "E",
+		cooldown = 6.0,
+		damage = 34,
+		range = 40, -- how far the dagger flies
+		projectileSpeed = 110,
+		duration = 4.0, -- how long the dagger waits to be stepped to
+		description = "Throw a dagger: it sticks in the first enemy it hits and marks them. Press again to Shadow Step to it, appearing behind a marked enemy for bonus damage. Works while invisible.",
+	},
+	[2] = {
+		name = "Dash",
+		slot = 2,
+		keybind = "F",
+		cooldown = 8.0,
+		damage = 30,
+		dashDistance = 22,
+		width = 5,
+		description = "Dash instantly in the aimed direction, slashing through every enemy on the way and applying the Shadow Mark.",
+	},
+	[3] = {
+		name = "Invisibility",
+		slot = 3,
+		keybind = "Q",
+		cooldown = 20.0,
+		damage = 0,
+		duration = 6.0,
+		description = "Become invisible for 6 seconds. Enemies lose you and you move faster. Attacking or taking damage ends it early.",
+	},
+	[4] = {
+		name = "Shadow Realm",
+		slot = 4,
+		keybind = "R",
+		cooldown = 60.0,
+		damage = 26, -- per shadow slash; the final burst deals far more
+		duration = 4.0,
+		range = 24,
+		description = "Ultimate: ascend into the shadow realm, untargetable for 4 seconds while shadow slashes strike enemies around you, then release a burst that deals huge damage and marks everything hit.",
+	},
+}
+
 local SkillModule = {}
 
 function SkillModule.GetSkills(classId: string): ClassSkills?

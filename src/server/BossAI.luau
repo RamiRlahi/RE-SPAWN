@@ -327,7 +327,7 @@ local function nearestVictim(b: Boss): Victim?
 	local best, bestD = nil, 90
 	for _, v in ipairs(victims()) do
 		local d = (v.root.Position - b.root.Position).Magnitude
-		if d < bestD then best, bestD = v, d end
+		if d < bestD and v.char:GetAttribute("Hidden") ~= true then best, bestD = v, d end
 	end
 	return best
 end

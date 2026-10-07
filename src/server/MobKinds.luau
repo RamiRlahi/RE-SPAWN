@@ -1033,7 +1033,8 @@ local function victims(): { Victim }
 		if char and plr:GetAttribute("InLobby") ~= true then
 			local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 			local hum = char:FindFirstChildOfClass("Humanoid")
-			if root and hum and hum.Health > 0 then table.insert(out, { char = char, root = root }) end
+			-- (an invisible Rogue isn't there for them)
+			if root and hum and hum.Health > 0 and char:GetAttribute("Hidden") ~= true then table.insert(out, { char = char, root = root }) end
 		end
 	end
 	return out

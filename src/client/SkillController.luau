@@ -37,6 +37,7 @@ local XPOrbs = require(script.Parent:WaitForChild("XPOrbs"))
 local GunslingerController = require(script.Parent:WaitForChild("GunslingerController"))
 local AimStance = require(script.Parent:WaitForChild("AimStance"))
 local SwordsmanController = require(script.Parent:WaitForChild("SwordsmanController"))
+local RogueController = require(script.Parent:WaitForChild("RogueController"))
 local BerserkerController = require(script.Parent:WaitForChild("BerserkerController"))
 local FireKnightController = require(script.Parent:WaitForChild("FireKnightController"))
 
@@ -4230,6 +4231,11 @@ function SkillController.UseSkill(skillIndex: number)
 	-- Gunslinger: e.g. Fan the Hammer needs bullets; nothing mid-roll / High Noon.
 	if classId == "gunslinger" and not GunslingerController.CanCast(skillIndex) then return end
 	if classId == "swordsman" and not SwordsmanController.CanCast(skillIndex) then return end
+	if classId == "rogue" then
+		if not RogueController.CanCast(skillIndex) then return end
+		-- E with the dagger out: Shadow Step to it (no cooldown).
+		if RogueController.TryRecast(skillIndex, char, rootPart) then return end
+	end
 	if classId == "berserker" and not BerserkerController.CanCast(skillIndex) then return end
 	if classId == "heavy_knight" and not FireKnightController.CanCast(skillIndex) then return end
 
@@ -4471,6 +4477,8 @@ function SkillController.UseSkill(skillIndex: number)
 		skillTargetPosition = GunslingerController.OnCast(skillIndex, char, rootPart, aimDir, config) or skillTargetPosition
 	elseif classId == "swordsman" then
 		SwordsmanController.OnCast(skillIndex, char, rootPart, aimDir, config)
+	elseif classId == "rogue" then
+		RogueController.OnCast(skillIndex, char, rootPart, aimDir, config)
 	elseif classId == "berserker" then
 		skillTargetPosition = BerserkerController.OnCast(skillIndex, char, rootPart, aimDir, config, cursorPosition) or skillTargetPosition
 		if skillIndex == 4 then BerserkerController.PlayUltCutscene(char, aimDir) end
@@ -4718,6 +4726,12 @@ local function performBasicAttack()
 		if root then SwordsmanController.Basic(char, root) end
 		return
 	end
+	-- The Rogue's dagger combo.
+	if player:GetAttribute("SelectedClass") == "rogue" then
+		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if root then RogueController.Basic(char, root) end
+		return
+	end
 	-- The Berserker's greatsword chain.
 	if player:GetAttribute("SelectedClass") == "berserker" then
 		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
@@ -4885,6 +4899,11 @@ function SkillController.Init()
 		getCursor = getCursorWorldPosition,
 	})
 	SwordsmanController.Init({
+		shake = triggerCameraShake,
+		fovPunch = triggerFOVPunch,
+		getAim = getAimDirection,
+	})
+	RogueController.Init({
 		shake = triggerCameraShake,
 		fovPunch = triggerFOVPunch,
 		getAim = getAimDirection,

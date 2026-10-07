@@ -182,38 +182,38 @@ local ClassData: { [string]: ClassInfo } = {
 		},
 	},
 
-	["assassin"] = {
-		id = "assassin",
-		name = "Assassin",
-		title = "The Shadow Phantom",
-		role = "Infiltrator / Burst",
-		description = "A swift shadow stalker lethal from behind. Uses deception, smoke, and venom-coated daggers to assassinate priority targets in seconds.",
-		accentColor = Color3.fromRGB(235, 45, 85),
+	["rogue"] = {
+		id = "rogue",
+		name = "Rogue",
+		title = "The Shadow",
+		role = "Mobility / Burst",
+		description = "Strike from the dark. Disappear. Repeat. A master of movement and deception who appears when you least expect it, leaving only chaos in their wake.",
+		accentColor = Color3.fromRGB(215, 30, 60),
 		stats = {
 			strength = 4,
 			vitality = 2,
 			defense = 1,
 			agility = 5,
-			maxHealth = 100,
+			maxHealth = 95,
 			offense = 5,
 			difficulty = 4,
 		},
 		abilities = {
-			{ name = "Shadow Step", tag = "Skill 1", description = "Teleport directly behind the closest target and critically strike.", videoId = "" },
-			{ name = "Venom Daggers", tag = "Skill 2", description = "Hurl 3 poisoned blades that inflict progressive bleed and slow effects.", videoId = "" },
-			{ name = "Smoke Cloak", tag = "Skill 3", description = "Vanish into thick smoke, becoming invisible and gaining 30% speed for 4s.", videoId = "" },
-			{ name = "Deathmark Execute", tag = "Ultimate", description = "Mark a target for death, delivering a flurry of fatal strikes that bypasses armor.", videoId = "" },
+			{ name = "Shadow Dagger", tag = "Skill 1", description = "Throw a dagger that marks the first enemy it hits. Press again to Shadow Step to it: you appear behind a marked enemy for bonus damage. Works while invisible.", videoId = "" },
+			{ name = "Dash", tag = "Skill 2", description = "Dash instantly in the aimed direction, slashing through every enemy on the way and applying the Shadow Mark.", videoId = "" },
+			{ name = "Invisibility", tag = "Skill 3", description = "Vanish for 6 seconds: enemies lose you and you move faster. Attacking or taking damage ends it early.", videoId = "" },
+			{ name = "Shadow Realm", tag = "Ultimate", description = "Ascend into the shadow realm, untargetable for 4 seconds while shadow slashes strike all around, then release a burst that marks everything hit.", videoId = "" },
 		},
 		equipment = {
-			name = "Shadowfang Dual Daggers & Twilight Cowl",
-			slot = "Dual Blades & Cloak",
+			name = "Shadowfang & Crimson Cowl",
+			slot = "Dagger & Hood",
 			rarity = "Shadow Relic",
-			description = "Obsidian daggers dipped in basilisk venom that bypass armor on critical backstabs.",
+			description = "A black dagger with a crimson edge. Passive: dealing damage builds Shadow Energy; at full, your next ability is enhanced. Marked enemies take more damage, kills give a burst of speed, and cooldowns run faster while invisible.",
 			stats = {
-				["Max Health"] = "100 HP",
-				["Crit Chance"] = "+35%",
-				["Crit DMG"] = "+75%",
-				["Move Speed"] = "+15%",
+				["Max Health"] = "95 HP",
+				["Marked Damage"] = "+25%",
+				["Speed after a kill"] = "+25%",
+				["Cooldowns while invisible"] = "x2 speed",
 			},
 		},
 	},
@@ -415,6 +415,7 @@ local PlayableClasses: { [string]: boolean } = {
 	gunslinger = true,
 	swordsman = true,
 	berserker = true,
+	rogue = true,
 }
 
 -- Array order for Carousel / UI display: playable classes first, locked after.
@@ -426,9 +427,9 @@ local ClassOrder: { string } = {
 	"gunslinger",
 	"swordsman",
 	"berserker",
+	"rogue",
 	"brawler",
 	"sorcerer",
-	"assassin",
 }
 
 return {

@@ -18,6 +18,7 @@ local WeaponGrip = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild
 local RevolverModel = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RevolverModel"))
 local SwordModel = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SwordModel"))
 local BerserkerLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BerserkerLook"))
+local RogueLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RogueLook"))
 local WeaponSling = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("WeaponSling"))
 local GearLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GearLook"))
 
@@ -44,6 +45,10 @@ local WEAPON_CONFIG: { [string]: { toolName: string, leftHand: boolean?, build: 
 	berserker = {
 		toolName = "Ragebringer",
 		build = BerserkerLook.BuildGreatsword,
+	},
+	rogue = {
+		toolName = "Shadowfang",
+		build = RogueLook.BuildDagger,
 	},
 }
 

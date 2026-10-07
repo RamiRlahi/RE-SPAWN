@@ -291,6 +291,36 @@ TalentData.swordsman = {
 	},
 }
 
+-- Rogue: a dagger pointing up, with a crescent of shadow behind it.
+TalentData.rogue = {
+	name = "Nightblade",
+	lines = {
+		{ 0.5, 0.08, 0.44, 0.2 }, { 0.5, 0.08, 0.56, 0.2 },     -- tip
+		{ 0.44, 0.2, 0.46, 0.58 }, { 0.56, 0.2, 0.54, 0.58 },   -- blade
+		{ 0.32, 0.58, 0.68, 0.58 },                             -- guard
+		{ 0.5, 0.58, 0.5, 0.84 },                               -- grip
+		{ 0.22, 0.3, 0.2, 0.6 }, { 0.2, 0.6, 0.32, 0.86 },      -- shadow crescent
+	},
+	nodes = {
+		{ id = "sharpened", name = "Sharpened", glyph = "SH", x = 0.5, y = 0.58, cost = 1,
+			description = "+0.06× Damage", effect = { stat = "damage", operation = "multiplier", value = 0.06 } },
+		{ id = "quick_hands", name = "Quick Hands", glyph = "QH", x = 0.5, y = 0.38, cost = 2, requires = "sharpened",
+			description = "+12% Attack Speed", effect = { stat = "basicAttackSpeed", operation = "percent", value = 0.12 } },
+		{ id = "light_step", name = "Light Step", glyph = "LS", x = 0.32, y = 0.58, cost = 2, requires = "sharpened",
+			description = "+10% Move Speed", effect = { stat = "movementSpeed", operation = "percent", value = 0.1 } },
+		{ id = "weak_spot", name = "Weak Spot", glyph = "WS", x = 0.68, y = 0.58, cost = 2, requires = "sharpened",
+			description = "+6% Crit Chance", effect = { stat = "critChance", operation = "percent", value = 0.06 } },
+		{ id = "padded_cowl", name = "Padded Cowl", glyph = "PC", x = 0.5, y = 0.84, cost = 3, requires = "sharpened",
+			description = "+35 Max HP", effect = { stat = "maxHealth", operation = "add", value = 35 } },
+		{ id = "night_hunger", name = "Night Hunger", glyph = "NH", x = 0.22, y = 0.3, cost = 4, requires = "light_step",
+			description = "+4% Lifesteal", effect = { stat = "lifesteal", operation = "percent", value = 0.04 } },
+		{ id = "fade", name = "Fade", glyph = "FA", x = 0.5, y = 0.2, cost = 4, requires = "quick_hands",
+			description = "−10% Ability Cooldowns", effect = { stat = "abilityCooldown", operation = "percent", value = 0.1 } },
+		{ id = "the_shadow", name = "The Shadow", glyph = "TS", x = 0.5, y = 0.08, cost = 6, requires = "fade",
+			description = "+0.1× Damage", effect = { stat = "damage", operation = "multiplier", value = 0.1 } },
+	},
+}
+
 local TalentModule = {}
 
 function TalentModule.Get(classId: string): Constellation?
