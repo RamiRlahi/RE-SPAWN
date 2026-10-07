@@ -20,6 +20,10 @@
 	  gear|userId                every Armory weapon finish, aura and title, owned
 	  ride|userId|on             call the mount (on = 1) or send it away (0)
 	  hit|userId|damage          a hit on the player (thrown off a mount)
+	  boss|userId|kind           the player's run's boss made a `kind`
+	                             (BossAI.Kinds), the player put in its arena
+	                             (sent into a run first if in the lobby; set
+	                             "DevMove" on the boss model to call a move)
 --]]
 
 local Players = game:GetService("Players")
@@ -118,6 +122,25 @@ function DevHooks.Init()
 			local hum = p and p.Character and p.Character:FindFirstChildOfClass("Humanoid")
 			if hum then hum:TakeDamage(tonumber(b) or 5) end
 			return hum and hum.Health
+		elseif cmd == "boss" then
+			local p = plr(a)
+			if not p then return "no player" end
+			if p:GetAttribute("InLobby") ~= false then
+				-- (in the lobby: into a run first, as the campfire's portal would)
+				local ClassManager = require(script.Parent:WaitForChild("ClassManager")) :: any
+				ClassManager.Enter(p, p:GetAttribute("SelectedClass") or "swordsman")
+				local t0 = os.clock()
+				while p:GetAttribute("InLobby") ~= false and os.clock() - t0 < 30 do task.wait(0.2) end
+			end
+			local runId = p:GetAttribute("RunId")
+			if typeof(runId) ~= "string" then return "not in a run" end
+			local MobManager = require(script.Parent:WaitForChild("MobManager")) :: any
+			local mid = MobManager.DevBoss(runId, b or "fallen_angel")
+			if not mid then return "no boss room" end
+			local root = p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+			-- (off the arena's cross, where its flame vents are)
+			if root then root.CFrame = CFrame.new(mid + Vector3.new(30, 5, 16)) end
+			return mid
 		end
 		return "unknown command"
 	end

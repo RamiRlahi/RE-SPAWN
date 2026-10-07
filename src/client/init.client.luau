@@ -138,6 +138,14 @@ pcall(function()
 	require(script:WaitForChild("BossCinematic")).Init()
 end)
 
+-- The Fallen Angel's body in motion (hovering, its sword arm, wings, halo,
+-- cloth), and the pictures of its attacks.
+pcall(function()
+	require(script:WaitForChild("FallenAngelFX")).Init()
+end)
+pcall(function()
+	require(script:WaitForChild("AngelAttackFX")).Init()
+end)
 -- Cloth capes on every Sword Master and armored Fire Knight in the world.
 pcall(function()
 	require(script:WaitForChild("ClassCapes")).Init()

@@ -35,7 +35,7 @@ local FLASH_SIZE = 8 -- a neon part bigger than this across is a blast flash
 
 -- (where effects are never touched)
 local KEEP = {
-	Mobs = true, MobFX = true, BossFX = true, DragonFX = true, DragonClientFX = true,
+	Mobs = true, MobFX = true, BossFX = true, DragonFX = true, DragonClientFX = true, AngelClientFX = true,
 	GeneratedDungeon = true, MenuBackdrop = true, HubSky = true, Lobby = true, LocalSettingsPanel = true, Allies = true,
 	RoomEmblems = true, SpawnPoint = true, dust = true,
 	SkeletonAimLine = true, DeathPortal = true, -- (enemy warnings, the give-up portal)

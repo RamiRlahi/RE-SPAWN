@@ -966,12 +966,16 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 	rootPart.CanQuery = true
 
 	-- 3. Weld EVERY MeshPart/BasePart to HumanoidRootPart while still at original relative positions
+	-- (a "SelfRigged" model, the Fallen Angel, is already jointed: its wings,
+	-- halo and cloth hang on Motor6Ds the clients animate, so no welds)
+	local selfRigged = mobModel:GetAttribute("SelfRigged") == true
 	for _, part in ipairs(mobModel:GetDescendants()) do
 		if part:IsA("BasePart") and part ~= rootPart then
 			part.Massless = true
 			part.CanCollide = false
 			part.CanTouch = false
 			part.CanQuery = false
+			if selfRigged then continue end
 
 			local alreadyWelded = false
 			for _, child in ipairs(part:GetChildren()) do
@@ -1024,7 +1028,8 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 	-- the mob (lagShift).
 	local bodyParts: { BasePart } = {}
 	for _, d in ipairs(mobModel:GetDescendants()) do
-		if d:IsA("BasePart") and d.Transparency < 0.95 and not d:FindFirstAncestorOfClass("Accessory") then
+		-- (not the decoration: a Fallen Angel's wings, halo, cloth and sword)
+		if d:IsA("BasePart") and d.Transparency < 0.95 and not d:FindFirstAncestorOfClass("Accessory") and d:GetAttribute("Decor") ~= true then
 			table.insert(bodyParts, d)
 		end
 	end
@@ -1138,9 +1143,17 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 			end
 
 			if closestPlayerChar and closestPlayerChar.Parent then
-				local pRoot = closestPlayerChar:FindFirstChild("HumanoidRootPart")
+				local pRoot = closestPlayerChar:FindFirstChild("HumanoidRootPart") :: BasePart?
 				if pRoot then
-					humanoid:MoveTo(pRoot.Position)
+					-- ("KeepDistance": it closes to that range and holds there, the
+					-- Fallen Angel looming over you rather than standing on you)
+					local goal = pRoot.Position
+					local keep = mobModel:GetAttribute("KeepDistance")
+					if typeof(keep) == "number" then
+						local off = Vector3.new(mobPos.X - goal.X, 0, mobPos.Z - goal.Z)
+						goal = if off.Magnitude > keep + 1 then goal + off.Unit * keep else mobPos
+					end
+					humanoid:MoveTo(goal)
 
 					-- (contact damage: the loop below)
 					contactTarget = closestPlayerChar
@@ -1899,6 +1912,24 @@ function MobManager.ActivateRecord(record: any)
 	activateMob(record)
 end
 
+-- Studio test hook (DevHooks "boss"): run `runId`'s boss room, its boss made
+-- a `kindId` (brought back fresh if it's already up). Returns the room's middle.
+function MobManager.DevBoss(runId: string, kindId: string): Vector3?
+	for _, g in ipairs(roomMobGroups) do
+		if g.runId == runId and g.room.roomType == "Boss" then
+			if not g.planned then planRoom(g) end
+			for _, r in ipairs(g.mobs) do
+				if r.isBoss then
+					deactivateMob(r)
+					r.bossKind, r.defeated, r.health = kindId, false, math.huge
+					return r.spawnCFrame.Position
+				end
+			end
+		end
+	end
+	return nil
+end
+
 local refreshStarted = false
 
 -- The rooms of run `runId`'s (new) level; its old rooms are dropped. One loop
@@ -2038,6 +2069,7 @@ function MobManager.Init()
 		canAct = bossCanAct,
 		hurt = hurtPlayer,
 		spawnMinion = MobManager.SpawnMinion,
+		roomAt = MobManager.RoomBoundsAt,
 	})
 	DragonBoss.Init({
 		canAct = bossCanAct,

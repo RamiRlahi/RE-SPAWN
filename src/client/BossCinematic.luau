@@ -14,7 +14,8 @@
 	              { kind = "judgement", phase = "pillars"|"charge"|"strike" }
 	              the Fallen Angel's JUDGEMENT: pillars fall from the sky,
 	              "HIDE BEHIND A PILLAR!" with a countdown while the void
-	              gathers, then a white flash as it strikes.
+	              gathers, then a white flash as it slams down (the wave,
+	              the pillars' gold shelter and the rest: AngelAttackFX).
 
 	All of these are warnings the player must see, so none are budgeted.
 --]]
@@ -63,6 +64,8 @@ local function shake(power: number, duration: number)
 	if power > shakePower or os.clock() > shakeUntil then shakePower = power end
 	shakeUntil = math.max(shakeUntil, os.clock() + duration)
 end
+-- (the boss attacks' own effects shake it too: AngelAttackFX)
+BossCinematic.Shake = shake
 
 -- ── Text: a small line over a big one, with a brass rule ────────────────────
 local function title(small: string, big: string, color: Color3, hold: number, y: number?)
@@ -272,13 +275,13 @@ local function showHide(duration: number, color: Color3)
 	local sub = Instance.new("TextLabel")
 	sub.AnchorPoint = Vector2.new(0.5, 0)
 	sub.Position = UDim2.new(0.5, 0, 0.2, 40)
-	sub.Size = UDim2.fromOffset(700, 26)
+	sub.Size = UDim2.fromOffset(900, 26)
 	sub.BackgroundTransparency = 1
 	sub.Font = Enum.Font.GothamBold
 	sub.TextSize = 20
 	sub.TextColor3 = Color3.fromRGB(230, 210, 255)
 	sub.TextStrokeTransparency = 0.3
-	sub.Text = "Put stone between you and the angel"
+	sub.Text = "Its slam floods the whole arena: only the gold behind a pillar is safe"
 	sub.Parent = gui
 	local back = Instance.new("Frame")
 	back.AnchorPoint = Vector2.new(0.5, 0)
@@ -313,7 +316,8 @@ local function onFX(data: any)
 		shake(0.6, 0.3)
 	elseif data.kind == "judgement" then
 		if data.phase == "pillars" then
-			title("THE HEAVENS FALL", "PILLARS FROM THE SKY", Color3.fromRGB(230, 220, 245), 1.6, 0.22)
+			-- (below the signature move's name, which is up at the same time)
+			title("THE HEAVENS FALL", "PILLARS FROM THE SKY", Color3.fromRGB(230, 220, 245), 1.6, 0.4)
 			shake(0.9, 1.6)
 		elseif data.phase == "charge" then
 			showHide(if typeof(data.duration) == "number" then data.duration else 3, color)

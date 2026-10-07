@@ -252,6 +252,17 @@ function Hazards.BuildBossArena(room: Room, folder: Instance, rng: Random)
 	end
 end
 
+-- Is `pos` within `pad` studs of a lava pool or a flame vent on its floor?
+-- (BossAI keeps the Fallen Angel's Judgement pillars off them.)
+function Hazards.Near(pos: Vector3, pad: number): boolean
+	for _, h in ipairs(hazards) do
+		if (h.kind == "lava" or h.kind == "vent") and math.abs(pos.Y - h.floorY) < 6 then
+			if Vector3.new(pos.X - h.center.X, 0, pos.Z - h.center.Z).Magnitude <= h.radius + pad then return true end
+		end
+	end
+	return false
+end
+
 -- A few spike traps scattered on a combat room's open floor.
 function Hazards.BuildTraps(room: Room, folder: Instance, rng: Random)
 	local minX, maxX, minZ, maxZ = bounds(room)
