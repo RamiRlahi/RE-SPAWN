@@ -1672,16 +1672,9 @@ local function planRoom(group: RoomMobGroup)
 		})
 		remaining = 0 -- the dragon (and its arena) is the fight
 	elseif room.roomType == "Boss" then
-		-- A slime-looking boss (or the fallback slime) fights as the Slime
-		-- King; any other boss model gets one of the other kits.
 		local template = if #bossTemplates > 0 then bossTemplates[math.random(1, #bossTemplates)] else nil
-		local isSlime = template == nil or string.find(string.lower(template.Name), "slime") ~= nil
-		local kinds = {}
-		for _, id in ipairs(BossAI.KindIds()) do
-			if (id == "slime") == isSlime then table.insert(kinds, id) end
-		end
-		-- (the map's own bosses, where the model allows)
-		if map and not isSlime then
+		local kinds = BossAI.KindIds()
+		if map and map.bosses then
 			local themed = {}
 			for _, id in ipairs(map.bosses) do
 				if table.find(kinds, id) then table.insert(themed, id) end

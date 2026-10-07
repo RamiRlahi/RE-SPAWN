@@ -1458,58 +1458,212 @@ local function buildExtractPortal(cf: CFrame, parent: Instance): BasePart
 	return zone
 end
 
-local function constructPitchBlackExit(stairCF: CFrame, parentFolder: Folder, runId: string)
+local function constructDungeonLiftExit(liftCF: CFrame, parentFolder: Folder, runId: string)
 	local exitModel = Instance.new("Folder")
-	exitModel.Name = "AbyssExit"
+	exitModel.Name = "DungeonLiftExit"
 	exitModel.Parent = parentFolder
 
-	local voidPortal = Instance.new("Part")
-	voidPortal.Name = "AbyssVoidGate"
-	voidPortal.Size = Vector3.new(22, 18, 26)
-	voidPortal.CFrame = stairCF * CFrame.new(0, 4, 15)
-	voidPortal.Anchored = true
-	voidPortal.CanCollide = false
-	voidPortal.CastShadow = true
-	voidPortal.Material = Enum.Material.SmoothPlastic
-	voidPortal.Color = Color3.fromRGB(0, 0, 0)
-	voidPortal.Transparency = 0.05
-	voidPortal.Parent = exitModel
+	local GOLD = Color3.fromRGB(245, 195, 95)
+	local GOLD_BRIGHT = Color3.fromRGB(255, 225, 140)
+	local IRON = Color3.fromRGB(45, 42, 48)
+	local IRON_LIGHT = Color3.fromRGB(80, 75, 85)
+	local WOOD = Color3.fromRGB(75, 52, 38)
 
-	local voidFloor = Instance.new("Part")
-	voidFloor.Name = "AbyssFloor"
-	voidFloor.Size = Vector3.new(22, 2, 26)
-	voidFloor.CFrame = stairCF * CFrame.new(0, -7, 15)
-	voidFloor.Anchored = true
-	voidFloor.CanCollide = true
-	voidFloor.Color = Color3.fromRGB(0, 0, 0)
-	voidFloor.Parent = exitModel
+	local function part(props: { [string]: any }): BasePart
+		local p = Instance.new("Part")
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.CastShadow = true
+		for k, v in pairs(props) do (p :: any)[k] = v end
+		p.Parent = exitModel
+		return p
+	end
 
-	local att = Instance.new("Attachment")
-	att.Position = Vector3.new(0, -2, 4)
-	att.Parent = voidPortal
-
-	local abyssFog = Instance.new("ParticleEmitter")
-	abyssFog.Name = "DarkAbyssParticles"
-	abyssFog.Texture = "rbxassetid://243098098"
-	abyssFog.Color = ColorSequence.new(Color3.fromRGB(0, 0, 0))
-	abyssFog.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.1),
-		NumberSequenceKeypoint.new(0.5, 0.02),
-		NumberSequenceKeypoint.new(1, 0.8),
+	-- 1. Lift Platform Floor
+	local floor = part({
+		Name = "LiftPlatform",
+		Size = Vector3.new(22, 2, 22),
+		CFrame = liftCF * CFrame.new(0, 0, 0),
+		Color = WOOD,
+		Material = Enum.Material.WoodPlanks,
+		CanCollide = true,
 	})
-	abyssFog.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 10),
-		NumberSequenceKeypoint.new(1, 24),
+	part({
+		Name = "LiftBorder",
+		Size = Vector3.new(23, 2.2, 23),
+		CFrame = liftCF * CFrame.new(0, -0.05, 0),
+		Color = IRON,
+		Material = Enum.Material.Metal,
+		CanCollide = false,
 	})
-	abyssFog.Lifetime = NumberRange.new(2.5, 4.5)
-	abyssFog.Rate = 24
-	abyssFog.Speed = NumberRange.new(0.5, 2.5)
-	abyssFog.SpreadAngle = Vector2.new(180, 180)
-	abyssFog.Parent = att
+
+	-- 2. Glowing Magic Rune Ring in Center of Platform
+	local runeCore = part({
+		Name = "LiftRuneCore",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.3, 14, 14),
+		CFrame = liftCF * CFrame.new(0, 1.05, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = GOLD_BRIGHT,
+		Material = Enum.Material.Neon,
+		Transparency = 0.25,
+	})
+	local runeRing = part({
+		Name = "LiftRuneRing",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(0.35, 18, 18),
+		CFrame = liftCF * CFrame.new(0, 1.02, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = Color3.fromRGB(180, 130, 45),
+		Material = Enum.Material.Neon,
+		Transparency = 0.6,
+	})
+
+	-- Upward ascension light motes (rising to next floor)
+	local liftSparks = Instance.new("ParticleEmitter")
+	liftSparks.Name = "LiftAscentParticles"
+	liftSparks.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	liftSparks.Color = ColorSequence.new(GOLD_BRIGHT, Color3.fromRGB(255, 140, 40))
+	liftSparks.LightEmission = 1
+	liftSparks.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.4),
+		NumberSequenceKeypoint.new(0.6, 0.9),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	liftSparks.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.2),
+		NumberSequenceKeypoint.new(0.8, 0.4),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	liftSparks.Lifetime = NumberRange.new(1.8, 3.2)
+	liftSparks.Rate = 35
+	liftSparks.Speed = NumberRange.new(10, 22)
+	liftSparks.SpreadAngle = Vector2.new(15, 15)
+	liftSparks.EmissionDirection = Enum.NormalId.Top
+	liftSparks.Parent = runeCore
+
+	local liftLight = Instance.new("PointLight")
+	liftLight.Color = GOLD_BRIGHT
+	liftLight.Range = 26
+	liftLight.Brightness = 2.5
+	liftLight.Parent = runeCore
+
+	-- 3. Four Massive Guide Pillars & Overhead Mechanical Gantry
+	local pillarPositions = {
+		Vector3.new(-10.5, 18, -10.5),
+		Vector3.new(10.5, 18, -10.5),
+		Vector3.new(-10.5, 18, 10.5),
+		Vector3.new(10.5, 18, 10.5),
+	}
+	for _, offset in ipairs(pillarPositions) do
+		part({
+			Name = "LiftPillar",
+			Size = Vector3.new(2.4, 38, 2.4),
+			CFrame = liftCF * CFrame.new(offset),
+			Color = IRON,
+			Material = Enum.Material.Metal,
+			CanCollide = true,
+		})
+		-- Brass bracket on pillar
+		part({
+			Name = "LiftBracket",
+			Size = Vector3.new(3, 1.2, 3),
+			CFrame = liftCF * CFrame.new(offset.X, 2, offset.Z),
+			Color = GOLD,
+			Material = Enum.Material.Metal,
+		})
+		-- Suspension Chain hanging from top to platform
+		part({
+			Name = "LiftChain",
+			Size = Vector3.new(0.6, 32, 0.6),
+			CFrame = liftCF * CFrame.new(offset.X * 0.85, 17, offset.Z * 0.85),
+			Color = IRON_LIGHT,
+			Material = Enum.Material.CorrodedMetal,
+		})
+	end
+
+	-- Overhead Crossbeams & Pulleys
+	part({
+		Name = "OverheadBeamX1",
+		Size = Vector3.new(23.4, 2, 2),
+		CFrame = liftCF * CFrame.new(0, 36, -10.5),
+		Color = IRON,
+		Material = Enum.Material.Metal,
+	})
+	part({
+		Name = "OverheadBeamX2",
+		Size = Vector3.new(23.4, 2, 2),
+		CFrame = liftCF * CFrame.new(0, 36, 10.5),
+		Color = IRON,
+		Material = Enum.Material.Metal,
+	})
+	part({
+		Name = "OverheadBeamZ1",
+		Size = Vector3.new(2, 2, 23.4),
+		CFrame = liftCF * CFrame.new(-10.5, 36, 0),
+		Color = IRON,
+		Material = Enum.Material.Metal,
+	})
+	part({
+		Name = "OverheadBeamZ2",
+		Size = Vector3.new(2, 2, 23.4),
+		CFrame = liftCF * CFrame.new(10.5, 36, 0),
+		Color = IRON,
+		Material = Enum.Material.Metal,
+	})
+
+	-- Huge overhead pulley wheel in the middle
+	part({
+		Name = "CenterPulleyWheel",
+		Shape = Enum.PartType.Cylinder,
+		Size = Vector3.new(2.4, 7, 7),
+		CFrame = liftCF * CFrame.new(0, 37.5, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color = GOLD,
+		Material = Enum.Material.Metal,
+	})
+
+	-- 4. Safety Railings around left, right, and back
+	part({
+		Name = "RailingLeft",
+		Size = Vector3.new(0.8, 4.5, 21),
+		CFrame = liftCF * CFrame.new(-10.5, 3.25, 0),
+		Color = IRON,
+		Material = Enum.Material.Metal,
+		CanCollide = true,
+	})
+	part({
+		Name = "RailingRight",
+		Size = Vector3.new(0.8, 4.5, 21),
+		CFrame = liftCF * CFrame.new(10.5, 3.25, 0),
+		Color = IRON,
+		Material = Enum.Material.Metal,
+		CanCollide = true,
+	})
+	part({
+		Name = "RailingBack",
+		Size = Vector3.new(21, 4.5, 0.8),
+		CFrame = liftCF * CFrame.new(0, 3.25, 10.5),
+		Color = IRON,
+		Material = Enum.Material.Metal,
+		CanCollide = true,
+	})
+
+	-- 5. Trigger Zone for Standing on Lift
+	local liftZone = Instance.new("Part")
+	liftZone.Name = "LiftTriggerZone"
+	liftZone.Size = Vector3.new(20, 16, 20)
+	liftZone.CFrame = liftCF * CFrame.new(0, 8, 0)
+	liftZone.Anchored = true
+	liftZone.CanCollide = false
+	liftZone.CanQuery = false
+	liftZone.CanTouch = false
+	liftZone.Transparency = 1
+	liftZone.Parent = exitModel
 
 	local portals: { Portal } = {}
-	local bb, text = countBoard(voidPortal)
-	table.insert(portals, { part = voidPortal, kind = "descend", bb = bb, text = text })
+	local bb, text = countBoard(liftZone)
+	table.insert(portals, { part = liftZone, kind = "descend", bb = bb, text = text })
+
 	-- (the floor's level: every third one offers extraction)
 	local d = dungeons[runId]
 	local level = if d then d.level else 1
@@ -1517,9 +1671,9 @@ local function constructPitchBlackExit(stairCF: CFrame, parentFolder: Folder, ru
 	local every = if map and map.endless then 5 else EXTRACT_EVERY
 	local extractFloor = level % every == 0
 	if extractFloor then
-		-- in front of the stairs, in the room (floor level: the stair's base)
-		local base = stairCF * CFrame.new(0, -7, -16)
-		local zone = buildExtractPortal(CFrame.new(base.Position) * stairCF.Rotation, exitModel)
+		-- in front of the lift in the room
+		local base = liftCF * CFrame.new(0, 0, -18)
+		local zone = buildExtractPortal(CFrame.new(base.Position) * liftCF.Rotation, exitModel)
 		local ebb, etext = countBoard(zone)
 		table.insert(portals, { part = zone, kind = "extract", bb = ebb, text = etext })
 	end
@@ -2013,20 +2167,16 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 		print("[DungeonGenerator] No inter-floor stairs generated (all rooms may be on same tier).")
 	end
 
-	-- 5. Exit Staircase & Pitch-Black Abyss in the Boss Chamber
-	local exitStairTemplate = pickRandom(assets.stairs, rng)
-	local stairPos = Vector3.new(
+	-- 5. Exit Lift (Elevator to next floor) in the Boss Chamber
+	local liftPos = Vector3.new(
 		(bossRoom.gx + bossRoom.w / 2) * FLOOR_SIZE,
-		bossRoom.floorY + 7, -- Raise by +7 (half of 14-stud model height)
+		bossRoom.floorY,
 		(bossRoom.gz + bossRoom.d - 1) * FLOOR_SIZE
 	)
-	local stairCF = CFrame.new(stairPos) * CFrame.Angles(0, 0, 0)
-	d.exit = stairCF
+	local liftCF = CFrame.new(liftPos) * CFrame.Angles(0, 0, 0)
+	d.exit = liftCF
 
-	if exitStairTemplate then
-		spawnInstance(exitStairTemplate, stairCF, stairsFolder)
-	end
-	constructPitchBlackExit(stairCF, stairsFolder, runId)
+	constructDungeonLiftExit(liftCF, stairsFolder, runId)
 
 	-- 5. Interior Decorating (Abundant Corner/Perimeter Rubble, Barriers, Cosmetics)
 	decorateRooms(rooms, propsFolder, rng)

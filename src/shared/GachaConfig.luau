@@ -59,10 +59,17 @@ GachaConfig.Pity = {
 GachaConfig.Banners = {
 	divine_summoning = {
 		name = "The Divine Summoning",
-		subtitle = "Featured: Dark",
-		featured = "dark_variant",
+		subtitle = "Featured: Celestial Wings",
+		featured = "wings_celestial",
 		featuredRate = 0.5,
 		pool = "standard",
+	},
+	beastmaster_call = {
+		name = "Beastmaster's Call",
+		subtitle = "Featured: Void Serpent & Infernal Dragon",
+		featured = "mount_infernal_dragon",
+		featuredRate = 0.5,
+		pool = "mounts",
 	},
 }
 GachaConfig.DefaultBanner = "divine_summoning"

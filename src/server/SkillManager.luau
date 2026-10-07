@@ -1096,6 +1096,8 @@ local function executeClericDivineBeam(player: Player, casterChar: Model, origin
 	local halfWidth = math.max(0.5, (config.width or 3.0) * (config.areaMultiplier or 1) * 0.5)
 	local TICK = 0.5
 	local perHit = damage * TICK / math.max(duration, 0.001)
+	local numBeams = 1 + math.max(0, math.floor(config.projectileCount or 0))
+	local spreadDeg = if numBeams > 1 then math.clamp(12, 6, 60 / (numBeams - 1)) else 0
 
 	-- Channeled holy laser: tick damage for the full channel, tracking the caster's facing
 	-- (the client rotates the character to face the cursor, so LookVector IS the aim).
@@ -1109,15 +1111,36 @@ local function executeClericDivineBeam(player: Player, casterChar: Model, origin
 			local flatDir = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
 			if flatDir.Magnitude < 0.001 then flatDir = Vector3.new(0, 0, -1) end
 			flatDir = flatDir.Unit
+
+			local beamDirs = {}
+			if numBeams <= 1 then
+				table.insert(beamDirs, flatDir)
+			else
+				local startAngle = - (numBeams - 1) * spreadDeg * 0.5
+				for i = 1, numBeams do
+					local deg = startAngle + (i - 1) * spreadDeg
+					table.insert(beamDirs, rotateFlatDirection(flatDir, deg))
+				end
+			end
+
+			local damagedThisTick = {}
 			for _, target in ipairs(getPotentialTargets(casterChar)) do
 				local offset = target.rootPart.Position - curOrigin
 				local flatOffset = Vector3.new(offset.X, 0, offset.Z)
-				local along = flatOffset:Dot(flatDir)
-				if along >= 0 and along <= range then
-					local lateral = (flatOffset - flatDir * along).Magnitude
-					local vertical = math.abs(offset.Y)
-					if lateral <= lineReach(target, halfWidth) and vertical <= 6 then
-						dealDamage(player, target, perHit, "DIVINE BEAM")
+				local vertical = math.abs(offset.Y)
+				if vertical <= 6 then
+					for _, bDir in ipairs(beamDirs) do
+						local along = flatOffset:Dot(bDir)
+						if along >= 0 and along <= range then
+							local lateral = (flatOffset - bDir * along).Magnitude
+							if lateral <= lineReach(target, halfWidth) then
+								if not damagedThisTick[target] then
+									damagedThisTick[target] = true
+									dealDamage(player, target, perHit, "DIVINE BEAM")
+								end
+								break
+							end
+						end
 					end
 				end
 			end
@@ -1270,21 +1293,30 @@ local function executeIceSpikes(player: Player, casterChar: Model, origin: Vecto
 	end
 end
 
--- Skill 2: channelled beam that stops on the first enemy along the caster's facing.
+-- Skill 2: channelled beam that stops on the first enemy along the caster's facing (supports multi-beam from projectileCount).
 local function executeIceBeam(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, config: any)
 	local range = config.range or 55
 	local duration = config.duration or 3
 	local width = (config.width or 3) * (config.areaMultiplier or 1) * 0.5 + 0.5
 	local TICK = 0.25
 	local perHit = config.damage * TICK / math.max(duration, 0.001)
+	local numBeams = 1 + math.max(0, math.floor(config.projectileCount or 0))
+	local spreadDeg = if numBeams > 1 then math.clamp(12, 6, 60 / (numBeams - 1)) else 0
+
 	task.spawn(function()
 		local t0 = os.clock()
 		while os.clock() - t0 < duration do
 			local root = casterChar.Parent and casterChar:FindFirstChild("HumanoidRootPart") :: BasePart?
 			if not root then break end
-			local target = damageFirstTargetOnLine(player, casterChar, root.Position, root.CFrame.LookVector, range, width, perHit, "ICE BEAM")
-			if target then
-				chillTarget(target, TICK + 0.3)
+
+			local startAngle = if numBeams > 1 then - (numBeams - 1) * spreadDeg * 0.5 else 0
+			for i = 1, numBeams do
+				local deg = if numBeams > 1 then (startAngle + (i - 1) * spreadDeg) else 0
+				local bDir = rotateFlatDirection(root.CFrame.LookVector, deg)
+				local target = damageFirstTargetOnLine(player, casterChar, root.Position, bDir, range, width, perHit, "ICE BEAM")
+				if target then
+					chillTarget(target, TICK + 0.3)
+				end
 			end
 			task.wait(TICK)
 		end

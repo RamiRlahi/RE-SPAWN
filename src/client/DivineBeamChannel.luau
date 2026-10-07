@@ -129,7 +129,7 @@ local function makeAnchor(parent, name)
 	return p
 end
 
-function DivineBeamChannel.play(char, range, duration)
+function DivineBeamChannel.play(char, range, duration, projectileCount)
 	range = math.max(8, range or 60)
 	duration = duration or 5.0
 	local rootPart = char and char:FindFirstChild("HumanoidRootPart")
@@ -141,82 +141,105 @@ function DivineBeamChannel.play(char, range, duration)
 	holder.Parent = VariantFX.Root()
 
 	local length = range
+	local numBeams = 1 + math.max(0, math.floor(projectileCount or 0))
+	local spreadDeg = if numBeams > 1 then math.clamp(12, 6, 60 / (numBeams - 1)) else 0
+	local startAngle = if numBeams > 1 then - (numBeams - 1) * spreadDeg * 0.5 else 0
 
-	local halo = makeCylinder(holder, "BeamHalo", length, 4.2, HOLY_AMBER, 0.86)
-	local outer = makeCylinder(holder, "BeamGlow", length, 2.2, HOLY_GOLD, 0.55)
-	local mid = makeCylinder(holder, "BeamMid", length, 1.35, HOLY_YELLOW, 0.32)
-	local core = makeCylinder(holder, "BeamCore", length, 0.8, Color3.fromRGB(255, 255, 255), 0.05)
+	local beams = {}
+	for b = 1, numBeams do
+		local deg = if numBeams > 1 then (startAngle + (b - 1) * spreadDeg) else 0
+		local halo = makeCylinder(holder, "BeamHalo", length, 4.2, HOLY_AMBER, 0.86)
+		local outer = makeCylinder(holder, "BeamGlow", length, 2.2, HOLY_GOLD, 0.55)
+		local mid = makeCylinder(holder, "BeamMid", length, 1.35, HOLY_YELLOW, 0.32)
+		local core = makeCylinder(holder, "BeamCore", length, 0.8, Color3.fromRGB(255, 255, 255), 0.05)
 
-	local hub = makeAnchor(holder, "BeamHub")
-	local tip = makeAnchor(holder, "BeamTip")
+		local hub = makeAnchor(holder, "BeamHub")
+		local tip = makeAnchor(holder, "BeamTip")
 
-	-- YELLOW TRAIL: ribbon of holy light left along the beam
-	local tAtt0 = Instance.new("Attachment")
-	tAtt0.Parent = hub
-	local tAtt1 = Instance.new("Attachment")
-	tAtt1.Parent = tip
-	local trail = Instance.new("Trail")
-	trail.Attachment0 = tAtt0
-	trail.Attachment1 = tAtt1
-	trail.Texture = HOLY_RAY_TEXTURE
-	trail.TextureMode = Enum.TextureMode.Stretch
-	trail.LightEmission = 1
-	trail.Lifetime = 0.4
-	trail.Color = ColorSequence.new(HOLY_YELLOW, HOLY_AMBER)
-	trail.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.1),
-		NumberSequenceKeypoint.new(1, 0.95),
-	})
-	trail.Parent = holder
+		-- YELLOW TRAIL: ribbon of holy light left along the beam
+		local tAtt0 = Instance.new("Attachment")
+		tAtt0.Parent = hub
+		local tAtt1 = Instance.new("Attachment")
+		tAtt1.Parent = tip
+		local trail = Instance.new("Trail")
+		trail.Attachment0 = tAtt0
+		trail.Attachment1 = tAtt1
+		trail.Texture = HOLY_RAY_TEXTURE
+		trail.TextureMode = Enum.TextureMode.Stretch
+		trail.LightEmission = 1
+		trail.Lifetime = 0.4
+		trail.Color = ColorSequence.new(HOLY_YELLOW, HOLY_AMBER)
+		trail.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.1),
+			NumberSequenceKeypoint.new(1, 0.95),
+		})
+		trail.Parent = holder
 
-	local muzzleLight = Instance.new("PointLight")
-	muzzleLight.Color = HOLY_GOLD
-	muzzleLight.Brightness = 3.5
-	muzzleLight.Range = 22
-	muzzleLight.Shadows = false
-	muzzleLight.Parent = hub
-	local tipLight = Instance.new("PointLight")
-	tipLight.Color = HOLY_YELLOW
-	tipLight.Brightness = 4.5
-	tipLight.Range = 26
-	tipLight.Shadows = false
-	tipLight.Parent = tip
+		local muzzleLight = Instance.new("PointLight")
+		muzzleLight.Color = HOLY_GOLD
+		muzzleLight.Brightness = 3.5 / math.sqrt(numBeams)
+		muzzleLight.Range = 22
+		muzzleLight.Shadows = false
+		muzzleLight.Parent = hub
 
-	local flowAtt = Instance.new("Attachment")
-	flowAtt.Parent = hub
-	local flowPE = makeEmitter(flowAtt, 140, 1.6, 110, HOLY_WHITE)
-	flowPE.SpreadAngle = Vector2.new(6, 6)
-	flowPE.EmissionDirection = Enum.NormalId.Front
-	flowPE.Lifetime = NumberRange.new(0.5, 0.9)
+		local tipLight = Instance.new("PointLight")
+		tipLight.Color = HOLY_YELLOW
+		tipLight.Brightness = 4.5 / math.sqrt(numBeams)
+		tipLight.Range = 26
+		tipLight.Shadows = false
+		tipLight.Parent = tip
 
-	-- golden sparks streaming backwards off the beam
-	local sparkAtt = Instance.new("Attachment")
-	sparkAtt.Parent = tip
-	local sparkPE = makeEmitter(sparkAtt, 90, 0.9, 34, HOLY_YELLOW)
-	sparkPE.SpreadAngle = Vector2.new(30, 30)
-	sparkPE.EmissionDirection = Enum.NormalId.Back
-	sparkPE.Lifetime = NumberRange.new(0.45, 0.85)
-	sparkPE.Acceleration = Vector3.new(0, 6, 0)
+		local flowAtt = Instance.new("Attachment")
+		flowAtt.Parent = hub
+		local flowPE = makeEmitter(flowAtt, math.max(40, 140 / numBeams), 1.6, 110, HOLY_WHITE)
+		flowPE.SpreadAngle = Vector2.new(6, 6)
+		flowPE.EmissionDirection = Enum.NormalId.Front
+		flowPE.Lifetime = NumberRange.new(0.5, 0.9)
 
-	-- impact bloom at the far end
-	local impactAtt = Instance.new("Attachment")
-	impactAtt.Parent = tip
-	local impactPE = makeEmitter(impactAtt, 120, 2.0, 26, HOLY_GOLD)
-	impactPE.SpreadAngle = Vector2.new(180, 180)
-	impactPE.Lifetime = NumberRange.new(0.25, 0.5)
+		-- golden sparks streaming backwards off the beam
+		local sparkAtt = Instance.new("Attachment")
+		sparkAtt.Parent = tip
+		local sparkPE = makeEmitter(sparkAtt, math.max(30, 90 / numBeams), 0.9, 34, HOLY_YELLOW)
+		sparkPE.SpreadAngle = Vector2.new(30, 30)
+		sparkPE.EmissionDirection = Enum.NormalId.Back
+		sparkPE.Lifetime = NumberRange.new(0.45, 0.85)
+		sparkPE.Acceleration = Vector3.new(0, 6, 0)
 
-	-- rotating energy rings sweeping down the beam
-	local rings = {}
-	for i = 1, 4 do
-		local rh = makeRing(holder, RING_R - (i - 1) * 0.18, 14, 0.13)
-		rings[i] = { hub = rh, phase = (i - 1) / 4, spin = (i % 2 == 0) and 3.4 or -4.2 }
+		-- impact bloom at the far end
+		local impactAtt = Instance.new("Attachment")
+		impactAtt.Parent = tip
+		local impactPE = makeEmitter(impactAtt, math.max(35, 120 / numBeams), 2.0, 26, HOLY_GOLD)
+		impactPE.SpreadAngle = Vector2.new(180, 180)
+		impactPE.Lifetime = NumberRange.new(0.25, 0.5)
+
+		-- rotating energy rings sweeping down the beam
+		local rings = {}
+		for i = 1, 4 do
+			local rh = makeRing(holder, RING_R - (i - 1) * 0.18, 14, 0.13)
+			rings[i] = { hub = rh, phase = (i - 1) / 4, spin = (i % 2 == 0) and 3.4 or -4.2 }
+		end
+
+		table.insert(beams, {
+			deg = deg,
+			halo = halo,
+			outer = outer,
+			mid = mid,
+			core = core,
+			hub = hub,
+			tip = tip,
+			trail = trail,
+			flowPE = flowPE,
+			sparkPE = sparkPE,
+			impactPE = impactPE,
+			rings = rings,
+		})
 	end
 
 	-- holy seal on the ground under the caster
 	local seal = Instance.new("Part")
 	seal.Name = "BeamSeal"
 	seal.Shape = Enum.PartType.Cylinder
-	seal.Size = Vector3.new(0.15, 9, 9)
+	seal.Size = Vector3.new(0.15, 9 + math.min(6, numBeams * 1.5), 9 + math.min(6, numBeams * 1.5))
 	seal.Material = Enum.Material.Neon
 	seal.Color = HOLY_GOLD
 	seal.Transparency = 0.55
@@ -235,12 +258,14 @@ function DivineBeamChannel.play(char, range, duration)
 		if not (char and char.Parent) or (os.clock() - t0) >= duration then
 			active = false
 			if conn then conn:Disconnect() end
-			flowPE.Enabled = false
-			sparkPE.Enabled = false
-			impactPE.Enabled = false
-			trail.Enabled = false
+			for _, b in ipairs(beams) do
+				b.flowPE.Enabled = false
+				b.sparkPE.Enabled = false
+				b.impactPE.Enabled = false
+				b.trail.Enabled = false
+			end
 			for _, d in ipairs(holder:GetDescendants()) do
-				if d:IsA("BasePart") and d ~= hub and d ~= tip then
+				if d:IsA("BasePart") and not string.find(d.Name, "BeamHub") and not string.find(d.Name, "BeamTip") then
 					TweenService:Create(d, TweenInfo.new(0.3), { Transparency = 1 }):Play()
 				elseif d:IsA("ParticleEmitter") then
 					d.Enabled = false
@@ -281,30 +306,34 @@ function DivineBeamChannel.play(char, range, duration)
 				muzzlePos = (rHand.Position + lHand.Position) * 0.5
 			end
 		end
-		local startPos = muzzlePos + flatDir * 1.6
-		local midPos = startPos + flatDir * (length * 0.5)
-		local endPos = startPos + flatDir * length
 
 		local pulse = 1 + math.sin(elapsed * 14) * 0.12
 
-		local beamBasis = CFrame.lookAt(midPos, midPos + flatDir) * CFrame.Angles(0, math.rad(90), 0)
-		halo.CFrame = beamBasis
-		halo.Size = Vector3.new(length, 4.2 * pulse, 4.2 * pulse)
-		outer.CFrame = beamBasis
-		outer.Size = Vector3.new(length, 2.2 * pulse, 2.2 * pulse)
-		mid.CFrame = beamBasis
-		mid.Size = Vector3.new(length, 1.35 * pulse, 1.35 * pulse)
-		core.CFrame = beamBasis
-		core.Size = Vector3.new(length, 0.8 * pulse, 0.8 * pulse)
+		for _, b in ipairs(beams) do
+			local bDir = if b.deg ~= 0 then (CFrame.Angles(0, math.rad(b.deg), 0) * flatDir).Unit else flatDir
+			local startPos = muzzlePos + bDir * 1.6
+			local midPos = startPos + bDir * (length * 0.5)
+			local endPos = startPos + bDir * length
 
-		hub.CFrame = CFrame.lookAt(startPos, startPos + flatDir)
-		tip.CFrame = CFrame.lookAt(endPos, endPos + flatDir)
+			local beamBasis = CFrame.lookAt(midPos, midPos + bDir) * CFrame.Angles(0, math.rad(90), 0)
+			b.halo.CFrame = beamBasis
+			b.halo.Size = Vector3.new(length, 4.2 * pulse, 4.2 * pulse)
+			b.outer.CFrame = beamBasis
+			b.outer.Size = Vector3.new(length, 2.2 * pulse, 2.2 * pulse)
+			b.mid.CFrame = beamBasis
+			b.mid.Size = Vector3.new(length, 1.35 * pulse, 1.35 * pulse)
+			b.core.CFrame = beamBasis
+			b.core.Size = Vector3.new(length, 0.8 * pulse, 0.8 * pulse)
 
-		for i, r in ipairs(rings) do
-			local f = ((elapsed * 0.55) + r.phase) % 1
-			local pos = startPos + flatDir * (f * length)
-			local spin = elapsed * r.spin
-			r.hub.CFrame = CFrame.lookAt(pos, pos + flatDir) * CFrame.Angles(0, 0, spin)
+			b.hub.CFrame = CFrame.lookAt(startPos, startPos + bDir)
+			b.tip.CFrame = CFrame.lookAt(endPos, endPos + bDir)
+
+			for i, r in ipairs(b.rings) do
+				local f = ((elapsed * 0.55) + r.phase) % 1
+				local pos = startPos + bDir * (f * length)
+				local spin = elapsed * r.spin
+				r.hub.CFrame = CFrame.lookAt(pos, pos + bDir) * CFrame.Angles(0, 0, spin)
+			end
 		end
 
 		seal.CFrame = CFrame.new(rootPart.Position - Vector3.new(0, 2.6, 0)) * CFrame.Angles(0, elapsed * 1.6, math.rad(90))

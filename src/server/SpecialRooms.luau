@@ -506,45 +506,50 @@ local function buildShop(room: Room, folder: Folder, rng: Random)
 	model.Name = `Merchant_{room.id}`
 	model.Parent = folder
 	local c = Vector3.new(room.centerWorld.X, room.floorY, room.centerWorld.Z)
-	-- The stall faces -Z; wares are laid out in front of it.
-	local back = c + Vector3.new(0, 0, 6)
+	-- The stall always faces Southeast (+X, +Z).
+	local shopCF = CFrame.lookAt(c, c + Vector3.new(1, 0, 1))
+	local function toWorld(p: Vector3): Vector3
+		return shopCF:PointToWorldSpace(p)
+	end
+	local function toWorldCF(cf: CFrame): CFrame
+		return shopCF * cf
+	end
 
 	-- Rug, counter, back shelves.
-	part(model, { Name = "Rug", Size = Vector3.new(22, 0.1, 16), CFrame = CFrame.new(c + Vector3.new(0, 0.05, -1)), Color = Color3.fromRGB(120, 30, 40), Material = Enum.Material.Fabric, CanCollide = false })
-	part(model, { Name = "RugBorder", Size = Vector3.new(22.6, 0.08, 16.6), CFrame = CFrame.new(c + Vector3.new(0, 0.03, -1)), Color = GOLD, Material = Enum.Material.Fabric, CanCollide = false })
-	part(model, { Name = "Counter", Size = Vector3.new(12, 3, 2.6), CFrame = CFrame.new(back + Vector3.new(0, 1.5, 0)), Color = WOOD, Material = Enum.Material.WoodPlanks })
-	part(model, { Name = "CounterTop", Size = Vector3.new(12.4, 0.3, 3), CFrame = CFrame.new(back + Vector3.new(0, 3.15, 0)), Color = WOOD_DARK, Material = Enum.Material.Wood })
+	part(model, { Name = "Rug", Size = Vector3.new(22, 0.1, 16), CFrame = toWorldCF(CFrame.new(0, 0.05, -1)), Color = Color3.fromRGB(120, 30, 40), Material = Enum.Material.Fabric, CanCollide = false })
+	part(model, { Name = "RugBorder", Size = Vector3.new(22.6, 0.08, 16.6), CFrame = toWorldCF(CFrame.new(0, 0.03, -1)), Color = GOLD, Material = Enum.Material.Fabric, CanCollide = false })
+	part(model, { Name = "Counter", Size = Vector3.new(12, 3, 2.6), CFrame = toWorldCF(CFrame.new(0, 1.5, 6)), Color = WOOD, Material = Enum.Material.WoodPlanks })
+	part(model, { Name = "CounterTop", Size = Vector3.new(12.4, 0.3, 3), CFrame = toWorldCF(CFrame.new(0, 3.15, 6)), Color = WOOD_DARK, Material = Enum.Material.Wood })
 	for _, y in ipairs({ 1.5, 3.5, 5.5 }) do
-		part(model, { Name = "Shelf", Size = Vector3.new(12, 0.3, 1.6), CFrame = CFrame.new(back + Vector3.new(0, y, 4)), Color = WOOD_DARK, Material = Enum.Material.Wood })
+		part(model, { Name = "Shelf", Size = Vector3.new(12, 0.3, 1.6), CFrame = toWorldCF(CFrame.new(0, y, 10)), Color = WOOD_DARK, Material = Enum.Material.Wood })
 		for k = 1, 5 do
-			cyl(model, "Jar", back + Vector3.new(-5 + k * 1.8 + rng:NextNumber() * 0.4, y + 0.6, 4), 0.9, 0.7,
+			cyl(model, "Jar", toWorld(Vector3.new(-5 + k * 1.8 + rng:NextNumber() * 0.4, y + 0.6, 10)), 0.9, 0.7,
 				Color3.fromHSV(rng:NextNumber(), 0.6, 0.9), Enum.Material.Glass, { Transparency = 0.3, CanCollide = false })
 		end
 	end
 	-- Striped awning on four posts.
 	for _, x in ipairs({ -6.2, 6.2 }) do
-		for _, z in ipairs({ -1.4, 5.4 }) do
-			cyl(model, "Post", back + Vector3.new(x, 4, z), 8, 0.5, WOOD_DARK, Enum.Material.Wood)
+		for _, z in ipairs({ 4.6, 11.4 }) do
+			cyl(model, "Post", toWorld(Vector3.new(x, 4, z)), 8, 0.5, WOOD_DARK, Enum.Material.Wood)
 		end
 	end
 	for k = 0, 5 do
 		part(model, { ClassName = "WedgePart", Name = "Awning", Size = Vector3.new(2.2, 1.6, 7.6),
-			CFrame = CFrame.new(back + Vector3.new(-5.5 + k * 2.2, 8.6, 2)) * CFrame.Angles(0, math.pi, 0),
+			CFrame = toWorldCF(CFrame.new(-5.5 + k * 2.2, 8.6, 8) * CFrame.Angles(0, math.pi, 0)),
 			Color = k % 2 == 0 and CRIMSON or Color3.fromRGB(240, 225, 190), Material = Enum.Material.Fabric })
 	end
 	-- Lanterns hanging from the awning.
 	for _, x in ipairs({ -5.5, 5.5 }) do
-		local lantern = part(model, { Name = "Lantern", Size = Vector3.new(0.8, 1.1, 0.8), CFrame = CFrame.new(back + Vector3.new(x, 6.6, -1.4)), Color = GOLD_BRIGHT, Material = Enum.Material.Neon, CanCollide = false })
+		part(model, { Name = "Lantern", Size = Vector3.new(0.8, 1.1, 0.8), CFrame = toWorldCF(CFrame.new(x, 6.6, 4.6)), Color = GOLD_BRIGHT, Material = Enum.Material.Neon, CanCollide = false })
 	end
 
 	-- The merchant: a hooded figure with glinting eyes behind the counter.
-	local m = back + Vector3.new(0, 0, 1.6)
-	cyl(model, "Robe", m + Vector3.new(0, 2.4, 0), 4.8, 2.6, Color3.fromRGB(45, 30, 60), Enum.Material.Fabric)
-	part(model, { Name = "Shoulders", Size = Vector3.new(3, 0.8, 1.6), CFrame = CFrame.new(m + Vector3.new(0, 4.6, 0)), Color = Color3.fromRGB(55, 36, 72), Material = Enum.Material.Fabric })
-	local hood = part(model, { Name = "Hood", Shape = Enum.PartType.Ball, Size = Vector3.new(2.3, 2.3, 2.3), CFrame = CFrame.new(m + Vector3.new(0, 5.8, 0)), Color = Color3.fromRGB(40, 26, 54), Material = Enum.Material.Fabric })
-	part(model, { Name = "HoodShadow", Shape = Enum.PartType.Ball, Size = Vector3.new(1.7, 1.7, 1.7), CFrame = CFrame.new(m + Vector3.new(0, 5.7, -0.45)), Color = Color3.fromRGB(8, 6, 12), Material = Enum.Material.SmoothPlastic })
+	cyl(model, "Robe", toWorld(Vector3.new(0, 2.4, 7.6)), 4.8, 2.6, Color3.fromRGB(45, 30, 60), Enum.Material.Fabric)
+	part(model, { Name = "Shoulders", Size = Vector3.new(3, 0.8, 1.6), CFrame = toWorldCF(CFrame.new(0, 4.6, 7.6)), Color = Color3.fromRGB(55, 36, 72), Material = Enum.Material.Fabric })
+	local hood = part(model, { Name = "Hood", Shape = Enum.PartType.Ball, Size = Vector3.new(2.3, 2.3, 2.3), CFrame = toWorldCF(CFrame.new(0, 5.8, 7.6)), Color = Color3.fromRGB(40, 26, 54), Material = Enum.Material.Fabric })
+	part(model, { Name = "HoodShadow", Shape = Enum.PartType.Ball, Size = Vector3.new(1.7, 1.7, 1.7), CFrame = toWorldCF(CFrame.new(0, 5.7, 7.15)), Color = Color3.fromRGB(8, 6, 12), Material = Enum.Material.SmoothPlastic })
 	for _, x in ipairs({ -0.28, 0.28 }) do
-		part(model, { Name = "MerchantEye", Shape = Enum.PartType.Ball, Size = Vector3.new(0.18, 0.18, 0.18), CFrame = CFrame.new(m + Vector3.new(x, 5.8, -1.28)), Color = GOLD_BRIGHT, Material = Enum.Material.Neon, CanCollide = false })
+		part(model, { Name = "MerchantEye", Shape = Enum.PartType.Ball, Size = Vector3.new(0.18, 0.18, 0.18), CFrame = toWorldCF(CFrame.new(x, 5.8, 6.32)), Color = GOLD_BRIGHT, Material = Enum.Material.Neon, CanCollide = false })
 	end
 	local merchantTitle, merchantStatus = billboard(model, hood, "THE WANDERING MERCHANT", GOLD_BRIGHT, 3)
 	local basePrice = 55 + room.tier * 15
@@ -574,7 +579,8 @@ local function buildShop(room: Room, folder: Folder, rng: Random)
 	end
 	for i = 1, 3 do
 		local a = math.rad(-35 + (i - 1) * 35)
-		local pos = back + Vector3.new(math.sin(a) * 9, 0, -math.cos(a) * 9)
+		local localPos = Vector3.new(math.sin(a) * 9, 0, 6 - math.cos(a) * 9)
+		local pos = toWorld(localPos)
 		local top = pedestal(model, pos, GOLD)
 		local t, s = billboard(model, top, "", GOLD_BRIGHT, 4.2)
 		local slot = { index = i, pos = pos, top = top, title = t, status = s, prompt = prompt(top, "Buy", "", 0.4) }
@@ -604,7 +610,7 @@ local function buildShop(room: Room, folder: Folder, rng: Random)
 	end
 
 	-- Potion on the counter: heals 60% of max HP, two in stock.
-	local potionPos = back + Vector3.new(-3.5, 4, -0.4)
+	local potionPos = toWorld(Vector3.new(-3.5, 4, 5.6))
 	local flask = part(model, { Name = "Potion", Shape = Enum.PartType.Ball, Size = Vector3.new(1.2, 1.2, 1.2), CFrame = CFrame.new(potionPos), Color = Color3.fromRGB(230, 40, 70), Material = Enum.Material.Glass, Transparency = 0.15, CanCollide = false })
 	cyl(model, "PotionNeck", potionPos + Vector3.new(0, 0.8, 0), 0.6, 0.4, Color3.fromRGB(230, 40, 70), Enum.Material.Glass, { Transparency = 0.15, CanCollide = false })
 	local potionStock = 2
@@ -628,7 +634,8 @@ local function buildShop(room: Room, folder: Folder, rng: Random)
 	end)
 
 	-- Bell on the counter: reroll all unsold wares.
-	local bell = part(model, { Name = "Bell", Shape = Enum.PartType.Ball, Size = Vector3.new(0.9, 0.9, 0.9), CFrame = CFrame.new(back + Vector3.new(3.5, 3.7, -0.4)), Color = GOLD_BRIGHT, Material = Enum.Material.Metal, CanCollide = false })
+	local bellPos = toWorld(Vector3.new(3.5, 3.7, 5.6))
+	local bell = part(model, { Name = "Bell", Shape = Enum.PartType.Ball, Size = Vector3.new(0.9, 0.9, 0.9), CFrame = CFrame.new(bellPos), Color = GOLD_BRIGHT, Material = Enum.Material.Metal, CanCollide = false })
 	local bellPrompt = prompt(bell, `Reroll wares ({REROLL_PRICE} Gold)`, "Merchant's Bell", 0.3)
 	bellPrompt.Triggered:Connect(function(player)
 		local unsold = 0

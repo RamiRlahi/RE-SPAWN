@@ -27,6 +27,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local MapData = require(Shared:WaitForChild("MapData"))
 local UITheme = require(Shared:WaitForChild("UITheme"))
 local GachaConfig = require(Shared:WaitForChild("GachaConfig"))
 local GachaRewards = require(Shared:WaitForChild("GachaRewards"))
@@ -39,6 +40,7 @@ local LobbyCamera = require(script.Parent.Parent:WaitForChild("LobbyCamera"))
 local WardrobeScreen = require(script.Parent:WaitForChild("WardrobeScreen"))
 
 local player = Players.LocalPlayer
+local areaCheckThread: thread? = nil
 -- The guild-hall palette under the names this screen was written with.
 local MC = MenuStyle.Colors
 local C = {
@@ -870,9 +872,30 @@ function SummonScreen.Open()
 	local sg = gui :: ScreenGui
 	sg.Enabled = true
 	Network.GetRemoteEvent(Network.Remotes.RequestGacha):FireServer()
+
+	if areaCheckThread then task.cancel(areaCheckThread) end
+	areaCheckThread = task.spawn(function()
+		local gachaPos = MapData.LOBBY_CENTER + Vector3.new(34, 0, -12)
+		while sg.Enabled do
+			task.wait(0.3)
+			if not sg.Enabled then break end
+			if player:GetAttribute("InHub") == true then
+				local char = player.Character
+				local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if root and (root.Position - gachaPos).Magnitude > 28 then
+					SummonScreen.Close()
+					break
+				end
+			end
+		end
+	end)
 end
 
 function SummonScreen.Close()
+	if areaCheckThread then
+		task.cancel(areaCheckThread)
+		areaCheckThread = nil
+	end
 	if gui then gui.Enabled = false end
 	hideOtherGuis(false)
 	-- Opened at the lobby's GACHA tent: the camera back on you, walking.
