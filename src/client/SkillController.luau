@@ -4569,7 +4569,8 @@ local function showDamageNumber(payload: any)
 		if now - liveNumbers[i].at > 0.8 or not liveNumbers[i].label.Parent then table.remove(liveNumbers, i) end
 	end
 	local crit = payload.crit == true
-	if #liveNumbers >= MAX_NUMBERS or not FxBudget.Allow(if crit then "dmgNumCrit" else "dmgNum", if crit then 15 else 25) then
+	local immune = payload.source == "IMMUNE" -- a boss that can't be hurt right now
+	if not immune and (#liveNumbers >= MAX_NUMBERS or not FxBudget.Allow(if crit then "dmgNumCrit" else "dmgNum", if crit then 15 else 25)) then
 		-- Over budget: add it onto the freshest number close by (or let it go).
 		for i = #liveNumbers, 1, -1 do
 			local n = liveNumbers[i]
@@ -4606,14 +4607,14 @@ local function showDamageNumber(payload: any)
 	number.Size = UDim2.fromScale(1, 1)
 	number.BackgroundTransparency = 1
 	number.Font = Enum.Font.Arcade
-	number.Text = `-{math.floor(payload.amount)}`
+	number.Text = if immune then "IMMUNE" else `-{math.floor(payload.amount)}`
 	number.TextSize = 30
-	-- White for normal hits, red for critical hits.
-	number.TextColor3 = if payload.crit == true then Color3.fromRGB(255, 52, 52) else Color3.new(1, 1, 1)
+	-- White for normal hits, red for critical hits, gold for IMMUNE.
+	number.TextColor3 = if immune then Color3.fromRGB(255, 215, 110) elseif payload.crit == true then Color3.fromRGB(255, 52, 52) else Color3.new(1, 1, 1)
 	number.TextStrokeColor3 = Color3.fromRGB(38, 10, 5)
 	number.TextStrokeTransparency = 0
 	number.Parent = billboard
-	table.insert(liveNumbers, { label = number, amount = payload.amount, pos = payload.position, at = now })
+	if not immune then table.insert(liveNumbers, { label = number, amount = payload.amount, pos = payload.position, at = now }) end
 
 	local fadeInfo = TweenInfo.new(0.72, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	TweenService:Create(billboard, fadeInfo, { StudsOffsetWorldSpace = billboard.StudsOffsetWorldSpace + Vector3.new(0, 3.2, 0) }):Play()

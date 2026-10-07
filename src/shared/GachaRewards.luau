@@ -44,6 +44,7 @@ export type Reward = {
 	palette: string?,       -- variant: VFXPalettes id
 	currency: string?,      -- material
 	amount: number?,        -- material
+	noDrop: boolean?,       -- never rolled from a banner (shop / sets only)
 	weight: number?,        -- relative weight within its rarity in a pool (default 1)
 	secret: boolean?,       -- hidden until owned (shown as ??? in lists)
 }
@@ -71,7 +72,7 @@ local R: { Reward } = {
 
 	-- ── VFX variants (cosmetic colour schemes for ability effects) ──────────
 	{ id = "dark_variant", type = "variant", rarity = "Legendary", glyph = "DA", palette = "dark",
-		name = "Dark", title = "Dark", accent = Color3.fromRGB(225, 225, 232),
+		name = "Dark", title = "Dark", accent = Color3.fromRGB(225, 225, 232), noDrop = true,
 		description = "Any class VFX variant: abilities turn black, outlined in white." },
 
 	-- ── Class armor (cosmetic) ─────────────────────────────────────────────────
@@ -185,7 +186,8 @@ local Pools: { [string]: { string } } = {
 	standard = (function()
 		local ids = {}
 		for _, r in ipairs(R) do
-			if not (r.type == "armor" and r.classId and BUILT_IN_ARMOR[r.classId]) then
+			-- (mounts live on their own banner, with its own odds and pity)
+			if not (r.type == "armor" and r.classId and BUILT_IN_ARMOR[r.classId]) and r.type ~= "mount" and not r.noDrop then
 				table.insert(ids, r.id)
 			end
 		end
@@ -194,7 +196,7 @@ local Pools: { [string]: { string } } = {
 	mounts = (function()
 		local ids = {}
 		for _, r in ipairs(R) do
-			if r.type == "mount" or r.type == "material" or r.type == "cosmetic" then
+			if (r.type == "mount" or r.type == "material" or r.type == "cosmetic") and not r.noDrop then
 				table.insert(ids, r.id)
 			end
 		end

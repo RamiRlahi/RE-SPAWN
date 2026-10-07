@@ -336,12 +336,31 @@ local function reviveAt(player: Player, at: Vector3, exact: boolean?)
 		local probe = at + jitter
 		local hit = Workspace:Raycast(probe + Vector3.new(0, 8, 0), Vector3.new(0, -40, 0), params)
 		local y = if hit then hit.Position.Y + 3.5 else probe.Y + 3
-		char:PivotTo(CFrame.new(probe.X, y, probe.Z))
+		local standCF = CFrame.new(probe.X, y, probe.Z)
+		char:PivotTo(standCF)
 		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 		if root then
 			root.Anchored = true
-			task.delay(1, function()
-				if root.Parent then root.Anchored = false end
+			-- A spectator's game streamed the map round whoever they watched
+			-- (often a whole floor away, or the old level): make sure the
+			-- floor here has reached them before letting go, or they drop
+			-- through it into the void and die again straight away.
+			task.spawn(function()
+				pcall(function() player:RequestStreamAroundAsync(standCF.Position, 5) end)
+				task.wait(0.6)
+				if root.Parent then
+					root.AssemblyLinearVelocity = Vector3.zero
+					root.Anchored = false
+				end
+				-- Safety net: still falling a few seconds later? Back on the floor.
+				for _ = 1, 8 do
+					task.wait(0.5)
+					if not root.Parent or player.Character ~= char then return end
+					if root.Position.Y < standCF.Position.Y - 25 then
+						root.AssemblyLinearVelocity = Vector3.zero
+						char:PivotTo(standCF)
+					end
+				end
 			end)
 		end
 		-- A moment to get your bearings (lava, the mob that killed you).

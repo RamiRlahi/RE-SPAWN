@@ -506,8 +506,10 @@ local function buildShop(room: Room, folder: Folder, rng: Random)
 	model.Name = `Merchant_{room.id}`
 	model.Parent = folder
 	local c = Vector3.new(room.centerWorld.X, room.floorY, room.centerWorld.Z)
-	-- The stall always faces Southeast (+X, +Z).
-	local shopCF = CFrame.lookAt(c, c + Vector3.new(1, 0, 1))
+	-- The stall always faces Southeast as the player sees it: down-right on
+	-- screen. The isometric camera sits at -X/+Z looking +X/-Z, so screen
+	-- right is world (+X, +Z) and screen down is (-X, +Z); together, +Z.
+	local shopCF = CFrame.lookAt(c, c + Vector3.new(0, 0, 1))
 	local function toWorld(p: Vector3): Vector3
 		return shopCF:PointToWorldSpace(p)
 	end

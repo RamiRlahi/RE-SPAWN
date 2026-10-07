@@ -68,7 +68,7 @@ local function build()
 	st.Transparency = 0.4
 	st.Parent = f
 	panel = f
-	titleLabel = label(f, "THE ABYSS GATE", 14, GOLD, { Position = UDim2.fromOffset(0, 8), Size = UDim2.new(1, 0, 0, 16), TextTransparency = 0.2 })
+	titleLabel = label(f, "THE LIFT", 14, GOLD, { Position = UDim2.fromOffset(0, 8), Size = UDim2.new(1, 0, 0, 16), TextTransparency = 0.2 })
 	countLabel = label(f, "", 30, PARCH, { Position = UDim2.fromOffset(0, 24), Size = UDim2.new(1, 0, 0, 32) })
 	subLabel = label(f, "", 13, PARCH, { Position = UDim2.fromOffset(12, 58), Size = UDim2.new(1, -24, 0, 30),
 		TextTransparency = 0.15, TextWrapped = true })
@@ -106,28 +106,28 @@ function FloorPortalHUD.Init()
 		local going = state.going
 		if state.extractFloor then
 			-- The choice: out with everything, or down into the corruption.
-			if titleLabel then titleLabel.Text = "EXTRACT  OR  DESCEND" end
+			if titleLabel then titleLabel.Text = "EXTRACT  OR  TAKE THE LIFT" end
 			if countLabel then
 				countLabel.Text = if going == "extract" then "EXTRACTING..."
-					elseif going == "descend" then "DESCENDING..."
-					else `Extract {counts.extract or 0}    ·    Descend {counts.descend or 0}    of {total}`
+					elseif going == "descend" then "GOING UP..."
+					else `Extract {counts.extract or 0}    ·    Lift {counts.descend or 0}    of {total}`
 			end
 			if subLabel then
 				subLabel.Text = if going then "Everyone agrees."
 					elseif #waiting > 0 then "Waiting for " .. table.concat(waiting, ", ")
-					else "Everyone must stand in the same portal. Extract keeps all your loot; descending corrupts the dungeon (harder, richer)."
+					else "Everyone must stand in the same place. Extract keeps all your loot; taking the lift on corrupts the dungeon (harder, richer)."
 			end
 		else
-			if titleLabel then titleLabel.Text = "THE ABYSS GATE" end
+			if titleLabel then titleLabel.Text = "THE LIFT" end
 			if countLabel then
-				countLabel.Text = if going == "descend" or state.descending then "DESCENDING..."
+				countLabel.Text = if going == "descend" or state.descending then "GOING UP..."
 					elseif going == "extract" then "ESCAPING..."
 					else `{ready} / {total} ready`
 			end
 			if subLabel then
 				subLabel.Text = if going then "Everyone's in."
 					elseif #waiting > 0 and mine then "Waiting for " .. table.concat(waiting, ", ")
-					elseif #waiting > 0 then "Your party waits at the portal. Step in to go."
+					elseif #waiting > 0 then "Your party waits on the lift. Step on to go."
 					else ""
 			end
 		end

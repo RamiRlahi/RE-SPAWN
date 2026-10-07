@@ -133,6 +133,11 @@ pcall(function()
 	require(script:WaitForChild("DragonBossFX")).Init()
 end)
 
+-- The other bosses: intro cinematic, signature moves, the Fallen Angel's pillars.
+pcall(function()
+	require(script:WaitForChild("BossCinematic")).Init()
+end)
+
 -- Cloth capes on every Sword Master and armored Fire Knight in the world.
 pcall(function()
 	require(script:WaitForChild("ClassCapes")).Init()

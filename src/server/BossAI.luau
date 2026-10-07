@@ -12,10 +12,17 @@
 	  The Iron Warlord   (melee)  Ground Slam · Charge · Whirlwind
 	  The Hex Witch      (caster) Orb Nova · Hex Zones · Summon · Blink
 	  The Bone Colossus  (heavy)  Meteor Rain · Shockwave (jump it!) · Stomp Combo
-	  The Fallen Angel   (void)   Dark Descent · Feather Storm · Void Cross · Shadow Dash
+	  The Fallen Angel   (void)   Dark Descent · Feather Storm · Void Cross · Shadow Dash ·
+	                              JUDGEMENT (pillars fall from the sky: hide behind one)
 
 	Bosses are not staggered by hits (MobManager / SkillManager), so a player
 	hitting non-stop can't lock them out of their moves.
+
+	Every boss arrives with an intro cinematic (BossIntro → BossCinematic on
+	the clients) and can't be hurt during it. Each has a SIGNATURE move (its
+	`signature`, at least every few moves): while it runs the boss is
+	INVULNERABLE ("BossInvulnerable"; SkillManager deals nothing and shows
+	IMMUNE), wrapped in a golden barrier with a label over its head.
 --]]
 
 local Players = game:GetService("Players")
@@ -53,26 +60,40 @@ export type Kind = {
 	xp: number,
 	color: Color3,
 	moves: { string },
+	signature: string?, -- the move that makes it invulnerable while it runs
 }
 
 BossAI.Kinds = {
 	warlord = {
 		name = "★ The Iron Warlord", health = 3.5, damage = 1.2, xp = 3,
-		color = Color3.fromRGB(255, 90, 40), moves = { "slam", "charge", "whirlwind" },
+		color = Color3.fromRGB(255, 90, 40), moves = { "slam", "charge", "whirlwind" }, signature = "whirlwind",
 	},
 	witch = {
 		name = "★ The Hex Witch", health = 2.8, damage = 1, xp = 3,
-		color = Color3.fromRGB(120, 255, 120), moves = { "nova", "hex", "summon", "blink" },
+		color = Color3.fromRGB(120, 255, 120), moves = { "nova", "hex", "summon", "blink" }, signature = "nova",
 	},
 	colossus = {
 		name = "★ The Bone Colossus", health = 4.5, damage = 1.4, xp = 3.5,
-		color = Color3.fromRGB(255, 170, 60), moves = { "meteors", "shockwave", "stomp" },
+		color = Color3.fromRGB(255, 170, 60), moves = { "meteors", "shockwave", "stomp" }, signature = "meteors",
 	},
 	fallen_angel = {
 		name = "★ Malakor, The Fallen Angel", health = 4.2, damage = 1.3, xp = 4,
-		color = Color3.fromRGB(175, 75, 255), moves = { "dark_descent", "feather_storm", "void_cross", "shadow_dash" },
+		color = Color3.fromRGB(175, 75, 255), moves = { "dark_descent", "feather_storm", "void_cross", "shadow_dash", "judgement" },
+		signature = "judgement",
 	},
 } :: { [string]: Kind }
+
+-- What each signature move is called on screen.
+local SIGNATURE_NAMES: { [string]: string } = {
+	whirlwind = "IRON CYCLONE",
+	nova = "HEX NOVA",
+	meteors = "METEOR RAIN",
+	judgement = "JUDGEMENT FROM ON HIGH",
+}
+-- A signature move comes at least this often (every Nth move).
+local SIGNATURE_EVERY = 4
+-- The intro cinematic: the boss holds still (and can't be hurt) this long.
+local INTRO_TIME = 3.6
 
 function BossAI.KindIds(): { string }
 	local ids = {}
@@ -162,6 +183,11 @@ local function telegraphLine(from: Vector3, dir: Vector3, length: number, width:
 	Debris:AddItem(bar, t)
 end
 
+-- A long telegraph bar starting at `from` (beams, dashes).
+local function telegraphBeam(from: Vector3, dir: Vector3, length: number, width: number, t: number, floorY: number)
+	telegraphLine(from, dir, length, width, t, floorY)
+end
+
 -- An expanding flat shock ring for impacts.
 local function shock(center: Vector3, radius: number, color: Color3, floorY: number)
 	local ring = part({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.2, 2, 2),
@@ -190,7 +216,97 @@ type Boss = {
 	damage: number,
 	enraged: boolean,
 	minions: { Model },
+	home: Vector3,          -- where it spawned (the arena's middle)
+	lockedHealth: number?,  -- its health while invulnerable
+	runId: any,
 }
+
+-- Everyone in this boss's run (for its cinematic effects).
+local function runPlayers(b: Boss): { Player }
+	local out = {}
+	for _, p in ipairs(Players:GetPlayers()) do
+		if (b.runId == nil or p:GetAttribute("RunId") == b.runId) and p:GetAttribute("InLobby") == false then
+			table.insert(out, p)
+		end
+	end
+	return out
+end
+
+local function bossFX(b: Boss, data: { [string]: any })
+	data.model = b.model
+	data.color = b.kind.color
+	local remote = Network.GetRemoteEvent(Network.Remotes.BossFX)
+	for _, p in ipairs(runPlayers(b)) do remote:FireClient(p, data) end
+end
+
+-- ── Invulnerability (intro, signature moves) ────────────────────────────────
+-- SkillManager deals nothing to a boss with "BossInvulnerable" (it shows
+-- IMMUNE); anything else that takes health off meanwhile is put back
+-- (Attach's HealthChanged). `label` shows a golden barrier and a tag over its
+-- head so everyone sees why their hits do nothing.
+local function setInvulnerable(b: Boss, on: boolean, label: string?)
+	local old = b.model:FindFirstChild("InvulnBarrier")
+	if old then old:Destroy() end
+	local oldTag = b.root:FindFirstChild("InvulnTag")
+	if oldTag then oldTag:Destroy() end
+	if not on then
+		b.model:SetAttribute("BossInvulnerable", nil)
+		b.lockedHealth = nil
+		return
+	end
+	b.lockedHealth = b.hum.Health
+	b.model:SetAttribute("BossInvulnerable", true)
+	if not label then return end
+	local _, size = b.model:GetBoundingBox()
+	local d = math.clamp(math.max(size.X, size.Y, size.Z) + 2.5, 7, 22)
+	local barrier = Instance.new("Part")
+	barrier.Name = "InvulnBarrier"
+	barrier.Shape = Enum.PartType.Ball
+	barrier.Size = Vector3.one * 1
+	barrier.CFrame = b.root.CFrame
+	barrier.Material = Enum.Material.ForceField
+	barrier.Color = Color3.fromRGB(255, 215, 110)
+	barrier.Transparency = 0.15
+	barrier.CanCollide = false
+	barrier.CanQuery = false
+	barrier.CanTouch = false
+	barrier.CastShadow = false
+	barrier.Massless = true
+	barrier.Parent = b.model
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0 = b.root
+	weld.Part1 = barrier
+	weld.Parent = barrier
+	TweenService:Create(barrier, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Size = Vector3.one * d }):Play()
+	local tag = Instance.new("BillboardGui")
+	tag.Name = "InvulnTag"
+	tag.Size = UDim2.fromOffset(260, 46)
+	tag.StudsOffset = Vector3.new(0, size.Y * 0.5 + 6, 0)
+	tag.AlwaysOnTop = true
+	tag.LightInfluence = 0
+	tag.MaxDistance = 160
+	tag.Parent = b.root
+	local top = Instance.new("TextLabel")
+	top.BackgroundTransparency = 1
+	top.Size = UDim2.new(1, 0, 0.55, 0)
+	top.Font = Enum.Font.GothamBlack
+	top.TextScaled = true
+	top.TextColor3 = Color3.fromRGB(255, 220, 120)
+	top.TextStrokeColor3 = Color3.fromRGB(40, 20, 0)
+	top.TextStrokeTransparency = 0.2
+	top.Text = "INVULNERABLE"
+	top.Parent = tag
+	local sub = Instance.new("TextLabel")
+	sub.BackgroundTransparency = 1
+	sub.Position = UDim2.fromScale(0, 0.58)
+	sub.Size = UDim2.new(1, 0, 0.42, 0)
+	sub.Font = Enum.Font.GothamBold
+	sub.TextScaled = true
+	sub.TextColor3 = b.kind.color:Lerp(Color3.new(1, 1, 1), 0.4)
+	sub.TextStrokeTransparency = 0.3
+	sub.Text = label
+	sub.Parent = tag
+end
 
 local function alive(b: Boss): boolean
 	return b.model.Parent ~= nil and b.hum.Health > 0 and b.root.Parent ~= nil
@@ -712,6 +828,237 @@ MOVES.shadow_dash = function(b, target)
 	hold(b, 0.3)
 end
 
+-- ── JUDGEMENT (the Fallen Angel's signature) ────────────────────────────────
+-- Stone pillars crash down from the sky around the arena. Malakor rises
+-- above it all and gathers a sphere of void light, then rains it down on
+-- every player it can see: a player with a pillar between them and the angel
+-- is safe, anyone else is all but killed. Then the pillars crumble.
+local PILLAR_STONE = Color3.fromRGB(205, 198, 215)
+
+local function dropPillar(b: Boss, at: Vector3, pillars: { BasePart })
+	local y = groundAt(at, b)
+	local h = 18
+	local pillar = part({ Name = "JudgementPillar", Size = Vector3.new(5, h, 5), Material = Enum.Material.Marble,
+		Color = PILLAR_STONE, CanCollide = true, CanQuery = true, CastShadow = true,
+		CFrame = CFrame.new(at.X, y + h / 2 + 70, at.Z) * CFrame.Angles(0, math.random() * math.pi, 0) })
+	local cap = part({ Name = "PillarCap", Size = Vector3.new(5.8, 1, 5.8), Material = Enum.Material.Neon,
+		Color = Color3.fromRGB(255, 215, 130), Transparency = 0.1, CFrame = pillar.CFrame * CFrame.new(0, h / 2 + 0.5, 0) })
+	local capWeld = Instance.new("WeldConstraint")
+	capWeld.Part0, capWeld.Part1 = pillar, cap
+	capWeld.Parent = cap
+	cap.Anchored = false
+	cap.Massless = true
+	table.insert(pillars, pillar)
+	local landCF = CFrame.new(at.X, y + h / 2, at.Z) * pillar.CFrame.Rotation
+	TweenService:Create(pillar, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { CFrame = landCF }):Play()
+	task.delay(0.5, function()
+		if not pillar.Parent then return end
+		cap.CFrame = pillar.CFrame * CFrame.new(0, h / 2 + 0.5, 0)
+		shock(at, 7, PILLAR_STONE, y)
+		blast(at, 3.6, dmg(b, 0.6)) -- (don't stand where it lands)
+	end)
+end
+
+MOVES.judgement = function(b, _target)
+	local home = b.home
+	local pillars: { BasePart } = {}
+	local orb: BasePart? = nil
+	local anchoredHere = false
+	local startCF = b.root.CFrame
+	local function cleanup()
+		if orb then orb:Destroy() end
+		for _, p in ipairs(pillars) do
+			if p.Parent then
+				for _, c in ipairs(p:GetConnectedParts()) do
+					if c ~= p then
+						TweenService:Create(c, TweenInfo.new(0.8), { Transparency = 1 }):Play()
+					end
+				end
+				TweenService:Create(p, TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+					{ CFrame = p.CFrame - Vector3.new(0, p.Size.Y, 0), Transparency = 1 }):Play()
+				Debris:AddItem(p, 1)
+			end
+		end
+		for _, c in ipairs(fx():GetChildren()) do
+			if c.Name == "PillarCap" then Debris:AddItem(c, 1) end
+		end
+		if anchoredHere and b.root.Parent then
+			b.root.Anchored = false
+			pcall(function() b.root:SetNetworkOwner(nil) end)
+		end
+	end
+
+	-- 1. The pillars fall: a ring round the arena's middle, one more than
+	-- there are players (and never fewer than four).
+	local count = 0
+	for _, v in ipairs(victims()) do
+		if flatDist(v.root.Position, home) < 90 then count += 1 end
+	end
+	if count == 0 then return end
+	local n = math.clamp(count + 2, 4, 7)
+	bossFX(b, { kind = "judgement", phase = "pillars", pos = home })
+	local a0 = math.random() * math.pi * 2
+	for i = 1, n do
+		local a = a0 + (i / n) * math.pi * 2
+		local ring = 13 + math.random() * 4
+		local at = home + Vector3.new(math.cos(a), 0, math.sin(a)) * ring
+		-- (no floor there, a wall in the way: pull it in closer)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { b.model, fx() }
+		local wall = Workspace:Raycast(home + Vector3.new(0, 3, 0), (at - home), params)
+		if wall then at = home + (at - home).Unit * math.max(6, (wall.Position - home).Magnitude - 4) end
+		telegraphCircle(at, 3.6, 1.1, b.floorY)
+		task.delay(0.6 + i * 0.08, function()
+			if alive(b) then dropPillar(b, at, pillars) end
+		end)
+	end
+	if not hold(b, 1.9) then cleanup() return end
+
+	-- 2. Malakor rises over the arena.
+	face(b, home)
+	b.root.Anchored = true
+	anchoredHere = true
+	local upCF = CFrame.new(home.X, b.floorY + 24, home.Z) * startCF.Rotation
+	TweenService:Create(b.root, TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { CFrame = upCF }):Play()
+	if not hold(b, 0.9) then cleanup() return end
+
+	-- 3. The void gathers (the warning: hide!).
+	local charge = if b.enraged then 2.8 else 3.4
+	bossFX(b, { kind = "judgement", phase = "charge", duration = charge, pos = home })
+	local o = part({ Name = "JudgementOrb", Shape = Enum.PartType.Ball, Size = Vector3.one * 1,
+		CFrame = upCF * CFrame.new(0, 5, 0), Color = Color3.fromRGB(235, 200, 255), Transparency = 0.05 })
+	orb = o
+	TweenService:Create(o, TweenInfo.new(charge, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+		{ Size = Vector3.one * 9, Color = Color3.fromRGB(150, 60, 255) }):Play()
+	if not hold(b, charge) then cleanup() return end
+
+	-- 4. JUDGEMENT: a ray to every player; the pillars are the only cover.
+	bossFX(b, { kind = "judgement", phase = "strike", pos = home })
+	local from = o.Position
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = pillars
+	for _, v in ipairs(victims()) do
+		if (v.root.Position - from).Magnitude < 140 then
+			local to = v.root.Position
+			local hit = Workspace:Raycast(from, to - from, params)
+			local stop = if hit then hit.Position else to
+			local len = (stop - from).Magnitude
+			local beam = part({ Name = "JudgementRay", Size = Vector3.new(1.6, 1.6, len),
+				CFrame = CFrame.lookAt((from + stop) / 2, stop), Color = Color3.fromRGB(220, 170, 255), Transparency = 0.05 })
+			TweenService:Create(beam, TweenInfo.new(0.5), { Size = Vector3.new(0.1, 0.1, len), Transparency = 1 }):Play()
+			Debris:AddItem(beam, 0.55)
+			if hit then
+				shock(hit.Position, 4, Color3.fromRGB(255, 220, 140), b.floorY)
+			else
+				shock(to, 6, VOID_CRIMSON, b.floorY)
+				deps.hurt(v.char, math.max(dmg(b, 4), v.hum.MaxHealth * 0.85), from)
+			end
+		end
+	end
+	o:Destroy()
+	orb = nil
+	if not hold(b, 0.6) then cleanup() return end
+
+	-- 5. Back down; the pillars crumble.
+	local downCF = CFrame.new(home.X, startCF.Position.Y, home.Z) * startCF.Rotation
+	TweenService:Create(b.root, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { CFrame = downCF }):Play()
+	hold(b, 0.5)
+	shock(home, 12, CELESTIAL_DARK, b.floorY)
+	cleanup()
+	hold(b, 0.4)
+end
+
+-- ── The Fallen Angel's body ─────────────────────────────────────────────────
+-- Built from parts (the place's boss template is a slime): a hovering
+-- armoured angel in a torn robe, black feathered wings, a broken violet halo
+-- and a greatsword. The HumanoidRootPart sits low in the robe so the angel
+-- hovers just over the floor (MobManager's HipHeight). Faces -Z.
+function BossAI.BuildFallenAngel(): Model
+	local m = Instance.new("Model")
+	m.Name = "FallenAngel"
+	m:SetAttribute("AngelBuilt", true)
+	local root = Instance.new("Part")
+	root.Name = "HumanoidRootPart"
+	root.Size = Vector3.new(2, 2, 2)
+	root.Transparency = 1
+	root.Anchored = true
+	-- (low in the robe: the hem then hovers just over the floor)
+	root.CFrame = CFrame.new(0, -1.2, 0)
+	root.Parent = m
+	m.PrimaryPart = root
+	local function p(name: string, size: Vector3, cf: CFrame, color: Color3, material: Enum.Material?, props: { [string]: any }?): BasePart
+		local q = Instance.new("Part")
+		q.Name = name
+		q.Size = size
+		q.CFrame = cf
+		q.Color = color
+		q.Material = material or Enum.Material.SmoothPlastic
+		q.Anchored = true
+		q.CanCollide = false
+		q.CanTouch = false
+		q.TopSurface = Enum.SurfaceType.Smooth
+		q.BottomSurface = Enum.SurfaceType.Smooth
+		for k, v in pairs(props or {}) do (q :: any)[k] = v end
+		q.Parent = m
+		return q
+	end
+	local ROBE = Color3.fromRGB(32, 22, 44)
+	local ARMOR = Color3.fromRGB(70, 62, 86)
+	local GOLDC = Color3.fromRGB(215, 175, 95)
+	local VOID = Color3.fromRGB(175, 75, 255)
+	local SKIN = Color3.fromRGB(205, 198, 218)
+	-- Robe (hovering, tattered hem) and belt.
+	p("Robe", Vector3.new(3.4, 3.6, 2.6), CFrame.new(0, 0.3, 0), ROBE, Enum.Material.Fabric)
+	for i = -2, 2 do
+		p("RobeHem", Vector3.new(0.6, 1.2 + (i % 2) * 0.5, 2.4), CFrame.new(i * 0.68, -1.6 - (i % 2) * 0.2, 0) * CFrame.Angles(0, 0, math.rad(i * 4)), ROBE, Enum.Material.Fabric)
+	end
+	p("Belt", Vector3.new(3.0, 0.4, 2.0), CFrame.new(0, 2.1, 0), VOID, Enum.Material.Neon)
+	-- Armoured chest and pauldrons.
+	p("Torso", Vector3.new(2.8, 2.4, 1.6), CFrame.new(0, 3.4, 0), ARMOR, Enum.Material.Metal)
+	p("ChestTrim", Vector3.new(0.4, 2.2, 1.7), CFrame.new(0, 3.4, 0), GOLDC, Enum.Material.Metal)
+	p("Rune", Vector3.new(0.7, 0.7, 0.2), CFrame.new(0, 3.7, -0.82), VOID, Enum.Material.Neon)
+	for _, side in ipairs({ -1, 1 }) do
+		p("Pauldron", Vector3.new(1.6, 1.0, 1.8), CFrame.new(side * 1.75, 4.5, 0) * CFrame.Angles(0, 0, math.rad(side * -18)), ARMOR, Enum.Material.Metal)
+		p("PauldronSpike", Vector3.new(0.3, 1.1, 0.3), CFrame.new(side * 2.2, 5.2, 0) * CFrame.Angles(0, 0, math.rad(side * -30)), GOLDC, Enum.Material.Metal)
+		p("Arm", Vector3.new(0.8, 2.6, 0.8), CFrame.new(side * 1.85, 3.0, 0), ROBE, Enum.Material.Fabric)
+		p("Gauntlet", Vector3.new(0.95, 0.9, 0.95), CFrame.new(side * 1.85, 1.6, 0), ARMOR, Enum.Material.Metal)
+	end
+	-- Head: pale, hooded, burning eyes.
+	p("Head", Vector3.new(1.3, 1.4, 1.3), CFrame.new(0, 5.35, 0), SKIN)
+	p("Hood", Vector3.new(1.6, 1.3, 1.6), CFrame.new(0, 5.6, 0.12), ROBE, Enum.Material.Fabric)
+	for _, side in ipairs({ -1, 1 }) do
+		p("Eye", Vector3.new(0.26, 0.14, 0.1), CFrame.new(side * 0.3, 5.4, -0.66), VOID, Enum.Material.Neon)
+	end
+	-- The broken halo: a tilted violet ring with a gap.
+	for i = 0, 13 do
+		if i ~= 3 and i ~= 4 then
+			local a = (i / 14) * math.pi * 2
+			p("DarkHalo", Vector3.new(0.6, 0.18, 0.28), CFrame.new(0, 6.7, 0.5) * CFrame.Angles(math.rad(-15), 0, 0)
+				* CFrame.new(math.cos(a) * 1.35, 0, math.sin(a) * 1.35) * CFrame.Angles(0, -a + math.pi / 2, 0), VOID, Enum.Material.Neon)
+		end
+	end
+	-- Wings: fans of black feathers with violet edges, swept up and back.
+	for _, side in ipairs({ -1, 1 }) do
+		local base = CFrame.new(side * 0.9, 4.4, 0.9)
+		for k = 1, 6 do
+			local len = 3.2 + k * 0.75
+			local cf = base * CFrame.Angles(math.rad(-12), math.rad(side * 18), math.rad(side * (78 - k * 15)))
+				* CFrame.new(side * len / 2, 0, 0)
+			p("Feather", Vector3.new(len, 0.9, 0.25), cf, Color3.fromRGB(22, 14, 30), Enum.Material.SmoothPlastic)
+			p("FeatherEdge", Vector3.new(len * 0.35, 0.92, 0.27), cf * CFrame.new(side * len * 0.33, 0, 0), VOID, Enum.Material.Neon,
+				{ Transparency = 0.15 })
+		end
+	end
+	-- The greatsword, point down at its side.
+	p("Hilt", Vector3.new(0.35, 1.4, 0.35), CFrame.new(2.4, 1.9, -0.4), GOLDC, Enum.Material.Metal)
+	p("Guard", Vector3.new(1.8, 0.3, 0.4), CFrame.new(2.4, 1.15, -0.4), GOLDC, Enum.Material.Metal)
+	p("Blade", Vector3.new(0.3, 5.2, 0.9), CFrame.new(2.4, -1.6, -0.4), Color3.fromRGB(40, 30, 55), Enum.Material.Metal)
+	p("BladeEdge", Vector3.new(0.32, 4.8, 0.2), CFrame.new(2.4, -1.6, -0.88), VOID, Enum.Material.Neon)
+	return m
+end
+
 -- ── Attach ──────────────────────────────────────────────────────────────────
 local function addAura(b: Boss)
 	local fire = Instance.new("Fire")
@@ -789,26 +1136,48 @@ function BossAI.Attach(model: Model, kindId: string)
 		floorY = model:GetAttribute("FloorY") or (root.Position.Y - 3),
 		damage = kind.damage * DifficultyManager.GetMobScale(runId).damage,
 		enraged = false, minions = {},
+		home = root.Position, runId = runId,
 	}
 	addAura(b)
-	if kindId == "fallen_angel" then
+	if kindId == "fallen_angel" and model:GetAttribute("AngelBuilt") ~= true then
 		dressFallenAngel(model, root)
 	end
 
-	-- Cinematic Boss Intro Banner broadcast to all players in the run
+	-- The intro: every client in the run plays the boss's cinematic
+	-- (BossCinematic) while it holds still and can't be hurt. The Fallen
+	-- Angel comes down out of the sky for it.
+	model:SetAttribute("BossBusy", true)
+	setInvulnerable(b, true)
+	local descend = kindId == "fallen_angel"
+	local landCF = root.CFrame
+	if descend then
+		root.Anchored = true
+		root.CFrame = landCF + Vector3.new(0, 34, 0)
+	end
 	task.spawn(function()
-		task.wait(0.3)
-		for _, p in ipairs(Players:GetPlayers()) do
-			if (runId == nil or p:GetAttribute("RunId") == runId) and p:GetAttribute("InLobby") == false then
-				Network.GetRemoteEvent(Network.Remotes.BossIntro):FireClient(p, {
-					name = kind.name,
-					color = kind.color,
-					kind = kindId,
-					pos = root.Position,
-				})
-			end
+		task.wait(0.2)
+		local intro = Network.GetRemoteEvent(Network.Remotes.BossIntro)
+		for _, p in ipairs(runPlayers(b)) do
+			intro:FireClient(p, {
+				name = kind.name,
+				color = kind.color,
+				kind = kindId,
+				pos = landCF.Position,
+				model = model,
+				duration = INTRO_TIME,
+			})
 		end
-		shock(root.Position, 20, kind.color, b.floorY)
+		if descend then
+			TweenService:Create(root, TweenInfo.new(INTRO_TIME * 0.6, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), { CFrame = landCF }):Play()
+			task.wait(INTRO_TIME * 0.6)
+			if root.Parent then
+				root.Anchored = false
+				pcall(function() root:SetNetworkOwner(nil) end)
+			end
+		else
+			task.wait(INTRO_TIME * 0.45)
+		end
+		if alive(b) then shock(landCF.Position, 22, kind.color, b.floorY) end
 	end)
 
 	-- Never lost under the map: if the boss drops through the floor (a bad
@@ -828,25 +1197,47 @@ function BossAI.Attach(model: Model, kindId: string)
 		end
 	end)
 	hum.HealthChanged:Connect(function(h)
+		-- Invulnerable: whatever took health off (a burn, a bleed) is undone.
+		if b.lockedHealth and model:GetAttribute("BossInvulnerable") == true and h > 0 and h < b.lockedHealth then
+			hum.Health = b.lockedHealth
+			return
+		end
 		if not b.enraged and h > 0 and h <= hum.MaxHealth * 0.5 then enrage(b) end
 	end)
 
 	task.spawn(function()
 		local last = ""
-		if not hold(b, 0.6) then return end
+		local sinceSignature = 0
+		local ready = hold(b, INTRO_TIME)
+		if model.Parent then model:SetAttribute("BossBusy", false) end
+		setInvulnerable(b, false)
+		if not ready then return end
+		if not hold(b, 0.4) then return end
 		while alive(b) do
 			local target = nearestVictim(b)
 			if target and deps.canAct(model) then
 				local options = {}
 				for _, m in ipairs(kind.moves) do
-					if m ~= last then table.insert(options, m) end
+					if m ~= last and MOVES[m] then table.insert(options, m) end
 				end
 				local move = options[math.random(1, #options)]
+				-- (its signature comes round at least every few moves)
+				if kind.signature and MOVES[kind.signature] and sinceSignature >= SIGNATURE_EVERY - 1 and last ~= kind.signature then
+					move = kind.signature
+				end
 				last = move
+				local signature = move == kind.signature
+				sinceSignature = if signature then 0 else sinceSignature + 1
 				model:SetAttribute("BossBusy", true)
 				hum:Move(Vector3.zero)
+				if signature then
+					local label = SIGNATURE_NAMES[move] or string.upper(move)
+					setInvulnerable(b, true, label)
+					bossFX(b, { kind = "signature", name = label, boss = kind.name })
+				end
 				local ok, err = pcall(MOVES[move], b, target)
 				if not ok then warn(`[BossAI] {kind.name} {move} failed:`, err) end
+				if signature and model.Parent then setInvulnerable(b, false) end
 				if model.Parent then model:SetAttribute("BossBusy", false) end
 				if not hold(b, if b.enraged then GAP_ENRAGED else GAP) then break end
 			else

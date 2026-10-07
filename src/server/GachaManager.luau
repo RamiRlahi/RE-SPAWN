@@ -155,6 +155,12 @@ local function sync(player: Player)
 		collection = p.collection,
 		equipped = p.equipped,
 		pity = pityFor(p, GachaConfig.DefaultBanner),
+		-- every banner's own pity (the summon page's banner tabs)
+		pityAll = (function()
+			local all = {}
+			for id in pairs(GachaConfig.Banners) do all[id] = pityFor(p, id) end
+			return all
+		end)(),
 		freeAvailable = freeAvailable(p),
 		nextFreeIn = (today() + 1) * 86400 - os.time(),
 		setsDone = setsDone,
@@ -180,21 +186,21 @@ local function weightedPick(list: { any }): any
 	return list[#list]
 end
 
-local function rollRarity(pity: any): string
-	local odds = GachaConfig.Rarities
-	local P = GachaConfig.Pity
-	if rng:NextNumber() * 100 < odds.Mythic.odds then return "Mythic" end
+local function rollRarity(pity: any, bannerId: string): string
+	local odds = GachaConfig.OddsFor(bannerId)
+	local P = GachaConfig.PityFor(bannerId)
+	if rng:NextNumber() * 100 < odds.Mythic then return "Mythic" end
 	if pity.sinceLegendary >= P.legendaryHard then return "Legendary" end
-	local legendary = odds.Legendary.odds
+	local legendary = odds.Legendary
 	if pity.sinceLegendary >= P.legendarySoftStart then
 		legendary += (pity.sinceLegendary - P.legendarySoftStart + 1) * P.legendarySoftStep
 	end
 	if rng:NextNumber() * 100 < legendary then return "Legendary" end
 	if pity.sinceEpic >= P.epicEvery then return "Epic" end
-	local lower = odds.Common.odds + odds.Rare.odds + odds.Epic.odds
+	local lower = odds.Common + odds.Rare + odds.Epic
 	local x = rng:NextNumber() * lower
-	if x < odds.Epic.odds then return "Epic" end
-	if x < odds.Epic.odds + odds.Rare.odds then return "Rare" end
+	if x < odds.Epic then return "Epic" end
+	if x < odds.Epic + odds.Rare then return "Rare" end
 	return "Common"
 end
 
@@ -353,15 +359,16 @@ local function summon(player: Player, payload: any)
 		pity.sinceEpic += 1
 		pity.sinceLegendary += 1
 		pity.starlight += GachaConfig.Spark.perPull
-		local rarity = rollRarity(pity)
+		local rarity = rollRarity(pity, bannerId)
+		local multiGuarantee = GachaConfig.PityFor(bannerId).multiGuarantee
 		-- 10-pull guarantee: the last pull is at least the configured rarity.
 		if multi and i == count then
 			local gotGuarantee = false
 			for _, r in ipairs(results) do
-				if rarityIndex(r.rarity) >= rarityIndex(GachaConfig.Pity.multiGuarantee) then gotGuarantee = true end
+				if rarityIndex(r.rarity) >= rarityIndex(multiGuarantee) then gotGuarantee = true end
 			end
-			if not gotGuarantee and rarityIndex(rarity) < rarityIndex(GachaConfig.Pity.multiGuarantee) then
-				rarity = GachaConfig.Pity.multiGuarantee
+			if not gotGuarantee and rarityIndex(rarity) < rarityIndex(multiGuarantee) then
+				rarity = multiGuarantee
 			end
 		end
 		if rarityIndex(rarity) >= rarityIndex("Epic") then pity.sinceEpic = 0 end

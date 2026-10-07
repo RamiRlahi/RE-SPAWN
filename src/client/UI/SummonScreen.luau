@@ -66,6 +66,13 @@ local gui: ScreenGui? = nil
 local refreshers: { () -> () } = {}
 local payWith = "tickets"
 local pulling = false
+-- The banner the page shows (its tabs switch it); each has its own pity.
+local currentBanner = GachaConfig.DefaultBanner
+local conns: { RBXScriptConnection } = {}
+local isOpen = false
+local function bannerPity(): any
+	return (state.pityAll and state.pityAll[currentBanner]) or (if currentBanner == GachaConfig.DefaultBanner then state.pity else nil) or {}
+end
 local setComplete: (string) -> () = function(_setId: string) end
 
 -- ─── Menu-style building blocks ─────────────────────────────────────────────
@@ -197,9 +204,30 @@ local function build(): ScreenGui
 	label(sg, { Text = "SUMMONING SANCTUM", Font = F.Title, TextSize = 30, TextColor3 = C.Gold, TextXAlignment = Enum.TextXAlignment.Center,
 		TextStrokeColor3 = Color3.fromRGB(36, 8, 3), TextStrokeTransparency = 0.1,
 		AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 20), Size = UDim2.fromOffset(600, 34) })
-	local banner = GachaConfig.Banners[GachaConfig.DefaultBanner]
-	label(sg, { Text = string.upper(banner.name), Font = F.Tag, TextSize = 12, TextColor3 = C.TextMuted, TextXAlignment = Enum.TextXAlignment.Center,
-		AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 54), Size = UDim2.fromOffset(600, 16) })
+	local banner = GachaConfig.Banners[currentBanner]
+	-- Banner tabs: each banner keeps its own pity, shown on its page.
+	local tabs = Instance.new("Frame")
+	tabs.BackgroundTransparency = 1
+	tabs.AnchorPoint = Vector2.new(0.5, 0)
+	tabs.Position = UDim2.new(0.5, 0, 0, 52)
+	tabs.Size = UDim2.fromOffset(600, 22)
+	tabs.Parent = sg
+	local tl = Instance.new("UIListLayout")
+	tl.FillDirection = Enum.FillDirection.Horizontal
+	tl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	tl.Padding = UDim.new(0, 10)
+	tl.SortOrder = Enum.SortOrder.LayoutOrder
+	tl.Parent = tabs
+	for i, id in ipairs(GachaConfig.BannerOrder) do
+		local b = GachaConfig.Banners[id]
+		if b then
+			local tab = secondaryButton(tabs, string.upper(b.name), { Size = UDim2.fromOffset(250, 22), TextSize = 11, LayoutOrder = i }, function()
+				if pulling or id == currentBanner then return end
+				SummonScreen.SetBanner(id)
+			end)
+			tab.TextColor3 = if id == currentBanner then C.GoldLight else C.TextMuted
+		end
+	end
 	MenuStyle.Rule(sg, 76, 0.24)
 	-- Below Roblox's top-left buttons.
 	secondaryButton(sg, "< BACK", { Position = UDim2.fromOffset(24, 70), Size = UDim2.fromOffset(110, 44), TextSize = 14 }, function()
@@ -277,7 +305,8 @@ local function build(): ScreenGui
 		local t = label(trough, { Font = F.Tag, TextSize = 11, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1), ZIndex = 4 })
 		return fill, t
 	end
-	local P = GachaConfig.Pity
+	local P = GachaConfig.PityFor(currentBanner)
+	local ODDS = GachaConfig.OddsFor(currentBanner)
 	sectionTag(left, "Legendary Guarantee", { LayoutOrder = 8 })
 	local legFill, legText = meter(9, rarityColor("Legendary"), P.legendarySoftStart / P.legendaryHard)
 	local pityText = label(left, { TextSize = 11, TextColor3 = C.TextMuted, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 10 })
@@ -286,7 +315,7 @@ local function build(): ScreenGui
 	local sparkBtn = secondaryButton(left, "EXCHANGE STARLIGHT", { Size = UDim2.new(1, 0, 0, 34), LayoutOrder = 13 }, function() end)
 	local ratesBtn = secondaryButton(left, "RATES & PITY", { Size = UDim2.new(1, 0, 0, 34), LayoutOrder = 14 }, function() end)
 	table.insert(refreshers, function()
-		local pity = state.pity or {}
+		local pity = bannerPity()
 		local since = pity.sinceLegendary or 0
 		TweenService:Create(legFill, TweenInfo.new(0.4), { Size = UDim2.fromScale(math.clamp(since / P.legendaryHard, 0, 1), 1) }):Play()
 		legText.Text = `{since} / {P.legendaryHard}{if since >= P.legendarySoftStart then "  ·  ODDS RISING" else ""}`
@@ -534,7 +563,7 @@ local function build(): ScreenGui
 		pulling = true
 		msg.Text = ""
 		SoundManager.PlayConfirm()
-		Network.GetRemoteEvent(Network.Remotes.Summon):FireServer({ banner = GachaConfig.DefaultBanner, count = count, pay = payWith })
+		Network.GetRemoteEvent(Network.Remotes.Summon):FireServer({ banner = currentBanner, count = count, pay = payWith })
 		task.delay(8, function() pulling = false end) -- safety if the server never answers
 	end
 	local pull1 = primaryButton(bottom, "", { Position = UDim2.fromOffset(160, 30), Size = UDim2.fromOffset(260, 56) }, function() doPull(1) end)
@@ -561,7 +590,7 @@ local function build(): ScreenGui
 		pulling = true
 		msg.Text = ""
 		SoundManager.PlayConfirm()
-		Network.GetRemoteEvent(Network.Remotes.Summon):FireServer({ banner = GachaConfig.DefaultBanner, count = 1, free = true })
+		Network.GetRemoteEvent(Network.Remotes.Summon):FireServer({ banner = currentBanner, count = 1, free = true })
 		task.delay(8, function() pulling = false end)
 	end)
 	local syncedAt = os.clock()
@@ -613,7 +642,7 @@ local function build(): ScreenGui
 		for _, c in ipairs(sparkList:GetChildren()) do
 			if c:IsA("GuiObject") then c:Destroy() end
 		end
-		local have = (state.pity or {}).starlight or 0
+		local have = bannerPity().starlight or 0
 		local cost = GachaConfig.Spark.cost
 		sparkSub.Text = `You have {have} Starlight. Every summon on this banner adds {GachaConfig.Spark.perPull}; spend {cost} on any {GachaConfig.Spark.minRarity}-or-better reward you don't own yet.`
 		local minIdx = table.find(GachaConfig.RarityOrder, GachaConfig.Spark.minRarity) or 3
@@ -634,7 +663,7 @@ local function build(): ScreenGui
 						if have < cost then return end
 						spark.Visible = false
 						pulling = true
-						act({ kind = "spark", id = r.id, banner = GachaConfig.DefaultBanner })
+						act({ kind = "spark", id = r.id, banner = currentBanner })
 						task.delay(8, function() pulling = false end)
 					end)
 				for _, d in ipairs(row:GetDescendants()) do
@@ -708,10 +737,9 @@ local function build(): ScreenGui
 		rline(`{banner.name}. Every summon is random; these are the exact odds the server uses.`, C.TextMuted)
 		rline("BASE RARITY ODDS (PER SUMMON)", C.Gold, F.Tag, 12)
 		for _, r in ipairs(GachaConfig.RarityOrder) do
-			rline(`{r} — {GachaConfig.Rarities[r].odds}%`, rarityColor(r), F.Header, 14)
+			rline(`{r} — {ODDS[r]}%`, rarityColor(r), F.Header, 14)
 		end
 		rline("PITY", C.Gold, F.Tag, 12)
-		local P = GachaConfig.Pity
 		rline(`• At least one Epic or better within every {P.epicEvery} summons.`)
 		rline(`• From summon #{P.legendarySoftStart} without a Legendary, Legendary odds rise by {P.legendarySoftStep}% per summon; summon #{P.legendaryHard} is a guaranteed Legendary or better.`)
 		rline(`• Every ×10 summon contains at least one {P.multiGuarantee} or better.`)
@@ -738,9 +766,9 @@ local function build(): ScreenGui
 			local total = 0
 			for _, r in ipairs(list) do total += (r.weight or 1) end
 			for _, r in ipairs(list) do
-				local pct = GachaConfig.Rarities[rarity].odds * (r.weight or 1) / math.max(total, 1)
+				local pct = ODDS[rarity] * (r.weight or 1) / math.max(total, 1)
 				if rarity == "Legendary" and featured and #list > 1 then
-					pct = GachaConfig.Rarities[rarity].odds * (if r.id == featured.id then banner.featuredRate else (1 - banner.featuredRate) / (#list - 1))
+					pct = ODDS[rarity] * (if r.id == featured.id then banner.featuredRate else (1 - banner.featuredRate) / (#list - 1))
 				end
 				rline(`{displayName(r)} ({rarity}) — {string.format("%.3f", pct)}%`, rarityColor(rarity))
 			end
@@ -777,6 +805,7 @@ local function build(): ScreenGui
 		sg.Enabled = false
 		LobbyCamera.StopImmediate()
 		SummonCinematic.Showcase(r, function()
+			if not isOpen then return end
 			sg.Enabled = true
 			LobbyCamera.SetClassSelectView()
 		end)
@@ -824,14 +853,14 @@ local function build(): ScreenGui
 	end
 
 	-- ── Networking ──
-	Network.GetRemoteEvent(Network.Remotes.GachaState).OnClientEvent:Connect(function(payload)
+	table.insert(conns, Network.GetRemoteEvent(Network.Remotes.GachaState).OnClientEvent:Connect(function(payload)
 		if typeof(payload) ~= "table" then return end
 		state = payload
 		state.currencies = state.currencies or {}
 		state.products = state.products or {}
 		for _, f in ipairs(refreshers) do f() end
-	end)
-	Network.GetRemoteEvent(Network.Remotes.SummonResult).OnClientEvent:Connect(function(payload)
+	end))
+	table.insert(conns, Network.GetRemoteEvent(Network.Remotes.SummonResult).OnClientEvent:Connect(function(payload)
 		if typeof(payload) ~= "table" then return end
 		if payload.error then
 			pulling = false
@@ -853,13 +882,15 @@ local function build(): ScreenGui
 		sg.Enabled = false
 		LobbyCamera.StopImmediate()
 		ConstellationWish.Play(best, pulled, function()
+			pulling = false
+			-- (walked away from the tent meanwhile: the page stays shut)
+			if not isOpen then return end
 			sg.Enabled = true
 			LobbyCamera.SetClassSelectView()
 			showResults(list)
-			pulling = false
 			for _, setId in ipairs(payload.sets or {}) do setComplete(setId) end
 		end)
-	end)
+	end))
 
 	showRight("Collection")
 	for _, f in ipairs(refreshers) do f() end
@@ -868,21 +899,27 @@ end
 
 function SummonScreen.Open()
 	if not gui then gui = build() end
+	isOpen = true
 	hideOtherGuis(true)
 	local sg = gui :: ScreenGui
 	sg.Enabled = true
 	Network.GetRemoteEvent(Network.Remotes.RequestGacha):FireServer()
 
+	-- Walk out of the GACHA tent (or leave the lobby) and the page shuts.
+	-- Keyed on isOpen, not sg.Enabled: the page hides itself during a
+	-- summon's cinematic, which used to end this check for good.
 	if areaCheckThread then task.cancel(areaCheckThread) end
 	areaCheckThread = task.spawn(function()
 		local gachaPos = MapData.LOBBY_CENTER + Vector3.new(34, 0, -12)
-		while sg.Enabled do
+		while isOpen do
 			task.wait(0.3)
-			if not sg.Enabled then break end
+			if not isOpen then break end
 			if player:GetAttribute("InHub") == true then
 				local char = player.Character
 				local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-				if root and (root.Position - gachaPos).Magnitude > 28 then
+				local flat = root and Vector3.new(root.Position.X - gachaPos.X, 0, root.Position.Z - gachaPos.Z)
+				if flat and flat.Magnitude > 24 then
+					areaCheckThread = nil
 					SummonScreen.Close()
 					break
 				end
@@ -891,8 +928,22 @@ function SummonScreen.Open()
 	end)
 end
 
+-- Switch the page to another banner (rebuilt for it, same state).
+function SummonScreen.SetBanner(id: string)
+	if not GachaConfig.Banners[id] then return end
+	currentBanner = id
+	for _, c in ipairs(conns) do c:Disconnect() end
+	table.clear(conns)
+	table.clear(refreshers)
+	local wasEnabled = gui ~= nil and gui.Enabled
+	if gui then gui:Destroy() end
+	gui = build()
+	if wasEnabled then (gui :: ScreenGui).Enabled = true end
+end
+
 function SummonScreen.Close()
-	if areaCheckThread then
+	isOpen = false
+	if areaCheckThread and areaCheckThread ~= coroutine.running() then
 		task.cancel(areaCheckThread)
 		areaCheckThread = nil
 	end

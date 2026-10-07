@@ -19,6 +19,8 @@
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace         = game:GetService("Workspace")
+local TweenService      = game:GetService("TweenService")
+local RunService        = game:GetService("RunService")
 local SpecialRooms      = require(script.Parent:WaitForChild("SpecialRooms"))
 local Hazards           = require(script.Parent:WaitForChild("Hazards"))
 local AtmosphereManager = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("AtmosphereManager"))
@@ -1253,7 +1255,8 @@ DungeonGenerator.Hooks = {
 	descended = nil :: ((string, number, boolean) -> ())?, -- (runId, the floor left, it offered extraction)
 }
 
-type Portal = { part: BasePart, kind: string, text: TextLabel, bb: BillboardGui }
+-- rise: the lift's ride (yields until it's at the top), before the next floor.
+type Portal = { part: BasePart, kind: string, text: TextLabel, bb: BillboardGui, rise: ((players: { Player }) -> ())? }
 
 local function countBoard(part: BasePart): (BillboardGui, TextLabel)
 	local bb = Instance.new("BillboardGui")
@@ -1351,8 +1354,8 @@ local function watchPortals(runId: string, portals: { Portal }, extractFloor: bo
 				for _, pt in ipairs(portals) do
 					local n = counts[pt.kind] or 0
 					pt.bb.Enabled = #readyIds > 0
-					pt.text.Text = if agreedOn == pt.kind then (if pt.kind == "extract" then "EXTRACTING..." else "DESCENDING...")
-						else `{n} / {total} {if pt.kind == "extract" then "EXTRACT" else "DESCEND"}`
+					pt.text.Text = if agreedOn == pt.kind then (if pt.kind == "extract" then "EXTRACTING..." else "GOING UP...")
+						else `{n} / {total} {if pt.kind == "extract" then "EXTRACT" else "ON THE LIFT"}`
 				end
 				send(members, {
 					ready = #readyIds, total = total, readyIds = readyIds, waiting = waiting,
@@ -1376,6 +1379,14 @@ local function watchPortals(runId: string, portals: { Portal }, extractFloor: bo
 						for _, p in ipairs(everyone) do LootManager.Drop(p, "floor") end
 					end)
 					task.spawn(function()
+						-- The lift carries everyone up, then the next floor.
+						for _, pt in ipairs(portals) do
+							if pt.kind == "descend" and pt.rise then
+								local ok, err = pcall(pt.rise, everyone)
+								if not ok then warn("[DungeonGenerator] Lift ride failed:", err) end
+								break
+							end
+						end
 						DungeonGenerator.NextLevel(runId)
 						send(everyone, { ready = 0, total = 0, readyIds = {}, waiting = {}, counts = {} })
 						local hook = DungeonGenerator.Hooks.descended
@@ -1480,9 +1491,16 @@ local function constructDungeonLiftExit(liftCF: CFrame, parentFolder: Folder, ru
 		p.Parent = exitModel
 		return p
 	end
+	-- The car: everything that rides up with the players.
+	local car: { BasePart } = {}
+	local function carPart(props: { [string]: any }): BasePart
+		local p = part(props)
+		table.insert(car, p)
+		return p
+	end
 
 	-- 1. Lift Platform Floor
-	local floor = part({
+	local floor = carPart({
 		Name = "LiftPlatform",
 		Size = Vector3.new(22, 2, 22),
 		CFrame = liftCF * CFrame.new(0, 0, 0),
@@ -1490,7 +1508,7 @@ local function constructDungeonLiftExit(liftCF: CFrame, parentFolder: Folder, ru
 		Material = Enum.Material.WoodPlanks,
 		CanCollide = true,
 	})
-	part({
+	carPart({
 		Name = "LiftBorder",
 		Size = Vector3.new(23, 2.2, 23),
 		CFrame = liftCF * CFrame.new(0, -0.05, 0),
@@ -1500,7 +1518,7 @@ local function constructDungeonLiftExit(liftCF: CFrame, parentFolder: Folder, ru
 	})
 
 	-- 2. Glowing Magic Rune Ring in Center of Platform
-	local runeCore = part({
+	local runeCore = carPart({
 		Name = "LiftRuneCore",
 		Shape = Enum.PartType.Cylinder,
 		Size = Vector3.new(0.3, 14, 14),
@@ -1509,7 +1527,7 @@ local function constructDungeonLiftExit(liftCF: CFrame, parentFolder: Folder, ru
 		Material = Enum.Material.Neon,
 		Transparency = 0.25,
 	})
-	local runeRing = part({
+	local runeRing = carPart({
 		Name = "LiftRuneRing",
 		Shape = Enum.PartType.Cylinder,
 		Size = Vector3.new(0.35, 18, 18),
@@ -1542,11 +1560,7 @@ local function constructDungeonLiftExit(liftCF: CFrame, parentFolder: Folder, ru
 	liftSparks.EmissionDirection = Enum.NormalId.Top
 	liftSparks.Parent = runeCore
 
-	local liftLight = Instance.new("PointLight")
-	liftLight.Color = GOLD_BRIGHT
-	liftLight.Range = 26
-	liftLight.Brightness = 2.5
-	liftLight.Parent = runeCore
+	-- (no PointLight: the neon rune glows on its own)
 
 	-- 3. Four Massive Guide Pillars & Overhead Mechanical Gantry
 	local pillarPositions = {
@@ -1623,7 +1637,7 @@ local function constructDungeonLiftExit(liftCF: CFrame, parentFolder: Folder, ru
 	})
 
 	-- 4. Safety Railings around left, right, and back
-	part({
+	carPart({
 		Name = "RailingLeft",
 		Size = Vector3.new(0.8, 4.5, 21),
 		CFrame = liftCF * CFrame.new(-10.5, 3.25, 0),
@@ -1631,7 +1645,7 @@ local function constructDungeonLiftExit(liftCF: CFrame, parentFolder: Folder, ru
 		Material = Enum.Material.Metal,
 		CanCollide = true,
 	})
-	part({
+	carPart({
 		Name = "RailingRight",
 		Size = Vector3.new(0.8, 4.5, 21),
 		CFrame = liftCF * CFrame.new(10.5, 3.25, 0),
@@ -1639,7 +1653,7 @@ local function constructDungeonLiftExit(liftCF: CFrame, parentFolder: Folder, ru
 		Material = Enum.Material.Metal,
 		CanCollide = true,
 	})
-	part({
+	carPart({
 		Name = "RailingBack",
 		Size = Vector3.new(21, 4.5, 0.8),
 		CFrame = liftCF * CFrame.new(0, 3.25, 10.5),
@@ -1660,9 +1674,66 @@ local function constructDungeonLiftExit(liftCF: CFrame, parentFolder: Folder, ru
 	liftZone.Transparency = 1
 	liftZone.Parent = exitModel
 
+	-- The gate: an iron grille over the open front, up in the gantry until
+	-- the lift goes; then it drops shut and rides up with the car.
+	local GATE_UP = 30
+	local gate = part({
+		Name = "LiftGate",
+		Size = Vector3.new(21, 4.5, 0.5),
+		CFrame = liftCF * CFrame.new(0, 3.25 + GATE_UP, -10.5),
+		Color = IRON_LIGHT,
+		Material = Enum.Material.DiamondPlate,
+		Transparency = 0.15,
+	})
+
+	-- The ride: the gate drops, the car (and everyone standing on it) climbs
+	-- the shaft with a rumble, and at the top the next floor takes over.
+	local RISE, RISE_TIME = 24, 2.8
+	local function rise(players: { Player })
+		local riders: { { root: BasePart, rel: CFrame } } = {}
+		for _, p in ipairs(players) do
+			local root = p.Character and p.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if root and p:GetAttribute("IsDead") ~= true then
+				local rel = liftZone.CFrame:PointToObjectSpace(root.Position)
+				local h = liftZone.Size / 2 + Vector3.new(1.5, 2, 1.5)
+				if math.abs(rel.X) <= h.X and math.abs(rel.Y) <= h.Y and math.abs(rel.Z) <= h.Z then
+					root.AssemblyLinearVelocity = Vector3.zero
+					root.Anchored = true
+					table.insert(riders, { root = root, rel = floor.CFrame:ToObjectSpace(root.CFrame) })
+				end
+			end
+		end
+		gate.CanCollide = true
+		TweenService:Create(gate, TweenInfo.new(0.45, Enum.EasingStyle.Bounce, Enum.EasingDirection.Out),
+			{ CFrame = liftCF * CFrame.new(0, 3.25, -10.5) }):Play()
+		task.wait(0.6)
+		table.insert(car, gate)
+		local start: { [BasePart]: CFrame } = {}
+		for _, c in ipairs(car) do start[c] = c.CFrame end
+		local floorStart = floor.CFrame
+		liftSparks.Rate = 90
+		local t0 = os.clock()
+		while true do
+			local a = math.clamp((os.clock() - t0) / RISE_TIME, 0, 1)
+			-- (a slow start, a steady climb, a little settle at the top)
+			local k = if a < 0.2 then (a / 0.2) ^ 2 * 0.12 else 0.12 + (a - 0.2) / 0.8 * 0.88
+			local up = Vector3.new(0, RISE * k + math.sin(a * 40) * 0.04, 0)
+			for c, cf in pairs(start) do
+				if c.Parent then c.CFrame = cf + up end
+			end
+			local floorNow = floorStart + up
+			for _, rd in ipairs(riders) do
+				if rd.root.Parent then rd.root.CFrame = floorNow * rd.rel end
+			end
+			if a >= 1 then break end
+			RunService.Heartbeat:Wait()
+		end
+		task.wait(0.25)
+	end
+
 	local portals: { Portal } = {}
 	local bb, text = countBoard(liftZone)
-	table.insert(portals, { part = liftZone, kind = "descend", bb = bb, text = text })
+	table.insert(portals, { part = liftZone, kind = "descend", bb = bb, text = text, rise = rise })
 
 	-- (the floor's level: every third one offers extraction)
 	local d = dungeons[runId]

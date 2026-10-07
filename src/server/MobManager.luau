@@ -156,7 +156,7 @@ end
 local function displayName(mobModel: Model, isBoss: boolean): string
 	local named = mobModel:GetAttribute("DisplayName")
 	if typeof(named) == "string" then return named end
-	if isBoss then return "★ Slime Boss" end
+	if isBoss then return "★ Malakor, The Fallen Angel" end
 	return if mobModel:GetAttribute("IsElite") == true then `Elite {mobModel.Name}` else mobModel.Name
 end
 
@@ -1571,7 +1571,9 @@ local function activateMob(record: MobRecord)
 		record.bossKind = "warlord" -- (no dragon model in this place: a normal boss instead)
 	end
 
-	local model = record.template and record.template:Clone() or createFallbackMob()
+	-- (the Fallen Angel is built from parts: the place's boss template is a slime)
+	local model = if record.bossKind == "fallen_angel" then BossAI.BuildFallenAngel()
+		elseif record.template then record.template:Clone() else createFallbackMob()
 	-- Rank tags for abilities that care (e.g. the Gunslinger's Silver Dollar).
 	model:SetAttribute("IsBoss", record.isBoss)
 	local rid = if record.group then record.group.runId else record.runId
@@ -1672,7 +1674,12 @@ local function planRoom(group: RoomMobGroup)
 		})
 		remaining = 0 -- the dragon (and its arena) is the fight
 	elseif room.roomType == "Boss" then
-		local template = if #bossTemplates > 0 then bossTemplates[math.random(1, #bossTemplates)] else nil
+		-- No more Slime King: slime-bodied boss templates are never used.
+		local bodies = {}
+		for _, t in ipairs(bossTemplates) do
+			if not string.find(string.lower(t.Name), "slime") then table.insert(bodies, t) end
+		end
+		local template = if #bodies > 0 then bodies[math.random(1, #bodies)] else nil
 		local kinds = BossAI.KindIds()
 		if map and map.bosses then
 			local themed = {}
@@ -1681,6 +1688,8 @@ local function planRoom(group: RoomMobGroup)
 			end
 			if #themed > 0 then kinds = themed end
 		end
+		-- Without a body of its own, a boss is the Fallen Angel (built from parts).
+		if not template then kinds = { "fallen_angel" } end
 		table.insert(group.mobs, {
 			template = template,
 			spawnCFrame = CFrame.new((room.gx + room.w / 2) * FLOOR_SIZE, room.floorY, (room.gz + room.d / 2) * FLOOR_SIZE),

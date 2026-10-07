@@ -1042,7 +1042,7 @@ local function startMinigame(token: number, keys: { string }, windup: number, du
 	sub.TextSize = 20
 	sub.TextColor3 = Color3.fromRGB(255, 235, 215)
 	sub.TextStrokeTransparency = 0.3
-	sub.Text = "BRACE YOURSELF…"
+	sub.Text = "BRACE YOURSELF… (WASD OR ARROW KEYS)"
 	sub.Parent = gui
 
 	local row = Instance.new("Frame")
@@ -1077,6 +1077,19 @@ local function startMinigame(token: number, keys: { string }, windup: number, du
 		glyph.Text = "▲"
 		glyph.Rotation = ARROW_ROT[k] or 0
 		glyph.Parent = tile
+		-- Its WASD key too (both work), small in the corner.
+		local letter = Instance.new("TextLabel")
+		letter.Name = "Key"
+		letter.BackgroundTransparency = 1
+		letter.AnchorPoint = Vector2.new(1, 1)
+		letter.Position = UDim2.new(1, -4, 1, -2)
+		letter.Size = UDim2.fromOffset(18, 18)
+		letter.Font = Enum.Font.GothamBlack
+		letter.TextSize = 14
+		letter.TextColor3 = Color3.new(1, 1, 1)
+		letter.TextTransparency = 0.25
+		letter.Text = ({ Up = "W", Left = "A", Down = "S", Right = "D" } :: { [string]: string })[k] or ""
+		letter.Parent = tile
 		styleTile(tile, "wait")
 		-- Touch screens tap the tiles' arrows instead (a d-pad below).
 		tiles[i] = tile
@@ -1445,12 +1458,7 @@ end
 function DragonBossFX.Init()
 	Network.GetRemoteEvent(Network.Remotes.DragonFX).OnClientEvent:Connect(onFX)
 	Network.GetRemoteEvent(Network.Remotes.DragonBeam).OnClientEvent:Connect(onBeam)
-	Network.GetRemoteEvent(Network.Remotes.BossIntro).OnClientEvent:Connect(function(data: any)
-		if typeof(data) ~= "table" then return end
-		local small = if data.kind == "fallen_angel" then "CELESTIAL SCOURGE" elseif data.kind == "warlord" then "WARLORD OF IRON" elseif data.kind == "colossus" then "ANCIENT TITAN" else "BOSS ENCOUNTER"
-		banner(small, data.name or "BOSS BATTLE", data.color or GOLD, 3.8)
-		shake(1.4, 0.35)
-	end)
+	-- (the other bosses' intros: BossCinematic)
 	task.spawn(function()
 		while true do
 			scanDragons()

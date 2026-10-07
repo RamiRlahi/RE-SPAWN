@@ -56,6 +56,9 @@ GachaConfig.Pity = {
 -- ── Banners ───────────────────────────────────────────────────────────────────
 -- featured: rate-up reward id. When a Legendary is rolled, featuredRate is the
 -- chance it's the featured one; losing that 50/50 guarantees it next Legendary.
+-- odds / pity (optional) replace the base Rarities odds and Pity for that
+-- banner only (keys left out keep the base value). Each banner keeps its own
+-- pity counters, so pulling on one never spends another's.
 GachaConfig.Banners = {
 	divine_summoning = {
 		name = "The Divine Summoning",
@@ -70,9 +73,21 @@ GachaConfig.Banners = {
 		featured = "mount_infernal_dragon",
 		featuredRate = 0.5,
 		pool = "mounts",
+		-- Mounts are rare: the only banner that has them, at much lower odds,
+		-- with a longer (but always reached) pity.
+		odds = { Common = 74.0, Rare = 21.0, Epic = 4.0, Legendary = 0.8, Mythic = 0.2 },
+		pity = {
+			epicEvery = 25,
+			legendarySoftStart = 70,
+			legendarySoftStep = 5.0,
+			legendaryHard = 90,
+			multiGuarantee = "Rare",
+		},
 	},
 }
 GachaConfig.DefaultBanner = "divine_summoning"
+-- The order the banner tabs appear on the summon page.
+GachaConfig.BannerOrder = { "divine_summoning", "beastmaster_call" }
 
 -- ── Duplicates: nothing is ever worthless ─────────────────────────────────────
 GachaConfig.Duplicates = {
@@ -127,5 +142,25 @@ GachaConfig.CrystalProducts = {
 
 -- ── Cinematic length per rarity (seconds, excluding the reveal card) ─────────
 GachaConfig.CinematicLength = { Common = 2.5, Rare = 3.5, Epic = 6, Legendary = 10, Mythic = 12 }
+
+-- The odds a banner rolls with (its own, else the base ones).
+function GachaConfig.OddsFor(bannerId: string?): { [string]: number }
+	local b = bannerId and GachaConfig.Banners[bannerId]
+	local out = {}
+	for r, info in pairs(GachaConfig.Rarities) do
+		out[r] = (b and b.odds and b.odds[r]) or info.odds
+	end
+	return out
+end
+
+-- The pity rules a banner uses (its own, else the base ones).
+function GachaConfig.PityFor(bannerId: string?): { [string]: any }
+	local b = bannerId and GachaConfig.Banners[bannerId]
+	local out = table.clone(GachaConfig.Pity)
+	if b and b.pity then
+		for k, v in pairs(b.pity) do out[k] = v end
+	end
+	return out
+end
 
 return GachaConfig

@@ -364,6 +364,17 @@ local function dealDamage(player: Player, target: { character: Model, humanoid: 
 	local finalAmount = math.max(0, math.floor(amount))
 	if finalAmount <= 0 or target.humanoid.Health <= 0 then return nil, nil end
 	if isFriendly(target.character) then return nil, nil end -- belt and braces: no friendly fire
+	-- A boss mid-intro or mid-signature move can't be hurt: say so.
+	if target.character:GetAttribute("BossInvulnerable") == true then
+		if fxAllowed(player, "immune", 4) then
+			Network.GetRemoteEvent(Network.Remotes.DamageDealt):FireClient(player, {
+				position = target.rootPart.Position + Vector3.new(0, 2.5, 0),
+				amount = 0,
+				source = "IMMUNE",
+			})
+		end
+		return nil, nil
+	end
 	local shielded = false
 	-- (the run's boons: Frostbite, Executioner, Bloodlust, Second Wind…)
 	finalAmount = math.floor(finalAmount * Boons.DamageMult(player, target, source))
