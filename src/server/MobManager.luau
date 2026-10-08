@@ -1745,6 +1745,35 @@ local function planRoom(group: RoomMobGroup)
 	end
 end
 
+-- A mob that's gone missing would leave its room "not cleared" for ever (and
+-- the map without its check): destroyed by falling out of the world, knocked
+-- off the map, or dead without its death being heard. Dead ones count as
+-- defeated; lost ones are brought back to their spot to be fought. → whether
+-- the record changed.
+local LOST_DEPTH = 25 -- studs under its floor: it fell out of the room
+local function checkRecord(record: MobRecord): boolean
+	local m = record.model
+	if record.defeated or not m or record.bossKind == "dragon" then return false end
+	local hum = m:FindFirstChildOfClass("Humanoid")
+	if m.Parent and hum and hum.Health <= 0 then
+		record.defeated = true
+		record.model = nil
+		return true
+	end
+	local root = m:FindFirstChild("HumanoidRootPart")
+	if not m.Parent or not hum or not (root and root:IsA("BasePart")) then
+		-- (gone without dying: it comes back, whole, at its spot)
+		record.model = nil
+		if m.Parent then m:Destroy() end
+		return true
+	end
+	if root.Position.Y < record.spawnCFrame.Position.Y - LOST_DEPTH then
+		pcall(function() m:PivotTo(record.spawnCFrame + Vector3.new(0, 3, 0)) end)
+		root.AssemblyLinearVelocity = Vector3.zero
+	end
+	return false
+end
+
 local function refreshActiveRooms()
 	for _, group in ipairs(roomMobGroups) do
 		local shouldBeActive = roomIsNearAnActivePlayer(group.room)
@@ -1752,6 +1781,11 @@ local function refreshActiveRooms()
 			planRoom(group)
 			updateEmblem(group) -- progress bar only; the reward appears on clear
 		end
+		local changed = false
+		for _, record in ipairs(group.mobs) do
+			if checkRecord(record) then changed = true end
+		end
+		if changed then updateEmblem(group) end
 		for _, record in ipairs(group.mobs) do
 			if shouldBeActive then
 				activateMob(record)

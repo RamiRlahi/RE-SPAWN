@@ -9,6 +9,8 @@
 	  • the Berserker (Class "berserker") always wears his ragged cape of
 	    black feathers bleeding to crimson (his armour's flat plate cape is
 	    hidden under it);
+	  • the Mage (Class "mage") always wears his long navy cloak lined in
+	    violet and hemmed in gold;
 	  • the Fire Knight (Class "heavy_knight") wears his crimson cape with a
 	    black fur mantle when his player owns and wears his outfit (the
 	    "Knight's Mantle" summon reward: Armor_heavy_knight).
@@ -25,6 +27,7 @@ local function styleFor(character: Model): ClothCape.Style?
 	local class = character:GetAttribute("Class")
 	if class == "swordsman" then return ClothCape.SWORD_MASTER end
 	if class == "berserker" then return ClothCape.BERSERKER end
+	if class == "mage" then return ClothCape.MAGE end
 	if class == "gunslinger" then
 		local owner = Players:GetPlayerFromCharacter(character)
 		if owner and owner:GetAttribute("Armor_gunslinger") == true then return ClothCape.GUNSLINGER end

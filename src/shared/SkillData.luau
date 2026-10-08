@@ -19,6 +19,7 @@ export type SkillConfig = {
 	dashSpeed: number?,
 	duration: number?,
 	width: number?,
+	radius: number?,
 }
 
 export type ClassSkills = {
@@ -364,14 +365,100 @@ SkillData.rogue = {
 		description = "Become invisible for 6 seconds. Enemies lose you and you move faster. Attacking or taking damage ends it early.",
 	},
 	[4] = {
-		name = "Shadow Realm",
+		name = "Shadow Execution",
 		slot = 4,
 		keybind = "R",
 		cooldown = 60.0,
-		damage = 12, -- per shadow slash: ten waves a second, each cutting every enemy in range; the final burst deals 9×
-		duration = 4.0,
+		damage = 40, -- per slash (five, through every enemy in the smoke); each leaves a mark that detonates for 1.5x; the final strike deals 3x
 		range = 24,
-		description = "Ultimate: ascend into the shadow realm, untargetable for 4 seconds while shadow slashes cut every enemy around you ten times a second, then release a burst that deals huge damage and marks everything hit.",
+		description = "Ultimate: throw a smoke bomb and vanish. Your afterimages strike every enemy in the smoke five times, marking them, then you reappear behind the nearest and detonate every mark at once.",
+	},
+}
+
+SkillData.mage = {
+	[1] = {
+		name = "Arcane Burst",
+		slot = 1,
+		keybind = "E",
+		cooldown = 6.0,
+		damage = 45,
+		range = 60, -- how far the projectile flies (to the cursor)
+		projectileSpeed = 95,
+		radius = 10, -- the explosion; everything within 1.4x is pulled to its centre
+		description = "Fire a concentrated arcane projectile that explodes on impact, pulling nearby enemies towards the center and leaving an Arcane Rune. Empowered: three converging projectiles.",
+	},
+	[2] = {
+		name = "Astral Prison",
+		slot = 2,
+		keybind = "F",
+		cooldown = 12.0,
+		damage = 70, -- the collapse (up to 2.5x for those held the whole time); the chains squeeze for 10% twice a second
+		range = 45,
+		radius = 12,
+		duration = 3.0, -- how long the chains hold before the collapse
+		description = "Place a magic circle that traps enemies within spectral chains. The longer they remain, the more it charges before collapsing in a massive explosion. An Arcane Rune inside detonates too. Empowered: larger, pulls enemies in, explodes faster.",
+	},
+	[3] = {
+		name = "Arcane Shift",
+		slot = 3,
+		keybind = "Q",
+		cooldown = 9.0,
+		damage = 35, -- the shockwave where you reappear
+		range = 30,
+		radius = 10,
+		description = "Phase through space to the target location, untargetable. Reappear with a shockwave and leave an Arcane Echo that repeats your next ability with reduced power. Empowered: three Arcane Echoes.",
+	},
+	[4] = {
+		name = "Apocalypse",
+		slot = 4,
+		keybind = "R",
+		cooldown = 70.0,
+		damage = 26, -- per falling bolt; every mark detonates for 6x
+		radius = 45,
+		description = "Ultimate: mark every enemy in a large radius, call down a storm of arcane projectiles, then every mark detonates in a massive explosion.",
+	},
+}
+
+SkillData.martial_artist = {
+	[1] = {
+		name = "Dragon Fist",
+		slot = 1,
+		keybind = "E",
+		cooldown = 6.0,
+		damage = 70,
+		range = 28, -- how far the dragon surges
+		width = 6,
+		description = "Channel Qi into your fists and release a flowing dragon of energy that surges forward, dealing heavy damage and pushing enemies back. Empowered: three dragon fists, greater range and damage.",
+	},
+	[2] = {
+		name = "Qi Release",
+		slot = 2,
+		keybind = "F",
+		cooldown = 14.0,
+		damage = 20, -- the burst of Qi as it activates
+		radius = 9,
+		duration = 6.0,
+		description = "Surround yourself with circulating Qi: more movement and attack speed, less damage taken, for a short time. Empowered: a larger aura, higher speed, stronger damage reduction.",
+	},
+	[3] = {
+		name = "Dragon Ascent",
+		slot = 3,
+		keybind = "Q",
+		cooldown = 9.0,
+		damage = 55, -- the strike through enemies; the landing hits for 1.2x, the trail burns for 10% a tick
+		range = 26,
+		radius = 9,
+		description = "Ride the flow of Qi: launch upward and dash through enemies on a dragon's energy, crash down in an explosive impact and leave a lingering trail. Empowered: multiple dragon strikes, more hits, wider area.",
+	},
+	[4] = {
+		name = "Dragon Soul",
+		slot = 4,
+		keybind = "R",
+		cooldown = 70.0,
+		damage = 90, -- each of the dragon's passes through an enemy (three)
+		range = 70,
+		width = 22,
+		description = "Ultimate: unleash the dragon within. A colossal dragon of Qi rises around you and sweeps through everything in its path.",
 	},
 }
 

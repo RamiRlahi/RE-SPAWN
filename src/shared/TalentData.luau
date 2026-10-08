@@ -321,6 +321,69 @@ TalentData.rogue = {
 	},
 }
 
+-- Mage: an eight-pointed arcane star (the sheet's sigil): four long points
+-- and four short diagonals round the middle.
+TalentData.mage = {
+	name = "The Unbroken Sky",
+	lines = {
+		{ 0.5, 0.06, 0.56, 0.44 }, { 0.5, 0.06, 0.44, 0.44 },   -- north point
+		{ 0.5, 0.94, 0.56, 0.56 }, { 0.5, 0.94, 0.44, 0.56 },   -- south point
+		{ 0.06, 0.5, 0.44, 0.44 }, { 0.06, 0.5, 0.44, 0.56 },   -- west point
+		{ 0.94, 0.5, 0.56, 0.44 }, { 0.94, 0.5, 0.56, 0.56 },   -- east point
+		{ 0.26, 0.26, 0.42, 0.42 }, { 0.74, 0.26, 0.58, 0.42 }, -- the short diagonals
+		{ 0.26, 0.74, 0.42, 0.58 }, { 0.74, 0.74, 0.58, 0.58 },
+	},
+	nodes = {
+		{ id = "focus", name = "Focus", glyph = "FO", x = 0.5, y = 0.5, cost = 1,
+			description = "+0.06x Damage", effect = { stat = "damage", operation = "multiplier", value = 0.06 } },
+		{ id = "quick_tongue", name = "Quick Tongue", glyph = "QT", x = 0.5, y = 0.28, cost = 2, requires = "focus",
+			description = "+12% Attack Speed", effect = { stat = "basicAttackSpeed", operation = "percent", value = 0.12 } },
+		{ id = "wide_circle", name = "Wide Circle", glyph = "WC", x = 0.28, y = 0.5, cost = 2, requires = "focus",
+			description = "+10% Ability Size", effect = { stat = "size", operation = "percent", value = 0.1 } },
+		{ id = "long_echo", name = "Long Echo", glyph = "LE", x = 0.72, y = 0.5, cost = 2, requires = "focus",
+			description = "+12% Ability Duration", effect = { stat = "abilityDuration", operation = "percent", value = 0.12 } },
+		{ id = "warded_robes", name = "Warded Robes", glyph = "WR", x = 0.5, y = 0.72, cost = 3, requires = "focus",
+			description = "+35 Max HP", effect = { stat = "maxHealth", operation = "add", value = 35 } },
+		{ id = "second_bolt", name = "Second Bolt", glyph = "SB", x = 0.06, y = 0.5, cost = 4, requires = "wide_circle",
+			description = "+1 Projectile", effect = { stat = "projectileCount", operation = "add", value = 1 } },
+		{ id = "turning_pages", name = "Turning Pages", glyph = "TP", x = 0.5, y = 0.06, cost = 4, requires = "quick_tongue",
+			description = "-10% Ability Cooldowns", effect = { stat = "abilityCooldown", operation = "percent", value = 0.1 } },
+		{ id = "the_sky_obeys", name = "The Sky Obeys", glyph = "SO", x = 0.94, y = 0.5, cost = 6, requires = "long_echo",
+			description = "+0.1x Damage", effect = { stat = "damage", operation = "multiplier", value = 0.1 } },
+	},
+}
+
+-- Martial Artist: a dragon coiling up from below (the sheet's emblem): its
+-- tail low on the left, the body winding up through the middle, the head at
+-- the top right.
+TalentData.martial_artist = {
+	name = "The Coiled Dragon",
+	lines = {
+		{ 0.12, 0.88, 0.3, 0.7 }, { 0.3, 0.7, 0.5, 0.5 },       -- the tail up to the heart
+		{ 0.5, 0.5, 0.3, 0.32 }, { 0.3, 0.32, 0.5, 0.16 },      -- the coil round to the crown
+		{ 0.5, 0.16, 0.76, 0.24 }, { 0.76, 0.24, 0.92, 0.12 },   -- the neck to the head
+		{ 0.5, 0.5, 0.74, 0.62 }, { 0.74, 0.62, 0.88, 0.86 },    -- a claw reaching down
+	},
+	nodes = {
+		{ id = "centred", name = "Centred", glyph = "CE", x = 0.5, y = 0.5, cost = 1,
+			description = "+0.06x Damage", effect = { stat = "damage", operation = "multiplier", value = 0.06 } },
+		{ id = "swift_hands", name = "Swift Hands", glyph = "SH", x = 0.3, y = 0.32, cost = 2, requires = "centred",
+			description = "+12% Attack Speed", effect = { stat = "basicAttackSpeed", operation = "percent", value = 0.12 } },
+		{ id = "iron_body", name = "Iron Body", glyph = "IB", x = 0.3, y = 0.7, cost = 2, requires = "centred",
+			description = "+35 Max HP", effect = { stat = "maxHealth", operation = "add", value = 35 } },
+		{ id = "deep_breath", name = "Deep Breath", glyph = "DB", x = 0.74, y = 0.62, cost = 2, requires = "centred",
+			description = "+12% Ability Duration", effect = { stat = "abilityDuration", operation = "percent", value = 0.12 } },
+		{ id = "wide_stance", name = "Wide Stance", glyph = "WS", x = 0.12, y = 0.88, cost = 3, requires = "iron_body",
+			description = "+10% Ability Size", effect = { stat = "size", operation = "percent", value = 0.1 } },
+		{ id = "flowing_qi", name = "Flowing Qi", glyph = "FQ", x = 0.5, y = 0.16, cost = 4, requires = "swift_hands",
+			description = "-10% Ability Cooldowns", effect = { stat = "abilityCooldown", operation = "percent", value = 0.1 } },
+		{ id = "twin_dragons", name = "Twin Dragons", glyph = "TD", x = 0.88, y = 0.86, cost = 4, requires = "deep_breath",
+			description = "+1 Projectile", effect = { stat = "projectileCount", operation = "add", value = 1 } },
+		{ id = "dragon_soul", name = "Dragon Soul", glyph = "DS", x = 0.92, y = 0.12, cost = 6, requires = "flowing_qi",
+			description = "+0.1x Damage", effect = { stat = "damage", operation = "multiplier", value = 0.1 } },
+	},
+}
+
 local TalentModule = {}
 
 function TalentModule.Get(classId: string): Constellation?

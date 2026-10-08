@@ -480,6 +480,15 @@ local ULT_PREVIEW_POSES: { [string]: Pose } = {
 	-- The berserker's stance: hunched and turned into the camera, feet planted
 	-- wide, the greatsword hanging low at his side and dragging behind, the
 	-- other fist clenched out in front, head down, glaring up.
+	-- The mage's Apocalypse: the right hand raised to the sky, calling it
+	-- down, the left low and open, the grimoire floating open at his side;
+	-- feet apart, chin up.
+	mage = { W = { 6, -12, 0 }, N = { -12, 10, 0 }, RS = { 150, 0, 28 }, LS = { 30, 0, -32 },
+		RH = { 4, 0, 9 }, LH = { -4, 0, -9 } },
+	-- The Martial Artist's Dragon Soul: a deep horse stance, the right fist
+	-- driven out, the left drawn back at the hip, chin down.
+	martial_artist = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { -6, -20, 0 }, N = { 8, 16, 0 }, RS = { 94, 0, -6 }, LS = { 30, 0, -30 },
+		RH = { 22, 0, 28 }, LH = { 22, 0, -28 } },
 	berserker = { Root = { 0, 0, 0, 0, -0.35, 0 }, W = { -18, -22, 0 }, N = { 14, 18, 0 },
 		RS = { -22, 0, 24 }, LS = { 38, 0, -32 },
 		RH = { 18, 0, 14 }, LH = { -16, 0, -14 } },

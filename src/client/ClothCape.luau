@@ -59,6 +59,8 @@ export type Style = {
 	featherTip: Color3?,
 	lean: number?,     -- the mantle heavier over the left shoulder (0 = even)
 	brooch: boolean?,  -- a crimson-jewelled star at the left collarbone
+	gem: Color3?,      -- the brooch's jewel (crimson unless set)
+	noFur: boolean?,   -- no fur mantle (the wearer's own robes cover the collar)
 }
 
 ClothCape.SWORD_MASTER = {
@@ -101,6 +103,22 @@ ClothCape.BERSERKER = {
 	featherTip = Color3.fromRGB(190, 14, 28),
 	lean = 0.3,
 	brooch = true,
+} :: Style
+
+-- The Mage's: a long cloak of deep navy lined in violet, hemmed in gold,
+-- clasped at the collar with a gold star set with a violet gem. No fur: it
+-- hangs from under his own layered mantle (MageLook).
+ClothCape.MAGE = {
+	outer = Color3.fromRGB(24, 28, 64),
+	lining = Color3.fromRGB(58, 30, 108),
+	hem = Color3.fromRGB(212, 170, 84),
+	fur = Color3.fromRGB(24, 28, 64),
+	furShade = Color3.fromRGB(38, 46, 96),
+	back = 0.1,
+	armor = true,
+	noFur = true,
+	brooch = true,
+	gem = Color3.fromRGB(170, 90, 255),
 } :: Style
 
 -- The Gunslinger's: a dusty dark-leather cape, tattered into ragged strips,
@@ -602,7 +620,7 @@ local function buildFur(model: Model, torso: BasePart, style: Style)
 	local function tint(): Color3
 		return style.fur:Lerp(style.furShade, rng:NextNumber(0, 0.45))
 	end
-	for _, ring in ipairs(FUR_RINGS) do
+	for _, ring in ipairs(if style.noFur then {} else FUR_RINGS) do
 		for k = 1, ring.n do
 			local theta = (k - 0.5) / ring.n * math.pi * 2 + rng:NextNumber(-0.08, 0.08)
 			-- Open at the chest.
@@ -635,15 +653,15 @@ local function buildFur(model: Model, torso: BasePart, style: Style)
 		end
 	end
 	if style.brooch then
-		-- A dark iron star with a crimson jewel, pinning the mantle at the
-		-- left collarbone.
+		-- A dark iron star with a crimson jewel (gold, set with the style's
+		-- own gem), pinning the mantle at the left collarbone.
 		local at = mantlePoint(torso, -0.75, 0.45, m) + Vector3.new(0, -0.15, -0.12)
 		local face = CFrame.lookAt(at, at + Vector3.new(at.X, 0, at.Z).Unit)
 		for k = 0, 3 do
 			local arm = face * CFrame.Angles(0, 0, k * math.pi / 2) * CFrame.new(0, 0.22, 0)
-			furPart(model, torso, "wedge", Vector3.new(0.06, 0.38, 0.12), arm, Color3.fromRGB(40, 36, 40))
+			furPart(model, torso, "wedge", Vector3.new(0.06, 0.38, 0.12), arm, if style.gem then Color3.fromRGB(212, 170, 84) else Color3.fromRGB(40, 36, 40))
 		end
-		local gem = furPart(model, torso, "ball", Vector3.one * 0.2, face * CFrame.new(0, 0, -0.06), Color3.fromRGB(230, 20, 36))
+		local gem = furPart(model, torso, "ball", Vector3.one * 0.2, face * CFrame.new(0, 0, -0.06), style.gem or Color3.fromRGB(230, 20, 36))
 		gem.Material = Enum.Material.Neon
 		gem.Name = "BroochGem"
 	end

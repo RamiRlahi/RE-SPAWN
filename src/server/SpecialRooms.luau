@@ -401,7 +401,9 @@ local function buildTreasure(room: Room, folder: Folder, rng: Random)
 		part(model, { Name = "Band", Size = Vector3.new(0.35, 2.9, 3.7), CFrame = CFrame.new(base + Vector3.new(x, 1.4, 0)), Color = GOLD, Material = Enum.Material.Metal })
 	end
 	local lock = part(model, { Name = "LockPlate", Size = Vector3.new(0.9, 1.1, 0.25), CFrame = CFrame.new(base + Vector3.new(0, 2.2, -1.85)), Color = GOLD_BRIGHT, Material = Enum.Material.Metal })
-	local hingeCF = CFrame.new(base + Vector3.new(0, 2.8, 1.8))
+	-- (the hinge runs along the lid's front edge, the lock side: the lid swings
+	-- up about it)
+	local hingeCF = CFrame.new(base + Vector3.new(0, 2.8, -1.8))
 	local lidParts = {}
 	local lidOffsets = {}
 	local function lidPart(props)
@@ -410,10 +412,16 @@ local function buildTreasure(room: Room, folder: Folder, rng: Random)
 		lidOffsets[p] = hingeCF:ToObjectSpace(p.CFrame)
 		return p
 	end
-	lidPart({ Name = "Lid", Size = Vector3.new(6, 1, 3.6), CFrame = CFrame.new(base + Vector3.new(0, 3.3, 0)), Color = WOOD_DARK, Material = Enum.Material.Wood })
-	lidPart({ Name = "LidCrown", Shape = Enum.PartType.Cylinder, Size = Vector3.new(6, 3.6, 3.6), CFrame = CFrame.new(base + Vector3.new(0, 3.8, 0)), Color = WOOD, Material = Enum.Material.Wood })
+	-- The lid: a wooden slab with a low peaked top (two wedges), gold bands
+	-- wrapped over it.
+	lidPart({ Name = "Lid", Size = Vector3.new(6, 0.8, 3.6), CFrame = CFrame.new(base + Vector3.new(0, 3.2, 0)), Color = WOOD_DARK, Material = Enum.Material.Wood })
+	local roof = base + Vector3.new(0, 3.9, 0)
+	lidPart({ Name = "LidTop", ClassName = "WedgePart", Size = Vector3.new(6, 0.6, 1.8), CFrame = CFrame.new(roof + Vector3.new(0, 0, -0.9)), Color = WOOD, Material = Enum.Material.Wood })
+	lidPart({ Name = "LidTop", ClassName = "WedgePart", Size = Vector3.new(6, 0.6, 1.8), CFrame = CFrame.new(roof + Vector3.new(0, 0, 0.9)) * CFrame.Angles(0, math.pi, 0), Color = WOOD, Material = Enum.Material.Wood })
 	for _, x in ipairs({ -2.2, 0, 2.2 }) do
-		lidPart({ Name = "LidBand", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.4, 3.7, 3.7), CFrame = CFrame.new(base + Vector3.new(x, 3.8, 0)), Color = GOLD, Material = Enum.Material.Metal })
+		lidPart({ Name = "LidBand", Size = Vector3.new(0.4, 0.86, 3.7), CFrame = CFrame.new(base + Vector3.new(x, 3.2, 0)), Color = GOLD, Material = Enum.Material.Metal })
+		lidPart({ Name = "LidBand", ClassName = "WedgePart", Size = Vector3.new(0.42, 0.66, 1.86), CFrame = CFrame.new(roof + Vector3.new(x, 0.02, -0.92)), Color = GOLD, Material = Enum.Material.Metal })
+		lidPart({ Name = "LidBand", ClassName = "WedgePart", Size = Vector3.new(0.42, 0.66, 1.86), CFrame = CFrame.new(roof + Vector3.new(x, 0.02, 0.92)) * CFrame.Angles(0, math.pi, 0), Color = GOLD, Material = Enum.Material.Metal })
 	end
 	-- Golden light leaking from the seam.
 	local seam = part(model, { Name = "Seam", Size = Vector3.new(5.8, 0.12, 3.4), CFrame = CFrame.new(base + Vector3.new(0, 2.84, 0)), Color = GOLD_BRIGHT, Material = Enum.Material.Neon, CanCollide = false })
@@ -446,7 +454,7 @@ local function buildTreasure(room: Room, folder: Folder, rng: Random)
 		model:SetAttribute("Opened", true)
 		open.Enabled = false
 
-		-- Lid swings open about the back hinge.
+		-- Lid swings open about its hinge.
 		local swing = Instance.new("CFrameValue")
 		swing.Value = hingeCF
 		swing.Changed:Connect(function(v)

@@ -11,6 +11,9 @@
 	                 light pool and dust
 	  ice_mage     — Blizzard: shadow wisps, glowing blue eyes, ice crystal
 	                 ring, frost mist and falling snow
+	  mage         — Apocalypse: violet rune rings turning on the floor, a
+	                 magic circle over his raised hand, arcane motes rising,
+	                 bolts of light falling round him
 
 	UltPreviewFX.Start(character, classId) replaces any running preview;
 	UltPreviewFX.Stop() removes it.
@@ -399,6 +402,104 @@ AURAS.ice_mage = function(c)
 			local p = c.ground + Vector3.new(math.cos(a) * 3.4, cr.Size.Y * 0.45, math.sin(a) * 3.4)
 			local out = Vector3.new(math.cos(a), 0, math.sin(a))
 			cr.CFrame = CFrame.lookAt(p, p + out) * CFrame.Angles(math.rad(-20), 0, 0)
+		end
+	end)
+end
+
+AURAS.mage = function(c)
+	local VIOLET = Color3.fromRGB(170, 90, 255)
+	local BLUE = Color3.fromRGB(96, 120, 255)
+	local PALE = Color3.fromRGB(232, 206, 255)
+	-- Two rune rings on the floor, turning against each other, and the star
+	-- between them.
+	local outer = groundRing(c.folder, c.ground, 4.6, 40, VIOLET, 0.15, 0.22)
+	local inner = groundRing(c.folder, c.ground, 3.3, 30, PALE, 0.35, 0.12)
+	local star = {}
+	for i = 1, 8 do star[i] = part(c.folder, { Color = VIOLET, Transparency = 0.25 }) end
+	-- A small circle of light over the raised hand.
+	local hand = c.char:FindFirstChild("Right Arm") or c.char:FindFirstChild("RightHand")
+	local halo = {}
+	for i = 1, 20 do halo[i] = part(c.folder, { Color = PALE, Transparency = 0.1 }) end
+	-- Motes rising round him; a violet glow.
+	local motes = anchorAt(c.folder, CFrame.new(c.ground + Vector3.new(0, 0.5, 0)))
+	motes.Size = Vector3.new(8, 0.2, 8)
+	emitter(motes, { Texture = TEX_SPARKLE, Color = ColorSequence.new(PALE, BLUE), LightEmission = 1, Size = seq(0, 0.25, 1, 0),
+		Lifetime = NumberRange.new(1.2, 2.2), Speed = NumberRange.new(1, 3), Acceleration = Vector3.new(0, 1.5, 0),
+		SpreadAngle = Vector2.new(15, 15), Rate = 22, Shape = Enum.ParticleEmitterShape.Box,
+		ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume, EmissionDirection = Enum.NormalId.Top })
+	light(motes, VIOLET, 1.4, 14)
+	-- Bolts of light falling round him now and then.
+	local bolts = {}
+	for i = 1, 4 do
+		bolts[i] = { p = part(c.folder, { Color = VIOLET, Transparency = 1, Size = Vector3.new(0.3, 5, 0.3) }), t = i * 0.37, at = c.ground }
+	end
+	c.onStep(function(t)
+		outer(t * 0.5)
+		inner(-t * 0.8)
+		local sr = 3.9
+		for i, s in ipairs(star) do
+			local k = (i - 1) % 4
+			local sq = if i > 4 then math.pi / 4 else 0
+			local a1 = k / 4 * math.pi * 2 + sq + t * 0.3
+			local a2 = (k + 1) / 4 * math.pi * 2 + sq + t * 0.3
+			local p1 = c.ground + Vector3.new(math.cos(a1) * sr, 0.1, math.sin(a1) * sr)
+			local p2 = c.ground + Vector3.new(math.cos(a2) * sr, 0.1, math.sin(a2) * sr)
+			s.Size = Vector3.new(0.12, 0.05, (p2 - p1).Magnitude)
+			s.CFrame = CFrame.lookAt((p1 + p2) / 2, p2)
+		end
+		if hand and hand:IsA("BasePart") then
+			local top = (hand :: BasePart).CFrame * CFrame.new(0, -1.6, 0)
+			local c0 = CFrame.new(top.Position) * CFrame.Angles(0, t * 1.2, 0)
+			for i, h in ipairs(halo) do
+				local a = i / #halo * math.pi * 2
+				local p = c0 * CFrame.new(math.cos(a) * 1.3, 0, math.sin(a) * 1.3)
+				h.Size = Vector3.new(0.08, 0.05, 0.42)
+				h.CFrame = CFrame.lookAt(p.Position, p.Position + (c0.Rotation * Vector3.new(-math.sin(a), 0, math.cos(a))))
+			end
+		end
+		for _, b in ipairs(bolts) do
+			local k = ((t + b.t) % 1.5) / 1.5
+			if k < 0.12 then
+				if k < 0.02 then
+					local a = math.random() * math.pi * 2
+					b.at = c.ground + Vector3.new(math.cos(a), 0, math.sin(a)) * (5 + math.random() * 4)
+				end
+				local u = k / 0.12
+				b.p.CFrame = CFrame.new(b.at + Vector3.new(0, 22 * (1 - u) + 2.5, 0))
+				b.p.Transparency = 0.1
+			else
+				b.p.Transparency = 1
+			end
+		end
+	end)
+end
+
+AURAS.martial_artist = function(c)
+	local GOLD = Color3.fromRGB(255, 176, 60)
+	local BRIGHT = Color3.fromRGB(255, 226, 150)
+	-- Two rings of Qi on the floor turning against each other.
+	local outer = groundRing(c.folder, c.ground, 4.4, 40, GOLD, 0.15, 0.22)
+	local inner = groundRing(c.folder, c.ground, 3.0, 30, BRIGHT, 0.35, 0.12)
+	-- A ring of Qi circling round him, tilted, and embers rising.
+	local swirl = {}
+	for i = 1, 22 do swirl[i] = part(c.folder, { Color = if i % 3 == 0 then BRIGHT else GOLD, Transparency = 0.2 }) end
+	local motes = anchorAt(c.folder, CFrame.new(c.ground + Vector3.new(0, 0.5, 0)))
+	motes.Size = Vector3.new(7, 0.2, 7)
+	emitter(motes, { Texture = TEX_SPARKLE, Color = ColorSequence.new(BRIGHT, GOLD), LightEmission = 1, Size = seq(0, 0.3, 1, 0),
+		Lifetime = NumberRange.new(1, 1.8), Speed = NumberRange.new(2, 4), Acceleration = Vector3.new(0, 2, 0),
+		SpreadAngle = Vector2.new(15, 15), Rate = 26, Shape = Enum.ParticleEmitterShape.Box,
+		ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume, EmissionDirection = Enum.NormalId.Top })
+	light(motes, GOLD, 1.5, 14)
+	c.onStep(function(t)
+		outer(t * 0.6)
+		inner(-t * 0.9)
+		local center = c.ground + Vector3.new(0, 2.6, 0)
+		local tilt = CFrame.new(center) * CFrame.Angles(math.rad(70), t * 0.4, 0)
+		for i, s in ipairs(swirl) do
+			if i % 6 == 0 then s.Transparency = 1 continue end
+			local a = i / #swirl * math.pi * 2 + t * 2.6
+			s.Size = Vector3.new(0.75, 0.08, 0.2)
+			s.CFrame = tilt * CFrame.Angles(0, a, 0) * CFrame.new(0, 0, -3)
 		end
 	end)
 end

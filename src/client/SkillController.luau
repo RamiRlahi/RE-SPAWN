@@ -38,6 +38,8 @@ local GunslingerController = require(script.Parent:WaitForChild("GunslingerContr
 local AimStance = require(script.Parent:WaitForChild("AimStance"))
 local SwordsmanController = require(script.Parent:WaitForChild("SwordsmanController"))
 local RogueController = require(script.Parent:WaitForChild("RogueController"))
+local MageController = require(script.Parent:WaitForChild("MageController"))
+local MartialController = require(script.Parent:WaitForChild("MartialController"))
 local BerserkerController = require(script.Parent:WaitForChild("BerserkerController"))
 local FireKnightController = require(script.Parent:WaitForChild("FireKnightController"))
 
@@ -236,10 +238,14 @@ local function spawnGroundScorch(position: Vector3, size: number, duration: numb
 	return
 end
 
+-- Shakes and lens punches go through the top-down camera, which lays them
+-- over its own shot each frame (overlapping ones add up and always settle
+-- back). Any other camera (the classic-camera setting, a cutscene's shot,
+-- which is set afresh every frame) is shaken here.
 local function triggerCameraShake(intensity: number, duration: number)
+	if IsometricCamera.Shake(intensity, duration) then return end
 	task.spawn(function()
 		local start = os.clock()
-		local origCFrame = camera.CFrame
 		while os.clock() - start < duration do
 			local alpha = 1 - ((os.clock() - start) / duration)
 			local curIntensity = intensity * alpha
@@ -255,17 +261,8 @@ local function triggerCameraShake(intensity: number, duration: number)
 end
 
 local function triggerFOVPunch(fovDelta: number, duration: number)
-	task.spawn(function()
-		local startFOV = camera.FieldOfView
-		local tweenIn = TweenService:Create(camera, TweenInfo.new(duration * 0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-			FieldOfView = math.max(30, startFOV - fovDelta),
-		})
-		tweenIn:Play()
-		tweenIn.Completed:Wait()
-		TweenService:Create(camera, TweenInfo.new(duration * 0.78, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-			FieldOfView = startFOV,
-		}):Play()
-	end)
+	-- (not during a cutscene or in the lobby: their lens isn't ours to punch)
+	IsometricCamera.Punch(fovDelta, duration)
 end
 
 local function setWeaponTrailEnlarged(character: Model, enlarged: boolean)
@@ -4238,6 +4235,8 @@ function SkillController.UseSkill(skillIndex: number)
 	end
 	if classId == "berserker" and not BerserkerController.CanCast(skillIndex) then return end
 	if classId == "heavy_knight" and not FireKnightController.CanCast(skillIndex) then return end
+	if classId == "mage" and not MageController.CanCast(skillIndex) then return end
+	if classId == "martial_artist" and not MartialController.CanCast(skillIndex) then return end
 
 	-- Check Cooldown
 	local now = os.clock()
@@ -4479,6 +4478,12 @@ function SkillController.UseSkill(skillIndex: number)
 		SwordsmanController.OnCast(skillIndex, char, rootPart, aimDir, config)
 	elseif classId == "rogue" then
 		RogueController.OnCast(skillIndex, char, rootPart, aimDir, config)
+	elseif classId == "mage" then
+		skillTargetPosition = MageController.OnCast(skillIndex, char, rootPart, aimDir, config, cursorPosition) or skillTargetPosition
+		if skillIndex == 4 then MageController.PlayUltCutscene(char, aimDir) end
+	elseif classId == "martial_artist" then
+		skillTargetPosition = MartialController.OnCast(skillIndex, char, rootPart, aimDir, config, cursorPosition) or skillTargetPosition
+		if skillIndex == 4 then MartialController.PlayUltCutscene(char, aimDir) end
 	elseif classId == "berserker" then
 		skillTargetPosition = BerserkerController.OnCast(skillIndex, char, rootPart, aimDir, config, cursorPosition) or skillTargetPosition
 		if skillIndex == 4 then BerserkerController.PlayUltCutscene(char, aimDir) end
@@ -4732,6 +4737,18 @@ local function performBasicAttack()
 		if root then RogueController.Basic(char, root) end
 		return
 	end
+	-- The Mage's Arcane Bolts.
+	if player:GetAttribute("SelectedClass") == "mage" then
+		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if root then MageController.Basic(char, root) end
+		return
+	end
+	-- The Martial Artist's Flowing Fists.
+	if player:GetAttribute("SelectedClass") == "martial_artist" then
+		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if root then MartialController.Basic(char, root) end
+		return
+	end
 	-- The Berserker's greatsword chain.
 	if player:GetAttribute("SelectedClass") == "berserker" then
 		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
@@ -4884,10 +4901,46 @@ local function autoFireStep()
 end
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Holding the attack: the right mouse button (or the Primary Attack bind)
+-- held down keeps attacking, every class at its own rate (each basic attack
+-- paces itself).
+-- ─────────────────────────────────────────────────────────────────────────────
+local attackHeld: { [string]: boolean } = {}
+
+-- Is the Primary Attack bind physically down right now?
+local function primaryDown(): boolean
+	local keyName = player:GetAttribute("Keybind_PrimaryAttack") or SettingsConfig.DefaultSettings.keybinds.PrimaryAttack
+	if typeof(keyName) ~= "string" then return false end
+	if keyName == "MouseButton1" or keyName == "MouseButton2" or keyName == "MouseButton3" then
+		return UserInputService:IsMouseButtonPressed((Enum.UserInputType :: any)[keyName])
+	end
+	local ok, key = pcall(function() return (Enum.KeyCode :: any)[keyName] end)
+	return ok and key ~= nil and UserInputService:IsKeyDown(key)
+end
+
+local function holdAttackStep()
+	if next(attackHeld) == nil then return end
+	-- (never trusting a missed release: the button must really still be down)
+	if attackHeld.right and not UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then attackHeld.right = nil end
+	if attackHeld.primary and not primaryDown() then attackHeld.primary = nil end
+	if next(attackHeld) == nil then return end
+	if player:GetAttribute("InLobby") ~= false or player:GetAttribute("SettingsOpen") == true
+		or player:GetAttribute("DeathMenuOpen") == true then return end
+	if player:GetAttribute("SelectedClass") == "gunslinger" then
+		-- (reloading or empty: wait, instead of clicking an empty gun)
+		local st = GunslingerController.GetState()
+		if st.reloading or st.ammo <= 0 then return end
+	end
+	local ok, err = pcall(performBasicAttack)
+	if not ok then warn("[HoldAttack]", err) end
+end
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Initialization & Event Connections
 -- ─────────────────────────────────────────────────────────────────────────────
 function SkillController.Init()
 	RunService.Heartbeat:Connect(autoFireStep)
+	RunService.Heartbeat:Connect(holdAttackStep)
 	RangerArrows.Init()
 	-- Every class: legs with WASD, the top half to the cursor.
 	AimStance.Init(getAimDirection)
@@ -4904,6 +4957,16 @@ function SkillController.Init()
 		getAim = getAimDirection,
 	})
 	RogueController.Init({
+		shake = triggerCameraShake,
+		fovPunch = triggerFOVPunch,
+		getAim = getAimDirection,
+	})
+	MageController.Init({
+		shake = triggerCameraShake,
+		fovPunch = triggerFOVPunch,
+		getAim = getAimDirection,
+	})
+	MartialController.Init({
 		shake = triggerCameraShake,
 		fovPunch = triggerFOVPunch,
 		getAim = getAimDirection,
@@ -4936,6 +4999,7 @@ function SkillController.Init()
 		if player:GetAttribute("InLobby") ~= false then return end
 
 		if inputMatchesAction(input, "PrimaryAttack") then
+			attackHeld.primary = true
 			performBasicAttack()
 		elseif inputMatchesAction(input, "Skill1") then
 			SkillController.UseSkill(1)
@@ -4945,8 +5009,20 @@ function SkillController.Init()
 			SkillController.UseSkill(3)
 		elseif inputMatchesAction(input, "Ultimate") then
 			SkillController.UseSkill(4)
+		elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+			-- (right click, when nothing else is bound to it: attack, and keep
+			-- attacking while it's held)
+			attackHeld.right = true
+			performBasicAttack()
 		end
 	end)
+	-- (let go anywhere, over the UI too, and it stops)
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton2 then attackHeld.right = nil end
+		if inputMatchesAction(input, "PrimaryAttack") then attackHeld.primary = nil end
+	end)
+	UserInputService.WindowFocusReleased:Connect(function() table.clear(attackHeld) end)
+	player.CharacterAdded:Connect(function() table.clear(attackHeld) end)
 
 	-- Client-side Blue Star Death VFX listener
 	local deathRemote = Network.GetRemoteEvent(Network.Remotes.MobDeathVFX)

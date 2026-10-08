@@ -21,6 +21,8 @@ local SwordModel = require(Shared:WaitForChild("SwordModel"))
 local BerserkerLook = require(Shared:WaitForChild("BerserkerLook"))
 local RogueLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RogueLook"))
 local RogueScarf = require(script.Parent:WaitForChild("RogueScarf"))
+local MageLook = require(Shared:WaitForChild("MageLook"))
+local MartialLook = require(Shared:WaitForChild("MartialLook"))
 local Players = game:GetService("Players")
 local WeaponSling = require(Shared:WaitForChild("WeaponSling"))
 local GearLook = require(Shared:WaitForChild("GearLook"))
@@ -71,6 +73,11 @@ function ClassLook.Clear(character: Model)
 		if (d:GetAttribute(TAG) or d:GetAttribute("RogueLook")) and d.Parent then d:Destroy() end
 	end
 	RogueScarf.Track(character, false)
+	-- (a real player's robes are the server's: only a copy's come off here)
+	if not Players:GetPlayerFromCharacter(character) then
+		MageLook.Undress(character)
+		MartialLook.Undress(character)
+	end
 end
 
 export type Options = {
@@ -112,6 +119,16 @@ function ClassLook.Apply(character: Model, classId: string, opts: Options?)
 	if classId == "rogue" and not Players:GetPlayerFromCharacter(character) then
 		RogueLook.Dress(character)
 		RogueScarf.Track(character, true)
+	end
+	-- The Mage's hooded robes and floating grimoire, and his long cloth cloak
+	-- (on players they come from MageServer / ClassCapes already).
+	if classId == "mage" and not Players:GetPlayerFromCharacter(character) then
+		MageLook.Dress(character)
+		ClothCape.Attach(character, TAG, ClothCape.MAGE)
+	end
+	-- The Martial Artist's gi, sash and headband (on players: MartialServer).
+	if classId == "martial_artist" and not Players:GetPlayerFromCharacter(character) then
+		MartialLook.Dress(character)
 	end
 	local backWeld: Weld? = nil -- a slung weapon, eased out past the armor once it's on
 

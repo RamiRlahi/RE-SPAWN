@@ -863,8 +863,8 @@ end
 -- Red streaks that follow the real claws through every swing, the slit eyes
 -- smearing red trails as the head moves, red mist breathed out of the maw,
 -- embers rising off him.
-type BeastFx = { char: Model, claws: { Trail }, owned: { Instance }, breath: ParticleEmitter?, phase: number,
-	lastBreath: number, trailUntil: number }
+type BeastFx = { char: Model, claws: { Trail }, streaks: { Trail }, owned: { Instance }, breath: ParticleEmitter?, phase: number,
+	lastBreath: number, trailUntil: number, sprinting: boolean }
 local beastFx: { [Model]: BeastFx } = {}
 local beastTry: { [Model]: number } = {}
 
@@ -949,6 +949,22 @@ local function buildBeastFx(char: Model, phase: number): BeastFx?
 		table.insert(owned, e)
 		breath = e
 	end
+	-- the sprint: long red streaks torn off his back and shoulders
+	local streaks: { Trail } = {}
+	local torso = char:FindFirstChild("Torso")
+	if torso and torso:IsA("BasePart") then
+		local h, w, d = torso.Size.Y, torso.Size.X, torso.Size.Z
+		for _, pair in ipairs({
+			{ Vector3.new(0, h * 0.45, d * 0.5), Vector3.new(0, -h * 0.2, d * 0.5) },
+			{ Vector3.new(w * 0.5, h * 0.5, 0), Vector3.new(w * 0.5, h * 0.2, 0) },
+			{ Vector3.new(-w * 0.5, h * 0.5, 0), Vector3.new(-w * 0.5, h * 0.2, 0) },
+		}) do
+			local tr = fxTrail(fxAttach(torso, pair[1], owned), fxAttach(torso, pair[2], owned), 0.45, owned)
+			tr.WidthScale = NumberSequence.new({ kp(0, 1), kp(1, 0.1) })
+			tr.Enabled = false
+			table.insert(streaks, tr)
+		end
+	end
 	-- embers rising off him
 	local root = rootOf(char)
 	if root then
@@ -970,7 +986,8 @@ local function buildBeastFx(char: Model, phase: number): BeastFx?
 		e.Parent = root
 		table.insert(owned, e)
 	end
-	return { char = char, claws = trails, owned = owned, breath = breath, phase = phase, lastBreath = -1, trailUntil = 0 }
+	return { char = char, claws = trails, streaks = streaks, owned = owned, breath = breath, phase = phase, lastBreath = -1,
+		trailUntil = 0, sprinting = false }
 end
 
 local function dropBeastFx(fx: BeastFx)
@@ -1008,6 +1025,15 @@ local function beastFxStep(now: number)
 			beastFx[char] = fx
 		end
 		local f = fx :: BeastFx
+		-- (flat out: the streaks and the claws' trails burn behind him)
+		local r = rootOf(char)
+		local v = if r then r.AssemblyLinearVelocity else Vector3.zero
+		local sprinting = p:GetAttribute("IsSprinting") == true and Vector3.new(v.X, 0, v.Z).Magnitude > 16
+		if sprinting ~= f.sprinting then
+			f.sprinting = sprinting
+			for _, t in ipairs(f.streaks) do t.Enabled = sprinting end
+		end
+		if sprinting then clawTrails(char, 0.15) end
 		if f.trailUntil > 0 and now > f.trailUntil then
 			f.trailUntil = 0
 			for _, t in ipairs(f.claws) do t.Enabled = false end
@@ -1233,215 +1259,549 @@ local function revertPose(char: Model)
 end
 
 -- ── The beast's body (every Berserker in Beast Form, every client) ──────────
--- The beast doesn't walk like a man: he goes on all fours, a great ape's
--- knuckle-walk, the long arms planted ahead as front legs, the body pitched
--- forward, the head held up and level. Walking, he moves the diagonal pairs
--- (right claw with left foot), the shoulders rolling and the body swaying;
--- running, he breaks into a bounding gallop, both claws reaching together
--- then both feet driving, the spine flexing with each bound. Standing, he
--- heaves for breath, sways on his claws and swings his head round, hunting;
--- left still a while he rears up and beats his chest, shakes his head with a
--- snarl, or drops his head to sniff the floor. In the air he pounces, claws
--- thrown forward. This replaces the walk and idle animations outright (the
--- attack poses take the body over while they play, and hand it back).
-local beastMotors: { [Model]: any } = {}
-local beastWeight: { [Model]: number } = {}
-local beastAttack: { [Model]: number } = {}
-type Gait = { phase: number, air: number, still: number, flourish: string?, flourishAt: number, nextFlourish: number, beat: number }
-local gaits: { [Model]: Gait } = {}
+-- A wolf enlarged into a monster, not a man crawling on all fours. The beast
+-- has long digitigrade hind legs and jointed front legs (BerserkerLook builds
+-- the knee and elbow); every frame each paw is given a place to be and the
+-- limb is solved to reach it (two bones: thigh + lower leg, upper arm +
+-- forearm), so the pelvis stays HIGH and the legs, not the body, take the
+-- up-and-down.
+--
+--   RUN       a rotary gallop: hind legs drive in turn, then the front paws
+--             reach, touch, pull and release ahead of the shoulders. Uneven
+--             timing (a long stance, an explosive swing), the spine waving
+--             (chest leads, pelvis follows), the shoulders rolling toward the
+--             paw on the ground and the hips the other way; the head held
+--             steady, locked on. Slow paces are a four-beat walk.
+--   SPRINT    longer strides, flatter, the streaks (beastFxStep).
+--   IDLE      up on the hind legs, hunched, arms hanging to the knees,
+--             breathing; now and then a chest-beat, a head shake, a sniff.
+--   IDLE (AGGRESSIVE, enemies near) down on all fours, coiled to pounce,
+--             swaying, sniffing, a claw flexing, the head on the threat.
+--   JUMP      stretched out: claws reaching ahead, hind legs flung back;
+--             coming down, the paws reach for the floor.
+--   LAND      the legs fold to take it, the body barely dips.
+--   TURN      on the spot, the paws step round, shoulders and head lead.
+--   GET UP    after a knock-down: flat out, then pushed up on the claws.
+-- During his attacks the arms are the attack's; the hind legs keep their
+-- feet planted. Every footfall leaves a claw print.
 
-local BEAST_LEAN = 55     -- the body pitched forward, standing
-local BEAST_LEAN_RUN = 68 -- and flat out, galloping
-local LEG_BACK = 14       -- the legs angled back under him
-local ARM_REACH = 3.4     -- shoulder to claw tips (R6 units, before the beast's scale)
+-- (all in one block: the file is near Luau's limit of 200 locals)
+local beastStep: (dt: number) -> ()
+do
+	local THIGH, SHIN = 1.7, 2.2               -- hind leg bones (hip→knee, knee→paw; R6 units)
+	local HIND_HIP = 3.3                       -- the hips' height running (R6 units): steady
+	local UPPER, FORE = 1.4, 2.92              -- front leg bones (shoulder→elbow, elbow→claw tips)
+	local FORE_OFF = math.rad(17.6)            -- (the claw tips sit this far forward of the forearm's line)
+	local GROUND = 3                           -- the root's height over the floor (R6 units)
+	local AGGRO_RANGE = 40
+	local PRINT_LIFE = 2.6
+	local LIMBS = { "RA", "LA", "RL", "LL" }
+	local MOTOR_OF = { RA = "RS", LA = "LS", RL = "RH", LL = "LH" }
+	local SIDE = { RA = 1, LA = -1, RL = 1, LL = -1 }
+	-- where each limb's stride starts in the cycle: a walk (four-beat) and the
+	-- rotary gallop (hind, hind, fore, fore)
+	local WALK_OFF = { LL = 0, LA = 0.25, RL = 0.5, RA = 0.75 }
+	local GALLOP_OFF = { LL = 0, RL = 0.1, RA = 0.55, LA = 0.66 }
 
-type Pose = { [string]: { number } }
+	-- A pose before solving: numbers only, so two can be blended. Per limb
+	-- (RA, LA, RL, LL): _f how far ahead of its joint the paw goes, _y its
+	-- height (over the floor; or, _rel = 1, under the joint), _fix = 1 to set
+	-- the angles outright (_ang at the joint, _bend at the knee/elbow).
+	type Spec = { [string]: number }
 
--- For a lean: how far to lower the body so the feet stay on the floor, and
--- the arm angle that plants the claws on the floor ahead (s: his scale).
-local function stance(lean: number, s: number): (number, number, number)
-	local L = math.rad(lean)
-	local drop = 3 * s - s * math.cos(L) - 2 * s * math.cos(math.rad(LEG_BACK))
-	local h = 0.5 * s * math.cos(L) - drop + 3 * s
-	local theta = math.deg(math.acos(math.clamp(h / (ARM_REACH * s), -1, 1)))
-	return drop, lean + theta, lean - LEG_BACK
-end
+	local beastMotors: { [Model]: any } = {}
+	local beastWeight: { [Model]: number } = {}
+	local beastAttack: { [Model]: number } = {}
+	type Gait = { phase: number, air: number, still: number, flourish: string?, flourishAt: number, nextFlourish: number,
+		beat: number, aggro: number, nextScan: number, threat: Vector3?, landAt: number, landHard: number, wasAir: boolean,
+		minVy: number, yaw: number?, turn: number, getUpAt: number, wasDown: boolean, q: { [string]: number },
+		joints: { [string]: Motor6D }?, jointsOf: Model?, vs: number, mv: number, up: number, rest: number }
+	local gaits: { [Model]: Gait } = {}
 
-local function mix(a: Pose, b: Pose, k: number): Pose
-	if k <= 0 then return a end
-	local out: Pose = {}
-	for key, va in pairs(a) do
-		local vb = b[key]
-		if vb then
-			local r = table.create(6, 0)
-			for i = 1, 6 do r[i] = (va[i] or 0) + ((vb[i] or 0) - (va[i] or 0)) * k end
-			out[key] = r
+	local function blend(a: Spec, b: Spec, k: number): Spec
+		if k <= 0 then return a end
+		if k >= 1 then return b end
+		local out: Spec = {}
+		for key, va in pairs(a) do out[key] = va + ((b[key] or 0) - va) * k end
+		for key, vb in pairs(b) do
+			if a[key] == nil then out[key] = vb * k end
+		end
+		return out
+	end
+
+	-- Two bones (a, b) reaching (df forward, dy up) from their joint; the
+	-- middle joint bends forward (knee = 1: a knee) or back (-1: an elbow).
+	-- → the upper bone's forward angle from straight down, and the bend.
+	local function solve(df: number, dy: number, a: number, b: number, knee: number): (number, number)
+		local d = math.clamp(math.sqrt(df * df + dy * dy), math.abs(a - b) + 1e-3, a + b - 1e-3)
+		local beta = math.atan2(df, -dy)
+		local a1 = math.acos(math.clamp((a * a + d * d - b * b) / (2 * a * d), -1, 1))
+		local a2 = math.acos(math.clamp((a * a + b * b - d * d) / (2 * a * b), -1, 1))
+		return beta + knee * a1, -knee * (math.pi - a2)
+	end
+
+	-- ── The poses ────────────────────────────────────────────────────────
+	-- 1 · calm: up on the hind legs, hunched, arms hanging wide to the knees.
+	local function idleSpec(t: number, ph: number): Spec
+		local b = math.sin(t * 2.6 + ph)
+		return {
+			lean = 32 + b * 2, hip = 3.6 + b * 0.03, head = -6 - b * 3, headYaw = math.sin(t * 0.6 + ph * 2) * 18,
+			armZ = 18 + b * 3, legZ = 9,
+			RA_f = 0.5, RA_y = 0.55, LA_f = 0.5, LA_y = 0.55,
+			RL_f = -0.25, RL_y = 0, LL_f = -0.55, LL_y = 0,
+		}
+	end
+
+	-- 8 · aggressive: on all fours, coiled, pelvis still up, swaying,
+	-- sniffing, a claw lifted and set down, the head on the threat.
+	local function coilSpec(t: number, ph: number, yawTo: number?): Spec
+		local b = math.sin(t * 3.4 + ph)
+		local sway = math.sin(t * 1.3 + ph)
+		local sniff = math.max(0, math.sin(t * 0.9 + ph)) ^ 8 * math.sin(t * 34) * 6
+		local flexR = math.max(0, math.sin(t * 1.7 + ph)) ^ 10
+		local flexL = math.max(0, math.sin(t * 1.7 + ph + 2.6)) ^ 10
+		return {
+			lean = 98 + b * 2, hip = 3.3 + b * 0.04, yaw = sway * 4, roll = sway * 3, head = sniff - 2,
+			headYaw = if yawTo then math.clamp(math.deg(yawTo), -60, 60) else math.sin(t * 0.8 + ph) * 22,
+			armZ = 10, legZ = 8,
+			RA_f = 1.3 + flexR * 0.3, RA_y = flexR * 0.7, LA_f = 1.25 + flexL * 0.3, LA_y = flexL * 0.7,
+			RL_f = -0.7, RL_y = 0, LL_f = -0.9, LL_y = 0,
+		}
+	end
+
+	-- RUN / SPRINT: the stride (run: 0 walk → 1 gallop; sprint 0..1).
+	local function limbStride(q: number, duty: number, centre: number, sweep: number, lift: number, reach: number, hind: boolean?): (number, number)
+		if q < duty then
+			-- the paw on the floor, carried back under him (reach → touch → pull)
+			local u = q / duty
+			return centre + sweep / 2 - sweep * u, 0
+		end
+		local u = (q - duty) / (1 - duty)
+		-- a hind paw lifts while it's still back, then whips forward at the
+		-- last moment (the knee never jams forward under the belly); a front
+		-- paw is snapped up and through, far forward (explosive)
+		local e: number
+		if hind then
+			local h = math.clamp((u - 0.2) / 0.8, 0, 1)
+			e = h * h * (3 - 2 * h)
 		else
-			out[key] = va
+			e = u * u * (3 - 2 * u)
+		end
+		return centre - sweep / 2 + sweep * e + reach * math.sin(math.pi * u), lift * math.sin(math.pi * u) ^ 0.7
+	end
+
+	local function runSpec(g: Gait, v: number, dt: number, s: number, run: number, sprint: number, stepIn: number, touched: { string }): Spec
+		local stride = 3.4 + 2.4 * run + 1.2 * sprint    -- ground covered per cycle (R6 units)
+		local duty = 0.55 - 0.2 * run - 0.04 * sprint     -- how much of it each paw is down
+		g.phase += dt * v / (stride * s) + stepIn
+		local p = g.phase
+		local sweep = stride * duty
+		local spec: Spec = {}
+		for _, key in ipairs(LIMBS) do
+			local off = WALK_OFF[key] + (GALLOP_OFF[key] - WALK_OFF[key]) * run
+			local q = (p - off) % 1
+			local hind = key == "RL" or key == "LL"
+			if hind then
+				-- The hind paws: flat along the floor from just under the hip to
+				-- far behind it, then lifted and tucked as they swing through
+				-- (the knee folding forward, the hock back), a smooth arc. The
+				-- hips hold their height; the legs do all the folding.
+				local H = HIND_HIP - 0.1 * sprint
+				local fFront = H * math.tan(math.rad(4 + 4 * run))
+				local fBack = -H * math.tan(math.rad(24 + 10 * run + 4 * sprint))
+				local f, y
+				if q < duty then
+					local u = q / duty
+					f, y = fFront + (fBack - fFront) * u, 0
+				else
+					local u = (q - duty) / (1 - duty)
+					local e = u * u * (3 - 2 * u)
+					f = fBack + (fFront - fBack) * e
+					y = (0.9 + 0.5 * run) * math.sin(math.pi * u) ^ 0.8
+				end
+				spec[key .. "_f"], spec[key .. "_y"] = f, y
+			else
+				local f, y = limbStride(q, duty, 0.95 + 0.3 * run, sweep, 0.8 + 0.5 * run, 0.6 * run + 0.3 * sprint)
+				spec[key .. "_f"], spec[key .. "_y"] = f, y
+			end
+			-- (a paw just down: its print)
+			local was = g.q[key]
+			if was and q < was then table.insert(touched, key) end
+			g.q[key] = q
+		end
+		-- The spine waves (chest leads, the pelvis follows); the shoulders roll
+		-- toward the front paw that's down, the hips the other way; the head
+		-- holds steady through all of it.
+		local wave = math.sin((p - 0.3) * math.pi * 2) * (1 + 1 * run)
+		local roll = math.sin((p - GALLOP_OFF.RA) * math.pi * 2)
+		spec.lean = 100 + 6 * sprint + wave
+		spec.hip = HIND_HIP - 0.1 * sprint
+		spec.yaw = roll * (1.5 + 2 * run)
+		spec.roll = roll * (0.5 + 1 * run)
+		spec.legYaw = -roll * (1 + 1.5 * run)
+		spec.head = -wave - 4 * sprint
+		spec.headYaw = -roll * (1.5 + 2 * run)
+		spec.armZ, spec.legZ = 8, 6
+		return spec
+	end
+
+	-- 5 · the leap (up: 1 rising .. -1 falling).
+	local function airSpec(up: number): Spec
+		local k = (1 - up) / 2
+		local lean = 96 + 6 * k
+		return {
+			lean = lean, hip = GROUND - math.cos(math.rad(lean)), head = 4 - 6 * k, armZ = 10, legZ = 6,
+			RA_rel = 1, LA_rel = 1, RL_rel = 1, LL_rel = 1,
+			RA_f = 3.0 - 1.5 * k, RA_y = -1.0 - 2.6 * k, LA_f = 2.5 - 1.2 * k, LA_y = -1.6 - 2.1 * k,
+			RL_f = -2.5 + 2.0 * k, RL_y = -1.5 - 1.3 * k, LL_f = -2.1 + 1.4 * k, LL_y = -2.0 - 0.9 * k,
+		}
+	end
+
+	-- 6 · the landing: the legs fold right down to take it.
+	local function landSpec(): Spec
+		return {
+			lean = 100, hip = 2.85, head = -4, armZ = 22, legZ = 14,
+			RA_f = 1.6, RA_y = 0, LA_f = 1.45, LA_y = 0, RL_f = -0.45, RL_y = 0, LL_f = -0.65, LL_y = 0,
+		}
+	end
+
+	-- 9 · getting up: flat on the floor, splayed, then up on the claws.
+	local function flatSpec(): Spec
+		return {
+			lean = 100, hip = 1.5, roll = 6, head = 12, armZ = 34, legZ = 16,
+			RA_f = 2.2, RA_y = 0, LA_f = 2.0, LA_y = 0, RL_f = -1.3, RL_y = 0, LL_f = -1.1, LL_y = 0,
+		}
+	end
+
+	-- The calm idle's flourishes (k: seconds in).
+	local FLOURISH_TIME = { beat = 1.7, shake = 0.8, sniff = 1.2 }
+	local function flourishSpec(kind: string, k: number, t: number, ph: number): Spec
+		if kind == "beat" then
+			-- Reared up, chest out, fists hammering it in turn, head thrown back.
+			local b = math.sin(k * 17)
+			return {
+				lean = 8, hip = 3.6, head = -22 - math.max(0, math.sin(k * 3)) * 10, armZ = -34, legZ = 12,
+				RA_fix = 1, RA_ang = 72 + math.max(0, b) * 30, RA_bend = 70,
+				LA_fix = 1, LA_ang = 72 + math.max(0, -b) * 30, LA_bend = 70,
+				RL_f = 0.15, RL_y = 0, LL_f = -0.05, LL_y = 0,
+			}
+		elseif kind == "shake" then
+			-- A violent shake of the head, a snarl.
+			local w = math.sin(k * 38) * (1 - k / FLOURISH_TIME.shake)
+			local spec = idleSpec(t, ph)
+			spec.headYaw, spec.roll, spec.lean, spec.head = w * 32, w * 6, 40, 0
+			return spec
+		end
+		-- Head down at the floor, sniffing, swinging side to side.
+		local spec = coilSpec(t, ph, nil)
+		spec.head = -38 + math.sin(k * 30) * 4
+		spec.headYaw = math.sin(k * 3.5) * 30
+		return spec
+	end
+
+	-- ── Prints, threats ──────────────────────────────────────────────────
+	-- A claw print pressed into the floor: three short dark gouges, the red
+	-- glow of the beast's energy dying in them.
+	local function clawPrint(at: Vector3, dir: Vector3, s: number, hind: boolean)
+		if not FxBudget.Allow("berserkerPrint", 12, 4) then return end
+		local y = FireFX.GroundY(at + Vector3.new(0, 2, 0))
+		if math.abs(y - at.Y) > 3 then return end -- (not on a floor)
+		local side = Vector3.new(-dir.Z, 0, dir.X)
+		local size = if hind then 0.8 else 1
+		for k = -1, 1 do
+			local c = Vector3.new(at.X, y + 0.03, at.Z) + side * k * 0.3 * s * size + dir * (0.15 - math.abs(k) * 0.12) * s
+			local cf = CFrame.lookAt(c, c + dir)
+			local gouge = Instance.new("Part")
+			gouge.Anchored, gouge.CanCollide, gouge.CanQuery, gouge.CanTouch, gouge.CastShadow = true, false, false, false, false
+			gouge.Material = Enum.Material.Slate
+			gouge.Color = Color3.fromRGB(14, 9, 10)
+			gouge.Size = Vector3.new(0.2 * s * size, 0.05, 0.9 * s * size)
+			gouge.CFrame = cf
+			gouge.Parent = ClassFX.Folder()
+			local glow = ClassFX.Neon({ Size = Vector3.new(0.07 * s, 0.06, 0.55 * s * size), CFrame = cf + Vector3.new(0, 0.01, 0), Color = CRIMSON, Transparency = 0.15 })
+			TweenService:Create(glow, TweenInfo.new(PRINT_LIFE * 0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Transparency = 1, Color = BLOOD }):Play()
+			TweenService:Create(gouge, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0, false, PRINT_LIFE - 0.8), { Transparency = 1 }):Play()
+			Debris:AddItem(glow, PRINT_LIFE * 0.5 + 0.05)
+			Debris:AddItem(gouge, PRINT_LIFE + 0.05)
 		end
 	end
-	return out
-end
 
--- (in R6 the root and the waist are the same joint: the body's drop rides
--- on W, so the two never fight)
-local function groundPose(g: Gait, v: number, t: number, dt: number, s: number, phase0: number): Pose
-	local speed = math.clamp(v / 22, 0, 1)
-	local run = math.clamp((speed - 0.45) / 0.4, 0, 1)
-	local moving = math.clamp(speed / 0.12, 0, 1)
-	local idle = 1 - moving
-	-- the stride turns over with the ground covered (no sliding feet)
-	g.phase += dt * math.pi * 2 * v / ((4.5 + 3 * run) * s)
-	local p = g.phase
-	local sw = math.sin(p)
-	local bob = math.abs(math.cos(p))
-	local lean = BEAST_LEAN + (BEAST_LEAN_RUN - BEAST_LEAN) * run
-	local breath = math.sin(t * 2.6 + phase0)
-	lean += breath * 3 * idle
-	local drop, arm, leg = stance(lean, s)
-	local walk = 26 * (1 - run) * moving
-	local gal = 40 * run
-	local flex = sw * 10 * run
-	local hunt = math.sin(t * 0.7 + phase0 * 2) * 26 * idle
-	local sway = math.sin(t * 0.8 + phase0) * 0.12 * s * idle
-	return {
-		W = { -lean - flex, sw * 7 * (1 - run) * moving, sw * 4 * (1 - run) * moving + breath * 1.5 * idle,
-			sway, -drop + bob * 0.3 * s * moving, 0 },
-		N = { lean * 0.85 - sw * 6 * run - breath * 4 * idle + flex * 0.5, hunt, 0 },
-		RS = { arm + sw * walk + math.sin(p) * gal, 0, 10 + breath * 3 * idle },
-		LS = { arm - sw * walk + math.sin(p - 0.5) * gal, 0, -10 - breath * 3 * idle },
-		RH = { leg - sw * walk - math.sin(p) * gal * 0.85, 0, 8 },
-		LH = { leg + sw * walk - math.sin(p - 0.5) * gal * 0.85, 0, -8 },
-	}
-end
-
--- The pounce: claws thrown forward and up, legs tucked under.
-local AIR_POSE: Pose = {
-	W = { -30, 0, 0, 0, 0, 0 }, N = { 25, 0, 0 }, RS = { 150, 0, 40 }, LS = { 150, 0, -40 },
-	RH = { 70, 0, 10 }, LH = { 70, 0, -10 },
-}
-
--- The flourishes when he's left standing (k: seconds in).
-local FLOURISH_TIME = { beat = 1.7, shake = 0.8, sniff = 1.2 }
-local function flourishPose(kind: string, k: number, s: number): Pose
-	if kind == "beat" then
-		-- Up on his legs, chest out, fists hammering it in turn, head thrown back.
-		local b = math.sin(k * 17)
-		return {
-			W = { -6, 0, 0, 0, -0.2 * s, 0 }, N = { -22 + math.max(0, math.sin(k * 3)) * -10, 0, 0 },
-			RS = { 72 + math.max(0, b) * 30, 0, -34 }, LS = { 72 + math.max(0, -b) * 30, 0, 34 },
-			RH = { 4, 0, 16 }, LH = { 4, 0, -16 },
-		}
-	elseif kind == "shake" then
-		-- A violent shake of the head, a snarl.
-		local fade = 1 - k / FLOURISH_TIME.shake
-		local drop, arm, leg = stance(BEAST_LEAN, s)
-		return {
-			W = { -BEAST_LEAN, 0, math.sin(k * 38) * 6 * fade, 0, -drop, 0 }, N = { BEAST_LEAN * 0.85 - 10, math.sin(k * 38) * 32 * fade, math.sin(k * 38) * 12 * fade },
-			RS = { arm, 0, 14 }, LS = { arm, 0, -14 }, RH = { leg, 0, 8 }, LH = { leg, 0, -8 },
-		}
-	end
-	-- Head down to the floor, sniffing, swinging side to side.
-	local drop, arm, leg = stance(BEAST_LEAN + 12, s)
-	return {
-		W = { -(BEAST_LEAN + 12), 0, 0, 0, -drop, 0 }, N = { (BEAST_LEAN + 12) * 0.5 + math.sin(k * 30) * 4, math.sin(k * 3.5) * 30, 0 },
-		RS = { arm + 6, 0, 12 }, LS = { arm + 6, 0, -12 }, RH = { leg, 0, 8 }, LH = { leg, 0, -8 },
-	}
-end
-
-local function beastPose(char: Model, g: Gait, v: number, air: boolean, t: number, dt: number, s: number, phase0: number): Pose
-	local pose = groundPose(g, v, t, dt, s, phase0)
-	-- Left standing, now and then a flourish.
-	if v < 2 and not air then g.still += dt else g.still, g.flourish = 0, nil end
-	if not g.flourish and g.still > 2.5 and t >= g.nextFlourish then
-		local r = math.random()
-		g.flourish = if r < 0.4 then "beat" elseif r < 0.7 then "shake" else "sniff"
-		g.flourishAt = t
-		g.beat = -1
-		g.nextFlourish = t + 5 + math.random() * 4
-	end
-	if g.flourish then
-		local kind = g.flourish :: string
-		local k = t - g.flourishAt
-		local len = FLOURISH_TIME[kind]
-		if k >= len then
-			g.flourish = nil
-		else
-			local env = math.clamp(math.min(k / 0.2, (len - k) / 0.25), 0, 1)
-			env = env * env * (3 - 2 * env)
-			pose = mix(pose, flourishPose(kind, k, s), env)
-			-- (each blow on the chest thuds; the snarl breathes red)
-			local torso = char:FindFirstChild("Torso")
-			if kind == "beat" and torso and torso:IsA("BasePart") and k > 0.25 and k < len - 0.3 then
-				local n = math.floor(k * 17 / math.pi)
-				if n ~= g.beat then
-					g.beat = n
-					if FxBudget.Allow("berserkerBeat", 10) then ClassFX.Sound("rockHit", torso, 0.3, 1.25) end
-				end
-			elseif kind == "shake" and g.beat < 0 then
-				g.beat = 0
-				local maw = char:FindFirstChild("Maw")
-				local e = maw and maw:FindFirstChild("BeastBreath")
-				if e and e:IsA("ParticleEmitter") then e:Emit(10) end
+	local function nearestThreat(at: Vector3): Vector3?
+		local mobs = Workspace:FindFirstChild("Mobs")
+		if not mobs then return nil end
+		local best, bd = nil, AGGRO_RANGE
+		for _, m in ipairs(mobs:GetChildren()) do
+			local r = m:FindFirstChild("HumanoidRootPart")
+			if r and r:IsA("BasePart") then
+				local d = (r.Position - at).Magnitude
+				if d < bd then best, bd = r.Position, d end
 			end
 		end
+		return best
 	end
-	g.air += ((if air then 1 else 0) - g.air) * math.min(dt * 10, 1)
-	return mix(pose, AIR_POSE, g.air)
-end
 
-local function beastStep(dt: number)
-	local now = os.clock()
-	for _, p in ipairs(Players:GetPlayers()) do
-		local char = p.Character
-		if not char then continue end
-		local on = beastLeft(p) > 0 and char:GetAttribute("Tumbling") ~= true
-		local w = math.clamp((beastWeight[char] or 0) + (if on then dt else -dt) * 3, 0, 1)
-		beastWeight[char] = if w > 0 then w else nil
-		if w <= 0 then
-			gaits[char] = nil
-			beastAttack[char] = nil
-			continue
-		end
-		-- (an attack pose takes the body: the stance hands it over, and takes
-		-- it back after, in a blink rather than a snap)
-		local a = math.clamp((beastAttack[char] or 1) + (if CastPoses.isPlaying(char) then -dt else dt) * 8, 0, 1)
-		beastAttack[char] = a
-		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		if not (root and hum) then continue end
-		local g = gaits[char]
-		if not g then
-			g = { phase = 0, air = 0, still = 0, flourish = nil, flourishAt = 0, nextFlourish = now + 2, beat = -1 }
-			gaits[char] = g
-		end
+	-- ── Choosing the pose ────────────────────────────────────────────────
+	local function beastSpec(p: Player, char: Model, g: Gait, root: BasePart, hum: Humanoid, t: number, dt: number,
+		touched: { string }): (Spec, number)
+		local s = root.Size.Y / 2
+		local ph = (p.UserId % 7) * 0.9
 		local vel = root.AssemblyLinearVelocity
 		local air = hum.FloorMaterial == Enum.Material.Air and not hum.PlatformStand
-		local pose = beastPose(char, g, Vector3.new(vel.X, 0, vel.Z).Magnitude, air, now, dt, root.Size.Y / 2, (p.UserId % 7) * 0.9)
-		local k = w * a
-		if k <= 0 then continue end
-		local motors = beastMotors[char]
-		if not motors then
-			motors = CastPoses.resolveMotors(char)
-			beastMotors[char] = motors
+		-- (the body's speed jitters frame to frame: the gait reads a smoothed
+		-- one, so its cadence and the pose mix glide instead of flickering)
+		g.vs += (Vector3.new(vel.X, 0, vel.Z).Magnitude - g.vs) * math.min(dt * 4, 1)
+		local v = g.vs
+		local speed = math.clamp(v / 22, 0, 1)
+		g.mv += (math.clamp((speed - 0.05) / 0.15, 0, 1) - g.mv) * math.min(dt * 5, 1)
+		local moving = g.mv
+		local run = math.clamp((speed - 0.3) / 0.4, 0, 1)
+		local sprint = if p:GetAttribute("IsSprinting") == true then math.clamp((speed - 0.6) / 0.3, 0, 1) else 0
+
+		-- turning on the spot
+		local look = root.CFrame.LookVector
+		local yaw = math.atan2(-look.X, -look.Z)
+		local dyaw = if g.yaw then (yaw - (g.yaw :: number) + math.pi) % (math.pi * 2) - math.pi else 0
+		g.yaw = yaw
+		g.turn += ((if dt > 0 then math.clamp(dyaw / dt, -9, 9) else 0) - g.turn) * math.min(dt * 12, 1)
+		local turning = math.clamp((math.abs(g.turn) - 2) / 3, 0, 1) * (1 - moving)
+
+		-- the threat, looked for a few times a second
+		if t >= g.nextScan then
+			g.nextScan = t + 0.4
+			g.threat = nearestThreat(root.Position)
 		end
-		local combined: { [Motor6D]: CFrame } = {}
-		for key, val in pairs(pose) do
-			local m = motors[key]
-			if m and m.motor.Parent then
-				combined[m.motor] = (combined[m.motor] or CFrame.identity) * (m.basis:Inverse() * CastPoses.poseCF(val) * m.basis)
+		g.aggro += ((if g.threat then 1 else 0) - g.aggro) * math.min(dt * 4, 1)
+		local yawTo: number? = nil
+		if g.threat then
+			local l = root.CFrame:PointToObjectSpace(g.threat :: Vector3)
+			yawTo = math.atan2(-l.X, -l.Z)
+		end
+
+		-- standing: calm or coiled, and the calm one's flourishes
+		-- (he stops on all fours, coiled; only after a moment's rest, with no
+		-- enemy near, does he rise onto his hind legs, and slowly)
+		if moving < 0.1 and not air then g.rest += dt else g.rest = 0 end
+		g.up += ((if g.rest > 1.2 and g.aggro < 0.5 then 1 else 0) - g.up) * math.min(dt * 1.6, 1)
+		local standing = blend(coilSpec(t, ph, yawTo), idleSpec(t, ph), g.up)
+		if g.up > 0.9 and not air then g.still += dt else g.still, g.flourish = 0, nil end
+		if not g.flourish and g.still > 2.5 and t >= g.nextFlourish then
+			local r = math.random()
+			g.flourish = if r < 0.4 then "beat" elseif r < 0.7 then "shake" else "sniff"
+			g.flourishAt = t
+			g.beat = -1
+			g.nextFlourish = t + 5 + math.random() * 4
+		end
+		if g.flourish then
+			local kind = g.flourish :: string
+			local k = t - g.flourishAt
+			local len = FLOURISH_TIME[kind]
+			if k >= len then
+				g.flourish = nil
+			else
+				local env = math.clamp(math.min(k / 0.2, (len - k) / 0.25), 0, 1)
+				standing = blend(standing, flourishSpec(kind, k, t, ph), env * env * (3 - 2 * env))
+				local torso = char:FindFirstChild("Torso")
+				if kind == "beat" and torso and torso:IsA("BasePart") and k > 0.25 and k < len - 0.3 then
+					local n = math.floor(k * 17 / math.pi)
+					if n ~= g.beat then
+						g.beat = n
+						if FxBudget.Allow("berserkerBeat", 10) then ClassFX.Sound("rockHit", torso, 0.3, 1.25) end
+					end
+				elseif kind == "shake" and g.beat < 0 then
+					g.beat = 0
+					local maw = char:FindFirstChild("Maw")
+					local e = maw and maw:FindFirstChild("BeastBreath")
+					if e and e:IsA("ParticleEmitter") then e:Emit(10) end
+				end
 			end
 		end
-		for motor, cf in pairs(combined) do motor.Transform = motor.Transform:Lerp(cf, k) end
+
+		-- moving (or turning on the spot: the paws step round)
+		local stepTouched: { string } = {}
+		local moveSpec = runSpec(g, v, dt, s, run, sprint, math.abs(dyaw) * 0.5 * (1 - moving), stepTouched)
+		local spec = blend(standing, moveSpec, math.max(moving, turning * 0.85))
+		if turning > 0.01 then
+			local lead = math.clamp(g.turn * 5, -24, 24) * turning
+			spec.yaw = (spec.yaw or 0) + lead
+			spec.headYaw = (spec.headYaw or 0) + lead * 1.4
+		end
+		if (moving > 0.5 or turning > 0.5) and not air then
+			for _, key in ipairs(stepTouched) do table.insert(touched, key) end
+		end
+
+		-- in the air: the leap
+		if air then g.minVy = math.min(g.minVy, vel.Y) end
+		g.air += ((if air then 1 else 0) - g.air) * math.min(dt * 12, 1)
+		if g.air > 0.01 then spec = blend(spec, airSpec(math.clamp(vel.Y / 25, -1, 1)), g.air) end
+		-- touching down
+		if g.wasAir and not air then
+			g.landAt = t
+			g.landHard = math.clamp(-g.minVy / 45, 0.35, 1)
+			g.minVy = 0
+		end
+		g.wasAir = air
+		local sinceLand = t - g.landAt
+		if sinceLand < 0.5 then
+			local e = (if sinceLand < 0.06 then sinceLand / 0.06 else 1 - (sinceLand - 0.06) / 0.44) * g.landHard
+			spec = blend(spec, landSpec(), math.clamp(e, 0, 1))
+		end
+		-- back up after a knock-down
+		local sinceDown = t - g.getUpAt
+		if sinceDown < 0.9 then
+			local k = sinceDown / 0.9
+			local e = math.clamp((k - 0.3) / 0.7, 0, 1)
+			local up = blend(flatSpec(), coilSpec(t, ph, nil), e * e * (3 - 2 * e))
+			spec = blend(up, spec, math.clamp((sinceDown - 0.7) / 0.2, 0, 1))
+		end
+		return spec, s
 	end
-	for char in pairs(beastMotors) do
-		if not char.Parent or not beastWeight[char] then beastMotors[char] = nil end
+
+	-- His attacks: the arms are the attack's; the hind feet stay planted.
+	local ATTACK_LEGS: Spec = { RL_f = -0.2, RL_y = 0, LL_f = -0.6, LL_y = 0 }
+
+	-- The knee and elbow joints on this body (rebuilt when the beast is).
+	local function jointsOf(char: Model, g: Gait): { [string]: Motor6D }
+		local j = g.joints
+		if j and g.jointsOf == char then
+			local any = j.RL or j.RA
+			if any and any.Parent then return j end
+		end
+		local out: { [string]: Motor6D } = {}
+		for key, bone in pairs({ RA = "BeastForeR", LA = "BeastForeL", RL = "BeastShinR", LL = "BeastShinL" }) do
+			local b = char:FindFirstChild(bone)
+			local m = b and b:FindFirstChildOfClass("Motor6D")
+			if m then out[key] = m end
+		end
+		g.joints, g.jointsOf = out, char
+		return out
 	end
-	for char in pairs(gaits) do
-		if not char.Parent then gaits[char] = nil end
+
+	local function setMotor(m: any, val: { number }, k: number)
+		if not (m and m.motor.Parent) or k <= 0 then return end
+		local cf = m.basis:Inverse() * CastPoses.poseCF(val) * m.basis
+		m.motor.Transform = if k >= 1 then cf else m.motor.Transform:Lerp(cf, k)
 	end
-	for char in pairs(beastAttack) do
-		if not char.Parent then beastAttack[char] = nil end
+
+	beastStep = function(dt: number)
+		local now = os.clock()
+		for _, p in ipairs(Players:GetPlayers()) do
+			local char = p.Character
+			if not char then continue end
+			local beast = beastLeft(p) > 0
+			local down = char:GetAttribute("Tumbling") == true
+			local g = gaits[char]
+			if g and g.wasDown and not down and beast then
+				g.getUpAt = now
+				beastWeight[char] = 1
+			end
+			if g then g.wasDown = down end
+			local on = beast and not down
+			local w = math.clamp((beastWeight[char] or 0) + (if on then dt else -dt) * 3, 0, 1)
+			beastWeight[char] = if w > 0 then w else nil
+			-- (the beast's long legs outlast the form by a moment, through the
+			-- revert: they keep their feet on the floor until they're gone)
+			local dressed = char:FindFirstChild("BeastShinR") ~= nil or char:FindFirstChild("BeastShinL") ~= nil
+			if w <= 0 and not (dressed and not down) then
+				if not beast and not dressed then
+					gaits[char] = nil
+					beastAttack[char] = nil
+				end
+				continue
+			end
+			local a = math.clamp((beastAttack[char] or 1) + (if CastPoses.isPlaying(char) then -dt else dt) * 8, 0, 1)
+			beastAttack[char] = a
+			local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if not (root and hum) then continue end
+			if not g then
+				g = { phase = 0, air = 0, still = 0, flourish = nil, flourishAt = 0, nextFlourish = now + 2, beat = -1, aggro = 0,
+					nextScan = 0, threat = nil, landAt = -10, landHard = 0, wasAir = false, minVy = 0, yaw = nil, turn = 0,
+					getUpAt = -10, wasDown = down, q = {}, joints = nil, jointsOf = nil, vs = 0, mv = 0, up = 0, rest = 0 }
+				gaits[char] = g
+			end
+			local gait = g :: Gait
+			local touched: { string } = {}
+			local spec, s = beastSpec(p, char, gait, root, hum, now, dt, touched)
+			local motors = beastMotors[char]
+			if not motors then
+				motors = CastPoses.resolveMotors(char)
+				beastMotors[char] = motors
+			end
+			local body = w * a
+			-- The body: leaned, and raised or lowered so the hip joints sit at
+			-- spec.hip over the floor.
+			local lean = spec.lean or 100
+			local raise = ((spec.hip or 2.95) - GROUND + math.cos(math.rad(lean))) * s
+			setMotor(motors.W, { -lean, spec.yaw or 0, spec.roll or 0, 0, raise, 0 }, body)
+			setMotor(motors.N, { lean - 10 + (spec.head or 0), spec.headYaw or 0, 0 }, body)
+			-- Where the torso really is now (ours, or an attack's, or between).
+			local rj = motors.W and motors.W.motor :: Motor6D?
+			if not rj then continue end
+			local torso = rj.C0 * rj.Transform * rj.C1:Inverse()
+			local up = torso.UpVector
+			local tilt = math.atan2(-up.Z, up.Y) -- (the torso's forward lean, root space)
+			local joints = jointsOf(char, gait)
+			local flat = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+			flat = if flat.Magnitude > 0.01 then flat.Unit else Vector3.zAxis
+			for _, key in ipairs(LIMBS) do
+				local hind = key == "RL" or key == "LL"
+				local m = motors[MOTOR_OF[key]]
+				if not (m and m.motor.Parent) then continue end
+				local legW = if dressed and not down then 1 else w
+				local k = if hind then legW else body
+				local planted = if w < 1 then math.min(a, w) else a
+				local sp = if hind and planted < 1 then blend(ATTACK_LEGS, spec, planted) else spec
+				local pivot = torso * m.motor.C0.Position
+				local rel = sp[key .. "_rel"] or 0
+				local tf, ty = (sp[key .. "_f"] or 0) * s, (sp[key .. "_y"] or 0) * s
+				-- the paw's place, root space (forward is -Z; the floor is -GROUND·s)
+				local floorY = -GROUND * s
+				local targetY = (1 - rel) * (floorY + ty) + rel * (pivot.Y + ty)
+				local df = tf
+				local dy = targetY - pivot.Y
+				local ang, bend
+				if hind then
+					local alpha, b = solve(df, dy, THIGH * s, SHIN * s, 1)
+					ang, bend = alpha, b
+				else
+					local alpha, b = solve(df, dy, UPPER * s, FORE * s, -1)
+					ang, bend = alpha, b - FORE_OFF
+				end
+				local fix = sp[key .. "_fix"] or 0
+				local angDeg = math.deg(ang + tilt)
+				local bendDeg = math.deg(bend)
+				if fix > 0 then
+					angDeg += ((sp[key .. "_ang"] or 0) - angDeg) * fix
+					bendDeg += ((sp[key .. "_bend"] or 0) - bendDeg) * fix
+				end
+				local z = SIDE[key] * (if hind then (sp.legZ or 0) else (sp.armZ or 0))
+				local ry = if hind then (sp.legYaw or 0) else 0
+				setMotor(m, { angDeg, ry, z }, k)
+				local j = joints[key]
+				if j and j.Parent then
+					-- (an attack's arms: the elbows let straight)
+					-- (the knee/elbow motors aren't animated by anything else: set outright)
+					j.Transform = CFrame.Angles(math.rad(if hind then bendDeg else bendDeg * a * w), 0, 0)
+				end
+				-- a paw just down: its print in the floor
+				if table.find(touched, key) then
+					local world = root.CFrame * (pivot + Vector3.new(0, 0, -tf))
+					clawPrint(Vector3.new(world.X, root.Position.Y - GROUND * s, world.Z), flat, s, hind)
+					if hind and (spec.lean or 0) > 99 and FxBudget.Allow("berserkerStride", 8) then
+						smoke(Vector3.new(world.X, root.Position.Y - GROUND * s + 0.4, world.Z), 2, 1.4)
+					end
+				end
+			end
+		end
+		for char in pairs(beastMotors) do
+			if not char.Parent or not beastWeight[char] then beastMotors[char] = nil end
+		end
+		for char in pairs(gaits) do
+			if not char.Parent then gaits[char] = nil end
+		end
+		for char in pairs(beastAttack) do
+			if not char.Parent then beastAttack[char] = nil end
+		end
 	end
 end
 
@@ -1660,11 +2020,8 @@ local function unchainedStep(now: number)
 			if Vector3.new(v.X, 0, v.Z).Magnitude > 4 then
 				L.nextStep = now + 0.3
 				L.stepSide = -L.stepSide
-				local side = root.CFrame.RightVector * 0.5 * L.stepSide
-				local g = Vector3.new(root.Position.X, FireFX.GroundY(root.Position), root.Position.Z) + side
-				-- (the beast's tread: dust off every step, and you feel your own)
-				smoke(g + Vector3.new(0, 0.4, 0), 2, 1.6)
-				fling(g + Vector3.new(0, 0.2, 0), 1, 6, 5, true)
+				-- (the beast's tread: you feel your own steps; the prints and dust
+				-- come with the stride, in beastStep)
 				if L.char == player.Character then deps.shake(0.12, 0.08) end
 			end
 		end
@@ -2185,7 +2542,7 @@ local function beastSlamLeap(char: Model, root: BasePart, dir: Vector3, cursor: 
 		-- The crash is drawn the instant he touches down (the server's own
 		-- word of it arrives a moment later, and is skipped for us).
 		local size = tonumber(player:GetAttribute("Stat_size")) or 1
-		pcall(slamCrash, Vector3.new(land.X, FireFX.GroundY(land), land.Z), SLAM_UNDER * size * 1.35, player)
+		pcall(slamCrash, Vector3.new(land.X, FireFX.GroundY(land), land.Z), SLAM_UNDER * size * 1.25, player)
 	end)
 	slamLanding = land
 	return land
@@ -2602,7 +2959,7 @@ function BeastMoments.onAwaken(msg: any)
 	local T = msg.t
 	if not mine then awakenPose(char) end
 	local g = ground(root.Position)
-	ClassFX.Sound("charge", root, 1, 0.45)
+	ClassFX.Sound("rockHit", root, 0.6, 0.45)
 	sparks(root.Position + Vector3.new(0, 1, 0), 18, 6)
 	-- the pool under him
 	local pool = ClassFX.Neon({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.06, 1, 1),
@@ -2737,7 +3094,6 @@ function BeastMoments.onRoar(msg: any)
 		bolt(pos + Vector3.new(0, 1.5, 0), g + Vector3.new(math.cos(a) * r * 0.6, 0.3, math.sin(a) * r * 0.6), 0.22, 0.22)
 	end
 	ClassFX.Sound("boom", pos, 1, 0.5)
-	ClassFX.Sound("charge", pos, 0.8, 0.35)
 	if near(pos, 80) then
 		screenFlash(0.35)
 		tint("BerserkerRoar", { Brightness = -0.2, Saturation = -0.3, Contrast = 0.4, TintColor = Color3.fromRGB(255, 140, 140) }, 0.3, 0.05, 0.7)
@@ -2775,7 +3131,6 @@ function BeastMoments.onRevert(msg: any)
 		local hand = if arm then arm.Position - arm.CFrame.UpVector * 1.2 else root.Position
 		SwordFX.Streak(hand, hand + root.CFrame.LookVector * 6 + Vector3.new(0, 2, 0), 0.5, HOT, 0.4, nil, CRIMSON)
 		groundFlash(Vector3.new(root.Position.X, FireFX.GroundY(root.Position), root.Position.Z), 4)
-		ClassFX.Sound("charge", root, 0.6, 1.1)
 		if msg.attacker == player then deps.shake(0.4, 0.15) end
 	end)
 	task.defer(function()
@@ -2798,7 +3153,6 @@ function BeastMoments.onBeastSlam(msg: any)
 	local g0 = Vector3.new(origin.X, FireFX.GroundY(origin), origin.Z)
 	groundFlash(g0, 6)
 	sparks(origin, 14, 6)
-	ClassFX.Sound("charge", root, 0.6, 0.8)
 	task.delay(T.crouch, function()
 		if not root.Parent then return end
 		dustRing(g0, 40, 30, 2.4)
@@ -2938,7 +3292,6 @@ function BeastMoments.onBeastCharge(msg: any)
 	if msg.attacker ~= player then allFoursPose(char, T.crouch + T.run) end
 	local from = msg.from :: Vector3
 	local g0 = Vector3.new(from.X, FireFX.GroundY(from), from.Z)
-	ClassFX.Sound("charge", root, 0.7, 0.9)
 	task.delay(T.crouch, function()
 		if not root.Parent then return end
 		dustRing(g0, 30, 20, 2.2)

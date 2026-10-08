@@ -23,10 +23,10 @@
 	              Shadow Step's departure, coming out of invisibility)
 	  sigil       the Shadow Mark: an assassin's sigil (a blade between two
 	              hooked prongs) floating over the enemy, trailing black smoke
-	  longSlash   the Shadow Realm's cuts: long straight lines of white with a
-	              black line beside them, criss-crossing the air
+	  longSlash   the Shadow Execution's cuts: long straight lines of white
+	              with a black line beside them, hanging in the air
 	All of them run off one RenderStepped loop (`animate`); the per-hit ones
-	(realm slashes, marks) go through FxBudget.
+	(the execution's slashes, marks) go through FxBudget.
 --]]
 
 local Players = game:GetService("Players")
@@ -50,6 +50,7 @@ local RogueController = {}
 -- ── Tuning (matches RogueServer) ────────────────────────────────────────────
 local SWING_INTERVAL = 0.26
 local COMBO_RESET = 0.9
+local EXEC_TIME = 1.8 -- the Shadow Execution, start to end (RogueServer's EXEC.finish)
 local ENERGY_MAX = 100
 
 local INK = Color3.fromRGB(6, 6, 8)
@@ -202,22 +203,6 @@ local function vanishPose(char: Model)
 	CastPoses.play(char, {
 		{ dur = 0.1, pose = held },
 		{ dur = 0.2, pose = held },
-	})
-end
-
--- Shadow Realm: rising, arms spread low and wide, head back, adrift.
-local function realmPose(char: Model, dur: number)
-	local spread = { RS = { -10, 0, 70 }, LS = { -10, 0, -70 }, W = { 14, 0, 0 }, N = { 24, 0, 0 }, RH = { 10, 0, 6 }, LH = { -8, 0, -6 } }
-	CastPoses.play(char, {
-		{ dur = 0.2, pose = { RS = { 50, 0, -30 }, LS = { 50, 0, 30 }, W = { -20, 0, 0 }, N = { -20, 0, 0 } } },
-		{ dur = 0.3, style = Enum.EasingStyle.Back, pose = spread },
-		{ dur = math.max(dur - 0.75, 0.2), pose = spread, style = Enum.EasingStyle.Sine, wobble = function(t)
-			local b = math.sin(t * 2.6) * 5
-			return { RS = { 0, 0, b }, LS = { 0, 0, -b }, W = { b * 0.5, 0, 0 } }
-		end },
-		-- the release: arms flung out and forward
-		{ dur = 0.08, style = Enum.EasingStyle.Quart, pose = { RS = { 80, 0, 80 }, LS = { 80, 0, -80 }, W = { -25, 0, 0 }, N = { -10, 0, 0 } } },
-		{ dur = 0.2, pose = { RS = { 60, 0, 60 }, LS = { 60, 0, -60 }, W = { -15, 0, 0 } } },
 	})
 end
 
@@ -984,10 +969,34 @@ end
 
 -- ── Invisibility ────────────────────────────────────────────────────────────
 local hidden: { [Model]: { conn: RBXScriptConnection, amount: number } } = {}
+-- (fully gone: what transparency can't reach, his outline and any glow,
+-- sparks, trails, lights and his name tag, is switched off till he's back)
+local switchedOff: { [Model]: { Instance } } = {}
 
 local function fadeOne(d: Instance, amount: number)
 	if d:IsA("BasePart") or d:IsA("Decal") then
 		(d :: any).LocalTransparencyModifier = amount
+	end
+end
+
+local function canSwitch(d: Instance): boolean
+	return d:IsA("Highlight") or d:IsA("ParticleEmitter") or d:IsA("Trail") or d:IsA("Beam") or d:IsA("Light")
+		or d:IsA("BillboardGui") or d:IsA("SelectionBox")
+end
+
+local function switchOff(char: Model, d: Instance)
+	if canSwitch(d) and (d :: any).Enabled then
+		(d :: any).Enabled = false
+		local list = switchedOff[char]
+		if list then table.insert(list, d) end
+	end
+end
+
+local function switchBackOn(char: Model)
+	local list = switchedOff[char]
+	switchedOff[char] = nil
+	for _, d in ipairs(list or {}) do
+		if d.Parent then (d :: any).Enabled = true end
 	end
 end
 
@@ -999,8 +1008,18 @@ local function setHidden(char: Model, on: boolean, amount: number, t: number?)
 		hidden[char] = nil
 	end
 	local goal = if on then amount else 0
+	local gone = on and amount >= 0.99
+	if gone and not switchedOff[char] then
+		switchedOff[char] = {}
+		for _, d in ipairs(char:GetDescendants()) do switchOff(char, d) end
+	elseif not gone and switchedOff[char] then
+		switchBackOn(char)
+	end
 	if on then
-		hidden[char] = { amount = amount, conn = char.DescendantAdded:Connect(function(d) fadeOne(d, amount) end) }
+		hidden[char] = { amount = amount, conn = char.DescendantAdded:Connect(function(d)
+			fadeOne(d, amount)
+			if gone then switchOff(char, d) end
+		end) }
 	end
 	local dur = t or 0
 	if dur <= 0 then
@@ -1043,11 +1062,10 @@ local function onHidden(msg: any)
 	if owner == player and on and deps then deps.fovPunch(4, 0.3) end
 end
 
--- ── Shadow Realm ────────────────────────────────────────────────────────────
--- Long straight cuts criss-cross the air
--- around the hovering Rogue: each one a white blade of light with a black
--- line running beside it, ripped across in an instant, then thinning out.
--- A few four-point glints flash where they cross. Nothing on the floor.
+-- ── Long cuts and glints (the Shadow Execution's) ───────────────────────────
+-- A long straight cut hanging in the air: a white blade of light with a
+-- black line running beside it, ripped across in an instant, then thinning
+-- out. A glint: a four-point flash of light.
 
 -- One cut through `through` along `dir` (any angle, `len` long).
 local function longSlash(through: Vector3, dir: Vector3, len: number, thick: number, life: number)
@@ -1096,80 +1114,493 @@ local function glint(at: Vector3, size: number)
 	end)
 end
 
--- A random cut passing near `center` (mostly flat-ish, some steep).
-local function randomCut(center: Vector3, spread: number, len: number, thick: number, life: number)
-	local yaw = math.random() * math.pi * 2
-	local pitch = (math.random() - 0.5) * (if math.random() < 0.3 then 2.2 else 0.9)
-	local dir = Vector3.new(math.cos(yaw) * math.cos(pitch), math.sin(pitch), math.sin(yaw) * math.cos(pitch))
-	local off = Vector3.new((math.random() - 0.5) * 2, (math.random() - 0.2) * 0.7, (math.random() - 0.5) * 2) * spread
-	longSlash(center + off, dir, len * (0.7 + math.random() * 0.6), thick * (0.6 + math.random() * 0.8), life)
-end
+-- ── R: Shadow Execution ─────────────────────────────────────────────────────
+-- After the sheet ("you don't see me, you just see the consequences"),
+-- black, white and grey only, the world drained of colour while it lasts:
+--   0.0  a smoke bomb tossed down at his feet
+--   0.2  the smoke rolls out over the whole area; he's gone
+--   0.4  his afterimages appear round the enemies (sketched in white lines
+--        over smoke-black bodies), crouched, blades out
+--   0.55–0.9  five slashes: one after another an afterimage dashes in from a
+--        new side (the third from above) and cuts straight through, long
+--        white cuts left hanging in the air
+--   0.95 the afterimages vanish into the smoke
+--   1.1  the smoke collapses inward; he's there, behind the target
+--   1.3  every cut left a shadow mark: four-point stars of light round each
+--        enemy, glowing, ready
+--   1.5  one quick last slash: the stars dive in and every mark detonates at
+--        once, rays of white light bursting out, the target thrown up
+--   1.8  over
+-- (One lot of state per Rogue casting it, on every client.)
+local Exec = {}
+do
+	-- The poses: the bomb tossed down underhand at his feet; crouched behind
+	-- the target, blade ready; the last slash (the combo's whip, harder).
+	local function bombPose(char: Model)
+		CastPoses.play(char, {
+			{ dur = 0.08, pose = { Root = { 0, 0, 0, 0, -0.3, 0 }, W = { 10, 20, 0 }, RS = { -40, 20, 0 }, N = { 15, 0, 0 } } },
+			{ dur = 0.08, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { -25, -10, 0 }, RS = { 45, 0, 10 },
+				LS = { -20, 0, -30 }, N = { 25, 0, 0 } } },
+			{ dur = 0.15, pose = { Root = { 0, 0, 0, 0, -0.7, 0 }, W = { -20, 0, 0 }, RS = { 30, 0, 10 }, LS = { -15, 0, -30 },
+				RH = { 20, 0, 0 }, LH = { -25, 0, 0 } } },
+		})
+	end
+	Exec.bombPose = bombPose
+	local function reappearPose(char: Model)
+		local crouch = { Root = { 0, 0, 0, 0, -0.9, 0.2 }, W = { -15, 30, 0 }, RS = { 60, 90, 0 }, LS = { 40, -20, -40 },
+			RH = { 40, 0, 0 }, LH = { -30, 0, 0 }, N = { 10, -20, 0 } }
+		CastPoses.play(char, { { dur = 0.05, pose = crouch }, { dur = 0.3, pose = crouch } })
+	end
+	local function strikePose(char: Model)
+		swingPose(char, 1)
+		trailOn(char, 0.25)
+	end
 
-local function onRealm(msg: any)
-	local owner = msg.attacker :: Player
-	local pos = msg.pos :: Vector3
-	local dur = tonumber(msg.duration) or 4
-	local range = tonumber(msg.range) or 24
-	local centre = pos + Vector3.new(0, 2.5, 0)
-	-- The opening: a fan of cuts all at once.
-	for _ = 1, 8 do randomCut(centre, range * 0.25, range * 1.6, 0.35, 0.35) end
-	-- Then the storm, for as long as it lasts.
-	task.spawn(function()
-		local t0 = os.clock()
-		while os.clock() - t0 < dur - 0.1 do
-			if FxBudget.Allow("rogueRealmStorm", 22) then
-				randomCut(centre, range * 0.35, range * 1.5, 0.28, 0.3)
+	type Image = { parts: { BasePart }, boxes: { SelectionBox }, cf: CFrame, size: number }
+	type Cast = {
+		t0: number, pos: Vector3, range: number, t: any,
+		smoke: BasePart?, smokeFx: { ParticleEmitter }, tint: ColorCorrectionEffect?,
+		images: { [Model]: { Image } }, stars: { { rays: { BasePart }, model: Model, at: Vector3 } },
+	}
+	local casts: { [Player]: Cast } = {}
+
+	-- The afterimage poses: each R6 part's place (relative to the body's
+	-- frame, before scaling) and pitch. READY: crouched low, the blade held
+	-- out ahead; DASH: thrown flat into the lunge, blade arm driving through.
+	local POSES: { [string]: { [string]: { number } } } = {
+		ready = {
+			Torso = { 0, -0.5, 0, -25 }, Head = { 0, 0.95, -0.65, -10 },
+			["Right Arm"] = { 1.5, -0.35, -0.8, 70 }, ["Left Arm"] = { -1.5, -0.6, 0.2, -20 },
+			["Right Leg"] = { 0.5, -2.2, -0.6, 40 }, ["Left Leg"] = { -0.5, -2.3, 0.7, -30 },
+		},
+		dash = {
+			Torso = { 0, -0.7, 0, -48 }, Head = { 0, 0.55, -1.25, -30 },
+			["Right Arm"] = { 1.3, -0.25, -1.6, 95 }, ["Left Arm"] = { -1.3, -0.45, 0.95, -60 },
+			["Right Leg"] = { 0.5, -2.0, -1.2, 60 }, ["Left Leg"] = { -0.5, -1.9, 1.3, -55 },
+		},
+	}
+	local PART_SIZE: { [string]: Vector3 } = {
+		Torso = Vector3.new(2, 2, 1), Head = Vector3.new(1.2, 1.2, 1.2),
+		["Right Arm"] = Vector3.new(1, 2, 1), ["Left Arm"] = Vector3.new(1, 2, 1),
+		["Right Leg"] = Vector3.new(1, 2, 1), ["Left Leg"] = Vector3.new(1, 2, 1),
+	}
+
+	local function placeImage(img: Image, cf: CFrame, pose: string)
+		img.cf = cf
+		local p = POSES[pose]
+		for _, part in ipairs(img.parts) do
+			local v = p[part.Name]
+			if v then
+				part.CFrame = cf * CFrame.new(v[1] * img.size, v[2] * img.size, v[3] * img.size) * CFrame.Angles(math.rad(v[4]), 0, 0)
 			end
-			if math.random() < 0.18 then
-				glint(centre + Vector3.new((math.random() - 0.5) * range, math.random() * 8, (math.random() - 0.5) * range), 3 + math.random() * 2)
-			end
-			task.wait(0.06)
 		end
-	end)
-	local char = charOf(owner)
-	if char then
-		-- The Rogue becomes a shade in the middle of it all.
-		setHidden(char, true, if owner == player then 0.45 else 0.6, 0.3)
-		if owner ~= player then realmPose(char, dur) end
-		task.delay(dur, function()
-			if char.Parent and not (hidden[char] and hidden[char].amount == 1) then setHidden(char, false, 0, 0.2) end
+	end
+
+	-- An afterimage: smoke-black limbs drawn round in thin white lines.
+	local function newImage(cf: CFrame, pose: string, size: number): Image
+		local img: Image = { parts = {}, boxes = {}, cf = cf, size = size }
+		for name, sz in pairs(PART_SIZE) do
+			local p = part({ Name = name, Size = sz * size, Color = INK, Material = Enum.Material.SmoothPlastic, Transparency = 1 })
+			local box = Instance.new("SelectionBox")
+			box.Adornee = p
+			box.Color3 = PAPER
+			box.LineThickness = 0.035 * size
+			box.SurfaceTransparency = 1
+			box.Transparency = 1
+			box.Parent = p
+			table.insert(img.parts, p)
+			table.insert(img.boxes, box)
+		end
+		placeImage(img, cf, pose)
+		return img
+	end
+
+	local function fadeImage(img: Image, from: number, to: number, dur: number, destroy: boolean?)
+		animate(dur, function(a)
+			local v = from + (to - from) * a
+			for _, p in ipairs(img.parts) do
+				if p.Parent then p.Transparency = 0.35 + 0.65 * v end
+			end
+			for _, b in ipairs(img.boxes) do
+				if b.Parent then b.Transparency = v end
+			end
+			if a >= 1 and destroy then
+				for _, p in ipairs(img.parts) do p:Destroy() end
+			end
 		end)
 	end
-	if owner == player and deps then deps.shake(0.4, 0.4) end
-end
 
--- A strike on one enemy: two long cuts crossing through it.
-local function onRealmSlash(msg: any)
-	if not FxBudget.Allow("rogueRealmSlash", 14) then return end
-	local at = (msg.pos :: Vector3) + Vector3.new(0, 1.2, 0)
-	local yaw = math.random() * math.pi * 2
-	for i = 0, 1 do
-		local y = yaw + (if i == 0 then 0 else math.rad(70 + math.random() * 40))
-		local pitch = (math.random() - 0.5) * 0.8
-		longSlash(at, Vector3.new(math.cos(y), pitch, math.sin(y)), 16 + math.random() * 8, 0.4, 0.3)
+	local function imageSize(owner: Player): number
+		local root = rootOf(charOf(owner))
+		return if root then root.Size.Y / 2 else 1
 	end
-	if FxBudget.Allow("rogueRealmShards", 8) then shards(at, 5, 18, 0.8) end
-end
 
--- The release: a burst of long cuts through the whole area at once, splinters,
--- a white flash.
-local function onRealmBurst(msg: any)
-	local pos = msg.pos :: Vector3
-	local range = tonumber(msg.range) or 24
-	local centre = pos + Vector3.new(0, 1.5, 0)
-	for i = 1, 20 do
-		task.delay((i % 4) * 0.025, function()
-			randomCut(centre, range * 0.3, range * 2.2, 0.6, 0.5)
+	-- The world drained of colour (for anyone near).
+	local function drain(c: Cast, on: boolean)
+		if on then
+			local cc = Instance.new("ColorCorrectionEffect")
+			cc.Name = "RogueExecution"
+			cc.Parent = Lighting
+			TweenService:Create(cc, TweenInfo.new(0.2), { Saturation = -0.95, Contrast = 0.25, Brightness = -0.12 }):Play()
+			c.tint = cc
+		elseif c.tint then
+			local cc = c.tint
+			c.tint = nil
+			TweenService:Create(cc, TweenInfo.new(0.35), { Saturation = 0, Contrast = 0, Brightness = 0 }):Play()
+			Debris:AddItem(cc, 0.4)
+		end
+	end
+
+	-- The smoke: a whole room of it rolling out from his feet.
+	local function smokeOut(c: Cast)
+		local floor = c.pos - Vector3.new(0, 2.6, 0)
+		local box = part({ Size = Vector3.new(c.range * 1.7, 6, c.range * 1.7), Transparency = 1, CFrame = CFrame.new(floor + Vector3.new(0, 3, 0)) })
+		c.smoke = box
+		for _, spec in ipairs({
+			{ col = Color3.fromRGB(14, 14, 17), size = 14, rate = 90, life = 1.6, lo = 0.05 },
+			{ col = Color3.fromRGB(46, 46, 52), size = 9, rate = 50, life = 1.2, lo = 0.15 },
+		}) do
+			local e = Instance.new("ParticleEmitter")
+			e.Texture = "rbxasset://textures/particles/smoke_main.dds"
+			e.Shape = Enum.ParticleEmitterShape.Box
+			e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+			e.Color = ColorSequence.new(spec.col)
+			e.LightInfluence = 0.15
+			e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, spec.size * 0.6), NumberSequenceKeypoint.new(1, spec.size * 1.3) })
+			e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.15, spec.lo),
+				NumberSequenceKeypoint.new(0.75, spec.lo + 0.2), NumberSequenceKeypoint.new(1, 1) })
+			e.Lifetime = NumberRange.new(spec.life * 0.8, spec.life)
+			e.Speed = NumberRange.new(0.5, 2)
+			e.SpreadAngle = Vector2.new(180, 180)
+			e.Rotation = NumberRange.new(0, 360)
+			e.RotSpeed = NumberRange.new(-30, 30)
+			e.Rate = spec.rate
+			e.Parent = box
+			e:Emit(math.floor(spec.rate * 0.8))
+			table.insert(c.smokeFx, e)
+		end
+		-- (it rolls out from the bomb: a black wave along the floor)
+		ink(floor + Vector3.new(0, 0.6, 0), 2.2, 2)
+		floorRing(floor + Vector3.new(0, 0.1, 0), c.range * 0.9, 0.35, false)
+	end
+
+	-- The smoke collapsing inward (he's back).
+	local function smokeIn(c: Cast)
+		for _, e in ipairs(c.smokeFx) do e.Rate = 0 end
+		table.clear(c.smokeFx)
+		local box = c.smoke
+		if box then
+			c.smoke = nil
+			Debris:AddItem(box, 2)
+		end
+		local floor = c.pos - Vector3.new(0, 2.5, 0)
+		local ring = part({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.15, c.range * 2, c.range * 2), Color = INK,
+			Material = Enum.Material.SmoothPlastic, Transparency = 0.3, CFrame = CFrame.new(floor) * FLAT })
+		animate(0.2, function(a)
+			local d = c.range * 2 * (1 - easeOut(a)) + 0.2
+			ring.Size = Vector3.new(0.15, d, d)
+			ring.Transparency = 0.3 + a * 0.7
+			if a >= 1 then ring:Destroy() end
 		end)
 	end
-	for _ = 1, 4 do
-		glint(centre + Vector3.new((math.random() - 0.5) * range, math.random() * 6, (math.random() - 0.5) * range), 5)
+
+	local function dropCast(owner: Player)
+		local c = casts[owner]
+		if not c then return end
+		casts[owner] = nil
+		drain(c, false)
+		for _, e in ipairs(c.smokeFx) do e.Rate = 0 end
+		if c.smoke then Debris:AddItem(c.smoke, 2) end
+		for _, list in pairs(c.images) do
+			for _, img in ipairs(list) do fadeImage(img, 0, 1, 0.12, true) end
+		end
+		for _, st in ipairs(c.stars) do
+			for _, ray in ipairs(st.rays) do ray:Destroy() end
+		end
 	end
-	shards(centre, 26, 40, 1.4, 1)
-	if msg.attacker == player or near(pos, range + 6) then flash(0.35, 0.15) end
-	if msg.attacker == player and deps then
-		deps.shake(1.2, 0.4)
-		deps.fovPunch(10, 0.35)
+
+	-- 0.0 · the bomb: tossed down at his feet, a puff, then the smoke.
+	function Exec.start(msg: any)
+		local owner = msg.attacker :: Player
+		dropCast(owner)
+		local c: Cast = { t0 = os.clock(), pos = msg.pos, range = tonumber(msg.range) or 24, t = msg.t,
+			smoke = nil, smokeFx = {}, tint = nil, images = {}, stars = {} }
+		casts[owner] = c
+		local char = charOf(owner)
+		local root = rootOf(char)
+		if char and owner ~= player then bombPose(char) end
+		-- the bomb: a black ball with a white spark of a fuse, arcing down
+		local hand = (root and root.Position + root.CFrame.RightVector * 1.2 + Vector3.new(0, 0.4, 0)) or c.pos
+		local land = c.pos + (if root then root.CFrame.LookVector * 1.5 else Vector3.zero) - Vector3.new(0, 2.6, 0)
+		local bomb = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 0.7, Color = INK, Material = Enum.Material.SmoothPlastic, CFrame = CFrame.new(hand) })
+		local fuse = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 0.3, Color = PAPER, CFrame = CFrame.new(hand) })
+		local tSmoke = (c.t and c.t.smoke) or 0.2
+		animate(tSmoke, function(a)
+			local p = hand:Lerp(land, a) + Vector3.new(0, math.sin(a * math.pi) * 1.6, 0)
+			bomb.CFrame = CFrame.new(p)
+			fuse.CFrame = CFrame.new(p + Vector3.new(0, 0.4, 0))
+			fuse.Size = Vector3.one * (0.25 + math.random() * 0.15)
+			if a >= 1 then
+				bomb:Destroy()
+				fuse:Destroy()
+			end
+		end)
+		ClassFX.Sound("whoosh", c.pos, 0.5, 1.4)
+		task.delay(tSmoke, function()
+			if casts[owner] ~= c then return end
+			shards(land + Vector3.new(0, 0.5, 0), 10, 16, 0.7, 1.2)
+			smokeOut(c)
+			ClassFX.Sound("boom", c.pos, 0.5, 1.6)
+			if owner == player or near(c.pos, c.range + 30) then drain(c, true) end
+			if char then setHidden(char, true, 1, 0.15) end
+			if owner == player and deps then deps.fovPunch(6, 0.3) end
+		end)
+		-- (the afterimages fade into the smoke near the end)
+		task.delay((c.t and c.t.vanish) or 0.95, function()
+			if casts[owner] ~= c then return end
+			for _, list in pairs(c.images) do
+				for _, img in ipairs(list) do
+					fadeImage(img, 0, 1, 0.15, true)
+					ink(img.cf.Position, 0.5, 0.6)
+				end
+			end
+			table.clear(c.images)
+		end)
+	end
+
+	-- 0.4 · the afterimages, crouched round each enemy, blades out.
+	local ANGLES = { 0, 144, 288, 72, 216 } -- (each slash from a new side: a pentagram round the target)
+	function Exec.images(msg: any)
+		local owner = msg.attacker :: Player
+		local c = casts[owner]
+		if not c then return end
+		local size = imageSize(owner)
+		local spin = math.random() * 360
+		for _, tg in ipairs(msg.targets or {}) do
+			local m, pos = tg.model, tg.pos :: Vector3
+			if typeof(m) ~= "Instance" then continue end
+			local list = {}
+			for k = 1, 3 do
+				local a = math.rad(ANGLES[k] + spin)
+				local at = pos + Vector3.new(math.cos(a), 0, math.sin(a)) * 6.5 * size
+				local img = newImage(CFrame.lookAt(at, Vector3.new(pos.X, at.Y, pos.Z)), "ready", size)
+				fadeImage(img, 1, 0, 0.12)
+				table.insert(list, img)
+				ink(at - Vector3.new(0, 2, 0), 0.4, 0.4)
+			end
+			c.images[m :: Model] = list
+		end
+	end
+
+	-- 0.55–0.9 · a slash: for each enemy shown, an afterimage dashes in from
+	-- a new side (the third from above, the fourth sweeping round) and cuts
+	-- straight through.
+	function Exec.slash(msg: any)
+		local owner = msg.attacker :: Player
+		local c = casts[owner]
+		if not c then return end
+		local i = tonumber(msg.i) or 1
+		local size = imageSize(owner)
+		for _, tg in ipairs(msg.targets or {}) do
+			local m = tg.model
+			if typeof(m) ~= "Instance" then continue end
+			local mr = (m :: Model):FindFirstChild("HumanoidRootPart") :: BasePart?
+			local pos = if mr then mr.Position else tg.pos :: Vector3
+			local list = c.images[m :: Model] or {}
+			c.images[m :: Model] = list
+			local img = table.remove(list, 1)
+			local from: Vector3
+			if img then
+				from = img.cf.Position
+			else
+				local a = math.rad(ANGLES[((i - 1) % 5) + 1] + math.random() * 30)
+				from = pos + Vector3.new(math.cos(a), 0, math.sin(a)) * 6.5 * size
+				img = newImage(CFrame.lookAt(from, Vector3.new(pos.X, from.Y, pos.Z)), "dash", size)
+			end
+			if i == 3 then from = from + Vector3.new(0, 6 * size, 0) end -- (from above)
+			local through = pos + Vector3.new(0, 0.4, 0)
+			local dir = (through - from)
+			dir = if dir.Magnitude > 0.01 then dir.Unit else Vector3.new(0, 0, -1)
+			local to = through + dir * 7 * size
+			local im = img :: Image
+			for _, p in ipairs(im.parts) do p.Transparency = 0.35 end
+			for _, b in ipairs(im.boxes) do b.Transparency = 0 end
+			animate(0.08, function(a)
+				local p = from:Lerp(to, easeOut(a))
+				placeImage(im, CFrame.lookAt(p, p + dir), "dash")
+				if a >= 1 then fadeImage(im, 0, 1, 0.18, true) end
+			end)
+			-- the cut it leaves hanging in the air through the enemy
+			longSlash(through, dir + Vector3.new(0, (math.random() - 0.5) * 0.3, 0), 16 * size, 0.38, 0.35)
+			if i == 4 then
+				slashAt(through, dir, 4.5 * size, math.random(-20, 20), 300, 0.4, 0.3)
+			end
+			if FxBudget.Allow("rogueExecShards", 16) then shards(through, 6, 16, 0.7) end
+			if FxBudget.Allow("rogueExecLines", 10) then speedLines(from:Lerp(to, 0.5), dir, 4, 6, 1.2) end
+		end
+		ClassFX.Sound("whoosh", c.pos, 0.6, 1.3 + i * 0.05)
+		ClassFX.Sound("swordHit", c.pos, 0.55, 1.2 + i * 0.04)
+		if owner == player and deps then deps.shake(0.25 + i * 0.05, 0.08) end
+	end
+
+	-- 1.1 · the smoke collapses; he's there, behind the target.
+	function Exec.reappear(msg: any)
+		local owner = msg.attacker :: Player
+		local c = casts[owner]
+		if c then smokeIn(c) end
+		local char = charOf(owner)
+		local root = rootOf(char)
+		if not (char and root) then return end
+		if owner == player then
+			root.Anchored = false
+			blinkTo(root, msg.pos, msg.face)
+			root.Anchored = true
+		end
+		setHidden(char, false, 0, 0.12)
+		-- (appearing out of the smoke: a white sketch of him dissolving, ink)
+		task.defer(function()
+			if root.Parent then
+				ghost(char, root.CFrame, "paper", 0.25, Vector3.new(0, 1, 0))
+				ink(root.Position - Vector3.new(0, 2, 0), 0.7, 0.6)
+			end
+		end)
+		reappearPose(char)
+		ClassFX.Sound("whoosh", root, 0.7, 0.8)
+	end
+
+	-- 1.3 · the marks: as many stars of light round each enemy as cuts it
+	-- took, turning slowly, pulsing, ready.
+	function Exec.marks(msg: any)
+		local owner = msg.attacker :: Player
+		local c = casts[owner]
+		if not c then return end
+		for _, mk in ipairs(msg.marks or {}) do
+			local m = mk.model
+			if typeof(m) ~= "Instance" then continue end
+			local mr = (m :: Model):FindFirstChild("HumanoidRootPart") :: BasePart?
+			if not mr then continue end
+			local n = math.clamp(tonumber(mk.n) or 1, 1, 8)
+			for k = 1, n do
+				-- (two crossed bars of light, turned to face the camera)
+				local rays = { part({ Size = Vector3.new(0.12, 0.12, 1.6), Color = PAPER }), part({ Size = Vector3.new(0.12, 0.12, 1.6), Color = PAPER }) }
+				local star = { rays = rays, model = m :: Model, at = mr.Position }
+				table.insert(c.stars, star)
+				local phase = (k / n) * math.pi * 2
+				animate(0.6, function(a)
+					if not (rays[1].Parent and mr.Parent) then return end
+					local ang = phase + (os.clock() - c.t0) * 2.2
+					local r = 2.4 * (0.6 + 0.4 * easeOut(math.min(a * 3, 1)))
+					local at = mr.Position + Vector3.new(math.cos(ang) * r, 1 + math.sin(ang * 1.5) * 0.6, math.sin(ang) * r)
+					star.at = at
+					local pulse = 0.75 + 0.25 * math.sin(os.clock() * 24 + phase)
+					local cam = workspace.CurrentCamera
+					local face = if cam then CFrame.lookAt(at, cam.CFrame.Position) else CFrame.new(at)
+					rays[1].CFrame = face * CFrame.Angles(0, math.rad(90), 0)
+					rays[2].CFrame = face * CFrame.Angles(math.rad(90), 0, 0)
+					rays[1].Size = Vector3.new(0.12, 0.12, 1.6 * pulse)
+					rays[2].Size = Vector3.new(0.12, 0.12, 1.6 * pulse)
+				end)
+			end
+		end
+		ClassFX.Sound("whoosh", c.pos, 0.4, 2)
+	end
+
+	-- A white starburst: long thin rays of light bursting out of `at`.
+	local function starburst(at: Vector3, rays: number, len: number, thick: number)
+		for k = 1, rays do
+			local yaw = (k / rays) * math.pi * 2 + math.random() * 0.4
+			local pitch = (math.random() - 0.3) * 1.1
+			local d = Vector3.new(math.cos(yaw) * math.cos(pitch), math.sin(pitch), math.sin(yaw) * math.cos(pitch))
+			local r = part({ Size = Vector3.new(thick, thick, 0.1), Color = PAPER })
+			local l = len * (0.6 + math.random() * 0.6)
+			animate(0.3, function(a)
+				local g = easeOut(math.min(a * 2.5, 1)) * l
+				r.Size = Vector3.new(thick * (1 - a), thick * (1 - a), g)
+				r.CFrame = CFrame.lookAt(at + d * g / 2, at + d * g)
+				r.Transparency = a ^ 2
+				if a >= 1 then r:Destroy() end
+			end)
+		end
+	end
+
+	-- 1.5 · the last slash: the stars dive in, every mark detonates.
+	function Exec.strike(msg: any)
+		local owner = msg.attacker :: Player
+		local c = casts[owner]
+		local char = charOf(owner)
+		if char then strikePose(char) end
+		local at = (msg.pos :: Vector3) + Vector3.new(0, 0.6, 0)
+		local from = msg.from :: Vector3
+		local dir = flat(at - from)
+		-- the final cut, one clean white line through the target
+		slashAt(at, dir, 6, 8, 160, 0.9, 0.35)
+		longSlash(at, dir, 26, 0.6, 0.4)
+		speedLines(at, dir, 8, 10, 2)
+		-- the stars dive into their marks
+		if c then
+			for _, star in ipairs(c.stars) do
+				local mr = star.model:FindFirstChild("HumanoidRootPart") :: BasePart?
+				local start = star.at
+				animate(0.07, function(a)
+					local goal = if mr then mr.Position + Vector3.new(0, 1, 0) else start
+					local p = start:Lerp(goal, a * a)
+					for _, ray in ipairs(star.rays) do
+						if ray.Parent then ray.CFrame = CFrame.new(p) * ray.CFrame.Rotation end
+					end
+					if a >= 1 then
+						for _, ray in ipairs(star.rays) do ray:Destroy() end
+					end
+				end)
+			end
+			table.clear(c.stars)
+		end
+		-- then every mark at once
+		task.delay(0.07, function()
+			for k, b in ipairs(msg.blasts or {}) do
+				local p = (b.pos :: Vector3) + Vector3.new(0, 1, 0)
+				local big = k == 1
+				if big or FxBudget.Allow("rogueExecBlast", 10) then
+					starburst(p, if big then 14 else 8, if big then 16 else 8, if big then 0.35 else 0.22)
+					shards(p, if big then 22 else 8, if big then 34 else 20, if big then 1.2 else 0.8, 1)
+					floorRing(p - Vector3.new(0, 3, 0), if big then 7 else 3.5, 0.3)
+					glint(p, if big then 9 else 5)
+				end
+			end
+			-- the target's crater: grey rock thrown up
+			local g = at - Vector3.new(0, 3.1, 0)
+			for _ = 1, 10 do
+				local rock = part({ Size = Vector3.new(0.6, 0.5, 0.7) * (0.6 + math.random() * 0.9), Color = Color3.fromRGB(70, 70, 74),
+					Material = Enum.Material.Slate, CFrame = CFrame.new(g + Vector3.new((math.random() - 0.5) * 3, 0.3, (math.random() - 0.5) * 3)) })
+				local v = Vector3.new((math.random() - 0.5) * 22, 16 + math.random() * 16, (math.random() - 0.5) * 22)
+				local spin = Vector3.new(math.random(), math.random(), math.random()) * 12
+				local pos, rot = rock.Position, rock.CFrame.Rotation
+				animate(0.7, function(a, dt)
+					v += Vector3.new(0, -70 * dt, 0)
+					pos += v * dt
+					rot = rot * CFrame.Angles(spin.X * dt, spin.Y * dt, spin.Z * dt)
+					rock.CFrame = CFrame.new(pos) * rot
+					rock.Transparency = math.max(0, (a - 0.6) / 0.4)
+					if a >= 1 then rock:Destroy() end
+				end)
+			end
+			ClassFX.Sound("boom", at, 0.9, 1.15)
+			ClassFX.Sound("swordHit", at, 1, 0.8)
+			if owner == player or near(at, 60) then flash(0.3, 0.1) end
+			if owner == player and deps then
+				deps.shake(1.1, 0.35)
+				deps.fovPunch(10, 0.3)
+			end
+		end)
+	end
+
+	-- 1.8 · over: colour back, everything cleared away.
+	function Exec.finish(msg: any)
+		local owner = msg.attacker :: Player
+		dropCast(owner)
+		local char = charOf(owner)
+		local root = rootOf(char)
+		if owner == player and root then root.Anchored = false end
+		if char and not char:GetAttribute("Hidden") then setHidden(char, false, 0, 0.1) end
 	end
 end
 
@@ -1243,9 +1674,13 @@ local HANDLERS: { [string]: (any) -> () } = {
 	step = onStep,
 	dash = onDash,
 	hidden = onHidden,
-	realm = onRealm,
-	realmSlash = onRealmSlash,
-	realmBurst = onRealmBurst,
+	exec = Exec.start,
+	execImages = Exec.images,
+	execSlash = Exec.slash,
+	execReappear = Exec.reappear,
+	execMarks = Exec.marks,
+	execStrike = Exec.strike,
+	execEnd = Exec.finish,
 	mark = onMark,
 	enhanced = onEnhanced,
 	energyFull = function(msg)
@@ -1443,28 +1878,17 @@ function RogueController.OnCast(skillIndex: number, char: Model, root: BasePart,
 		vanishPose(char)
 		releaseAfter(char, 0.25)
 	elseif skillIndex == 4 then
-		-- Shadow Realm: rise, arms spread, and hang there till it bursts.
+		-- Shadow Execution: the bomb at his feet, then held unseen in the
+		-- smoke till he reappears behind the target (RogueFX moves him); he's
+		-- let go when it's over (or a moment after, if the server never says).
 		char:SetAttribute("AllowSkillMovement", false)
-		local dur = (config.duration or 4) * (if enhanced then 1.5 else 1)
-		busyUntil = os.clock() + dur
-		realmPose(char, dur)
+		busyUntil = os.clock() + EXEC_TIME
+		Exec.bombPose(char)
 		root.Anchored = true
-		local base = root.CFrame
-		-- (up, then a slow turn while adrift)
-		local spun = 0
-		animate(dur - 0.3, function(a, dt)
-			if not root.Anchored then return end
-			spun += dt
-			root.CFrame = (base + Vector3.new(0, 3.5 * easeOut(math.min(spun / 0.5, 1)) + math.sin(spun * 2.4) * 0.3, 0))
-				* CFrame.Angles(0, spun * 0.6, 0)
+		task.delay(EXEC_TIME + 0.4, function()
+			if root.Parent and root.Anchored then root.Anchored = false end
 		end)
-		task.delay(dur, function()
-			if root.Parent then
-				root.CFrame = base
-				root.Anchored = false
-			end
-		end)
-		releaseAfter(char, dur)
+		releaseAfter(char, EXEC_TIME)
 	end
 end
 

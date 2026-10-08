@@ -27,6 +27,8 @@ local Boons = require(script.Parent:WaitForChild("Boons"))
 local GunslingerServer = require(script.Parent:WaitForChild("GunslingerServer"))
 local SwordsmanServer = require(script.Parent:WaitForChild("SwordsmanServer"))
 local RogueServer = require(script.Parent:WaitForChild("RogueServer"))
+local MageServer = require(script.Parent:WaitForChild("MageServer"))
+local MartialServer = require(script.Parent:WaitForChild("MartialServer"))
 local BerserkerServer = require(script.Parent:WaitForChild("BerserkerServer"))
 local FireKnightServer = require(script.Parent:WaitForChild("FireKnightServer"))
 local MountManager = require(script.Parent:WaitForChild("MountManager"))
@@ -303,6 +305,10 @@ local IMPACT_PROFILES: { [string]: ImpactProfile } = {
 	["CARNAGE FINISH"]     = { kb = 40, lift = 34, stagger = 1.0,  style = "slash", heavy = true },
 	["BEAST CHARGE"]       = { kb = 0,  lift = 0,  stagger = 0.6,  style = "slash", heavy = true },
 	["BEAST THROW"]        = { kb = 0,  lift = 0,  stagger = 0.8,  style = "slash", heavy = true },
+	-- the Rogue's Shadow Execution
+	["SHADOW SLASH"]       = { kb = 2,  lift = 0,  stagger = 0.35, style = "slash" },
+	["SHADOW DETONATION"]  = { kb = 10, lift = 8,  stagger = 0.6,  style = "slash", heavy = true },
+	["SHADOW EXECUTION"]   = { kb = 16, lift = 46, stagger = 1.0,  style = "slash", heavy = true },
 }
 
 -- How many effect messages a player's hits may send each second. The hits
@@ -1531,7 +1537,7 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	end
 	-- Swordsman: nothing mid-Whirlwind / mid-Blade Storm.
 	if classId == "swordsman" and not SwordsmanServer.CanUseSkill(player, skillIndex) then return end
-	-- Rogue: nothing mid-Shadow Realm; E with a dagger out is the Shadow Step (no cooldown).
+	-- Rogue: nothing mid-Shadow Execution; E with a dagger out is the Shadow Step (no cooldown).
 	if classId == "rogue" then
 		if not RogueServer.CanUseSkill(player, skillIndex) then return end
 		if RogueServer.TryRecast(player, char, skillIndex) then return end
@@ -1544,6 +1550,9 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	end
 	-- Fire Knight: nothing mid-charge / mid-guard / mid-slam / mid-awakening.
 	if classId == "heavy_knight" and not FireKnightServer.CanUseSkill(player, skillIndex) then return end
+	-- Mage: nothing mid-Apocalypse.
+	if classId == "mage" and not MageServer.CanUseSkill(player, skillIndex) then return end
+	if classId == "martial_artist" and not MartialServer.CanUseSkill(player, skillIndex) then return end
 
 	-- Validate Cooldown
 	local now = os.clock()
@@ -1638,6 +1647,12 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 		SwordsmanServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig)
 	elseif classId == "rogue" then
 		RogueServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig)
+	elseif classId == "mage" then
+		MageServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig,
+			if typeof(targetPosition) == "Vector3" then targetPosition else nil)
+	elseif classId == "martial_artist" then
+		MartialServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig,
+			if typeof(targetPosition) == "Vector3" then targetPosition else nil)
 	elseif classId == "berserker" then
 		BerserkerServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig,
 			if typeof(targetPosition) == "Vector3" then targetPosition else nil)
@@ -1709,6 +1724,8 @@ ultCutscene = function(classId: string, config: any): number
 	if classId == "gunslinger" then return 1.4 end
 	if classId == "swordsman" then return SwordsmanServer.STORM_WINDUP end
 	if classId == "rogue" then return RogueServer.REALM_WINDUP end
+	if classId == "mage" then return MageServer.ULT_WINDUP end -- the Apocalypse's marks
+	if classId == "martial_artist" then return MartialServer.ULT_WINDUP end -- the Dragon Soul's summoning
 	if classId == "berserker" then return BerserkerServer.GATHER_TIME end -- the Beast Awakening
 	if classId == "heavy_knight" then return FireKnightServer.AWAKEN end
 	return 1.0 -- Ranger close-up
@@ -1739,6 +1756,16 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 	-- The Rogue's dagger combo and Shadow Energy.
 	if player:GetAttribute("SelectedClass") == "rogue" then
 		RogueServer.OnBasic(player, char, rootPart, payload)
+		return
+	end
+	-- The Mage's Arcane Bolts.
+	if player:GetAttribute("SelectedClass") == "mage" then
+		MageServer.OnBasic(player, char, rootPart, payload)
+		return
+	end
+	-- The Martial Artist's Flowing Fists and Qi Charge.
+	if player:GetAttribute("SelectedClass") == "martial_artist" then
+		MartialServer.OnBasic(player, char, rootPart, payload)
 		return
 	end
 	-- The Berserker's greatsword chain and Bloodrage.
@@ -1863,6 +1890,21 @@ function SkillManager.Init()
 			if not last or not length then return 0 end
 			return math.max(0, length - (os.clock() - last))
 		end,
+		addIncomingHook = MobManager.AddIncomingHook,
+	})
+	MageServer.Init({
+		getPotentialTargets = getPotentialTargets,
+		dealDamage = dealDamage,
+		fxAllowed = fxAllowed,
+		lineReach = lineReach,
+		ricochet = ricochet,
+	})
+	MartialServer.Init({
+		getPotentialTargets = getPotentialTargets,
+		dealDamage = dealDamage,
+		fxAllowed = fxAllowed,
+		lineReach = lineReach,
+		ricochet = ricochet,
 		addIncomingHook = MobManager.AddIncomingHook,
 	})
 	BerserkerServer.Init({

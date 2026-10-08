@@ -21,10 +21,14 @@
 	                    Marked. Enhanced: longer and harder.
 	  Q Invisibility    6 s unseen ("Hidden": mobs lose you), faster. Attacking
 	                    or taking damage ends it. Enhanced: 9 s.
-	  R Shadow Realm    4 s untargetable in the shadow realm while slashes
-	                    cut every enemy round you ten times a second, then a
-	                    burst that hits and Marks everything near. Enhanced:
-	                    longer, harder.
+	  R Shadow Execution  a smoke bomb at your feet: the smoke swallows the
+	                    area and you vanish (untargetable throughout); your
+	                    afterimages appear round the enemies in it and dash
+	                    through them one after another, five slashes, each
+	                    leaving a shadow mark; the smoke collapses and you
+	                    reappear behind the nearest; the marks glow, then one
+	                    final slash detonates every mark at once and launches
+	                    the target. ~1.8 s. Enhanced: wider, harder.
 --]]
 
 local Players = game:GetService("Players")
@@ -54,9 +58,14 @@ local KILL_SPEED = 1.25      -- move speed after a kill…
 local KILL_SPEED_TIME = 2    -- …for this long
 local HIDDEN_SPEED = 1.3     -- move speed while invisible
 local STEP_BONUS = 1.6       -- Shadow Step backstab: × the dagger's damage
-local REALM_TICK = 0.1       -- seconds between Shadow Realm slash waves (each cuts every enemy in range)
-local REALM_ENERGY = 2       -- Shadow Energy per wave that lands (per hit, the realm would refill it at once)
-local REALM_BURST = 9        -- the closing burst: × a slash's damage
+-- Shadow Execution's timeline (seconds from the cast; sent with it, so
+-- RogueController draws from the same table).
+local EXEC = { smoke = 0.2, images = 0.4, slashes = { 0.55, 0.62, 0.7, 0.8, 0.9 }, vanish = 0.95,
+	reappear = 1.1, marks = 1.3, strike = 1.5, finish = 1.8 }
+local EXEC_ENERGY = 2        -- Shadow Energy per slash wave that lands
+local EXEC_DETONATE = 1.5    -- each shadow mark detonates for × a slash's damage
+local EXEC_FINAL = 3         -- the final strike on the target: × a slash's damage
+local EXEC_SHOWN = 4         -- afterimages drawn per wave (the nearest enemies; every enemy is still hit)
 
 type Target = { character: Model, humanoid: Humanoid, rootPart: BasePart }
 type Dagger = { pos: Vector3, stuck: Target?, expires: number, landsAt: number, damage: number }
@@ -405,47 +414,112 @@ local function dash(player: Player, char: Model, st: State, origin: Vector3, dir
 	end)
 end
 
--- ── R: Shadow Realm ─────────────────────────────────────────────────────────
-local function realm(player: Player, char: Model, st: State, config: any, enhanced: boolean)
+-- ── R: Shadow Execution ────────────────────────────────────────────────────
+local function execute(player: Player, char: Model, st: State, config: any, enhanced: boolean)
 	endHidden(player, st, "realm")
-	local dur = (config.duration or 4) * (if enhanced then 1.5 else 1)
-	local range = (config.range or 24) * (config.areaMultiplier or 1)
-	local damage = (config.damage or 26) * (if enhanced then 1.4 else 1)
-	st.realmUntil = os.clock() + dur
-	st.busyUntil = st.realmUntil
-	char:SetAttribute("Hidden", true)
-	char:SetAttribute("InvulnerableUntil", st.realmUntil + 0.2)
 	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
-	local center = if root then root.Position else Vector3.zero
-	fx({ kind = "realm", attacker = player, pos = center, duration = dur, range = range, enhanced = enhanced })
-	task.spawn(function()
-		while os.clock() < st.realmUntil and char.Parent do
-			task.wait(REALM_TICK)
-			local r = char:FindFirstChild("HumanoidRootPart") :: BasePart?
-			if not r then break end
-			-- Every wave cuts every enemy in range (a damage number each); the
-			-- cuts drawn over them are budgeted.
+	if not root then return end
+	local range = (config.range or 24) * (config.areaMultiplier or 1) * (if enhanced then 1.25 else 1)
+	local damage = (config.damage or 40) * (if enhanced then 1.4 else 1)
+	local centre = root.Position
+	st.realmUntil = os.clock() + EXEC.finish
+	st.busyUntil = st.realmUntil
+	char:SetAttribute("InvulnerableUntil", st.realmUntil + 0.2)
+	local token = st.realmUntil
+	local function live(): boolean
+		return st.realmUntil == token and char.Parent ~= nil
+	end
+	-- Everyone in the smoke, nearest first (the nearest is "the target").
+	local function inSmoke(): { Target }
+		local list = inArc(char, centre, Vector3.zero, range, -1)
+		table.sort(list, function(a, b)
+			return (a.rootPart.Position - centre).Magnitude < (b.rootPart.Position - centre).Magnitude
+		end)
+		return list
+	end
+	local function shown(list: { Target }): { any }
+		local out = {}
+		for k = 1, math.min(#list, EXEC_SHOWN) do
+			table.insert(out, { model = list[k].character, pos = list[k].rootPart.Position })
+		end
+		return out
+	end
+	fx({ kind = "exec", attacker = player, pos = centre, range = range, t = EXEC, enhanced = enhanced })
+	-- the smoke takes him
+	task.delay(EXEC.smoke, function()
+		if live() then char:SetAttribute("Hidden", true) end
+	end)
+	-- his afterimages appear round the enemies
+	task.delay(EXEC.images, function()
+		if live() then fx({ kind = "execImages", attacker = player, targets = shown(inSmoke()) }) end
+	end)
+	-- five slashes, each through every enemy in the smoke, each leaving a mark
+	local stacks: { [Model]: number } = {}
+	for i, at in ipairs(EXEC.slashes) do
+		task.delay(at, function()
+			if not live() then return end
+			local list = inSmoke()
 			local landed = false
-			for _, t in ipairs(inArc(char, r.Position, Vector3.zero, range, -1)) do
-				if hit(player, st, t, damage, "SHADOW REALM", nil, 0) then
+			for _, t in ipairs(list) do
+				if hit(player, st, t, damage, "SHADOW SLASH", nil, 0) then
 					landed = true
-					if H.fxAllowed(player, "realmSlash", 14) then
-						fx({ kind = "realmSlash", attacker = player, pos = t.rootPart.Position })
-					end
+					stacks[t.character] = (stacks[t.character] or 0) + 1
 				end
 			end
-			if landed then gain(player, st, REALM_ENERGY) end
+			if landed then gain(player, st, EXEC_ENERGY) end
+			fx({ kind = "execSlash", attacker = player, i = i, targets = shown(list) })
+		end)
+	end
+	-- the smoke collapses: he's behind the nearest
+	local target: Target? = nil
+	task.delay(EXEC.reappear, function()
+		if not live() then return end
+		local list = inSmoke()
+		target = list[1]
+		local at, face = centre, Vector3.new(0, 0, -1)
+		local tg = target
+		if tg then
+			local tp = tg.rootPart.Position
+			local away = flat(tp - centre)
+			at = tp + away * 3.5
+			face = -away
 		end
-		if not char.Parent then return end
-		-- The burst: everything near takes a heavy hit and is Marked.
+		fx({ kind = "execReappear", attacker = player, pos = at, face = face, target = if tg then tg.character else nil })
+	end)
+	-- the marks glow, ready
+	task.delay(EXEC.marks, function()
+		if not live() then return end
+		local marks = {}
+		for m, n in pairs(stacks) do
+			local hum = m:FindFirstChildOfClass("Humanoid")
+			if m.Parent and hum and hum.Health > 0 then table.insert(marks, { model = m, n = n }) end
+		end
+		fx({ kind = "execMarks", attacker = player, marks = marks })
+	end)
+	-- one last slash: every mark detonates at once, the target is launched
+	task.delay(EXEC.strike, function()
+		if not live() then return end
 		local r = char:FindFirstChild("HumanoidRootPart") :: BasePart?
-		local at = if r then r.Position else center
-		fx({ kind = "realmBurst", attacker = player, pos = at, range = range })
-		for _, t in ipairs(inArc(char, at, Vector3.zero, range, -1)) do
-			hit(player, st, t, damage * REALM_BURST, "SHADOW BURST")
-			mark(t)
+		local blasts = {}
+		for _, t in ipairs(inArc(char, centre, Vector3.zero, range + 8, -1)) do
+			local n = stacks[t.character]
+			if n and n > 0 then
+				table.insert(blasts, { pos = t.rootPart.Position, n = n, model = t.character })
+				hit(player, st, t, damage * EXEC_DETONATE * n, "SHADOW DETONATION")
+				if t.humanoid.Health > 0 then mark(t) end
+			end
 		end
-		if st.hiddenUntil <= 0 then char:SetAttribute("Hidden", nil) end
+		local tg = target
+		if tg and tg.humanoid.Health > 0 then
+			hit(player, st, tg, damage * EXEC_FINAL, "SHADOW EXECUTION")
+		end
+		fx({ kind = "execStrike", attacker = player, pos = if tg then tg.rootPart.Position elseif r then r.Position else centre,
+			from = if r then r.Position else centre, blasts = blasts })
+	end)
+	task.delay(EXEC.finish, function()
+		if st.realmUntil ~= token then return end
+		if char.Parent and st.hiddenUntil <= 0 then char:SetAttribute("Hidden", nil) end
+		fx({ kind = "execEnd", attacker = player })
 	end)
 end
 
@@ -466,12 +540,12 @@ function RogueServer.OnSkill(player: Player, char: Model, skillIndex: number, or
 	elseif skillIndex == 3 then
 		startHidden(player, char, st, (config.duration or 6) * (if enhanced then 1.5 else 1))
 	elseif skillIndex == 4 then
-		realm(player, char, st, config, enhanced)
+		execute(player, char, st, config, enhanced)
 	end
 end
 
--- Seconds the Shadow Realm's entrance freezes mobs / holds the camera.
-RogueServer.REALM_WINDUP = 0.5
+-- Seconds the Shadow Execution's opening (the smoke bomb) freezes mobs.
+RogueServer.REALM_WINDUP = EXEC.images
 
 -- Fresh state (new character / run).
 function RogueServer.Reset(player: Player)

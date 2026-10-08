@@ -105,7 +105,7 @@ local BEAST = { freeze = 0.45, mutate = 1.15, roar = 0.5 }
 BEAST.change = BEAST.freeze + BEAST.mutate -- the moment the body becomes the beast
 BEAST.total = BEAST.change + BEAST.roar
 local BEAST_TIME = 12
-local BEAST_SCALE = 1.35
+local BEAST_SCALE = 1.25 -- (~7'5" against a 6' man)
 local BEAST_REVERT = 1.2      -- sinking back to his knees
 local BEAST_DAMAGE = 0.3      -- +30% damage as the beast
 local BEAST_SPEED = 1.15      -- move speed

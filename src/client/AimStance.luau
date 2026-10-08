@@ -34,6 +34,7 @@ local BACKPEDAL = -0.35                  -- walking away from the cursor this mu
 local SEND_EVERY = 0.1                   -- seconds between twists sent
 local SEND_STEP = 0.04                   -- (radians: smaller changes aren't sent)
 local EASE = 12                          -- how quickly others' twists follow
+local BEAST_TWIST = math.rad(30)         -- the Berserker's beast: only a little
 local HIP_SHARE = 0.25                   -- the hips turn this much of the way with the chest
 
 local getAim: ((BasePart) -> Vector3)? = nil
@@ -75,6 +76,21 @@ local function steer(dt: number)
 	aim = Vector3.new(aim.X, 0, aim.Z)
 	if aim.Magnitude < 0.01 then return end
 	aim = aim.Unit
+	-- The Berserker's beast doesn't twist at the waist: standing, the whole
+	-- body swings round hard to face the target (its claws step round, in
+	-- BerserkerController); moving, it runs where it runs, the head and
+	-- shoulders only half turned.
+	local beast = (tonumber(player:GetAttribute("BR_BeastUntil")) or 0) > workspace:GetServerTimeNow()
+	if beast then
+		local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z).Unit
+		local move = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)
+		local body = if move.Magnitude > 0.1 then move.Unit else aim
+		local newLook = if look:Dot(body) < -0.95 then body else look:Lerp(body, math.min(1, dt * 18)).Unit
+		root.CFrame = CFrame.lookAt(root.Position, root.Position + newLook)
+		local l = root.CFrame:VectorToObjectSpace(aim)
+		twist = math.clamp(math.atan2(-l.X, -l.Z), -BEAST_TWIST, BEAST_TWIST)
+		return
+	end
 	-- The legs (the skates steer an Ice Mage's themselves).
 	if player:GetAttribute("SelectedClass") ~= "ice_mage" then
 		local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z).Unit
@@ -162,7 +178,9 @@ local function poseAll(dt: number)
 		local cur = shown[char] or 0
 		cur = if plr == player then want else cur + (want - cur) * math.min(1, dt * EASE)
 		shown[char] = cur
-		if math.abs(cur) > 0.01 and not char:GetAttribute("Tumbling") then pose(char, cur) end
+		-- (the Berserker's beast poses its own body, legs and all)
+		local beast = (tonumber(plr:GetAttribute("BR_BeastUntil")) or 0) > workspace:GetServerTimeNow()
+		if math.abs(cur) > 0.01 and not char:GetAttribute("Tumbling") and not beast then pose(char, cur) end
 	end
 end
 

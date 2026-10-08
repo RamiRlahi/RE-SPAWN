@@ -122,6 +122,13 @@ function DevHooks.Init()
 			local hum = p and p.Character and p.Character:FindFirstChildOfClass("Humanoid")
 			if hum then hum:TakeDamage(tonumber(b) or 5) end
 			return hum and hum.Health
+		elseif cmd == "enter" then
+			-- (straight from the lobby into a run, as the campfire's portal would)
+			local p = plr(a)
+			if not p then return "no player" end
+			local ClassManager = require(script.Parent:WaitForChild("ClassManager")) :: any
+			ClassManager.Enter(p, b or p:GetAttribute("SelectedClass") or "swordsman")
+			return true
 		elseif cmd == "boss" then
 			local p = plr(a)
 			if not p then return "no player" end

@@ -56,6 +56,57 @@ local currentFocusPos: Vector3? = nil
 local focusYLock: number? = nil
 local cameraZoom = 1
 
+-- Lens punches and shakes from skills (Punch / Shake): held here and laid
+-- over the shot computed each frame, so overlapping ones add up and the view
+-- always settles back to its own FOV and place. (They used to tween the FOV
+-- back to whatever it was when they began; one landing mid-punch left the
+-- view stuck zoomed in until something reset the camera.)
+local punches: { { delta: number, t0: number, dur: number } } = {}
+local shakes: { { power: number, t0: number, dur: number } } = {}
+local lensFov: number? = nil -- the FOV easing toward the camera's own (nil: picked up from the camera)
+local MAX_PUNCH = 15
+
+local function punchOffset(now: number): number
+	local total = 0
+	for i = #punches, 1, -1 do
+		local p = punches[i]
+		local t = (now - p.t0) / p.dur
+		if t >= 1 then
+			table.remove(punches, i)
+		else
+			-- (in fast over the first 22%, easing back out over the rest)
+			local k = if t < 0.22 then 1 - (1 - t / 0.22) ^ 4 else (1 - (t - 0.22) / 0.78) ^ 2
+			total += p.delta * k
+		end
+	end
+	return math.min(total, MAX_PUNCH)
+end
+
+local function shakeOffset(now: number): Vector3
+	local power = 0
+	for i = #shakes, 1, -1 do
+		local s = shakes[i]
+		local t = (now - s.t0) / s.dur
+		if t >= 1 then
+			table.remove(shakes, i)
+		else
+			power += s.power * (1 - t)
+		end
+	end
+	if power <= 0 then return Vector3.zero end
+	return Vector3.new((math.random() - 0.5) * power, (math.random() - 0.5) * power * 0.6, (math.random() - 0.5) * power)
+end
+
+-- The FOV this frame: the camera's own (`want`), eased into after a cutscene
+-- handed it back, less any punch.
+local function lens(cam: Camera, want: number, dt: number, now: number)
+	local base = lensFov or cam.FieldOfView
+	base += (want - base) * math.clamp(dt * 8, 0, 1)
+	if math.abs(want - base) < 0.01 then base = want end
+	lensFov = base
+	cam.FieldOfView = math.max(base - punchOffset(now), 20)
+end
+
 -- Head aiming state
 local origNeckC0: CFrame? = nil
 local currentAimYaw = 0
@@ -563,11 +614,13 @@ function IsometricCamera.Start(transitionDuration: number?)
 
 	local duration = transitionDuration or 1.2
 
-	-- Smooth cinematic transition to Hades Isometric angle
+	-- Smooth cinematic transition to Hades Isometric angle (the FOV is set
+	-- every frame by the loop below)
+	lensFov = nil
 	local tween = TweenService:Create(
 		cam,
 		TweenInfo.new(duration, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out),
-		{ CFrame = finalCFrame, FieldOfView = CAMERA_FOV }
+		{ CFrame = finalCFrame }
 	)
 	tween:Play()
 
@@ -584,6 +637,7 @@ function IsometricCamera.Start(transitionDuration: number?)
 			applyClassic(classic)
 		end
 		if classic then
+			lens(cam, 70, dt, os.clock())
 			-- (the aim reticle is the top-down camera's; others re-enable it)
 			if cursorGui and cursorGui.Enabled then cursorGui.Enabled = false end
 			-- Following someone else (spectating) or a part (your falling body):
@@ -666,7 +720,9 @@ function IsometricCamera.Start(transitionDuration: number?)
 		end
 
 		local camPos = currentFocusPos + CAMERA_OFFSET * cameraZoom
-		cam.CFrame = CFrame.lookAt(camPos, currentFocusPos)
+		local now = os.clock()
+		cam.CFrame = CFrame.lookAt(camPos, currentFocusPos) * CFrame.new(shakeOffset(now))
+		lens(cam, CAMERA_FOV, dt, now)
 
 		-- Update ceiling/obstacle transparency solver
 		if player.Character then
@@ -699,10 +755,16 @@ end
 function IsometricCamera.Pause()
 	isPaused = true
 	if classicOn() then releaseShiftLock() end
+	-- (whoever takes the camera owns its lens now; the loop eases back from
+	-- wherever they leave it)
+	table.clear(punches)
+	table.clear(shakes)
+	lensFov = nil
 end
 
 function IsometricCamera.Resume(transitionDuration: number?)
 	isPaused = false
+	lensFov = nil
 	if classicOn() then
 		applyClassic(true)
 		return
@@ -721,11 +783,27 @@ function IsometricCamera.Resume(transitionDuration: number?)
 		TweenService:Create(
 			cam,
 			TweenInfo.new(dur, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out),
-			{ CFrame = targetCFrame, FieldOfView = CAMERA_FOV }
+			{ CFrame = targetCFrame }
 		):Play()
-	else
-		cam.FieldOfView = CAMERA_FOV
 	end
+end
+
+-- A quick punch of the lens (`fovDelta` degrees narrower, back over
+-- `duration`). False when the camera isn't ours to punch (the lobby, a
+-- cutscene, the settings shot).
+function IsometricCamera.Punch(fovDelta: number, duration: number): boolean
+	if not isActive or isPaused then return false end
+	table.insert(punches, { delta = fovDelta, t0 = os.clock(), dur = math.max(duration, 0.05) })
+	return true
+end
+
+-- A shake of the top-down camera, fading over `duration`. False when it isn't
+-- ours to shake (the lobby, a cutscene, or the normal camera: the caller
+-- shakes that one itself).
+function IsometricCamera.Shake(intensity: number, duration: number): boolean
+	if not isActive or isPaused or classicOn() then return false end
+	table.insert(shakes, { power = intensity, t0 = os.clock(), dur = math.max(duration, 0.05) })
+	return true
 end
 
 -- Lock the camera's focus to a fixed world Y (X/Z still track the character).
@@ -767,6 +845,9 @@ function IsometricCamera.Stop()
 	clearAllOcclusions()
 	currentFocusPos = nil
 	focusYLock = nil
+	table.clear(punches)
+	table.clear(shakes)
+	lensFov = nil
 
 	local cam = getCamera()
 	cam.CameraType = Enum.CameraType.Custom
