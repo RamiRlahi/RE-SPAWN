@@ -46,11 +46,11 @@ local TomeData: { [string]: TomeDefinition } = {
 		effects = { { stat = "movementSpeed", operation = "percent", value = 0.15, description = "+15% Movement Speed" } },
 	},
 	attack_speed = {
-		id = "attack_speed", name = "Attack Speed Tome", category = "Base", description = "+15% Basic Attack Speed (max 2×)",
+		id = "attack_speed", name = "Attack Speed Tome", category = "Base", description = "+15% Basic Attack Speed",
 		effects = { { stat = "basicAttackSpeed", operation = "percent", value = 0.15, description = "+15% Basic Attack Speed" } },
 	},
 	cooldown = {
-		id = "cooldown", name = "Cooldown Tome", category = "Base", description = "-8% Ability Cooldowns (max -50%)",
+		id = "cooldown", name = "Cooldown Tome", category = "Base", description = "-8% Ability Cooldowns",
 		effects = { { stat = "abilityCooldown", operation = "percent", value = 0.08, description = "-8% Ability Cooldowns" } },
 	},
 	damage = {

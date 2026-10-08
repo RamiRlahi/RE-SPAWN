@@ -477,6 +477,12 @@ local ULT_PREVIEW_POSES: { [string]: Pose } = {
 	rogue = { Root = { 0, 0, 0, 0, -0.7, 0 }, W = { -24, 28, 0 }, N = { -14, -24, 0 },
 		RS = { 62, 0, 22 }, RE = { 55, 0, 0 }, LS = { -28, 0, -48 }, LE = { 40, 0, 0 },
 		RH = { -32, 0, 8 }, LH = { 34, 0, -10 }, RK = { 40, 0, 0 }, LK = { 55, 0, 0 } },
+	-- The berserker's stance: hunched and turned into the camera, feet planted
+	-- wide, the greatsword hanging low at his side and dragging behind, the
+	-- other fist clenched out in front, head down, glaring up.
+	berserker = { Root = { 0, 0, 0, 0, -0.35, 0 }, W = { -18, -22, 0 }, N = { 14, 18, 0 },
+		RS = { -22, 0, 24 }, LS = { 38, 0, -32 },
+		RH = { 18, 0, 14 }, LH = { -16, 0, -14 } },
 }
 
 function CastPoses.holdUltPreview(char: Model?, classId: string): boolean

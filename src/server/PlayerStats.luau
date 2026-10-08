@@ -208,10 +208,9 @@ local function applyStats(player: Player, state: RunState)
 	if (state.curses or 0) > 0 then stats.maxHealth *= math.max(0.25, 1 - 0.25 * state.curses) end
 	-- Evolutions: a flag stat each (Boons reads them).
 	for id in pairs(state.evolutions or {}) do stats[id] = 1 end
-	-- Caps, so stacking one tome can't break the game.
+	-- The one cap: ability size (anything bigger swallows the screen). Every
+	-- other tome stacks without limit.
 	stats.size = math.min(stats.size or 1, 1.75)
-	stats.abilityCooldown = math.max(stats.abilityCooldown or 1, 0.5)
-	stats.basicAttackSpeed = math.min(stats.basicAttackSpeed or 1, 2)
 	state.stats = stats
 
 	for stat, value in pairs(stats) do

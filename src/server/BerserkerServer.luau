@@ -124,7 +124,7 @@ local CLAWS = {
 }
 
 -- Beast Slam: crouch, leap far up, hang, crash; then the rings roll out.
-local SLAM = { crouch = 0.2, rise = 0.42, hang = 0.12, fall = 0.16 }
+local SLAM = { crouch = 0.2, rise = 0.42, hang = 0.14, fall = 0.22 }
 SLAM.impact = SLAM.crouch + SLAM.rise + SLAM.hang + SLAM.fall
 local SLAM_RANGE = 26         -- the furthest he leaps (to the cursor)
 local SLAM_UNDER = 9          -- crushed and stunned: right under him

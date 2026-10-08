@@ -959,12 +959,17 @@ local PURGE = Color3.fromRGB(220, 60, 80)
 local PURGE_FLAME = Color3.fromRGB(255, 90, 40)
 local purgeTakenByRoom: { [number]: { [Player]: boolean } } = {}
 
+-- (the shrine a player was last offered: a sacrifice is only taken from there)
+local purgeOffers: { [Player]: number } = {}
+Players.PlayerRemoving:Connect(function(p) purgeOffers[p] = nil end)
+
 function SpecialRooms.CanPurge(player: Player, roomId: number): boolean
-	if not roomId or not purgeTakenByRoom[roomId] then return true end
+	if typeof(roomId) ~= "number" or purgeOffers[player] ~= roomId or not purgeTakenByRoom[roomId] then return false end
 	return purgeTakenByRoom[roomId][player] ~= true
 end
 
 function SpecialRooms.OnPurged(player: Player, roomId: number, tomeName: string)
+	purgeOffers[player] = nil
 	if roomId and purgeTakenByRoom[roomId] then
 		purgeTakenByRoom[roomId][player] = true
 	end
@@ -1062,6 +1067,7 @@ local function buildPurge(room: Room, folder: Folder, rng: Random)
 			return
 		end
 
+		purgeOffers[player] = room.id
 		Network.GetRemoteEvent(Network.Remotes.DiscardTomeOffer):FireClient(player, {
 			roomId = room.id,
 			tomes = tomes,

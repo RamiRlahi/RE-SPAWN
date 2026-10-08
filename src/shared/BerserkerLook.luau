@@ -34,8 +34,8 @@ local TAG = "BerserkerArmor"
 -- faceted pommel.
 --
 -- Handle space: the blade runs down -Y from the guard, the pommel up +Y; the
--- Grip holds it 3.9 studs up the handle, the same as the old asset, so it
--- sits in his fist (and every pose) exactly as before. The blade is the
+-- Grip holds it at the wrapped grip, so it sits in his fist the same way at
+-- any SWORD_SCALE (three-quarters of the old asset's size). The blade is the
 -- biggest piece, so the swing trail finds it (RageBase / RageTip).
 local SWORD_STONE = Color3.fromRGB(44, 36, 36)
 local SWORD_EDGE = Color3.fromRGB(78, 66, 64)
@@ -43,15 +43,17 @@ local SWORD_IRON = Color3.fromRGB(58, 50, 50)
 local SWORD_WRAP = Color3.fromRGB(96, 16, 22)
 local SWORD_GRIP = Color3.fromRGB(30, 22, 22)
 local SWORD_CRACK = Color3.fromRGB(235, 28, 36)
+-- The whole sword is laid out at full size below, then built at this scale.
+local SWORD_SCALE = 0.75
 
 function BerserkerLook.BuildGreatsword(): Tool
 	local tool = Instance.new("Tool")
 	tool.Name = "Ragebringer"
 	tool.CanBeDropped = false
-	tool.Grip = CFrame.new(0, 3.9, -0.49) * CFrame.Angles(math.pi, 0, 0)
+	tool.Grip = CFrame.new(0, 3.9 * SWORD_SCALE, -0.49) * CFrame.Angles(math.pi, 0, 0)
 	local handle = Instance.new("Part")
 	handle.Name = "Handle"
-	handle.Size = Vector3.new(0.4, 1.8, 0.4)
+	handle.Size = Vector3.new(0.4, 1.8, 0.4) * SWORD_SCALE
 	handle.Transparency = 1
 	handle.CanCollide, handle.CanTouch, handle.CanQuery, handle.Massless = false, false, false, true
 	handle.Parent = tool
@@ -60,8 +62,8 @@ function BerserkerLook.BuildGreatsword(): Tool
 	local function piece(name: string, size: Vector3, cf: CFrame, color: Color3, material: Enum.Material?, class: string?): BasePart
 		local q = Instance.new(class or "Part") :: BasePart
 		q.Name = name
-		q.Size = size
-		q.CFrame = cf
+		q.Size = size * SWORD_SCALE
+		q.CFrame = CFrame.new(cf.Position * SWORD_SCALE) * cf.Rotation
 		q.Color = color
 		q.Material = material or Enum.Material.Slate
 		q.CanCollide, q.CanTouch, q.CanQuery, q.Massless = false, false, false, true
@@ -145,11 +147,11 @@ function BerserkerLook.BuildGreatsword(): Tool
 	-- toward the point.
 	local a0 = Instance.new("Attachment")
 	a0.Name = "RageBase"
-	a0.Position = Vector3.new(0, len / 2 - 0.3, 0)
+	a0.Position = Vector3.new(0, len / 2 - 0.3, 0) * SWORD_SCALE
 	a0.Parent = blade
 	local a1 = Instance.new("Attachment")
 	a1.Name = "RageTip"
-	a1.Position = Vector3.new(0, -len / 2 - tipLen * 0.6, 0)
+	a1.Position = Vector3.new(0, -len / 2 - tipLen * 0.6, 0) * SWORD_SCALE
 	a1.Parent = blade
 	return tool
 end

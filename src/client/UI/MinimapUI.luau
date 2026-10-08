@@ -352,8 +352,15 @@ end
 
 -- ── Public API ───────────────────────────────────────────────────────────────
 
+-- The map only shows inside the dungeon (never in the lobby or sanctuary).
+local function refreshVisible()
+	if gui then gui.Enabled = player:GetAttribute("InLobby") == false end
+end
+
 function MinimapUI.Init()
 	createMinimapGui()
+	refreshVisible()
+	player:GetAttributeChangedSignal("InLobby"):Connect(refreshVisible)
 
 	-- Listen for DungeonMapData remote from server
 	local mapRemote = Network.GetRemoteEvent(Network.Remotes.DungeonMapData)

@@ -3,7 +3,8 @@
 	AimStance.luau
 	How every class stands in a run: the legs go the way you walk (WASD), the
 	upper body turns to the cursor, a twist at the waist of up to 100 degrees
-	either way (the feet come round past that). Backpedalling keeps the legs
+	either way (the feet come round past that); the legs turn as one, like a
+	pelvis, the hips following the chest a quarter of the way. Backpedalling keeps the legs
 	on the walking line; standing still, the feet only turn once the cursor
 	swings past ~80 degrees. (The Ice Mage's skates steer the legs; only the
 	twist is added.)
@@ -33,6 +34,7 @@ local BACKPEDAL = -0.35                  -- walking away from the cursor this mu
 local SEND_EVERY = 0.1                   -- seconds between twists sent
 local SEND_STEP = 0.04                   -- (radians: smaller changes aren't sent)
 local EASE = 12                          -- how quickly others' twists follow
+local HIP_SHARE = 0.25                   -- the hips turn this much of the way with the chest
 
 local getAim: ((BasePart) -> Vector3)? = nil
 local twist = 0
@@ -107,33 +109,40 @@ local function motor(char: Model, part: string, name: string): Motor6D?
 	return if m and m:IsA("Motor6D") then m else nil
 end
 
--- Adds a yaw (about the parent part's up axis, at the joint) on top of
--- whatever the Animator wrote this frame. If the Animator didn't touch the
--- joint since our last write, start again from its last animated value so
--- the twist never accumulates.
+-- Adds a yaw about the parent part's up axis on top of whatever the
+-- Animator wrote this frame: at the joint itself, or (aroundCentre) about
+-- the vertical line through the parent part's centre. If the Animator didn't
+-- touch the joint since our last write, start again from its last animated
+-- value so the twist never accumulates.
 local written: { [Motor6D]: CFrame } = setmetatable({}, { __mode = "k" }) :: any
 local animated: { [Motor6D]: CFrame } = setmetatable({}, { __mode = "k" }) :: any
-local function yawOver(m: Motor6D, yaw: number)
+local function yawOver(m: Motor6D, yaw: number, aroundCentre: boolean?)
 	local cur = m.Transform
 	if written[m] ~= cur then animated[m] = cur end
-	local r = m.C0.Rotation
+	local r = if aroundCentre then m.C0 else m.C0.Rotation
 	local out = r:Inverse() * CFrame.Angles(0, yaw, 0) * r * (animated[m] or cur)
 	m.Transform = out
 	written[m] = out
 end
 
--- The top half turned to `yaw`, the legs turned back so they keep facing
--- the way the body goes.
+-- The top half turned to `yaw`. The legs don't each swivel on their own hip
+-- joint (that splays and crosses them): they turn together, as a pelvis
+-- would, round the middle of the body, and the hips come a little way round
+-- with the chest (HIP_SHARE) so the stance reads as one twisting body.
 local function pose(char: Model, yaw: number)
 	local root = motor(char, "HumanoidRootPart", "RootJoint")
 	if root then
 		yawOver(root, yaw)
+		local back = -yaw * (1 - HIP_SHARE)
 		local rh, lh = motor(char, "Torso", "Right Hip"), motor(char, "Torso", "Left Hip")
-		if rh then yawOver(rh, -yaw) end
-		if lh then yawOver(lh, -yaw) end
+		if rh then yawOver(rh, back, true) end
+		if lh then yawOver(lh, back, true) end
 	else
+		-- (R15: the hips are the lower torso; it takes its share, the waist the rest)
+		local hip = motor(char, "LowerTorso", "Root")
 		local waist = motor(char, "UpperTorso", "Waist")
-		if waist then yawOver(waist, yaw) end
+		if hip then yawOver(hip, yaw * HIP_SHARE) end
+		if waist then yawOver(waist, yaw * (1 - HIP_SHARE)) end
 	end
 end
 

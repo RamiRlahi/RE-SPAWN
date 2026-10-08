@@ -63,7 +63,7 @@ local function close()
 	end)
 end
 
-local function buildCard(parent: Instance, item: { id: string, count: number, name: string, description: string, category: string }, onSelect: () => ()): Frame
+local function buildCard(parent: Instance, item: { id: string, count: number, name: string, description: string, category: string }, onSelect: () -> ()): Frame
 	local card = Instance.new("Frame")
 	card.Name = `Card_{item.id}`
 	card.Size = UDim2.new(1, -16, 0, 84)

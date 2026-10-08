@@ -54,6 +54,7 @@ local menuSettingsStale = false -- (settings changed in a run: rebuild before sh
 local buildMenuSettings: () -> ()
 local classSelectGroup: CanvasGroup
 local campfireGroup: CanvasGroup? = nil
+local inHub = false -- walking the lobby plaza (its settings open in the world too)
 
 local currentSettings = SettingsConfig.CloneDefaultSettings()
 
@@ -184,6 +185,58 @@ local function showQuitConfirm()
 	for _, d in ipairs(panel:GetDescendants()) do
 		if d:IsA("GuiObject") and d.ZIndex < 52 then d.ZIndex = 52 end
 	end
+end
+
+-- ── The ready phase owns the screen ─────────────────────────────────────────
+-- While the campfire (ready up) is showing, it's the only UI: every other
+-- ScreenGui is held off, and the Roblox player list, health bar and emote
+-- menu are hidden. Some HUDs re-enable themselves every frame, so the hold
+-- is applied just before each render; when the campfire goes, the guis it
+-- switched off are switched back on (their own logic takes over from there).
+local READY_KEEP: { [string]: boolean } = {
+	LobbyScreenGui = true, -- (the campfire itself, the settings, the fades)
+	CoopScreen = true,     -- (INVITE FRIENDS, opened from the campfire)
+	CoopInvite = true,     -- (a friend's invite arriving)
+}
+local READY_CORE = { Enum.CoreGuiType.PlayerList, Enum.CoreGuiType.Health, Enum.CoreGuiType.EmotesMenu }
+
+local function watchReadyPhase()
+	local StarterGui = game:GetService("StarterGui")
+	local RunService = game:GetService("RunService")
+	local playerGui = player:WaitForChild("PlayerGui")
+	local held: { [ScreenGui]: boolean } = {}
+	local coreHeld: { [Enum.CoreGuiType]: boolean }? = nil
+	RunService:BindToRenderStep("ReadyPhaseFocus", Enum.RenderPriority.Last.Value, function()
+		local group = campfireGroup
+		local on = group ~= nil and group.Visible and screenGui ~= nil and screenGui.Enabled and not inHub
+		if on then
+			for _, g in ipairs(playerGui:GetChildren()) do
+				if g:IsA("ScreenGui") and g.Enabled and not READY_KEEP[g.Name] then
+					held[g] = true
+					g.Enabled = false
+				end
+			end
+			if not coreHeld then
+				local was = {}
+				for _, t in ipairs(READY_CORE) do
+					was[t] = StarterGui:GetCoreGuiEnabled(t)
+					pcall(StarterGui.SetCoreGuiEnabled, StarterGui, t, false)
+				end
+				coreHeld = was
+			end
+		elseif next(held) ~= nil or coreHeld then
+			for g in pairs(held) do
+				if g.Parent then g.Enabled = true end
+			end
+			table.clear(held)
+			if coreHeld then
+				for t, was in pairs(coreHeld) do
+					if was then pcall(StarterGui.SetCoreGuiEnabled, StarterGui, t, true) end
+				end
+				coreHeld = nil
+			end
+		end
+	end)
 end
 
 function UIManager.Init(onGameStartRequested: (classId: string) -> ())
@@ -323,6 +376,8 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 		titleScreenGroup.Visible = true
 		titleScreenGroup.GroupTransparency = 0
 	end
+
+	watchReadyPhase()
 end
 
 function UIManager.ShowTitle()
@@ -351,7 +406,6 @@ function UIManager.ShowTitle()
 end
 
 local inGameSettings = false -- opened with Escape during a run (the menu UI is off)
-local inHub = false -- walking the lobby plaza (its settings open in the world too)
 
 function UIManager.ShowSettings()
 	if player:GetAttribute("InLobby") == false or inHub then
