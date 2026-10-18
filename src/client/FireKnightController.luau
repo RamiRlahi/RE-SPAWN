@@ -315,7 +315,8 @@ end
 --
 -- R6: the waist IS the root joint, so leaning or turning the torso swings
 -- the legs with it. `stance` builds a grounded lower body: the torso leans
--- (`lean`, - = forward) and turns (`twist`), the legs are set by their WORLD
+-- (`lean`, - = forward) and turns (`twist`; CastPoses turns the hips back
+-- so the feet stay pointing ahead), the legs are set by their WORLD
 -- angles (left foot `front`, right foot `back`, `spread` to the sides) with
 -- the lean cancelled at the hips, and the body drops exactly as far as the
 -- legs' angles lower the hips, so the feet stay on the floor.
@@ -324,8 +325,8 @@ type Pose = { [string]: { number } }
 local function stance(p: Pose, lean: number, twist: number, front: number, back: number, spread: number?): Pose
 	local sp = spread or 6
 	p.W = { lean, twist, 0 }
-	p.LH = { front - lean, -twist, -sp }
-	p.RH = { -back - lean, -twist, sp }
+	p.LH = { front - lean, 0, -sp }
+	p.RH = { -back - lean, 0, sp }
 	local legs = math.rad((math.abs(front) + math.abs(back)) / 2)
 	local drop = (1 - math.cos(math.rad(lean))) + 2 * (1 - math.cos(legs)) + 2 * (1 - math.cos(math.rad(sp)))
 	p.Root = { 0, 0, 0, 0, -drop, 0 }
@@ -417,21 +418,22 @@ local COMBO_HIT = { 0.12, 0.11, 0.14, EXECUTION_WINDUP }
 local function swingPose(char: Model, step: number)
 	if step == 1 then
 		-- Cinder Slash: weight back and coiled right, the blade low and flat;
-		-- the hips drive a wide sweep across to the left and carry on round.
+		-- the hips drive a wide sweep across to the left and carry on round
+		-- (twist + = to the left, as its crescent).
 		gripTo(char, 0, 0.1)
 		CastPoses.play(char, {
-			{ dur = 0.12, style = QUAD, pose = pose(-6, 45, 14, 14, 25, 105, 20, 80, { N = { 0, -30, 0 } }) },
-			{ dur = 0.08, style = QUART, pose = pose(-12, -35, 22, 22, 25, -90, 20, -65, { N = { 0, 20, 0 } }) },
-			{ dur = 0.16, pose = pose(-10, -50, 22, 22, 20, -115, 15, -88, { N = { 0, 28, 0 } }) },
+			{ dur = 0.12, style = QUAD, pose = pose(-6, -45, 14, 14, 25, -105, 20, -80, { N = { 0, 30, 0 } }) },
+			{ dur = 0.08, style = QUART, pose = pose(-12, 35, 22, 22, 25, 90, 20, 65, { N = { 0, -20, 0 } }) },
+			{ dur = 0.16, pose = pose(-10, 50, 22, 22, 20, 115, 15, 88, { N = { 0, -28, 0 } }) },
 		}, 0.34, true)
 	elseif step == 2 then
 		-- Scorching Cross: gathered up high on the left, then cut down across
 		-- to the low right; the two trails cross into an X.
 		gripTo(char, 0, 0.1)
 		CastPoses.play(char, {
-			{ dur = 0.11, style = QUAD, pose = pose(4, -40, 14, 14, 115, -65, 105, -45, { N = { -6, 25, 0 } }) },
-			{ dur = 0.08, style = QUART, pose = pose(-16, 38, 24, 24, 5, 85, 10, 60, { N = { 8, -15, 0 } }) },
-			{ dur = 0.16, pose = pose(-13, 50, 24, 24, 0, 98, 5, 72, { N = { 8, -22, 0 } }) },
+			{ dur = 0.11, style = QUAD, pose = pose(4, 40, 14, 14, 115, 65, 105, 45, { N = { -6, -25, 0 } }) },
+			{ dur = 0.08, style = QUART, pose = pose(-16, -38, 24, 24, 5, -85, 10, -60, { N = { 8, 15, 0 } }) },
+			{ dur = 0.16, pose = pose(-13, -50, 24, 24, 0, -98, 5, -72, { N = { 8, 22, 0 } }) },
 		}, 0.34, true)
 	elseif step == 3 then
 		-- Furnace Breaker: the blade turned to run along the arms and lifted
@@ -443,6 +445,7 @@ local function swingPose(char: Model, step: number)
 			{ dur = 0.07, style = QUART, pose = pose(-26, 0, 30, 30, 38, 0, 40, 0, { N = { 16, 0, 0 } }) },
 			{ dur = 0.2, pose = pose(-30, 0, 32, 32, 32, 0, 34, 0, { N = { 18, 0, 0 } }) },
 		}, 0.4, true)
+		task.delay(0.21, CastPoses.hitStop, char, 0.06)
 		gripBack(char, 0.42, 0.3)
 	else
 		-- Infernal Execution: the sword hauled back over the shoulder until the
@@ -456,6 +459,7 @@ local function swingPose(char: Model, step: number)
 			{ dur = 0.08, style = QUART, pose = pose(-38, 0, 38, 38, 42, 0, 44, 0, { N = { 22, 0, 0 } }) },
 			{ dur = 0.34, pose = pose(-36, 0, 38, 38, 38, 0, 40, 0, { N = { 20, 0, 0 } }) },
 		}, 0.48, true)
+		task.delay(EXECUTION_WINDUP + 0.08, CastPoses.hitStop, char, 0.09)
 		gripBack(char, EXECUTION_WINDUP + 0.5, 0.35)
 	end
 end
@@ -560,8 +564,8 @@ local function comboVFX(char: Model, attacker: Player?, step: number, dir: Vecto
 		task.delay(COMBO_HIT[2] - 0.04, crescent, look * CFrame.new(0, 0.6, 0) * CFrame.Angles(0, 0, math.rad(24)), 6.5 * size, 150, thick, 0.4, -1, color)
 		task.delay(COMBO_HIT[2], ClassFX.Burst, root.Position + dir * 4 + Vector3.new(0, 1, 0), EMBER, 10, 14, TEX_SPARK, 0.3, 0.5)
 	elseif step == 3 then
-		-- A vertical chop that bursts into a small explosion.
-		task.delay(COMBO_HIT[3] - 0.04, crescent, look * CFrame.new(0, 1, 0) * CFrame.Angles(0, 0, math.rad(90)), 5.5 * size, 150, thick, 0.25, -1, color)
+		-- A vertical chop (drawn top to bottom) that bursts into a small explosion.
+		task.delay(COMBO_HIT[3] - 0.04, crescent, look * CFrame.new(0, 1, 0) * CFrame.Angles(0, 0, math.rad(90)), 5.5 * size, 150, thick, 0.25, 1, color)
 		task.delay(COMBO_HIT[3] + 0.02, function()
 			explosion(onGround(root.Position + dir * 6 * size) + Vector3.new(0, 0.8, 0), 7 * size * 0.55, false)
 		end)
@@ -577,7 +581,7 @@ local function comboVFX(char: Model, attacker: Player?, step: number, dir: Vecto
 		task.delay(EXECUTION_WINDUP, function()
 			if not root.Parent then return end
 			local base = CFrame.lookAt(root.Position, root.Position + dir)
-			crescent(base * CFrame.new(0, 1.2, 0) * CFrame.Angles(0, 0, math.rad(90)), 7.5 * size, 170, thick * 1.5, 0.3, -1, color)
+			crescent(base * CFrame.new(0, 1.2, 0) * CFrame.Angles(0, 0, math.rad(90)), 7.5 * size, 170, thick * 1.5, 0.3, 1, color)
 			local impact = onGround(root.Position + dir * 6 * size)
 			explosion(impact + Vector3.new(0, 1, 0), 8.5 * size * 0.6, true)
 			for i = 1, 8 do
@@ -1498,7 +1502,7 @@ local function onRise(msg: any)
 	end
 	-- The upward slash rips a column of fire out of the ground.
 	local base = CFrame.lookAt(pos + Vector3.new(0, 1, 0), pos + Vector3.new(0, 1, 0) + dir)
-	crescent(base * CFrame.Angles(0, 0, math.rad(-80)), if msg.empowered then 8 else 6.5, 170, 1.6, 0.3, -1,
+	crescent(base * CFrame.Angles(0, 0, math.rad(-80)), if msg.empowered then 8 else 6.5, 170, 1.6, 0.3, 1,
 		if msg.empowered then HOT else FIRE)
 	eruption(pos + dir * 4, if msg.empowered then 16 else 11, if msg.empowered then 3 else 2.2)
 	FireFX.Puff("lick", CFrame.new(pos + dir * 4 + Vector3.new(0, 2, 0)), 1, 16)
@@ -1853,7 +1857,7 @@ local function onExecution(msg: any)
 	-- One enormous downward slash, then a gigantic wave of fire tearing
 	-- across the arena, the floor splitting under it.
 	local base = CFrame.lookAt(pos + Vector3.new(0, 1.5, 0), pos + Vector3.new(0, 1.5, 0) + dir)
-	crescent(base * CFrame.Angles(0, 0, math.rad(90)), 9, 170, 3, 0.35, -1, HOT)
+	crescent(base * CFrame.Angles(0, 0, math.rad(90)), 9, 170, 3, 0.35, 1, HOT)
 	SwordFX.Blade(pos + dir * length * 0.5 + Vector3.new(0, 0.5, 0), dir, length, width * 0.35, FIRE, 0.3)
 	explosion(pos + dir * 4 + Vector3.new(0, 1, 0), 6, true)
 	local steps = math.floor(length / 3)
@@ -1949,5 +1953,16 @@ function FireKnightController.Init(d: Deps)
 		end
 	end)
 end
+
+-- The pose functions, for previews and tests (they pose any character model).
+FireKnightController.Poses = {
+	swing = swingPose,
+	charge = chargePose,
+	rise = risePose,
+	quake = quakePose,
+	plant = plantSword,
+	raise = raisePose,
+	slam = slamPose,
+}
 
 return FireKnightController

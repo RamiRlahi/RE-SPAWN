@@ -255,13 +255,13 @@ end
 -- ── Arm poses (gun raised / fanning / roll flip) ────────────────────────────
 -- Applied every frame after the Animator, so they hold over any animation.
 type Pose = { aimUntil: number, fanUntil: number, rollStart: number, rollUntil: number, lowUntil: number,
-	tossAt: number, coinPart: BasePart?, coinPos: Vector3?, coinUntil: number, recoilAt: number }
+	tossAt: number, coinPart: BasePart?, coinPos: Vector3?, coinUntil: number, recoilAt: number, shotAt: number }
 local poses: { [Model]: Pose } = {}
 
 local function poseOf(char: Model): Pose
 	local p = poses[char]
 	if not p then
-		p = { aimUntil = 0, fanUntil = 0, rollStart = 0, rollUntil = 0, lowUntil = 0, tossAt = -10, coinPart = nil, coinPos = nil, coinUntil = 0, recoilAt = -10 }
+		p = { aimUntil = 0, fanUntil = 0, rollStart = 0, rollUntil = 0, lowUntil = 0, tossAt = -10, coinPart = nil, coinPos = nil, coinUntil = 0, recoilAt = -10, shotAt = -10 }
 		poses[char] = p
 	end
 	return p
@@ -270,6 +270,18 @@ end
 local function holdAim(char: Model, seconds: number)
 	local p = poseOf(char)
 	p.aimUntil = math.max(p.aimUntil, os.clock() + seconds)
+end
+
+-- A shot: the raised gun arm kicks up with the recoil and settles back.
+local function kick(char: Model)
+	poseOf(char).shotAt = os.clock()
+end
+
+-- Degrees the recoil lifts the gun arm `since` seconds after a shot: a sharp
+-- jump (25 ms) and an exponential settle.
+local function recoil(since: number): number
+	if since < 0 or since > 0.4 then return 0 end
+	return 16 * math.exp(-since * 13) * math.min(since / 0.025, 1)
 end
 
 local function motor(char: Model, part: string, name: string): Motor6D?
@@ -342,12 +354,14 @@ local function applyPoses()
 				if lh then lh.Transform = CFrame.Angles(0, 0, math.rad(-7)) end
 			end
 		elseif now < p.aimUntil or (char:FindFirstChild("Revolver") and now >= p.rollUntil) then
-			-- Gun always up: arm straight out in front (R6 shoulders turn about their Z).
+			-- Gun always up: arm straight out in front (R6 shoulders turn about
+			-- their Z), kicking up with each shot's recoil.
+			local deg = 90 + recoil(now - p.shotAt)
 			if rightR6 then
-				rightR6.Transform = CFrame.Angles(0, 0, math.rad(90))
+				rightR6.Transform = CFrame.Angles(0, 0, math.rad(deg))
 			else
 				local r15 = motor(char, "RightUpperArm", "RightShoulder")
-				if r15 then r15.Transform = CFrame.Angles(math.rad(90), 0, 0) end
+				if r15 then r15.Transform = CFrame.Angles(math.rad(deg), 0, 0) end
 				local elbow = motor(char, "RightLowerArm", "RightElbow")
 				if elbow then elbow.Transform = CFrame.identity end
 				local wrist = motor(char, "RightHand", "RightWrist")
@@ -792,6 +806,7 @@ function GunslingerController.Shoot(rollShot: boolean?): boolean
 	local aim = deps.getAim(root)
 	root.CFrame = CFrame.lookAt(root.Position, root.Position + aim)
 	holdAim(char, AIM_HOLD)
+	kick(char)
 	localAmmo -= 1
 	local final = localAmmo == 0
 	local deadeyeReady = (tonumber(player:GetAttribute("GS_Deadeye")) or 0) >= 100
@@ -1593,6 +1608,7 @@ local function onShot(msg: any)
 			p.coinUntil = math.max(p.coinUntil, os.clock() + 0.4)
 		else
 			holdAim(char, AIM_HOLD)
+			if msg.attacker ~= player or os.clock() - poseOf(char).shotAt > 0.05 then kick(char) end
 		end
 	end
 	local from = if char then muzzleOf(char) else msg.from

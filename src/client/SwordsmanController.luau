@@ -130,118 +130,142 @@ local function popWord(char: Model, text: string, color: Color3, size: number)
 	Debris:AddItem(bb, 1.1)
 end
 
--- ── Poses (CastPoses: +rx raises the arm forward, ry turns about vertical) ──
--- The sword sticks out of the fist, so the blade points along the arm tilted
--- 90° forward: arm hanging (rx 0) = blade level and forward, arm raised
--- (rx 90) = blade straight up. Flat slashes keep the arm low and turn it.
--- Whole-body, duelist-style moves: the knees bend and the body dips (Root
--- py), the torso coils and uncoils (W ry), the free arm flings for balance,
--- the feet split into lunges (RH / LH), and the big moves leave the ground.
-local ROOT_SPIN = function(t0: number, delay: number, dur: number, turns: number)
-	return function()
-		local a = math.clamp((os.clock() - t0 - delay) / dur, 0, 1)
-		return { Root = { 0, -(1 - (1 - a) ^ 2) * 360 * turns, 0 } }
+-- ── Poses (CastPoses character space) ──────────────────────────────────────
+-- Signs: W ry + turns the torso LEFT (the hips turn back, so the feet stay
+-- planted); RS ry + rolls the sword arm so the blade swings to the left;
+-- RS rz - brings the arm in across the body (LS: rz +). The sword sticks out
+-- of the fist: arm hanging (rx 0) = blade level and forward, arm raised
+-- (rx 90) = blade straight up.
+-- Every cut is a short coil away from it (anticipation), an accelerating
+-- strike (Quart) in the same direction as its slash VFX, and a follow-
+-- through that carries the arm on across the body past the hit before it
+-- settles; the free arm counter-swings and the head stays on the target.
+-- The legs come from CastPoses.body, so the feet stay on the floor.
+local QUAD, QUART, SINE = Enum.EasingStyle.Quad, Enum.EasingStyle.Quart, Enum.EasingStyle.Sine
+local body, lift = CastPoses.body, CastPoses.lift
+
+-- Whole-body turn (+ = to the left) over a stage, `delay` / `dur` in the
+-- move's own time (the wobble's argument), so hit-stop and attack speed
+-- carry it too. Whole turns only, so the next stage doesn't snap round.
+local function spin(turns: number, delay: number, dur: number)
+	return function(t: number)
+		local a = math.clamp((t - delay) / dur, 0, 1)
+		return { Root = { 0, (1 - (1 - a) ^ 2) * 360 * turns, 0 } }
 	end
 end
 
-local function swingPose(char: Model, step: number)
+local function swingPose(char: Model, step: number, speed: number?)
+	local s = speed or 1
+	local opts = { speed = s }
 	if step == 1 then
-		-- Step-in slash: coil low to the right, then unleash across to the
-		-- left, stepping into it with the off arm flung back.
+		-- Flat cut right to left: coiled to the right with the blade drawn
+		-- back past the hip, then the hips drive it across and on round to
+		-- the left, the arm wrapping across the chest.
 		CastPoses.play(char, {
-			{ dur = 0.07, pose = { Root = { 0, 0, 0, 0, -0.5, 0.2 }, W = { 10, 55, 0 }, RS = { 35, 95, 0 },
-				LS = { 45, -20, -30 }, RH = { -25, 0, 0 }, LH = { 30, 0, 0 }, N = { 0, -30, 0 } } },
-			{ dur = 0.1, pose = { Root = { 0, 0, 0, 0, -0.35, -0.7 }, W = { -10, -60, 0 }, RS = { 20, -105, 0 },
-				LS = { -25, 0, -65 }, RH = { 35, 0, 0 }, LH = { -40, 0, 0 }, N = { 0, 25, 0 } } },
-			{ dur = 0.14, pose = { Root = { 0, 0, 0, 0, -0.2, -0.4 }, W = { -5, -40, 0 }, RS = { 15, -80, 0 },
-				LS = { -10, 0, -40 }, RH = { 20, 0, 0 }, LH = { -20, 0, 0 } } },
-		})
+			{ dur = 0.07, style = QUAD, pose = body(4, -50, 18, 14,
+				{ N = { 0, 38, 0 }, RS = { 40, -100, 35 }, LS = { 45, 0, 30 } }, 8, 0.2, 0.15) },
+			{ dur = 0.08, style = QUART, pose = body(-8, 30, 26, 22,
+				{ N = { 0, -18, 0 }, RS = { 35, 40, -30 }, LS = { -20, 0, -45 } }, 8, -0.1, -0.4) },
+			{ dur = 0.15, pose = body(-10, 58, 28, 24,
+				{ N = { 0, -32, 0 }, RS = { 30, 105, -55 }, LS = { -35, 0, -60 } }, 8, -0.2, -0.5) },
+		}, 0.24, nil, opts)
 	elseif step == 2 then
-		-- Rising cross slash: drop low on the left, then rip up and across
-		-- to the right onto the toes.
+		-- Rising cut left to right: sunk low and wound to the left with the
+		-- blade down by the left knee, then ripped up and across to the high
+		-- right, rising onto the toes.
 		CastPoses.play(char, {
-			{ dur = 0.07, pose = { Root = { 0, 0, 0, 0, -0.7, 0 }, W = { 18, -55, 0 }, RS = { -15, -85, 0 },
-				LS = { 30, 0, -20 }, RH = { 30, 0, 0 }, LH = { -30, 0, 0 } } },
-			{ dur = 0.1, pose = { Root = { 0, 0, 0, 0, 0.45, -0.3 }, W = { -22, 60, 0 }, RS = { 75, 100, 0 },
-				LS = { 50, 0, -75 }, N = { -18, 20, 0 }, RH = { -15, 0, 0 }, LH = { 10, 0, 0 } } },
-			{ dur = 0.14, pose = { Root = { 0, 0, 0, 0, 0.2, -0.2 }, W = { -12, 40, 0 }, RS = { 60, 80, 0 }, LS = { 30, 0, -50 } } },
-		})
+			{ dur = 0.07, style = QUAD, pose = body(14, 55, 22, 26,
+				{ N = { -6, -40, 0 }, RS = { -5, 95, -40 }, LS = { 35, 0, 25 } }, 10, -0.2, 0.1) },
+			{ dur = 0.08, style = QUART, pose = body(-10, -25, 14, 12,
+				{ N = { -8, 15, 0 }, RS = { 70, -40, 25 }, LS = { 30, 0, -55 } }, 6, 0.15, -0.3) },
+			{ dur = 0.15, pose = lift(body(-18, -60, 10, 8,
+				{ N = { -16, 30, 0 }, RS = { 100, -75, 35 }, LS = { 45, 0, -80 } }, 6, 0.25, -0.3), 0.15) },
+		}, 0.24, nil, opts)
 	elseif step == 3 then
-		-- Lunging thrust: sight down the off hand, then explode forward into a
-		-- deep split with the blade driven straight out.
+		-- Lunging thrust: drawn back sighting down the off hand, then the
+		-- right shoulder drives forward into a deep split, the blade straight
+		-- out at the target (the arm raised by as much as the body leans, or
+		-- the lean would tip the blade into the floor).
 		CastPoses.play(char, {
-			{ dur = 0.08, pose = { Root = { 0, 0, 0, 0, -0.6, 0.4 }, W = { 12, 40, 0 }, RS = { -35, 25, 0, 0, 0, 0.9 },
-				LS = { 85, -10, -10 }, RH = { -35, 0, 0 }, LH = { 35, 0, 0 }, N = { 0, -35, 0 } } },
-			{ dur = 0.09, pose = { Root = { 0, 0, 0, 0, -0.9, -1.4 }, W = { -28, -15, 0 }, RS = { 8, 0, 0, 0, 0, -1.2 },
-				LS = { -35, 0, -55 }, RH = { -60, 0, 0 }, LH = { 50, 0, 0 }, N = { 12, 10, 0 } } },
-			{ dur = 0.16, pose = { Root = { 0, 0, 0, 0, -0.6, -1 }, W = { -18, -10, 0 }, RS = { 6, 0, 0, 0, 0, -0.8 },
-				LS = { -20, 0, -40 }, RH = { -45, 0, 0 }, LH = { 38, 0, 0 } } },
-		})
+			{ dur = 0.08, style = QUAD, pose = body(8, -35, 16, 20,
+				{ N = { 0, 30, 0 }, RS = { -30, 0, 15, 0, 0, 0.35 }, LS = { 85, 0, 15 } }, 8, 0.1, 0.4) },
+			{ dur = 0.07, style = QUART, pose = body(-24, 40, 36, 44,
+				{ N = { 14, -30, 0 }, RS = { 32, 0, -8, 0, 0, -0.35 }, LS = { -40, 0, -55 } }, 8, -0.1, -1.2) },
+			{ dur = 0.17, pose = body(-20, 36, 34, 40,
+				{ N = { 12, -26, 0 }, RS = { 26, 0, -6, 0, 0, -0.3 }, LS = { -30, 0, -48 } }, 8, -0.1, -1.0) },
+		}, 0.26, nil, opts)
 	else
-		-- Leaping spin finisher: crouch, spring up spinning one and a half
-		-- turns with the blade out wide and the legs tucked, then slam down
-		-- into a low landing.
-		local t0 = os.clock()
+		-- Leaping spin finisher: load into a wide crouch, spring up and spin
+		-- one full turn to the left with the blade out wide and the legs
+		-- tucked, then come down hard into a low split.
 		CastPoses.play(char, {
-			{ dur = 0.07, pose = { Root = { 0, 0, 0, 0, -0.9, 0 }, W = { 18, 45, 0 }, RS = { 20, 0, 75 },
-				LS = { 20, 0, -40 }, RH = { -30, 0, 0 }, LH = { -30, 0, 0 } } },
+			{ dur = 0.07, style = QUAD, pose = body(16, -45, 34, 34,
+				{ RS = { 20, 0, 75 }, LS = { 20, 0, -40 }, N = { 0, 30, 0 } }, 14) },
 			{ dur = 0.32, pose = { Root = { 0, 0, 0, 0, 2.2, 0 }, W = { -8, 0, 0 }, RS = { 30, 0, 88 },
-				LS = { 25, 0, -85 }, RH = { -55, 0, 0 }, LH = { -45, 0, 0 } },
-				wobble = ROOT_SPIN(t0, 0.07, 0.32, 1.5) },
-			{ dur = 0.08, pose = { Root = { 0, 0, 0, 0, -1, 0 }, W = { 28, 0, 0 }, RS = { -45, 0, 20 },
-				LS = { 30, 0, -60 }, RH = { -35, 0, 0 }, LH = { 40, 0, 0 } } },
-			{ dur = 0.14, pose = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { 18, 0, 0 }, RS = { -30, 0, 20 } } },
-		})
+				LS = { 25, 0, -85 }, RH = { -55, 0, 6 }, LH = { -45, 0, -6 }, N = { 6, 0, 0 } },
+				wobble = spin(1, 0.07 / s, 0.32 / s) },
+			{ dur = 0.08, style = QUART, pose = body(-28, 0, 38, 38,
+				{ RS = { -45, 0, 20 }, LS = { 30, 0, -60 }, N = { 18, 0, 0 } }, 12) },
+			{ dur = 0.14, pose = body(-18, 0, 32, 32, { RS = { -30, 0, 20 }, LS = { 20, 0, -45 }, N = { 12, 0, 0 } }, 12) },
+		}, 0.3, nil, opts)
 	end
 end
 
 -- Skill poses (shared by your cast and everyone else's view of it).
 local function rushPose(char: Model, t: number)
-	-- Coiled low, then a flat sprinting lunge with the blade swept behind.
+	-- Coiled low to the right, then a flat sprinting lunge through the
+	-- target, the blade cutting right to left (as the cuts along the dash)
+	-- and swept out behind on the left; the off arm flung back.
 	CastPoses.play(char, {
-		{ dur = 0.05, pose = { Root = { 0, 0, 0, 0, -0.8, 0 }, W = { 25, 45, 0 }, RS = { 25, 90, 0 }, LS = { 40, 0, -30 },
-			RH = { -40, 0, 0 }, LH = { 40, 0, 0 } } },
-		{ dur = t, pose = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { -38, -35, 0 }, RS = { 20, -115, 0 }, LS = { -40, 0, -70 },
-			RH = { -60, 0, 0 }, LH = { 60, 0, 0 }, N = { 20, 20, 0 } } },
-		{ dur = 0.16, pose = { Root = { 0, 0, 0, 0, -0.4, 0 }, W = { -15, -30, 0 }, RS = { 15, -85, 0 }, LS = { -20, 0, -45 },
-			RH = { -30, 0, 0 }, LH = { 30, 0, 0 } } },
-	})
+		{ dur = 0.05, style = QUAD, pose = body(18, -45, 30, 30,
+			{ N = { 0, 35, 0 }, RS = { 25, -95, 30 }, LS = { 40, 0, 25 } }, 10, 0.15, 0.2) },
+		{ dur = t, style = Enum.EasingStyle.Cubic, pose = body(-36, 35, 48, 52,
+			{ N = { 22, -25, 0 }, RS = { 20, 115, -45 }, LS = { -45, 0, -70 } }, 8, 0, -0.6) },
+		{ dur = 0.16, pose = body(-16, 28, 30, 30,
+			{ N = { 10, -18, 0 }, RS = { 15, 90, -35 }, LS = { -20, 0, -45 } }, 8) },
+	}, 0.24)
 end
 
 local function guardPose(char: Model, window: number)
 	-- A wide, low duelist's guard: blade upright across the body, off hand
 	-- braced on the flat, head turned to the threat.
-	local p = { Root = { 0, 0, 0, 0, -0.55, 0 }, W = { 6, 25, 0 }, RS = { 72, -48, 0 }, LS = { 58, 38, 0 },
-		RH = { -12, 0, 16 }, LH = { 12, 0, -16 }, N = { -8, -20, 0 } }
+	local p = body(6, 25, 22, 22, { RS = { 72, -48, -10 }, LS = { 58, 38, 18 }, N = { -8, -20, 0 } }, 16)
 	CastPoses.play(char, {
 		{ dur = 0.06, style = Enum.EasingStyle.Back, pose = p },
-		{ dur = window, pose = p },
+		{ dur = window, pose = p, wobble = function(t: number)
+			local b = math.sin(t * 3.2) * 1.2
+			return { W = { b, 0, 0 }, N = { -b * 0.5, 0, 0 } }
+		end },
 	})
 end
 
 local function counterPose(char: Model)
 	-- Drop, then launch upward into a rising uppercut slash, airborne, then
-	-- land.
+	-- land in a crouch.
 	CastPoses.play(char, {
-		{ dur = 0.05, pose = { Root = { 0, 0, 0, 0, -1, 0 }, W = { 25, 20, 0 }, RS = { -65, 0, 0 }, LS = { 20, 0, -30 },
-			RH = { -40, 0, 0 }, LH = { 35, 0, 0 } } },
-		{ dur = 0.14, pose = { Root = { 0, 0, 0, 0, 2.4, 0 }, W = { -28, -10, 0 }, RS = { 135, 0, 0 }, LS = { -40, 0, -65 },
-			RH = { -65, 0, 0 }, LH = { 20, 0, 0 }, N = { -25, 0, 0 } } },
-		{ dur = 0.14, pose = { Root = { 0, 0, 0, 0, 1.6, 0 }, W = { -15, 0, 0 }, RS = { 115, 0, 0 }, LS = { -20, 0, -50 },
-			RH = { -35, 0, 0 }, LH = { -10, 0, 0 } } },
-		{ dur = 0.12, pose = { Root = { 0, 0, 0, 0, -0.5, 0 }, W = { 15, 0, 0 }, RS = { 40, 0, 0 } } },
-	})
+		{ dur = 0.05, style = QUAD, pose = body(22, 20, 36, 36,
+			{ RS = { -65, 0, 20 }, LS = { 20, 0, -30 }, N = { -10, -15, 0 } }, 12) },
+		{ dur = 0.14, style = QUART, pose = { Root = { 0, 0, 0, 0, 2.4, 0 }, W = { -28, -10, 0 }, RS = { 150, 0, -15 },
+			LS = { -40, 0, -65 }, RH = { -65, 0, 6 }, LH = { 20, 0, -6 }, N = { -25, 0, 0 } } },
+		{ dur = 0.14, pose = { Root = { 0, 0, 0, 0, 1.6, 0 }, W = { -15, 0, 0 }, RS = { 125, 0, -10 },
+			LS = { -20, 0, -50 }, RH = { -35, 0, 6 }, LH = { -10, 0, -6 }, N = { -15, 0, 0 } } },
+		{ dur = 0.12, style = QUART, pose = body(-20, 0, 32, 32, { RS = { 40, 0, 0 }, LS = { 15, 0, -30 }, N = { 12, 0, 0 } }, 12) },
+	}, 0.28)
 end
 
 local function whirlPose(char: Model, dur: number)
 	-- Both arms flung wide, body leaning into the spin, hovering a little
-	-- off the ground and spinning hard.
-	local t0 = os.clock()
+	-- off the ground and spinning hard to the left (as its rings). A whole
+	-- number of turns, so it doesn't snap round when it ends.
+	local turns = math.max(1, math.floor(dur * 1300 / 360 + 0.5))
 	CastPoses.play(char, {
-		{ dur = 0.08, pose = { Root = { 0, 0, 0, 0, -0.5, 0 }, W = { 15, 40, 0 }, RS = { 25, 0, 88 }, LS = { 15, 0, -85 } } },
+		{ dur = 0.08, style = QUAD, pose = body(15, -40, 24, 24, { RS = { 25, 0, 88 }, LS = { 15, 0, -85 } }, 12) },
 		{ dur = dur, pose = { Root = { -8, 0, 6, 0, 0.35, 0 }, W = { -10, 0, 0 }, RS = { 28, 0, 90 }, LS = { 18, 0, -88 },
 			RH = { -15, 0, 12 }, LH = { 15, 0, -12 }, N = { 10, 0, 0 } },
-			wobble = function() return { Root = { 0, -((os.clock() - t0) * 1300) % 360, 0 } } end },
+			wobble = function(t: number)
+				local a = math.clamp((t - 0.08) / dur, 0, 1)
+				return { Root = { 0, (a * 360 * turns) % 360, 0 } }
+			end },
 	})
 end
 
@@ -346,7 +370,7 @@ function SwordsmanController.Basic(char: Model, root: BasePart): boolean
 	dir = Vector3.new(dir.X, 0, dir.Z)
 	dir = if dir.Magnitude > 0.01 then dir.Unit else root.CFrame.LookVector
 	root.CFrame = CFrame.lookAt(root.Position, root.Position + dir)
-	swingPose(char, localStep)
+	swingPose(char, localStep, speed)
 	comboVFX(char, localStep, dir)
 	ClassFX.Sound("whoosh", root, 0.6, if localStep == 4 then 0.85 else 1.1 + localStep * 0.05)
 	if localStep == 3 then
@@ -791,5 +815,14 @@ function SwordsmanController.Init(d: Deps)
 		end
 	end)
 end
+
+-- The pose functions, for previews and tests (they pose any character model).
+SwordsmanController.Poses = {
+	swing = swingPose,
+	rush = rushPose,
+	guard = guardPose,
+	counter = counterPose,
+	whirl = whirlPose,
+}
 
 return SwordsmanController

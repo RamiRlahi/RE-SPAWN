@@ -88,40 +88,71 @@ local function trailOn(char: Model, t: number)
 end
 
 -- ── Poses ───────────────────────────────────────────────────────────────────
-local function swingPose(char: Model, step: number)
+-- (CastPoses character space: W ry + turns the torso left over planted feet;
+-- RS ry + rolls the knife arm so the blade swings left; RS rz - brings the arm
+-- across the body. The knife sticks out of the fist: arm hanging = blade
+-- forward.) A knife fighter: low, quick, coiled — short wind-ups, strikes
+-- that accelerate into the cut, the arm wrapping on across the body after
+-- it, the free hand guarding high.
+local QUAD, QUART = Enum.EasingStyle.Quad, Enum.EasingStyle.Quart
+local body, lift = CastPoses.body, CastPoses.lift
+
+local function swingPose(char: Model, step: number, speed: number?)
+	local opts = { speed = speed or 1 }
 	if step == 1 then
+		-- Forehand, right to left, low.
 		CastPoses.play(char, {
-			{ dur = 0.06, pose = { Root = { 0, 0, 0, 0, -0.4, 0.2 }, W = { 8, 45, 0 }, RS = { 30, 90, 0 }, LS = { 40, -20, -30 }, N = { 0, -25, 0 } } },
-			{ dur = 0.08, pose = { Root = { 0, 0, 0, 0, -0.3, -0.5 }, W = { -8, -50, 0 }, RS = { 15, -100, 0 }, LS = { -20, 0, -60 }, N = { 0, 20, 0 } } },
-			{ dur = 0.12, pose = { Root = { 0, 0, 0, 0, -0.2, -0.3 }, W = { -4, -30, 0 }, RS = { 10, -70, 0 }, LS = { -10, 0, -40 } } },
-		})
+			{ dur = 0.05, style = QUAD, pose = body(-10, -45, 22, 18,
+				{ N = { 6, 35, 0 }, RS = { 35, -90, 30 }, LS = { 55, 0, 25 } }, 10, 0.2, 0.15) },
+			{ dur = 0.06, style = QUART, pose = body(-16, 30, 30, 26,
+				{ N = { 10, -15, 0 }, RS = { 40, 45, -35 }, LS = { 20, 0, -35 } }, 10, -0.1, -0.45) },
+			{ dur = 0.12, pose = body(-18, 55, 32, 28,
+				{ N = { 12, -28, 0 }, RS = { 35, 100, -55 }, LS = { -10, 0, -50 } }, 10, -0.2, -0.5) },
+		}, 0.2, nil, opts)
 	elseif step == 2 then
+		-- Backhand, rising left to right.
 		CastPoses.play(char, {
-			{ dur = 0.06, pose = { Root = { 0, 0, 0, 0, -0.5, 0 }, W = { 14, -45, 0 }, RS = { -10, -80, 0 }, LS = { 25, 0, -20 } } },
-			{ dur = 0.08, pose = { Root = { 0, 0, 0, 0, 0.3, -0.3 }, W = { -18, 50, 0 }, RS = { 65, 95, 0 }, LS = { 45, 0, -70 }, N = { -12, 15, 0 } } },
-			{ dur = 0.12, pose = { Root = { 0, 0, 0, 0, 0.1, -0.2 }, W = { -10, 30, 0 }, RS = { 50, 70, 0 }, LS = { 25, 0, -45 } } },
-		})
+			{ dur = 0.05, style = QUAD, pose = body(-6, 50, 26, 26,
+				{ N = { 4, -35, 0 }, RS = { 0, 90, -45 }, LS = { 50, 0, 20 } }, 12, -0.2, 0.1) },
+			{ dur = 0.06, style = QUART, pose = body(-14, -30, 18, 16,
+				{ N = { 0, 18, 0 }, RS = { 65, -45, 25 }, LS = { 40, 0, -45 } }, 8, 0.15, -0.3) },
+			{ dur = 0.12, pose = lift(body(-16, -55, 14, 12,
+				{ N = { -8, 28, 0 }, RS = { 95, -80, 40 }, LS = { 30, 0, -70 } }, 8, 0.2, -0.3), 0.1) },
+		}, 0.2, nil, opts)
 	else
+		-- Lunging stab: drawn back low, then the whole body behind the point,
+		-- the right shoulder driving through (arm raised as much as the body
+		-- leans, so the blade stays level).
 		CastPoses.play(char, {
-			{ dur = 0.07, pose = { Root = { 0, 0, 0, 0, -0.5, 0.3 }, W = { 10, 35, 0 }, RS = { -30, 20, 0, 0, 0, 0.7 }, LS = { 80, -10, -10 }, N = { 0, -30, 0 } } },
-			{ dur = 0.08, pose = { Root = { 0, 0, 0, 0, -0.8, -1.1 }, W = { -24, -10, 0 }, RS = { 6, 0, 0, 0, 0, -1 }, LS = { -30, 0, -50 }, RH = { -50, 0, 0 }, LH = { 40, 0, 0 } } },
-			{ dur = 0.14, pose = { Root = { 0, 0, 0, 0, -0.5, -0.8 }, W = { -15, -8, 0 }, RS = { 6, 0, 0, 0, 0, -0.7 }, LS = { -20, 0, -40 } } },
-		})
+			{ dur = 0.06, style = QUAD, pose = body(4, -30, 18, 20,
+				{ N = { 0, 25, 0 }, RS = { -35, 20, 15, 0, 0, 0.3 }, LS = { 80, 0, 10 } }, 8, 0.1, 0.35) },
+			{ dur = 0.06, style = QUART, pose = body(-26, 35, 40, 46,
+				{ N = { 16, -28, 0 }, RS = { 34, 0, -8, 0, 0, -0.3 }, LS = { -35, 0, -50 } }, 8, -0.1, -1.1) },
+			{ dur = 0.14, pose = body(-22, 30, 36, 42,
+				{ N = { 12, -22, 0 }, RS = { 28, 0, -6, 0, 0, -0.25 }, LS = { -25, 0, -40 } }, 8, -0.1, -0.9) },
+		}, 0.22, nil, opts)
 	end
 end
 
 local function throwPose(char: Model)
+	-- Overhand throw: the knife cocked back past the ear, the off hand
+	-- sighting, then whipped down and across the body as it leaves.
 	CastPoses.play(char, {
-		{ dur = 0.08, pose = { Root = { 0, 0, 0, 0, -0.3, 0.4 }, W = { 6, 40, 0 }, RS = { 150, 30, 0 }, LS = { 50, -10, -30 }, N = { 0, -20, 0 } } },
-		{ dur = 0.08, pose = { Root = { 0, 0, 0, 0, -0.4, -0.6 }, W = { -14, -30, 0 }, RS = { 60, -20, 0 }, LS = { -25, 0, -50 } } },
-		{ dur = 0.14, pose = { Root = { 0, 0, 0, 0, -0.2, -0.3 }, W = { -6, -15, 0 }, RS = { 40, -10, 0 }, LS = { -10, 0, -30 } } },
-	})
+		{ dur = 0.08, style = QUAD, pose = body(8, -40, 16, 20,
+			{ N = { 0, 30, 0 }, RS = { 155, 0, 30 }, LS = { 75, 0, 20 } }, 8, 0.15, 0.3) },
+		{ dur = 0.07, style = QUART, pose = body(-16, 35, 26, 30,
+			{ N = { 6, -20, 0 }, RS = { 70, 0, -30 }, LS = { -25, 0, -50 } }, 8, -0.1, -0.5) },
+		{ dur = 0.15, pose = body(-18, 45, 28, 32,
+			{ N = { 8, -25, 0 }, RS = { 35, 0, -45 }, LS = { -20, 0, -45 } }, 8, -0.1, -0.5) },
+	}, 0.24)
 end
 
 local function crouchPose(char: Model, dur: number)
+	-- Sunk low and hunched forward, the knife held close, the off hand out.
+	local p = body(-25, 0, 40, 35, { RS = { 30, 20, -15 }, LS = { 45, -20, 15 }, N = { 18, 0, 0 } }, 14, 0, 0.1)
 	CastPoses.play(char, {
-		{ dur = 0.1, pose = { Root = { 0, 0, 0, 0, -0.9, 0.2 }, W = { 25, 0, 0 }, RS = { 40, 30, 0 }, LS = { 40, -30, 0 }, RH = { 40, 0, 0 }, LH = { -20, 0, 0 }, N = { -15, 0, 0 } } },
-		{ dur = dur, pose = { Root = { 0, 0, 0, 0, -0.9, 0.2 }, W = { 25, 0, 0 }, RS = { 40, 30, 0 }, LS = { 40, -30, 0 }, RH = { 40, 0, 0 }, LH = { -20, 0, 0 }, N = { -15, 0, 0 } } },
+		{ dur = 0.1, style = QUAD, pose = p },
+		{ dur = dur, pose = p },
 	})
 end
 
@@ -582,7 +613,7 @@ function RogueController.Basic(char: Model, root: BasePart): boolean
 	lastSwing = now
 	local dir = flat(deps.getAim(root))
 	root.CFrame = CFrame.lookAt(root.Position, root.Position + dir)
-	swingPose(char, localStep)
+	swingPose(char, localStep, speed)
 	trailOn(char, 0.18)
 	slash(root.Position + dir * 3.5 + Vector3.new(0, 1.2, 0), Vector3.new(-dir.Z, if localStep == 2 then 0.4 else -0.2, dir.X).Unit,
 		if localStep == 3 then 4 else 6, if localStep == 3 then CRIMSON else Color3.fromRGB(255, 120, 135), 0.18)
@@ -699,5 +730,12 @@ function RogueController.Init(d: Deps)
 		end
 	end)
 end
+
+-- The pose functions, for previews and tests (they pose any character model).
+RogueController.Poses = {
+	swing = swingPose,
+	throw = throwPose,
+	crouch = crouchPose,
+}
 
 return RogueController
