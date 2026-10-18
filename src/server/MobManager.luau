@@ -38,7 +38,8 @@ local FLOOR_SIZE = 12
 local MOBS_BASE = 7            -- mobs in a room at Threat I
 local MOBS_PER_TIER = 2        -- +2 per Threat tier
 local MOBS_MAX = 24
-local MELEE_WINDUP = 0.25      -- seconds between a melee mob's swing starting and it landing
+local MELEE_WINDUP = 0.45      -- seconds between a melee mob's swing starting and it landing (its body winds up through it: MobAnimator)
+local DRAW_TIME = 0.6          -- an archer's draw: the aim line shown, the string drawn back, then loosed
 local ELITE_BASE_CHANCE = 0.03 -- per mob, at Threat I
 local ELITE_CHANCE_PER_TIER = 0.007
 local ELITE_MAX_CHANCE = 0.1
@@ -505,13 +506,18 @@ local function aimLine(fromPos: Vector3, aimAt: Vector3, length: number, duratio
 	task.delay(duration + 0.05, function() line:Destroy() end)
 end
 
--- Kinds that walk like the plain zombie (its body): animated on every client
--- (ZombieAnimator: the shamble, the lurch, the lunge) instead of by tracks.
-local function shambles(mobModel: Model): boolean
+-- Mobs on the R6 templates (Zombie, Skeleton, NPCghost and every kind
+-- dressed on them): their bodies are posed on every client (MobAnimator: the
+-- walk, the swing's wind-up and strike, the draw, the flinch) instead of by
+-- tracks. Slimes (MobBlob) squash and stretch there.
+local RIG_BASES: { [string]: boolean } = { Zombie = true, Skeleton = true, NPCghost = true }
+local function baseOf(mobModel: Model): string
 	local kindId = mobModel:GetAttribute("MobKind")
 	local kind = typeof(kindId) == "string" and MobKinds.Kinds[kindId] or nil
-	if kind then return kind.base == "Zombie" end
-	return mobModel.Name == "Zombie"
+	return if kind then kind.base else mobModel.Name
+end
+local function posedRig(mobModel: Model): boolean
+	return RIG_BASES[baseOf(mobModel)] == true
 end
 
 -- Configure a rigged, animation-driven mob (melee chaser or ranged archer).
@@ -575,11 +581,11 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 
 	local walkTrack = nil
 	local attackTrack = nil
-	local shambler = not isBoss and shambles(mobModel)
-	if shambler then
+	local rig = not isBoss and posedRig(mobModel)
+	if rig then
 		-- (its clients pose it every frame; the tracks would fight them)
 		walkAnim, attackAnim = nil, nil
-		mobModel:AddTag("Shambler")
+		mobModel:AddTag("MobRig")
 	end
 	if walkAnim and walkAnim:IsA("Animation") then
 		walkTrack = animator:LoadAnimation(walkAnim)
@@ -808,8 +814,12 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 							if attackTrack then attackTrack:Play() end
 							-- Draw: the aim is set now and shown as a red line; the
 							-- arrow flies along it (step off the line to dodge).
-							local DRAW = 0.45
+							local DRAW = DRAW_TIME
 							drawingUntil = now + DRAW
+							if rig then
+								mobModel:SetAttribute("DrawTime", DRAW)
+								mobModel:SetAttribute("DrawAt", Workspace:GetServerTimeNow())
+							end
 							local flatTo = Vector3.new(tRoot.Position.X - rootPart.Position.X, 0, tRoot.Position.Z - rootPart.Position.Z)
 							local facing = if flatTo.Magnitude > 0.1 then flatTo.Unit else rootPart.CFrame.LookVector
 							local fromPos = rootPart.Position + facing * 2 + Vector3.new(0, 1, 0)
@@ -831,7 +841,11 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 							if now - lastAttack >= cooldown then
 								lastAttack = now
 								if attackTrack then attackTrack:Play() end
-								if shambler then mobModel:SetAttribute("AttackAt", Workspace:GetServerTimeNow()) end
+								-- (its body winds up through the windup on every client: the tell)
+								if rig then
+									mobModel:SetAttribute("AttackWindup", MELEE_WINDUP)
+									mobModel:SetAttribute("AttackAt", Workspace:GetServerTimeNow())
+								end
 								-- The swing lands a moment later, and only if the player is
 								-- still in reach and on the same level (step back to dodge).
 								task.delay(MELEE_WINDUP, function()
@@ -1016,6 +1030,8 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 	end
 
 	humanoid.HipHeight = 0.5
+	-- (a slime's body squashes and stretches on every client: MobAnimator)
+	if not isBoss and not selfRigged and baseOf(mobModel) == "Slime" then mobModel:AddTag("MobBlob") end
 
 	-- Attach overhead Health Bar
 	createMobHealthBar(mobModel, humanoid, rootPart, extents, isBoss)

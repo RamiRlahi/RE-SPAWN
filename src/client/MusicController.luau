@@ -1,18 +1,12 @@
 --!strict
 --[[
 	MusicController.luau
-<<<<<<< Updated upstream
-	Music: one track on the menu screens (title, class select, the campfire),
-	another walking the lobby plaza; in a run, a dark dungeon track (the two
-	take turns run to run), giving way to the drums of a horde event
-	(Horde.luau) while one is on.
-=======
-	Music outside the dungeon: one soundtrack for the menu screens (title,
-	class select, the campfire) and the lobby plaza alike, so walking from one
-	to the other it simply carries on (never starting over); in a run, only
-	the drums of a horde event (Horde.luau). Back from a run, the soundtrack
-	picks up where it was left.
->>>>>>> Stashed changes
+	Music: one soundtrack for the menu screens (title, class select, the
+	campfire) and the lobby plaza alike, so walking from one to the other it
+	simply carries on (never starting over); in a run, a dark dungeon track
+	(the two take turns run to run), giving way to the drums of a horde event
+	(Horde.luau) while one is on. Back from a run, the menu soundtrack picks
+	up where it was left.
 	Tracks crossfade; the volume is the Music Volume setting.
 --]]
 

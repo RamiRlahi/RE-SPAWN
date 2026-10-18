@@ -154,7 +154,7 @@ end)
 pcall(function()
 	require(script:WaitForChild("ClassCapes")).Init()
 	require(script:WaitForChild("EnemyProjectiles")).Init()
-	require(script:WaitForChild("ZombieAnimator")).Init()
+	require(script:WaitForChild("MobAnimator")).Init() -- the mobs' walks, swings, draws and flinches; the slimes' hops
 	require(script:WaitForChild("VfxDetail")).Init()
 	require(script:WaitForChild("PerfMode")).Init() -- low frame rate: shadows and scenery effects off
 	require(script:WaitForChild("PrisonFX")).Init() -- the prison map's searchlights and alarm

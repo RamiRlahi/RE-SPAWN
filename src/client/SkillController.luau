@@ -5020,8 +5020,13 @@ function SkillController.Init()
 	UserInputService.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton2 then attackHeld.right = nil end
 		if inputMatchesAction(input, "PrimaryAttack") then attackHeld.primary = nil end
+		-- (the Martial Artist's Focus Strike charges while its key is held)
+		if inputMatchesAction(input, "Skill1") then MartialController.Release(1) end
 	end)
-	UserInputService.WindowFocusReleased:Connect(function() table.clear(attackHeld) end)
+	UserInputService.WindowFocusReleased:Connect(function()
+		table.clear(attackHeld)
+		MartialController.Release(1)
+	end)
 	player.CharacterAdded:Connect(function() table.clear(attackHeld) end)
 
 	-- Client-side Blue Star Death VFX listener

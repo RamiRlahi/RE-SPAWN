@@ -53,7 +53,8 @@ Network.Remotes = {
 	DragonBeamResult    = "DragonBeamResult", -- client → server: (token, step) each correct arrow key while holding the shield
 	BossIntro           = "BossIntro",       -- server → run's clients: { name, color, kind, pos, model, duration } a boss arrives (intro cinematic)
 	MageFX              = "MageFX",          -- server -> clients: the Mage's bolts, burst, prison, shift and echoes, Apocalypse, Arcane Charge
-	MartialFX           = "MartialFX",       -- server -> clients: the Martial Artist's strikes, dragons, Qi Release, Dragon Soul, Qi Charge
+	MartialFX           = "MartialFX",       -- server -> clients: the Martial Artist's strikes, Focus Strike, Electric Uppercut, Ground Slam, Crimson Hadouken, Qi Charge
+	MartialInput        = "MartialInput",    -- client -> server: { kind = "release", held, dir } the Focus Strike's key let go
 	RogueFX             = "RogueFX",         -- server → clients: the Rogue's dagger, Shadow Step, dash, invisibility, Shadow Realm, marks
 	BossFX              = "BossFX",          -- server → run's clients: { kind = "signature"|"judgement", ... } boss signature moves, the Fallen Angel's pillars
 	RicochetFX          = "RicochetFX",      -- server → all clients: { from, to, attacker } one ricochet hop

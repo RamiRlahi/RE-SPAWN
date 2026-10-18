@@ -14,6 +14,8 @@
 	  mage         — Apocalypse: violet rune rings turning on the floor, a
 	                 magic circle over his raised hand, arcane motes rising,
 	                 bolts of light falling round him
+	  martial_artist — Crimson Hadouken: crimson rings turning on the floor,
+	                 the sphere of red energy between his palms, ink rising
 
 	UltPreviewFX.Start(character, classId) replaces any running preview;
 	UltPreviewFX.Stop() removes it.
@@ -475,32 +477,49 @@ AURAS.mage = function(c)
 end
 
 AURAS.martial_artist = function(c)
-	local GOLD = Color3.fromRGB(255, 176, 60)
-	local BRIGHT = Color3.fromRGB(255, 226, 150)
-	-- Two rings of Qi on the floor turning against each other.
-	local outer = groundRing(c.folder, c.ground, 4.4, 40, GOLD, 0.15, 0.22)
-	local inner = groundRing(c.folder, c.ground, 3.0, 30, BRIGHT, 0.35, 0.12)
-	-- A ring of Qi circling round him, tilted, and embers rising.
-	local swirl = {}
-	for i = 1, 22 do swirl[i] = part(c.folder, { Color = if i % 3 == 0 then BRIGHT else GOLD, Transparency = 0.2 }) end
+	local CRIMSON = Color3.fromRGB(226, 26, 46)
+	local HOT = Color3.fromRGB(255, 108, 104)
+	local INK = Color3.fromRGB(10, 8, 12)
+	-- Two rings of crimson on the floor turning against each other.
+	local outer = groundRing(c.folder, c.ground, 4.4, 40, CRIMSON, 0.15, 0.22)
+	local inner = groundRing(c.folder, c.ground, 3.0, 30, HOT, 0.35, 0.12)
+	-- The Hadouken's sphere between his thrust-out palms: a white-hot core in
+	-- a crimson glow, fire and black ink wound round it.
+	local core = part(c.folder, { Shape = Enum.PartType.Ball, Size = Vector3.one * 1.1, Color = HOT })
+	local glow = part(c.folder, { Shape = Enum.PartType.Ball, Size = Vector3.one * 2, Color = CRIMSON, Transparency = 0.4 })
+	local field = part(c.folder, { Shape = Enum.PartType.Ball, Size = Vector3.one * 2.8, Color = CRIMSON, Transparency = 0.1,
+		Material = Enum.Material.ForceField })
+	emitter(core, { Texture = "rbxassetid://13818306392", FlipbookLayout = Enum.ParticleFlipbookLayout.Grid4x4,
+		FlipbookMode = Enum.ParticleFlipbookMode.OneShot, Color = ColorSequence.new(CRIMSON), LightEmission = 0.3,
+		Size = seq(0, 0.9, 0.3, 1.8, 1, 0), Lifetime = NumberRange.new(0.3, 0.45), Speed = NumberRange.new(1, 2.5),
+		SpreadAngle = Vector2.new(180, 180), Rotation = NumberRange.new(0, 360), Rate = 26, LockedToPart = true, ZOffset = 0.3 })
+	emitter(core, { Texture = "rbxassetid://16955854038", FlipbookLayout = Enum.ParticleFlipbookLayout.Grid4x4,
+		FlipbookMode = Enum.ParticleFlipbookMode.OneShot, Color = ColorSequence.new(INK), LightEmission = 0,
+		Size = seq(0, 0.8, 0.3, 1.6, 1, 0), Lifetime = NumberRange.new(0.3, 0.45), Speed = NumberRange.new(1, 2.5),
+		SpreadAngle = Vector2.new(180, 180), Rotation = NumberRange.new(0, 360), Rate = 14, LockedToPart = true, ZOffset = 0.2 })
+	light(core, CRIMSON, 1.5, 12)
+	-- Wisps of ink rising off the floor round him.
 	local motes = anchorAt(c.folder, CFrame.new(c.ground + Vector3.new(0, 0.5, 0)))
 	motes.Size = Vector3.new(7, 0.2, 7)
-	emitter(motes, { Texture = TEX_SPARKLE, Color = ColorSequence.new(BRIGHT, GOLD), LightEmission = 1, Size = seq(0, 0.3, 1, 0),
-		Lifetime = NumberRange.new(1, 1.8), Speed = NumberRange.new(2, 4), Acceleration = Vector3.new(0, 2, 0),
-		SpreadAngle = Vector2.new(15, 15), Rate = 26, Shape = Enum.ParticleEmitterShape.Box,
+	emitter(motes, { Texture = "rbxassetid://16955854038", FlipbookLayout = Enum.ParticleFlipbookLayout.Grid4x4,
+		FlipbookMode = Enum.ParticleFlipbookMode.OneShot, Color = ColorSequence.new(INK), LightEmission = 0, Size = seq(0, 0.6, 1, 1.4),
+		Transparency = seq(0, 0.4, 1, 1), Lifetime = NumberRange.new(0.8, 1.3), Speed = NumberRange.new(1.5, 3),
+		Rotation = NumberRange.new(0, 360), SpreadAngle = Vector2.new(15, 15), Rate = 10, Shape = Enum.ParticleEmitterShape.Box,
 		ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume, EmissionDirection = Enum.NormalId.Top })
-	light(motes, GOLD, 1.5, 14)
+	local function handAt(name: string): Vector3?
+		local arm = c.char:FindFirstChild(name) :: BasePart?
+		return if arm then (arm.CFrame * CFrame.new(0, -1.3, 0)).Position else nil
+	end
 	c.onStep(function(t)
 		outer(t * 0.6)
 		inner(-t * 0.9)
-		local center = c.ground + Vector3.new(0, 2.6, 0)
-		local tilt = CFrame.new(center) * CFrame.Angles(math.rad(70), t * 0.4, 0)
-		for i, s in ipairs(swirl) do
-			if i % 6 == 0 then s.Transparency = 1 continue end
-			local a = i / #swirl * math.pi * 2 + t * 2.6
-			s.Size = Vector3.new(0.75, 0.08, 0.2)
-			s.CFrame = tilt * CFrame.Angles(0, a, 0) * CFrame.new(0, 0, -3)
-		end
+		local r, l = handAt("Right Arm"), handAt("Left Arm")
+		local at = if r and l then (r + l) / 2 + c.fwd * 0.9 else c.root.Position + c.fwd * 2.5
+		local pulse = 1 + math.sin(t * 9) * 0.08
+		core.CFrame, glow.CFrame = CFrame.new(at), CFrame.new(at)
+		field.CFrame = CFrame.new(at) * CFrame.Angles(t * 2, t * 5, 0)
+		core.Size = Vector3.one * 1.1 * pulse
+		glow.Size = Vector3.one * 2 * pulse
 	end)
 end
 

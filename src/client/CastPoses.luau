@@ -485,10 +485,10 @@ local ULT_PREVIEW_POSES: { [string]: Pose } = {
 	-- feet apart, chin up.
 	mage = { W = { 6, -12, 0 }, N = { -12, 10, 0 }, RS = { 150, 0, 28 }, LS = { 30, 0, -32 },
 		RH = { 4, 0, 9 }, LH = { -4, 0, -9 } },
-	-- The Martial Artist's Dragon Soul: a deep horse stance, the right fist
-	-- driven out, the left drawn back at the hip, chin down.
-	martial_artist = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { -6, -20, 0 }, N = { 8, 16, 0 }, RS = { 94, 0, -6 }, LS = { 30, 0, -30 },
-		RH = { 22, 0, 28 }, LH = { 22, 0, -28 } },
+	-- The Martial Artist's Crimson Hadouken: a deep lunge, left foot forward,
+	-- both palms thrust out together ahead.
+	martial_artist = { Root = { 0, 0, 0, 0, -0.6, -0.3 }, W = { -12, 8, 0 }, N = { 0, -4, 0 }, RS = { 90, 0, -15 }, LS = { 90, 0, 15 },
+		LH = { 42, 0, -12 }, RH = { -36, 0, 14 } },
 	berserker = { Root = { 0, 0, 0, 0, -0.35, 0 }, W = { -18, -22, 0 }, N = { 14, 18, 0 },
 		RS = { -22, 0, 24 }, LS = { 38, 0, -32 },
 		RH = { 18, 0, 14 }, LH = { -16, 0, -14 } },

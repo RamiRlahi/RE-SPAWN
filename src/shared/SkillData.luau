@@ -421,44 +421,43 @@ SkillData.mage = {
 
 SkillData.martial_artist = {
 	[1] = {
-		name = "Dragon Fist",
+		name = "Focus Strike",
 		slot = 1,
 		keybind = "E",
 		cooldown = 6.0,
-		damage = 70,
-		range = 28, -- how far the dragon surges
-		width = 6,
-		description = "Channel Qi into your fists and release a flowing dragon of energy that surges forward, dealing heavy damage and pushing enemies back. Empowered: three dragon fists, greater range and damage.",
+		damage = 70, -- a tap; fully charged it hits for 3.5x (the ink splash round it for 60% of that)
+		range = 7,
+		description = "Hold to charge (you can walk slowly meanwhile), release to punch. Black ink gathers round your arm with red energy burning at its heart; the longer you hold, the further you lunge and the harder it lands. Fully charged, the strike bursts in a dramatic ink splash. Empowered: charges twice as fast, hits harder, a bigger splash.",
 	},
 	[2] = {
-		name = "Qi Release",
+		name = "Electric Uppercut",
 		slot = 2,
 		keybind = "F",
-		cooldown = 14.0,
-		damage = 20, -- the burst of Qi as it activates
-		radius = 9,
-		duration = 6.0,
-		description = "Surround yourself with circulating Qi: more movement and attack speed, less damage taken, for a short time. Empowered: a larger aura, higher speed, stronger damage reduction.",
+		cooldown = 8.0, -- per charge
+		charges = 3, -- up to three uppercuts back to back; each recharges in `cooldown`
+		damage = 65,
+		range = 7,
+		description = "Three charges. Dash in low from a crouch, then rise into an uppercut wrapped in crackling lightning: everything in front of you is launched into the air and shocked. Empowered (and each extra Projectile): the lightning chains on to more enemies.",
 	},
 	[3] = {
-		name = "Dragon Ascent",
+		name = "Ground Slam",
 		slot = 3,
 		keybind = "Q",
 		cooldown = 9.0,
 		damage = 55, -- the strike through enemies; the landing hits for 1.2x, the trail burns for 10% a tick
 		range = 26,
 		radius = 9,
-		description = "Ride the flow of Qi: launch upward and dash through enemies on a dragon's energy, crash down in an explosive impact and leave a lingering trail. Empowered: multiple dragon strikes, more hits, wider area.",
+		description = "Leap high on a surge of Qi and dive onto the spot, striking everything on the way down, crashing in an explosive impact and leaving a burning trail. Empowered: three strikes along the path, more hits, a wider area.",
 	},
 	[4] = {
-		name = "Dragon Soul",
+		name = "Crimson Hadouken",
 		slot = 4,
 		keybind = "R",
 		cooldown = 70.0,
-		damage = 90, -- each of the dragon's passes through an enemy (three)
+		damage = 240, -- the sphere through each enemy; it bursts where it ends for 60%
 		range = 70,
-		width = 22,
-		description = "Ultimate: unleash the dragon within. A colossal dragon of Qi rises around you and sweeps through everything in its path.",
+		width = 16, -- the sphere's reach across (grows with Size)
+		description = "Ultimate: charge a sphere of crimson energy in your hand, thrust it forward and fire it through every enemy in its path; it bursts where it ends. Grows with Size.",
 	},
 }
 
