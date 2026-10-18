@@ -16,7 +16,6 @@ local LobbyCamera = require(script.Parent.Parent:WaitForChild("LobbyCamera"))
 local TalentConstellation = require(script.Parent:WaitForChild("TalentConstellation"))
 local SummonScreen = require(script.Parent:WaitForChild("SummonScreen"))
 local CoopScreen = require(script.Parent:WaitForChild("CoopScreen"))
-local SwordModel = require(Shared:WaitForChild("SwordModel"))
 local ClassLook = require(script.Parent.Parent:WaitForChild("ClassLook"))
 local AbilityPreview = require(script.Parent:WaitForChild("AbilityPreview"))
 local MenuBackdrop: any = nil
@@ -40,7 +39,6 @@ local PREVIEW_SWORD_TWIST = CFrame.Angles(0, math.rad(45), 0)
 -- Where the Swordsman's planted longsword's grip sits, in Torso space: centred
 -- at chest height between his hands, point down into the ground. Scaled
 -- so the tip just bites into the ground.
-local SWORDSMAN_PLANT = CFrame.new(0, 0, -1.38)
 local SWORDSMAN_PLANT_SCALE = 0.85
 
 local KNIGHT_HAIR_COLOR = Color3.fromRGB(250, 205, 101)
@@ -223,11 +221,11 @@ end
 
 local previewClassId: string? = nil
 
--- How the weapon sits in the preview: the Swordsman plants his blade
--- point-down for the Blade Storm pose, and the greatsword turns its flat face
--- to the camera.
+-- How the weapon sits in the preview: the Sword Master's rapier runs along
+-- his arm (pointing out at the camera, en garde), and the greatsword turns
+-- its flat face to the camera.
 local function previewGrip(classId: string, grip: CFrame): CFrame
-	if classId == "swordsman" then return SwordModel.FlippedGrip(grip) end
+	if classId == "swordsman" then return grip * CFrame.Angles(math.rad(90), 0, 0) end
 	if classId == "heavy_knight" then return grip * PREVIEW_SWORD_TWIST end
 	return grip
 end
@@ -242,9 +240,7 @@ local function applyClassCosmetics(classId: string)
 	ClassLook.Apply(character, classId, {
 		armor = wearsArmor(classId),
 		grip = previewGrip,
-		-- Blade Storm: the longsword stands point-down in front of him, both
-		-- hands folded on the hilt.
-		plant = if classId == "swordsman" then SWORDSMAN_PLANT else nil,
+		plant = nil,
 		plantScale = SWORDSMAN_PLANT_SCALE,
 		-- (your Armory gear on every class you look at)
 		finish = Players.LocalPlayer:GetAttribute("Gear_weapon"),

@@ -3,15 +3,19 @@
 	SwordsmanController.luau
 	Client side of the Swordsman (server: SwordsmanServer).
 
-	  • The 4-hit combo: your own swings are predicted (pose, blade trail,
-	    crescent slash, whoosh) on click; the server resolves hits and sends
-	    everyone else's swings over SwordsmanFX.
-	  • Skills: the dash for Sword Rush, the guard stance for Parry, the spin
-	    for Whirlwind, and the Blade Storm chain (you flash from enemy to enemy
-	    as the server's timings arrive).
-	  • Every Swordsman effect for every player: crescents, rush streaks, the
-	    parry flash + "PARRY!", the counter slash, the whirlwind disc, the
-	    storm's lingering trails, darkened arena, outline and the giant X.
+	  • The 4-hit rapier combo (lunge, riposte, double thrust, flèche): your
+	    own are predicted (pose, blade trail, thrust / slash, whoosh) on
+	    click; the server resolves hits and sends everyone else's over
+	    SwordsmanFX.
+	  • Skills: the dash for Sword Rush, the guard for Parry, the lunge for
+	    Phantom Thrust (its echoes drawn as phantom blades down the line),
+	    and Blade Storm: en garde with the camera at the rapier's point, then
+	    the chain (you flash from enemy to enemy as the server's timings
+	    arrive).
+	  • Every Swordsman effect for every player, in blue: thrusts, crescents,
+	    rush streaks, the parry flash + "PARRY!", the counter slash, the
+	    phantom thrusts, the storm's lingering trails, darkened arena,
+	    outline and the giant X.
 	  • Momentum HUD: ten pips above the skill bar, "MOMENTUM MAX" at ten.
 	Visuals are Neon + particles only (no lights).
 --]]
@@ -27,10 +31,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Network = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Network"))
 local CastPoses = require(script.Parent:WaitForChild("CastPoses"))
 local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
-local UltimateCameraChoreography = require(script.Parent:WaitForChild("UltimateCameraChoreography"))
 local SwordFX = require(script.Parent:WaitForChild("SwordFX"))
 local SafeMove = require(script.Parent:WaitForChild("SafeMove"))
-local SwordModel = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SwordModel"))
+local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
 
 local player = Players.LocalPlayer
 
@@ -41,11 +44,11 @@ local SWING_INTERVAL = 0.3
 local COMBO_RESET = 1.0
 local MOMENTUM_MAX = 10
 local MOMENTUM_SPEED = 0.04
-local STORM_WINDUP = 0.8
+local STORM_WINDUP = 1.2
 
 local WHITE = Color3.fromRGB(255, 255, 255)
-local GOLD = Color3.fromRGB(255, 214, 120)
-local PALE = Color3.fromRGB(255, 244, 214)
+local BLUE = Color3.fromRGB(90, 150, 255)
+local FROST = Color3.fromRGB(195, 220, 255)
 
 type Deps = {
 	shake: (number, number) -> (),
@@ -73,7 +76,7 @@ end
 
 -- A crescent slash (SwordFX ribbon): drawn in along the swing (`sweep` 1 =
 -- right→left, -1 = left→right), thin fading tail, bright thick head, white
--- edge over a gold glow; it eases outward as it fades. `cf` is the arc's
+-- edge over a blue glow; it eases outward as it fades. `cf` is the arc's
 -- centre and facing (bulging toward cf's -Z; roll cf 90° about Z for a
 -- vertical slash).
 local function crescent(cf: CFrame, radius: number, arc: number, color: Color3, thickness: number, life: number, sweep: number?)
@@ -116,7 +119,7 @@ local function popWord(char: Model, text: string, color: Color3, size: number)
 	l.Text = text
 	l.TextSize = size
 	l.TextColor3 = color
-	l.TextStrokeColor3 = Color3.fromRGB(40, 20, 0)
+	l.TextStrokeColor3 = Color3.fromRGB(8, 14, 40)
 	l.TextStrokeTransparency = 0.2
 	l.Parent = bb
 	local sc = Instance.new("UIScale")
@@ -130,144 +133,255 @@ local function popWord(char: Model, text: string, color: Color3, size: number)
 	Debris:AddItem(bb, 1.1)
 end
 
--- ── Poses (CastPoses: +rx raises the arm forward, ry turns about vertical) ──
--- The sword sticks out of the fist, so the blade points along the arm tilted
--- 90° forward: arm hanging (rx 0) = blade level and forward, arm raised
--- (rx 90) = blade straight up. Flat slashes keep the arm low and turn it.
--- Whole-body, duelist-style moves: the knees bend and the body dips (Root
--- py), the torso coils and uncoils (W ry), the free arm flings for balance,
--- the feet split into lunges (RH / LH), and the big moves leave the ground.
-local ROOT_SPIN = function(t0: number, delay: number, dur: number, turns: number)
-	return function()
-		local a = math.clamp((os.clock() - t0 - delay) / dur, 0, 1)
-		return { Root = { 0, -(1 - (1 - a) ^ 2) * 360 * turns, 0 } }
+-- ── Poses (CastPoses character space) ──────────────────────────────────────
+-- Signs: W ry + turns the torso LEFT (the hips turn back, so the feet stay
+-- planted); RS ry + rolls the sword arm so the blade swings to the left;
+-- RS rz - brings the arm in across the body (LS: rz +). A fencer stands side
+-- on, right shoulder to the target (W +), the off hand raised up and back.
+-- The legs come from CastPoses.body, so the feet stay on the floor.
+--
+-- The rapier's grip turns (gripTo) between two holds: k = 0, the blade out
+-- of the fist at right angles to the arm (cuts, the riposte); k = 1, the
+-- blade running on along the arm (thrusts and the guard: arm level = point
+-- straight at the target).
+local QUAD, QUART = Enum.EasingStyle.Quad, Enum.EasingStyle.Quart
+local body = CastPoses.body
+
+type GripState = { tool: Tool, base: CFrame, k: number, from: number, target: number, t0: number, dur: number }
+local grips: { [Tool]: GripState } = {}
+
+local function gripTo(char: Model, target: number, dur: number)
+	local tool = char:FindFirstChild("Longsword")
+	if not (tool and tool:IsA("Tool")) then return end
+	local g = grips[tool]
+	if not g then
+		g = { tool = tool, base = tool.Grip, k = 0, from = 0, target = 0, t0 = 0, dur = 0 }
+		grips[tool] = g
 	end
+	local s = g :: GripState
+	s.from, s.target, s.t0, s.dur = s.k, target, os.clock(), math.max(dur, 0.01)
 end
 
-local function swingPose(char: Model, step: number)
-	if step == 1 then
-		-- Step-in slash: coil low to the right, then unleash across to the
-		-- left, stepping into it with the off arm flung back.
-		CastPoses.play(char, {
-			{ dur = 0.07, pose = { Root = { 0, 0, 0, 0, -0.5, 0.2 }, W = { 10, 55, 0 }, RS = { 35, 95, 0 },
-				LS = { 45, -20, -30 }, RH = { -25, 0, 0 }, LH = { 30, 0, 0 }, N = { 0, -30, 0 } } },
-			{ dur = 0.1, pose = { Root = { 0, 0, 0, 0, -0.35, -0.7 }, W = { -10, -60, 0 }, RS = { 20, -105, 0 },
-				LS = { -25, 0, -65 }, RH = { 35, 0, 0 }, LH = { -40, 0, 0 }, N = { 0, 25, 0 } } },
-			{ dur = 0.14, pose = { Root = { 0, 0, 0, 0, -0.2, -0.4 }, W = { -5, -40, 0 }, RS = { 15, -80, 0 },
-				LS = { -10, 0, -40 }, RH = { 20, 0, 0 }, LH = { -20, 0, 0 } } },
-		})
-	elseif step == 2 then
-		-- Rising cross slash: drop low on the left, then rip up and across
-		-- to the right onto the toes.
-		CastPoses.play(char, {
-			{ dur = 0.07, pose = { Root = { 0, 0, 0, 0, -0.7, 0 }, W = { 18, -55, 0 }, RS = { -15, -85, 0 },
-				LS = { 30, 0, -20 }, RH = { 30, 0, 0 }, LH = { -30, 0, 0 } } },
-			{ dur = 0.1, pose = { Root = { 0, 0, 0, 0, 0.45, -0.3 }, W = { -22, 60, 0 }, RS = { 75, 100, 0 },
-				LS = { 50, 0, -75 }, N = { -18, 20, 0 }, RH = { -15, 0, 0 }, LH = { 10, 0, 0 } } },
-			{ dur = 0.14, pose = { Root = { 0, 0, 0, 0, 0.2, -0.2 }, W = { -12, 40, 0 }, RS = { 60, 80, 0 }, LS = { 30, 0, -50 } } },
-		})
-	elseif step == 3 then
-		-- Lunging thrust: sight down the off hand, then explode forward into a
-		-- deep split with the blade driven straight out.
-		CastPoses.play(char, {
-			{ dur = 0.08, pose = { Root = { 0, 0, 0, 0, -0.6, 0.4 }, W = { 12, 40, 0 }, RS = { -35, 25, 0, 0, 0, 0.9 },
-				LS = { 85, -10, -10 }, RH = { -35, 0, 0 }, LH = { 35, 0, 0 }, N = { 0, -35, 0 } } },
-			{ dur = 0.09, pose = { Root = { 0, 0, 0, 0, -0.9, -1.4 }, W = { -28, -15, 0 }, RS = { 8, 0, 0, 0, 0, -1.2 },
-				LS = { -35, 0, -55 }, RH = { -60, 0, 0 }, LH = { 50, 0, 0 }, N = { 12, 10, 0 } } },
-			{ dur = 0.16, pose = { Root = { 0, 0, 0, 0, -0.6, -1 }, W = { -18, -10, 0 }, RS = { 6, 0, 0, 0, 0, -0.8 },
-				LS = { -20, 0, -40 }, RH = { -45, 0, 0 }, LH = { 38, 0, 0 } } },
-		})
-	else
-		-- Leaping spin finisher: crouch, spring up spinning one and a half
-		-- turns with the blade out wide and the legs tucked, then slam down
-		-- into a low landing.
-		local t0 = os.clock()
-		CastPoses.play(char, {
-			{ dur = 0.07, pose = { Root = { 0, 0, 0, 0, -0.9, 0 }, W = { 18, 45, 0 }, RS = { 20, 0, 75 },
-				LS = { 20, 0, -40 }, RH = { -30, 0, 0 }, LH = { -30, 0, 0 } } },
-			{ dur = 0.32, pose = { Root = { 0, 0, 0, 0, 2.2, 0 }, W = { -8, 0, 0 }, RS = { 30, 0, 88 },
-				LS = { 25, 0, -85 }, RH = { -55, 0, 0 }, LH = { -45, 0, 0 } },
-				wobble = ROOT_SPIN(t0, 0.07, 0.32, 1.5) },
-			{ dur = 0.08, pose = { Root = { 0, 0, 0, 0, -1, 0 }, W = { 28, 0, 0 }, RS = { -45, 0, 20 },
-				LS = { 30, 0, -60 }, RH = { -35, 0, 0 }, LH = { 40, 0, 0 } } },
-			{ dur = 0.14, pose = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { 18, 0, 0 }, RS = { -30, 0, 20 } } },
-		})
+-- Back to the cutting hold after `after` seconds, unless another move has
+-- taken the grip since.
+local function gripBack(char: Model, after: number)
+	local tool = char:FindFirstChild("Longsword")
+	local g = tool and tool:IsA("Tool") and grips[tool]
+	if not g then return end
+	local stamp = g.t0
+	task.delay(after, function()
+		if grips[g.tool] == g and g.t0 == stamp then gripTo(char, 0, 0.12) end
+	end)
+end
+
+RunService.RenderStepped:Connect(function()
+	local now = os.clock()
+	for tool, g in pairs(grips) do
+		if not tool.Parent then
+			grips[tool] = nil
+		elseif g.k ~= g.target then
+			local a = math.clamp((now - g.t0) / g.dur, 0, 1)
+			local e = -(math.cos(math.pi * a) - 1) / 2
+			g.k = if a >= 1 then g.target else g.from + (g.target - g.from) * e
+			tool.Grip = g.base * CFrame.Angles(math.rad(90) * g.k, 0, 0)
+		end
 	end
+end)
+
+-- ── Fencing ─────────────────────────────────────────────────────────────────
+-- Real fencing form: side on to the target (torso turned left, right
+-- shoulder forward), RIGHT foot leading. On guard the knees are bent, the
+-- sword arm half-extended with the point at the target's chest and the back
+-- arm curled up behind the head. The lunge: the arm extends FIRST, then the
+-- front foot kicks out long and the back leg drives straight; the torso stays
+-- upright, the arm locks level so the blade continues it straight at the
+-- target, and the back arm snaps down along the back leg. Head on the
+-- target throughout.
+--
+-- The arms are AIMED in world terms (`elev` from hanging: 90 = level; `yaw`
+-- + = to the left of the target; `out` + = away from the body) and turned
+-- back into the shoulder angles under whatever lean / twist the torso has,
+-- so the point stays on the target however the body moves. The rapier's
+-- blade runs along the arm for all of it (gripTo 1).
+type Aim = { number } -- { elev, yaw, out }
+
+local function aimed(lean: number, twist: number, aim: Aim, left: boolean?): { number }
+	local out = if left then -(aim[3] or 0) else (aim[3] or 0)
+	local world = CFrame.Angles(0, math.rad(aim[2] or 0), 0) * CFrame.Angles(math.rad(aim[1]), 0, 0)
+		* CFrame.Angles(0, 0, math.rad(out))
+	local torso = CFrame.fromEulerAnglesXYZ(math.rad(lean), math.rad(twist), 0)
+	local rx, ry, rz = (torso:Inverse() * world):ToEulerAnglesXYZ()
+	return { math.deg(rx), math.deg(ry), math.deg(rz) }
+end
+
+-- A fencer's body: right foot `fwd` degrees forward, left foot `back`
+-- degrees back (negative swaps them: the flèche's crossover), the hips
+-- dropping as far as the stride lowers them, the weight slid by `sz`.
+local function fencer(lean: number, twist: number, fwd: number, back: number, sz: number, arm: Aim, off: Aim,
+	headPitch: number?): { [string]: { number } }
+	local p = body(lean, twist, -back, -fwd, nil, 7, 0, sz)
+	p.RS = aimed(lean, twist, arm)
+	p.LS = aimed(lean, twist, off, true)
+	p.N = { (headPitch or 0) - lean * 0.6, -twist * 0.85, 0 }
+	return p
+end
+
+-- The extension that starts every attack: arm straight, nothing else yet.
+local EXTEND = fencer(-5, 62, 22, 26, 0, { 92, 0, 0 }, { 135, 10, 20 })
+-- The lunge (depth 0..1): the front foot out long, the back leg straight.
+local function lunge(depth: number): { [string]: { number } }
+	return fencer(-8 - 8 * depth, 66, 34 + 22 * depth, 34 + 20 * depth, -0.6 - 0.9 * depth,
+		{ 94, 0, 0 }, { -40, 6, 20 }, 4)
+end
+local function lungeHold(depth: number): { [string]: { number } }
+	return fencer(-6 - 8 * depth, 64, 32 + 22 * depth, 32 + 20 * depth, -0.55 - 0.85 * depth,
+		{ 92, 0, 0 }, { -32, 6, 18 }, 4)
+end
+
+local function swingPose(char: Model, step: number, speed: number?)
+	local s = speed or 1
+	local opts = { speed = s }
+	gripTo(char, 1, 0.04 / s)
+	if step == 1 then
+		-- Extension, then the lunge.
+		CastPoses.play(char, {
+			{ dur = 0.06, style = QUAD, pose = EXTEND },
+			{ dur = 0.07, style = QUART, pose = lunge(0.6) },
+			{ dur = 0.15, pose = lungeHold(0.6) },
+		}, 0.22, nil, opts)
+	elseif step == 2 then
+		-- Parry and riposte: the blade beats across to the inside (quarte),
+		-- then a short straight riposte from guard, no full lunge.
+		CastPoses.play(char, {
+			{ dur = 0.06, style = QUAD, pose = fencer(-3, 60, 20, 24, 0.1, { 82, 28, 6 }, { 145, 10, 15 }) },
+			{ dur = 0.06, style = QUART, pose = fencer(-7, 64, 30, 30, -0.45, { 93, -2, 0 }, { 120, 10, 20 }, 2) },
+			{ dur = 0.15, pose = fencer(-6, 63, 28, 28, -0.4, { 91, 0, 0 }, { 125, 10, 20 }, 2) },
+		}, 0.22, nil, opts)
+	elseif step == 3 then
+		-- One-two: a feint to the outside, the point slipping round under
+		-- the parry (disengage), then the real lunge.
+		CastPoses.play(char, {
+			{ dur = 0.05, style = QUAD, pose = fencer(-5, 62, 24, 26, -0.1, { 90, -14, 0 }, { 135, 10, 20 }) },
+			{ dur = 0.05, style = QUAD, pose = fencer(-5, 62, 24, 26, -0.1, { 86, 10, 0 }, { 135, 10, 20 }) },
+			{ dur = 0.07, style = QUART, pose = lunge(0.75) },
+			{ dur = 0.13, pose = lungeHold(0.75) },
+		}, 0.22, nil, opts)
+	else
+		-- Flèche: arm extended first, then the body falls forward past the
+		-- point and the back foot crosses over in front — a running attack
+		-- (he's carried forward).
+		local fleche = CastPoses.lift(fencer(-28, 55, -30, -38, -1.2, { 95, 0, 0 }, { -20, 0, 30 }, 10), 0.2)
+		local landing = fencer(-20, 52, -24, -30, -1.1, { 92, 0, 0 }, { -15, 0, 28 }, 8)
+		CastPoses.play(char, {
+			{ dur = 0.07, style = QUAD, pose = EXTEND },
+			{ dur = 0.07, style = QUART, pose = fleche },
+			{ dur = 0.2, pose = landing },
+		}, 0.3, nil, opts)
+	end
+	gripBack(char, 0.42 / s)
 end
 
 -- Skill poses (shared by your cast and everyone else's view of it).
 local function rushPose(char: Model, t: number)
-	-- Coiled low, then a flat sprinting lunge with the blade swept behind.
+	-- A dashing cut: coiled low to the right, then flat through the target,
+	-- the blade cutting right to left (as the cuts along the dash) and swept
+	-- out behind on the left.
+	gripTo(char, 0, 0.04)
 	CastPoses.play(char, {
-		{ dur = 0.05, pose = { Root = { 0, 0, 0, 0, -0.8, 0 }, W = { 25, 45, 0 }, RS = { 25, 90, 0 }, LS = { 40, 0, -30 },
-			RH = { -40, 0, 0 }, LH = { 40, 0, 0 } } },
-		{ dur = t, pose = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { -38, -35, 0 }, RS = { 20, -115, 0 }, LS = { -40, 0, -70 },
-			RH = { -60, 0, 0 }, LH = { 60, 0, 0 }, N = { 20, 20, 0 } } },
-		{ dur = 0.16, pose = { Root = { 0, 0, 0, 0, -0.4, 0 }, W = { -15, -30, 0 }, RS = { 15, -85, 0 }, LS = { -20, 0, -45 },
-			RH = { -30, 0, 0 }, LH = { 30, 0, 0 } } },
-	})
+		{ dur = 0.05, style = QUAD, pose = body(18, -45, 30, 30,
+			{ N = { 0, 35, 0 }, RS = { 25, -95, 30 }, LS = { 40, 0, 25 } }, 10, 0.15, 0.2) },
+		{ dur = t, style = Enum.EasingStyle.Cubic, pose = body(-36, 35, 48, 52,
+			{ N = { 22, -25, 0 }, RS = { 20, 115, -45 }, LS = { -45, 0, -70 } }, 8, 0, -0.6) },
+		{ dur = 0.16, pose = body(-16, 28, 30, 30,
+			{ N = { 10, -18, 0 }, RS = { 15, 90, -35 }, LS = { -20, 0, -45 } }, 8) },
+	}, 0.24)
 end
 
 local function guardPose(char: Model, window: number)
-	-- A wide, low duelist's guard: blade upright across the body, off hand
-	-- braced on the flat, head turned to the threat.
-	local p = { Root = { 0, 0, 0, 0, -0.55, 0 }, W = { 6, 25, 0 }, RS = { 72, -48, 0 }, LS = { 58, 38, 0 },
-		RH = { -12, 0, 16 }, LH = { 12, 0, -16 }, N = { -8, -20, 0 } }
+	-- Parry guard: blade up and across the body (cutting hold), off hand
+	-- raised behind, sunk into the knees.
+	gripTo(char, 0, 0.04)
+	local p = body(6, 25, 22, 22, { RS = { 72, -48, -10 }, LS = { 110, 0, -35 }, N = { -8, -20, 0 } }, 16)
 	CastPoses.play(char, {
 		{ dur = 0.06, style = Enum.EasingStyle.Back, pose = p },
-		{ dur = window, pose = p },
+		{ dur = window, pose = p, wobble = function(t: number)
+			local b = math.sin(t * 3.2) * 1.2
+			return { W = { b, 0, 0 }, N = { -b * 0.5, 0, 0 } }
+		end },
 	})
 end
 
 local function counterPose(char: Model)
-	-- Drop, then launch upward into a rising uppercut slash, airborne, then
-	-- land.
+	-- Drop, then launch upward into a rising cut, airborne, then land.
+	gripTo(char, 0, 0.04)
 	CastPoses.play(char, {
-		{ dur = 0.05, pose = { Root = { 0, 0, 0, 0, -1, 0 }, W = { 25, 20, 0 }, RS = { -65, 0, 0 }, LS = { 20, 0, -30 },
-			RH = { -40, 0, 0 }, LH = { 35, 0, 0 } } },
-		{ dur = 0.14, pose = { Root = { 0, 0, 0, 0, 2.4, 0 }, W = { -28, -10, 0 }, RS = { 135, 0, 0 }, LS = { -40, 0, -65 },
-			RH = { -65, 0, 0 }, LH = { 20, 0, 0 }, N = { -25, 0, 0 } } },
-		{ dur = 0.14, pose = { Root = { 0, 0, 0, 0, 1.6, 0 }, W = { -15, 0, 0 }, RS = { 115, 0, 0 }, LS = { -20, 0, -50 },
-			RH = { -35, 0, 0 }, LH = { -10, 0, 0 } } },
-		{ dur = 0.12, pose = { Root = { 0, 0, 0, 0, -0.5, 0 }, W = { 15, 0, 0 }, RS = { 40, 0, 0 } } },
-	})
+		{ dur = 0.05, style = QUAD, pose = body(22, 20, 36, 36,
+			{ RS = { -65, 0, 20 }, LS = { 20, 0, -30 }, N = { -10, -15, 0 } }, 12) },
+		{ dur = 0.14, style = QUART, pose = { Root = { 0, 0, 0, 0, 2.4, 0 }, W = { -28, -10, 0 }, RS = { 150, 0, -15 },
+			LS = { -40, 0, -65 }, RH = { -65, 0, 6 }, LH = { 20, 0, -6 }, N = { -25, 0, 0 } } },
+		{ dur = 0.14, pose = { Root = { 0, 0, 0, 0, 1.6, 0 }, W = { -15, 0, 0 }, RS = { 125, 0, -10 },
+			LS = { -20, 0, -50 }, RH = { -35, 0, 6 }, LH = { -10, 0, -6 }, N = { -15, 0, 0 } } },
+		{ dur = 0.12, style = QUART, pose = body(-20, 0, 32, 32, { RS = { 40, 0, 0 }, LS = { 15, 0, -30 }, N = { 12, 0, 0 } }, 12) },
+	}, 0.28)
 end
 
-local function whirlPose(char: Model, dur: number)
-	-- Both arms flung wide, body leaning into the spin, hovering a little
-	-- off the ground and spinning hard.
-	local t0 = os.clock()
+local function thrustPose(char: Model)
+	-- Phantom Thrust: the extension, then the deepest lunge, held while the
+	-- echoes fire.
+	gripTo(char, 1, 0.05)
 	CastPoses.play(char, {
-		{ dur = 0.08, pose = { Root = { 0, 0, 0, 0, -0.5, 0 }, W = { 15, 40, 0 }, RS = { 25, 0, 88 }, LS = { 15, 0, -85 } } },
-		{ dur = dur, pose = { Root = { -8, 0, 6, 0, 0.35, 0 }, W = { -10, 0, 0 }, RS = { 28, 0, 90 }, LS = { 18, 0, -88 },
-			RH = { -15, 0, 12 }, LH = { 15, 0, -12 }, N = { 10, 0, 0 } },
-			wobble = function() return { Root = { 0, -((os.clock() - t0) * 1300) % 360, 0 } } end },
-	})
+		{ dur = 0.06, style = QUAD, pose = EXTEND },
+		{ dur = 0.07, style = QUART, pose = lunge(1.1) },
+		{ dur = 0.3, pose = lungeHold(1.1) },
+	}, 0.3)
+	gripBack(char, 0.6)
 end
 
--- The slash shape each combo hit leaves in front of the attacker.
+-- Blade Storm's guard: on guard, the arm out straight so the point is aimed
+-- right down the camera (which sits just past it).
+local EN_GARDE = fencer(-3, 60, 22, 26, 0.1, { 90, 0, 0 }, { 150, 10, 15 })
+local function enGardePose(char: Model, seconds: number)
+	gripTo(char, 1, 0.15)
+	CastPoses.play(char, {
+		{ dur = 0.25, style = Enum.EasingStyle.Back, pose = EN_GARDE },
+		{ dur = math.max(seconds - 0.25, 0.05), pose = EN_GARDE, wobble = function(t: number)
+			local b = math.sin(t * 2.4) * 1
+			return { W = { b, 0, 0 }, N = { -b * 0.5, 0, 0 } }
+		end },
+	}, 0.15)
+end
+
+-- A thrust: a streak of light shot out along the point, with a burst where
+-- it ends.
+local function thrustFX(root: BasePart, dir: Vector3, length: number, width: number, delay: number)
+	task.delay(delay, function()
+		if not root.Parent then return end
+		local p = root.Position + Vector3.new(0, 0.6, 0)
+		streak(p + dir * 2, p + dir * length, width, BLUE, 0.05)
+		ClassFX.Burst(p + dir * length, FROST, 6, 10, ClassFX.TEX_SPARK, 0.25, 0.22)
+	end)
+end
+
+-- What each combo hit leaves in front of the attacker.
 local function comboVFX(char: Model, step: number, dir: Vector3)
 	local root = rootOf(char)
 	if not root then return end
 	local look = CFrame.lookAt(root.Position, root.Position + dir)
 	trail(char, 0.3)
 	if step == 1 then
-		-- Right-to-left, tilted slightly.
-		task.delay(0.06, crescent, look * CFrame.new(0, 0.2, 0) * CFrame.Angles(0, 0, math.rad(-8)), 5.2, 140, GOLD, 0.7, 0.2, 1)
+		thrustFX(root, dir, 13, 0.45, 0.07)
 	elseif step == 2 then
-		-- Left-to-right, rising.
-		task.delay(0.06, crescent, look * CFrame.new(0, 0.6, 0) * CFrame.Angles(0, 0, math.rad(14)), 5.2, 140, GOLD, 0.7, 0.2, -1)
+		-- Right-to-left, tilted slightly.
+		task.delay(0.06, crescent, look * CFrame.new(0, 0.2, 0) * CFrame.Angles(0, 0, math.rad(-8)), 5.2, 140, BLUE, 0.7, 0.2, 1)
 	elseif step == 3 then
-		task.delay(0.08, function()
-			local p = root.Position + Vector3.new(0, 0.1, 0)
-			streak(p + dir * 2, p + dir * 13, 0.5, GOLD, 0.04)
-			ClassFX.Burst(p + dir * 13, PALE, 8, 12, ClassFX.TEX_SPARK, 0.3, 0.25)
-		end)
+		thrustFX(root, dir, 12, 0.4, 0.05)
+		thrustFX(root, dir, 13, 0.45, 0.15)
 	else
-		-- A clean full-circle cut (the spin finisher) and a low ring.
-		task.delay(0.1, function()
-			crescent(CFrame.new(root.Position) * look.Rotation, 7, 340, GOLD, 1.1, 0.3, 1)
-			ClassFX.Ring(root.Position, PALE, 11, 0.3, char)
+		-- The flèche: a long, heavy streak and a ring of light at the point.
+		thrustFX(root, dir, 16, 0.65, 0.08)
+		task.delay(0.12, function()
+			if not root.Parent then return end
+			SwordFX.Stars(root.Position + dir * 4 + Vector3.new(0, 0.6, 0), 10, 16, BLUE)
 		end)
 	end
 end
@@ -298,11 +412,11 @@ local function buildHud()
 		d.Position = UDim2.new(0, (i - 0.5) * 22, 0.5, 0)
 		d.Size = UDim2.fromOffset(11, 11)
 		d.Rotation = 45
-		d.BackgroundColor3 = Color3.fromRGB(30, 26, 22)
+		d.BackgroundColor3 = Color3.fromRGB(20, 24, 38)
 		d.BorderSizePixel = 0
 		d.Parent = row
 		local s = Instance.new("UIStroke")
-		s.Color = GOLD
+		s.Color = BLUE
 		s.Thickness = 1.2
 		s.Transparency = 0.3
 		s.Parent = d
@@ -316,7 +430,7 @@ local function buildHud()
 	lbl.Font = Enum.Font.Arcade
 	lbl.TextSize = 20
 	lbl.Text = "MOMENTUM MAX"
-	lbl.TextColor3 = GOLD
+	lbl.TextColor3 = BLUE
 	lbl.TextStrokeTransparency = 0.3
 	lbl.Visible = false
 	lbl.Parent = row
@@ -328,7 +442,7 @@ local function refreshHud()
 	hud.Enabled = isSwordsman() and player:GetAttribute("InLobby") == false and player:GetAttribute("SettingsOpen") ~= true
 	local m = momentum()
 	for i, d in ipairs(pips) do
-		d.BackgroundColor3 = if i <= m then (if m >= MOMENTUM_MAX then WHITE else GOLD) else Color3.fromRGB(30, 26, 22)
+		d.BackgroundColor3 = if i <= m then (if m >= MOMENTUM_MAX then WHITE else BLUE) else Color3.fromRGB(20, 24, 38)
 	end
 	if maxLabel then maxLabel.Visible = m >= MOMENTUM_MAX end
 end
@@ -346,14 +460,13 @@ function SwordsmanController.Basic(char: Model, root: BasePart): boolean
 	dir = Vector3.new(dir.X, 0, dir.Z)
 	dir = if dir.Magnitude > 0.01 then dir.Unit else root.CFrame.LookVector
 	root.CFrame = CFrame.lookAt(root.Position, root.Position + dir)
-	swingPose(char, localStep)
+	swingPose(char, localStep, speed)
 	comboVFX(char, localStep, dir)
 	ClassFX.Sound("whoosh", root, 0.6, if localStep == 4 then 0.85 else 1.1 + localStep * 0.05)
-	if localStep == 3 then
-		-- Short lunge with the thrust (not off a ledge).
-		if SafeMove.ClampToFloor(root, dir, 4) >= 4 then
-			root.AssemblyLinearVelocity = dir * 38 + Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
-		end
+	-- The lunges carry him forward (not off a ledge); the flèche furthest.
+	local push = if localStep == 4 then 46 elseif localStep == 2 then 0 else 22
+	if push > 0 and SafeMove.ClampToFloor(root, dir, 4) >= 4 then
+		root.AssemblyLinearVelocity = dir * push + Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
 	end
 	Network.GetRemoteEvent(Network.Remotes.PerformAttack):FireServer({ direction = dir })
 	return true
@@ -428,6 +541,42 @@ local function blink(root: BasePart, dir: Vector3, dist: number)
 	end
 end
 
+-- Blade Storm's wind-up shot: the camera just past the rapier's point,
+-- looking back up the blade at his face, creeping in.
+local function tipCamera(char: Model, seconds: number)
+	local cam = Workspace.CurrentCamera
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	local ok, Iso = pcall(function() return require(script.Parent:WaitForChild("IsometricCamera")) :: any end)
+	local wasIso = ok and Iso and Iso.IsActive and Iso.IsActive()
+	if wasIso then Iso.Pause() end
+	cam.CameraType = Enum.CameraType.Scriptable
+	local t0 = os.clock()
+	RunService:BindToRenderStep("SwordTipCam", Enum.RenderPriority.Camera.Value + 5, function()
+		local tool = char:FindFirstChild("Longsword")
+		local tip = tool and tool:FindFirstChild("BladeTip", true)
+		local head = char:FindFirstChild("Head") :: BasePart?
+		if not (tip and tip:IsA("Attachment") and head) then return end
+		local a = math.clamp((os.clock() - t0) / seconds, 0, 1)
+		local e = 1 - (1 - a) ^ 2
+		local tipPos = tip.WorldPosition
+		local back = head.Position - tipPos
+		if back.Magnitude < 0.1 then return end
+		local eye = tipPos - back.Unit * (2.2 - 1.2 * e) + Vector3.new(0, 0.3, 0)
+		cam.CFrame = CFrame.lookAt(eye, head.Position)
+		cam.FieldOfView = 55 - 15 * e
+	end)
+	task.delay(seconds, function()
+		RunService:UnbindFromRenderStep("SwordTipCam")
+		if wasIso then
+			Iso.Resume(0.4)
+		else
+			cam.CameraType = Enum.CameraType.Custom
+			cam.FieldOfView = 70
+			if hum then cam.CameraSubject = hum end
+		end
+	end)
+end
+
 function SwordsmanController.OnCast(skillIndex: number, char: Model, root: BasePart, aimDir: Vector3, config: any)
 	local hum = char:FindFirstChildOfClass("Humanoid")
 	local empowered = momentum() >= MOMENTUM_MAX
@@ -442,7 +591,7 @@ function SwordsmanController.OnCast(skillIndex: number, char: Model, root: BaseP
 		local dist = (config.dashDistance or 20) * (if empowered then 1.5 else 1)
 		local t = 0.08
 		if hum then hum.AutoRotate = false end
-		ClassFX.Afterimages(char, PALE, 4, 0.01)
+		ClassFX.Afterimages(char, FROST, 4, 0.01)
 		blink(root, dir, dist)
 		rushPose(char, 0.12)
 		trail(char, 0.3)
@@ -456,25 +605,20 @@ function SwordsmanController.OnCast(skillIndex: number, char: Model, root: BaseP
 		guardPose(char, window)
 		releaseAfter(char, window)
 	elseif skillIndex == 3 then
-		-- Whirlwind: blade out wide, spinning; you can move while it runs.
-		char:SetAttribute("AllowSkillMovement", true)
-		local dur = config.duration or 1.2
-		busyUntil = os.clock() + dur
-		whirlPose(char, dur)
-		trail(char, dur + 0.1)
-		releaseAfter(char, dur)
+		-- Phantom Thrust: a deep lunge that carries him a few studs forward.
+		char:SetAttribute("AllowSkillMovement", false)
+		thrustPose(char)
+		trail(char, 0.35)
+		dash(root, dir, config.nudge or 5, 0.1)
+		busyUntil = os.clock() + 0.35
+		releaseAfter(char, 0.35)
 	elseif skillIndex == 4 then
 		-- Blade Storm: the wind-up close-up; the dash chain follows the
 		-- server's "storm" moment (see onStorm).
 		char:SetAttribute("AllowSkillMovement", false)
 		busyUntil = math.huge
-		UltimateCameraChoreography.PlayCloseUp(char, dir, STORM_WINDUP, nil, nil, {
-			startOffset = { 7, 2.5, 1.2 },
-			endOffset = { 5.2, 1.6, 0.8 },
-			focusHeight = 1.4,
-			fovStart = 50,
-			fovEnd = 42,
-		})
+		enGardePose(char, STORM_WINDUP)
+		tipCamera(char, STORM_WINDUP)
 		task.delay(12, function()
 			-- Safety net if the storm moment never arrives.
 			if busyUntil == math.huge then
@@ -486,15 +630,9 @@ function SwordsmanController.OnCast(skillIndex: number, char: Model, root: BaseP
 	return nil
 end
 
--- Another Swordsman's Blade Storm: the same wind-up close-up on them.
-function SwordsmanController.PlayStormCutscene(char: Model, dir: Vector3)
-	UltimateCameraChoreography.PlayCloseUp(char, dir, STORM_WINDUP, nil, nil, {
-		startOffset = { 7, 2.5, 1.2 },
-		endOffset = { 5.2, 1.6, 0.8 },
-		focusHeight = 1.4,
-		fovStart = 50,
-		fovEnd = 42,
-	})
+-- Another Swordsman's Blade Storm (teammate cinematics): the same shot.
+function SwordsmanController.PlayStormCutscene(char: Model, _dir: Vector3)
+	tipCamera(char, STORM_WINDUP)
 end
 
 -- ── Server moments (SwordsmanFX) ────────────────────────────────────────────
@@ -515,13 +653,13 @@ end
 local function onRush(msg: any)
 	local char = charOf(msg.attacker)
 	local from, to = msg.from :: Vector3, msg.to :: Vector3
-	local color = if msg.empowered then WHITE else GOLD
+	local color = if msg.empowered then WHITE else BLUE
 	-- A bright comet along the dash wrapped in a bundle of thin speed lines.
 	streak(from + Vector3.new(0, 1, 0), to + Vector3.new(0, 1, 0), if msg.empowered then 0.7 else 0.5, color, 0.25,
 		if msg.empowered then 12 else 8)
 	if char and msg.attacker ~= player then
 		rushPose(char, if msg.empowered then 0.26 else 0.2)
-		ClassFX.Afterimages(char, PALE, 5, 0.04)
+		ClassFX.Afterimages(char, FROST, 5, 0.04)
 		trail(char, 0.4)
 	end
 end
@@ -533,7 +671,7 @@ local function onRushCut(msg: any)
 	if dir.Magnitude < 0.1 then return end
 	local roll = if msg.n % 2 == 1 then 25 else -25
 	crescent(CFrame.lookAt(mid + Vector3.new(0, 1, 0), mid + Vector3.new(0, 1, 0) + dir.Unit) * CFrame.Angles(0, 0, math.rad(roll)),
-		4.5, 130, if msg.empowered then WHITE else GOLD, 0.8, 0.22)
+		4.5, 130, if msg.empowered then WHITE else BLUE, 0.8, 0.22)
 	ClassFX.Sound("swordHit", mid, 0.6, 1 + msg.n * 0.08)
 end
 
@@ -547,8 +685,8 @@ local function onGuard(msg: any)
 	-- A thin circle of light drawing itself round the feet over the window
 	-- (the guard's timer), plus a glint on the raised blade.
 	SwordFX.Arc({ cf = CFrame.new(root.Position - Vector3.new(0, 2.6, 0)) * root.CFrame.Rotation, radius = 3.4, arc = 359,
-		width = 0.35, color = PALE, draw = msg.window, life = 0.15, grow = 0 })
-	SwordFX.Stars(root.Position + root.CFrame.LookVector * 1.2 + Vector3.new(0, 2, 0), 4, 3)
+		width = 0.35, color = FROST, draw = msg.window, life = 0.15, grow = 0 })
+	SwordFX.Stars(root.Position + root.CFrame.LookVector * 1.2 + Vector3.new(0, 2, 0), 4, 3, BLUE)
 end
 
 local function onParry(msg: any)
@@ -557,9 +695,9 @@ local function onParry(msg: any)
 	-- The perfect-parry flash: a circle of light with rays bursting out of
 	-- it, a small bright core and glinting stars.
 	local center = pos + Vector3.new(0, 0.4, 0)
-	SwordFX.Rays(center, 10, 18, GOLD, 0.4)
+	SwordFX.Rays(center, 10, 18, BLUE, 0.4)
 	SwordFX.Arc({ cf = CFrame.new(center), radius = 3.2, arc = 359, width = 0.5, color = WHITE, draw = 0.001, life = 0.3, grow = 0.4 })
-	SwordFX.Stars(center, 18, 22)
+	SwordFX.Stars(center, 18, 22, BLUE)
 	ClassFX.Sound("clang", pos, 1, 1.1)
 	if char then popWord(char, "PARRY!", WHITE, 34) end
 	if msg.attacker == player then
@@ -580,36 +718,36 @@ local function onCounter(msg: any)
 	-- slash), plus glints where it lands.
 	local base = CFrame.lookAt(pos + Vector3.new(0, 1, 0), pos + Vector3.new(0, 1, 0) + dir)
 	crescent(base * CFrame.Angles(0, 0, math.rad(-60)), if msg.empowered then 9 else 7.5, 170,
-		if msg.empowered then WHITE else GOLD, 1.6, 0.32, -1)
-	SwordFX.Stars(pos + dir * 5 + Vector3.new(0, 2, 0), 12, 16)
+		if msg.empowered then WHITE else BLUE, 1.6, 0.32, -1)
+	SwordFX.Stars(pos + dir * 5 + Vector3.new(0, 2, 0), 12, 16, BLUE)
 	ClassFX.Sound("swordHit", pos, 1, 0.8)
 	ClassFX.Sound("whoosh", pos, 0.9, 0.7)
 	if msg.attacker == player then deps.shake(1, 0.25) end
 end
 
-local function onWhirl(msg: any)
+-- Phantom Thrust: the thrust, then each echo a beat later — a phantom rapier
+-- of light stabbing down the same line (budgeted: big Projectile Count
+-- builds stack a lot of them).
+local function onThrust(msg: any)
 	local char = charOf(msg.attacker)
-	local root = rootOf(char)
-	if not char or not root then return end
-	if msg.attacker ~= player then
-		whirlPose(char, msg.duration)
-		trail(char, msg.duration + 0.1)
+	local from, dir, length = msg.from :: Vector3, msg.dir :: Vector3, msg.length :: number
+	if char and msg.attacker ~= player then
+		thrustPose(char)
+		trail(char, 0.35)
 	end
-	-- A vortex of light: concentric arcs whirling round the Swordsman for the
-	-- whole spin.
-	SwordFX.Spiral(function()
-		return if root.Parent then root.Position - Vector3.new(0, 0.8, 0) else nil
-	end, msg.radius, msg.duration, GOLD)
-end
-
-local function onWhirlEnd(msg: any)
-	local root = rootOf(charOf(msg.attacker))
-	if not root then return end
-	-- The launching last cut: one wide ring of light flung outward.
-	crescent(CFrame.new(root.Position - Vector3.new(0, 0.6, 0)) * root.CFrame.Rotation, msg.radius * 0.9, 350, GOLD, 1.3, 0.3)
-	SwordFX.Stars(root.Position, 16, 26)
-	ClassFX.Sound("swordHit", root, 0.9, 0.85)
-	if msg.attacker == player then deps.shake(0.6, 0.18) end
+	for n = 0, msg.echoes do
+		task.delay(0.08 + n * msg.step, function()
+			if n > 0 and not FxBudget.Allow("swordEcho", 14) then return end
+			local p = from + Vector3.new(0, 0.6, 0)
+			local main = n == 0
+			SwordFX.Blade(p + dir * length * 0.5, dir, length, if main then 1.1 else 0.75,
+				if main then BLUE else FROST, if main then 0.12 else 0.06)
+			streak(p, p + dir * length, if main then 0.6 else 0.35, if msg.empowered then WHITE else BLUE, 0.04)
+			ClassFX.Burst(p + dir * length, FROST, if main then 10 else 5, 12, ClassFX.TEX_SPARK, 0.25, 0.25)
+			ClassFX.Sound("swordHit", p + dir * length * 0.5, if main then 0.8 else 0.4, 1.2 + n * 0.06)
+		end)
+	end
+	if msg.attacker == player then deps.shake(0.4, 0.12) end
 end
 
 local function darken(seconds: number)
@@ -631,11 +769,11 @@ local function onStorm(msg: any)
 	local total = msg.windup + #targets * msg.step + 0.7
 	local isMine = msg.attacker == player
 
-	-- The arena darkens; the Swordsman burns white-gold.
+	-- The arena darkens; the Swordsman burns white-blue.
 	local myRoot = rootOf(player.Character)
 	if isMine or (myRoot and (myRoot.Position - root.Position).Magnitude < 90) then darken(total) end
 	local hl = Instance.new("Highlight")
-	hl.FillColor = GOLD
+	hl.FillColor = BLUE
 	hl.FillTransparency = 0.7
 	hl.OutlineColor = WHITE
 	hl.OutlineTransparency = 0
@@ -643,29 +781,14 @@ local function onStorm(msg: any)
 	hl.Adornee = char
 	hl.Parent = ClassFX.Folder()
 	Debris:AddItem(hl, total)
-	-- Sword planted point-down, both hands on the pommel, head bowed; a
-	-- burst at the feet during the wind-up.
-	local planted = { RS = { 75, 0, -18 }, LS = { 75, 0, 18 },
-		W = { -12, 0, 0 }, N = { -24, 0, 0 }, RH = { -6, 0, 12 }, LH = { 6, 0, -12 } }
-	CastPoses.play(char, {
-		{ dur = 0.15, style = Enum.EasingStyle.Back, pose = planted },
-		{ dur = math.max(msg.windup - 0.15, 0.05), pose = planted },
-	})
-	-- Reverse the grip for the wind-up (blade out of the bottom of the fist =
-	-- point-down in front with the hands at the chest), then restore it.
-	local tool = char:FindFirstChild("Longsword")
-	if tool and tool:IsA("Tool") then
-		local normal = tool.Grip
-		tool.Grip = SwordModel.FlippedGrip(normal)
-		task.delay(msg.windup, function() if tool.Parent then tool.Grip = normal end end)
-	end
-	-- Energy gathers: a column of light through the planted blade and a
-	-- circle of light drawn round the feet.
+	-- En garde: side on, the rapier held straight out (your own was posed
+	-- on cast); a circle of light drawing itself round the feet and motes
+	-- rising round him during the wind-up.
+	if not isMine then enGardePose(char, msg.windup) end
 	local feet = root.Position - Vector3.new(0, 2.6, 0)
-	SwordFX.Streak(feet, feet + Vector3.new(0, 16, 0), 1.2, GOLD, msg.windup - 0.1)
-	SwordFX.Arc({ cf = CFrame.new(feet + Vector3.new(0, 0.2, 0)), radius = 4.5, arc = 359, width = 0.6, color = GOLD,
+	SwordFX.Arc({ cf = CFrame.new(feet + Vector3.new(0, 0.2, 0)), radius = 4.5, arc = 359, width = 0.6, color = BLUE,
 		draw = msg.windup * 0.6, life = 0.4, grow = 0.2 })
-	SwordFX.Stars(feet + Vector3.new(0, 1, 0), 14, 6)
+	SwordFX.Stars(feet + Vector3.new(0, 1, 0), 14, 6, BLUE)
 	ClassFX.Sound("rockHit", root, 0.7, 0.9)
 
 	local prev = root.Position
@@ -685,18 +808,17 @@ local function onStorm(msg: any)
 				SafeMove.SnapToFloor(root, stand)
 				deps.shake(0.35, 0.08)
 			end
-			ClassFX.Afterimages(char, PALE, 2, 0.03)
+			ClassFX.Afterimages(char, FROST, 2, 0.03)
 			-- Long crossing streaks that hang in the air ~0.3 s, a slash on
 			-- the target and a few glints.
-			streak(prev + Vector3.new(0, 1.2, 0), land + Vector3.new(0, 1.2, 0), 0.55, GOLD, 0.3, 3)
+			streak(prev + Vector3.new(0, 1.2, 0), land + Vector3.new(0, 1.2, 0), 0.55, BLUE, 0.3, 3)
 			crescent(CFrame.lookAt(t.Position, t.Position + d) * CFrame.Angles(0, 0, math.rad(if i % 2 == 0 then 30 else -30)),
 				4.5, 130, WHITE, 0.9, 0.22, if i % 2 == 0 then -1 else 1)
-			SwordFX.Stars(t.Position, 6, 14)
+			SwordFX.Stars(t.Position, 6, 14, BLUE)
 			ClassFX.Sound("swordHit", t.Position, 0.7, 1 + i * 0.05)
 			prev = land
-			-- Flourishes everyone sees: alternating slashes, and a leaping
-			-- spin on every fourth cut.
-			swingPose(char, if i % 4 == 0 then 4 else ((i - 1) % 2) + 1)
+			-- Flourishes everyone sees: lunge, riposte, double thrust in turn.
+			swingPose(char, ((i - 1) % 3) + 1)
 			trail(char, 0.25)
 		end)
 	end
@@ -720,15 +842,15 @@ local function onStormX(msg: any)
 	local c = pos + Vector3.new(0, 0.5, 0)
 	for _, ang in ipairs({ 45, -45 }) do
 		local d = (CFrame.Angles(0, math.rad(ang), 0) * flatDir)
-		SwordFX.Blade(c, d, r * 2.6, 3.2, GOLD, 0.35)
+		SwordFX.Blade(c, d, r * 2.6, 3.2, BLUE, 0.35)
 	end
 	task.delay(0.05, function()
 		for _, ang in ipairs({ 38, -52 }) do
 			SwordFX.Blade(c, CFrame.Angles(0, math.rad(ang), 0) * flatDir, r * 1.8, 1.2, WHITE, 0.2)
 		end
 	end)
-	SwordFX.Stars(c, 50, 45)
-	ClassFX.Burst(c, PALE, 30, 30, ClassFX.TEX_SPARK, 0.5, 0.6)
+	SwordFX.Stars(c, 50, 45, BLUE)
+	ClassFX.Burst(c, FROST, 30, 30, ClassFX.TEX_SPARK, 0.5, 0.6)
 	ClassFX.Sound("quake", pos, 0.9, 1.2, 1.5)
 	ClassFX.Sound("swordHit", pos, 1, 0.7)
 	local myRoot = rootOf(player.Character)
@@ -744,7 +866,7 @@ local function onMomentumMax(msg: any)
 	if not char or not root then return end
 	ClassFX.Burst(root.Position + Vector3.new(0, 1, 0), WHITE, 24, 14, ClassFX.TEX_SPARK, 0.5, 0.5)
 	ClassFX.Sound("ding", root, 0.6, 1.1)
-	if msg.attacker == player then popWord(char, "MOMENTUM MAX", GOLD, 24) end
+	if msg.attacker == player then popWord(char, "MOMENTUM MAX", BLUE, 24) end
 end
 
 local function onEmpowered(msg: any)
@@ -752,7 +874,7 @@ local function onEmpowered(msg: any)
 	local root = rootOf(char)
 	if not char or not root then return end
 	ClassFX.Ring(root.Position, WHITE, 8, 0.3, char)
-	ClassFX.Burst(root.Position + Vector3.new(0, 1, 0), GOLD, 30, 18, ClassFX.TEX_SPARK, 0.6, 0.5)
+	ClassFX.Burst(root.Position + Vector3.new(0, 1, 0), BLUE, 30, 18, ClassFX.TEX_SPARK, 0.6, 0.5)
 	popWord(char, "EMPOWERED", WHITE, 22)
 end
 
@@ -763,8 +885,7 @@ local HANDLERS: { [string]: (any) -> () } = {
 	guard = onGuard,
 	parry = onParry,
 	counter = onCounter,
-	whirl = onWhirl,
-	whirlEnd = onWhirlEnd,
+	thrust = onThrust,
 	storm = onStorm,
 	stormX = onStormX,
 	momentumMax = onMomentumMax,
@@ -791,5 +912,15 @@ function SwordsmanController.Init(d: Deps)
 		end
 	end)
 end
+
+-- The pose functions, for previews and tests (they pose any character model).
+SwordsmanController.Poses = {
+	swing = swingPose,
+	rush = rushPose,
+	guard = guardPose,
+	counter = counterPose,
+	thrust = thrustPose,
+	enGarde = enGardePose,
+}
 
 return SwordsmanController

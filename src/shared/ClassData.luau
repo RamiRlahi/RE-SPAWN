@@ -338,7 +338,7 @@ local ClassData: { [string]: ClassInfo } = {
 		name = "Sword Master",
 		title = "The Blade Dancer",
 		role = "Melee DPS / Duelist",
-		description = "A fast, precise duelist with a longsword. Chain combos to build Momentum, dash through the line, parry what would kill you, and end it all in a storm of blades.",
+		description = "A fast, precise duelist with a rapier. Chain combos to build Momentum, dash through the line, parry what would kill you, and end it all in a storm of blades.",
 		accentColor = Color3.fromRGB(245, 225, 165),
 		stats = {
 			strength = 4,
@@ -350,12 +350,12 @@ local ClassData: { [string]: ClassInfo } = {
 			difficulty = 3,
 		},
 		abilities = {
-			{ name = "Sword Combo", tag = "M1/Primary", description = "A 4-hit chain: slash, cross slash, thrust, and a spinning finisher that knocks enemies back.", videoId = "" },
+			{ name = "Rapier Combo", tag = "M1/Primary", description = "A 4-hit fencing chain: lunge, riposte, double thrust, and a flèche that carries you forward.", videoId = "" },
 			{ name = "Battle Momentum", tag = "Passive", description = "Every sword hit builds Momentum (up to 10) for faster attacks. At max, your next ability is Empowered.", videoId = "" },
 			{ name = "Sword Rush", tag = "Skill 1 (E)", description = "Dash through enemies with two rapid strikes. Enemies hit by both take extra damage.", videoId = "" },
 			{ name = "Parry", tag = "Skill 2 (F)", description = "A brief guard. Parry an attack to negate it, stun the attacker and answer with a huge upward slash.", videoId = "" },
-			{ name = "Whirlwind", tag = "Skill 3 (Q)", description = "Spin with your blade out, dragging foes in, then launch them away on the last cut.", videoId = "" },
-			{ name = "Blade Storm", tag = "Ultimate (R)", description = "Plant the sword, slow the world, then flash to every enemy in the room in a chain of slashes and end with a giant X that hits the whole room.", videoId = "" },
+			{ name = "Phantom Thrust", tag = "Skill 3 (Q)", description = "A long thrust that carries you forward. Every extra projectile adds a phantom echo of the thrust a beat later.", videoId = "" },
+			{ name = "Blade Storm", tag = "Ultimate (R)", description = "Take guard, slow the world, then flash to every enemy in the room in a chain of at least 8 cuts and end with a giant X that hits the whole room.", videoId = "" },
 		},
 		equipment = {
 			name = "Dawnsteel Longsword",

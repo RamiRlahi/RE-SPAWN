@@ -5,8 +5,9 @@
 	all state is decided here; clients get the moments to draw over
 	SwordsmanFX.
 
-	  M1 Sword Combo  a 4-hit chain: slash, cross slash, thrust, then a spinning
-	                  finisher (all-round, knocks back). Resets after a pause.
+	  M1 Rapier Combo a 4-hit fencing chain: lunge, riposte cut, double thrust,
+	                  then a flèche (a long lunge that carries him forward).
+	                  Resets after a pause.
 	  Passive         Battle Momentum: each sword swing / skill strike that lands
 	                  adds 1 (a parry adds 3), up to 10. Each stack is +4% attack
 	                  speed. At 10 the next ability consumes it and is Empowered.
@@ -15,12 +16,15 @@
 	  F Parry         a short guard window. An attack landing in it is negated,
 	                  the attacker is stunned, and a huge upward counter slash
 	                  answers. Empowered: longer window, bigger counter.
-	  Q Whirlwind     spin with the blade out: repeated hits, smaller foes are
-	                  dragged in, the last cut launches everyone. Empowered:
-	                  bigger radius, more hits.
-	  R Blade Storm   plant the sword (mobs freeze for the moment), then flash
-	                  to every enemy in the room, slashing each, and finish
-	                  with a giant X that hits the whole room again.
+	  Q Phantom Thrust a long rapier thrust that nudges him forward, hitting
+	                  everything on the line. Every extra projectile (Projectile
+	                  Count) adds a phantom echo of the thrust down the same
+	                  line a beat later, each one a real hit. Empowered: longer,
+	                  harder, two more echoes.
+	  R Blade Storm   en garde (mobs freeze for the moment), then flash to
+	                  every enemy in the room, at least 8 cuts (a small room is
+	                  cut more than once), and finish with a giant X that hits
+	                  the whole room again. An empty room: straight to the X.
 --]]
 
 local Players = game:GetService("Players")
@@ -39,15 +43,17 @@ local MOMENTUM_SPEED = 0.04  -- +4% attack speed per stack
 
 local COMBO = {
 	-- range, minimum facing dot (-1 = all round), damage, source
-	[1] = { range = 11, dot = 0.15, damage = 20, source = "SWORD COMBO" },
-	[2] = { range = 11, dot = 0.15, damage = 20, source = "SWORD COMBO" },
-	[3] = { range = 14, dot = 0.75, damage = 26, source = "SWORD COMBO" },
-	[4] = { range = 12, dot = -1, damage = 38, source = "SWORD FINISHER" },
+	[1] = { range = 13, dot = 0.7, damage = 20, source = "RAPIER LUNGE" },
+	[2] = { range = 11, dot = 0.15, damage = 20, source = "RIPOSTE" },
+	[3] = { range = 13, dot = 0.7, damage = 26, source = "DOUBLE THRUST" },
+	[4] = { range = 16, dot = 0.6, damage = 38, source = "FLÈCHE" },
 }
 
-local STORM_WINDUP = 0.8     -- sword planted; matches the client cutscene
+local STORM_WINDUP = 1.2     -- en garde; matches the client cutscene
 local STORM_STEP = 0.18      -- seconds between Blade Storm dashes
+local STORM_MIN_CUTS = 8     -- a room with fewer enemies is cut more than once
 local STORM_X_RADIUS = 22
+local ECHO_STEP = 0.16       -- seconds between a Phantom Thrust and each echo
 
 type Target = { character: Model, humanoid: Humanoid, rootPart: BasePart }
 type State = {
@@ -133,10 +139,6 @@ local function onLine(char: Model, from: Vector3, dir: Vector3, length: number, 
 		end
 	end
 	return out
-end
-
-local function isHeavy(t: Target): boolean
-	return t.character:GetAttribute("IsBoss") == true or t.character:GetAttribute("IsElite") == true
 end
 
 -- ── M1: Sword Combo ─────────────────────────────────────────────────────────
@@ -240,36 +242,26 @@ local function onParried(targetChar: Model, attacker: Model?): boolean
 	return true
 end
 
-local function whirlwind(player: Player, char: Model, st: State, config: any, empowered: boolean)
-	local duration = config.duration or 1.2
-	local ticks = if empowered then 9 else 6
-	local radius = (config.range or 13) * (config.areaMultiplier or 1) * (if empowered then 1.35 else 1)
-	local damage = config.damage or 14
-	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if not root then return end
-	st.busyUntil = os.clock() + duration
-	fx({ kind = "whirl", attacker = player, duration = duration, radius = radius, empowered = empowered })
-	task.spawn(function()
-		for i = 1, ticks do
-			task.wait(duration / ticks)
-			if not char.Parent or not root.Parent then return end
-			local last = i == ticks
-			local hits = inArc(char, root.Position, root.CFrame.LookVector, radius, -1)
+local function phantomThrust(player: Player, char: Model, st: State, origin: Vector3, dir: Vector3, config: any, empowered: boolean)
+	local length = (config.range or 16) * (config.areaMultiplier or 1) * (if empowered then 1.4 else 1)
+	local width = (config.width or 3.5) * (config.areaMultiplier or 1)
+	local damage = (config.damage or 45) * (if empowered then 1.5 else 1)
+	local echoes = math.max(0, math.floor(stat(player, "projectileCount"))) + (if empowered then 2 else 0)
+	-- (he steps in as he thrusts: the line starts a little ahead)
+	local from = origin + dir * ((config.nudge or 5) * 0.5)
+	st.busyUntil = os.clock() + 0.35
+	fx({ kind = "thrust", attacker = player, from = from, dir = dir, length = length, echoes = echoes,
+		step = ECHO_STEP, empowered = empowered })
+	for n = 0, echoes do
+		task.delay(0.08 + n * ECHO_STEP, function()
+			if not char.Parent then return end
+			local hits = onLine(char, from, dir, length, width)
 			for _, t in ipairs(hits) do
-				H.dealDamage(player, t, if last then damage * 2.5 else damage, if last then "WHIRL FINISH" else "WHIRL CUT")
-				-- Drag smaller foes in (the last cut launches them instead).
-				if not last and not isHeavy(t) and not t.rootPart.Anchored then
-					local toward = root.Position - t.rootPart.Position
-					local f = Vector3.new(toward.X, 0, toward.Z)
-					if f.Magnitude > 3 then
-						t.rootPart.AssemblyLinearVelocity = f.Unit * 14 + Vector3.new(0, t.rootPart.AssemblyLinearVelocity.Y, 0)
-					end
-				end
+				H.dealDamage(player, t, if n == 0 then damage else damage * 0.6, if n == 0 then "PHANTOM THRUST" else "PHANTOM ECHO")
 			end
 			if #hits > 0 then gain(player, st, 1) end
-		end
-		fx({ kind = "whirlEnd", attacker = player, radius = radius })
-	end)
+		end)
+	end
 end
 
 -- Everyone Blade Storm can reach: every enemy in the caster's room (or
@@ -305,6 +297,14 @@ local function bladeStorm(player: Player, char: Model, st: State, origin: Vector
 		local t = table.remove(pool, bi)
 		table.insert(chain, t)
 		at = t.rootPart.Position
+	end
+	-- At least STORM_MIN_CUTS: go round the room again (nobody in it: no
+	-- cuts, straight to the X).
+	local n = #chain
+	if n > 0 then
+		for i = n + 1, STORM_MIN_CUTS do
+			table.insert(chain, chain[(i - 1) % n + 1])
+		end
 	end
 	local step = if #chain > 0 then math.clamp(2.4 / #chain, 0.07, STORM_STEP) else STORM_STEP
 	if empowered then damage *= 1.25 end
@@ -351,7 +351,7 @@ function SwordsmanServer.OnSkill(player: Player, char: Model, skillIndex: number
 	elseif skillIndex == 2 then
 		parry(player, char, st, config, empowered)
 	elseif skillIndex == 3 then
-		whirlwind(player, char, st, config, empowered)
+		phantomThrust(player, char, st, origin, dir, config, empowered)
 	elseif skillIndex == 4 then
 		bladeStorm(player, char, st, origin, dir, config, empowered)
 	end

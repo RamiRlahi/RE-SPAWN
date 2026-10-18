@@ -177,8 +177,8 @@ AURAS.gunslinger = function(c)
 end
 
 AURAS.swordsman = function(c)
-	local GOLD = Color3.fromRGB(255, 214, 120)
-	local WHITE = Color3.fromRGB(255, 250, 235)
+	local GOLD = Color3.fromRGB(90, 150, 255) -- (the Sword Master's blue)
+	local WHITE = Color3.fromRGB(225, 238, 255)
 	-- Two counter-turning rings at the feet, and six spectral blades orbiting
 	-- point-down around the Swordsman (the storm about to break). No lights.
 	local ringA = groundRing(c.folder, c.ground, 3.6, 28, GOLD, 0.45, 0.12)

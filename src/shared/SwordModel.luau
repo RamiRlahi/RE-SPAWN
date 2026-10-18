@@ -1,30 +1,29 @@
 --!strict
 --[[
 	SwordModel
-	Builds the Swordsman's longsword as a Tool from parts (no uploaded asset).
-	Shared by the server (the real weapon) and the class-select preview.
+	Builds the Sword Master's rapier as a Tool from parts (no uploaded asset).
+	Shared by the server (the real weapon) and the class-select preview. The
+	Tool keeps the name "Longsword" so the rest of the Swordsman code finds it.
 
 	Handle space: the blade runs along -Z from the hand, and the Tool's Grip
 	turns it to stick out of the fist (forward with the arm hanging, up with
 	the arm raised). Named pieces the client uses:
 	  BladeBase / BladeTip — Attachments on the blade for the swing trail
-	  SwordTrail           — the white/gold swing Trail (off until a swing)
-	The game's Sword Tool in ReplicatedStorage (named "Sword" or "Longsword")
-	is used instead whenever it exists; this built one is only a fallback.
+	  SwordTrail           — the white/blue swing Trail (off until a swing)
 
 	To flip a sword point-down (planted), set tool.Grip =
 	SwordModel.FlippedGrip(tool.Grip): it turns the handle 180° across the
 	blade whatever the tool's own Grip is.
 --]]
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local SwordModel = {}
 
-local STEEL = Color3.fromRGB(205, 210, 220)
-local EDGE = Color3.fromRGB(240, 244, 250)
-local GOLD = Color3.fromRGB(214, 170, 82)
-local LEATHER = Color3.fromRGB(56, 36, 28)
+local STEEL = Color3.fromRGB(205, 212, 226)
+local EDGE = Color3.fromRGB(240, 246, 255)
+local SILVER = Color3.fromRGB(176, 184, 204)
+local NAVY = Color3.fromRGB(22, 28, 58)
+local GEM = Color3.fromRGB(90, 150, 255)
 
 -- Slides the whole sword along the blade so the wrapped grip (not the guard)
 -- sits in the fist. More negative = sword further toward its tip.
@@ -47,85 +46,25 @@ local function piece(tool: Tool, handle: BasePart, name: string, props: { [strin
 	props.Offset = nil
 	for k, v in pairs(props) do (p :: any)[k] = v end
 	p.CFrame = handle.CFrame * CFrame.new(HAND_SIDE, 0, HAND_OFFSET) * offset
-	local w = Instance.new("WeldConstraint")
+	-- A Weld with its offset written down (not a WeldConstraint, which takes
+	-- whatever offset there is when it switches on: if the grip has already
+	-- moved the handle by then, the piece is left behind).
+	local w = Instance.new("Weld")
 	w.Part0 = handle
 	w.Part1 = p
+	w.C0 = CFrame.new(HAND_SIDE, 0, HAND_OFFSET) * offset
 	w.Parent = p
 	p.Parent = tool
 	return p
 end
 
--- The game's own sword asset: a Tool named "Sword" in ReplicatedStorage
--- (there's also an unrelated Folder of that name, so look by class). Its
--- Grip is authored in Studio; the blade runs along the Handle's +Y. We add the
--- swing trail along the blade and name it "Longsword" so the rest of the
--- Swordsman code finds it. Attribute BladeAxis tells code which way the blade
--- points in Handle space ("+Y" here, "-Z" for the built fallback).
-local function fromAsset(): Tool?
-	local template: Tool? = nil
-	for _, c in ipairs(ReplicatedStorage:GetChildren()) do
-		if c:IsA("Tool") and (c.Name == "Sword" or c.Name == "Longsword") then
-			template = c
-			break
-		end
-	end
-	if not template then return nil end
-	local tool = template:Clone()
-	tool.Name = "Longsword"
-	tool.CanBeDropped = false
-	tool:SetAttribute("BladeAxis", "+Y")
-	local handle = tool:FindFirstChild("Handle") :: BasePart?
-	local blade = handle and handle:FindFirstChildWhichIsA("BasePart")
-	if handle and blade and not tool:FindFirstChild("SwordTrail", true) then
-		-- Trail from just past the guard to the tip, measured in Handle space
-		-- then placed on the blade mesh.
-		local base = Instance.new("Attachment")
-		base.Name = "BladeBase"
-		base.WorldPosition = (handle.CFrame * CFrame.new(0, 1.1, 0)).Position
-		base.Parent = blade
-		local tip = Instance.new("Attachment")
-		tip.Name = "BladeTip"
-		tip.WorldPosition = (handle.CFrame * CFrame.new(0, 5, 0)).Position
-		tip.Parent = blade
-		local trail = Instance.new("Trail")
-		trail.Name = "SwordTrail"
-		trail.Attachment0 = base
-		trail.Attachment1 = tip
-		trail.FaceCamera = true
-		trail.LightEmission = 1
-		trail.LightInfluence = 0
-		trail.Lifetime = 0.18
-		trail.MinLength = 0.02
-		trail.Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-			ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 236, 170)),
-			ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 200, 90)),
-		})
-		trail.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 0.1),
-			NumberSequenceKeypoint.new(1, 1),
-		})
-		trail.WidthScale = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, 1),
-			NumberSequenceKeypoint.new(1, 0.3),
-		})
-		trail.Enabled = false
-		trail.Parent = blade
-	end
-	return tool
-end
-
 function SwordModel.Build(): Tool
-	local asset = fromAsset()
-	if asset then return asset end
-
 	local tool = Instance.new("Tool")
 	tool.Name = "Longsword"
 	tool.RequiresHandle = true
 	tool.CanBeDropped = false
 	-- Held in the fist, blade pointing forward (not along the arm): the grip
 	-- turns the handle's -Z (blade) from "down the arm" to "out of the hand".
-	-- If the blade points backward in-game, flip this to +90.
 	tool.Grip = CFrame.Angles(math.rad(-90), 0, 0)
 	tool:SetAttribute("BladeAxis", "-Z")
 
@@ -140,34 +79,55 @@ function SwordModel.Build(): Tool
 	handle.CFrame = CFrame.new(0, 50, 0)
 	handle.Parent = tool
 
-	-- Grip (wrapped leather) and gold pommel behind the hand.
-	piece(tool, handle, "Grip", { Size = Vector3.new(0.22, 0.22, 1.1), Offset = CFrame.new(0, 0, 0.15),
-		Color = LEATHER, Material = Enum.Material.Fabric })
-	piece(tool, handle, "Pommel", { Shape = Enum.PartType.Ball, Size = Vector3.one * 0.38, Offset = CFrame.new(0, 0, 0.78),
-		Color = GOLD, Material = Enum.Material.Metal })
-	-- Crossguard, slightly swept.
-	piece(tool, handle, "Guard", { Size = Vector3.new(1.5, 0.16, 0.2), Offset = CFrame.new(0, 0, -0.44),
-		Color = GOLD, Material = Enum.Material.Metal })
-	piece(tool, handle, "GuardCenter", { Size = Vector3.new(0.34, 0.3, 0.3), Offset = CFrame.new(0, 0, -0.44),
-		Color = GOLD, Material = Enum.Material.Metal })
-	-- Blade: a flat steel body with a brighter edge and a tapered tip.
-	local blade = piece(tool, handle, "Blade", { Size = Vector3.new(0.3, 0.08, 3.6), Offset = CFrame.new(0, 0, -2.36),
-		Color = STEEL, Material = Enum.Material.Metal, Reflectance = 0.15 })
-	piece(tool, handle, "Fuller", { Size = Vector3.new(0.08, 0.1, 2.8), Offset = CFrame.new(0, 0, -2.1),
-		Color = Color3.fromRGB(150, 158, 172), Material = Enum.Material.Metal })
-	piece(tool, handle, "Edge", { Size = Vector3.new(0.36, 0.04, 3.5), Offset = CFrame.new(0, 0, -2.36),
-		Color = EDGE, Material = Enum.Material.Metal, Reflectance = 0.3 })
-	piece(tool, handle, "Tip", { Size = Vector3.new(0.21, 0.08, 0.21), Offset = CFrame.new(0, 0, -4.2) * CFrame.Angles(0, math.rad(45), 0),
-		Color = STEEL, Material = Enum.Material.Metal })
+	local metal = Enum.Material.Metal
+	-- Wire-wrapped grip and a ball pommel with a blue stone.
+	piece(tool, handle, "Grip", { Size = Vector3.new(0.18, 0.18, 0.95), Offset = CFrame.new(0, 0, 0.15),
+		Color = NAVY, Material = Enum.Material.Fabric })
+	piece(tool, handle, "Pommel", { Shape = Enum.PartType.Ball, Size = Vector3.one * 0.32, Offset = CFrame.new(0, 0, 0.7),
+		Color = SILVER, Material = metal })
+	piece(tool, handle, "PommelGem", { Shape = Enum.PartType.Ball, Size = Vector3.one * 0.14, Offset = CFrame.new(0, 0, 0.84),
+		Color = GEM, Material = Enum.Material.Neon })
+	-- The swept hilt: a straight cross-guard, a cup over the hand, a knuckle
+	-- bow curving from the guard to the pommel, and two side rings.
+	piece(tool, handle, "Quillons", { Size = Vector3.new(1.3, 0.08, 0.08), Offset = CFrame.new(0, 0, -0.38),
+		Color = SILVER, Material = metal })
+	piece(tool, handle, "Cup", { Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.08, 0.62, 0.62),
+		Offset = CFrame.new(0, 0, -0.42) * CFrame.Angles(0, math.rad(90), 0), Color = SILVER, Material = metal })
+	for i = 0, 4 do
+		local a = math.rad(-80 + i * 40)
+		piece(tool, handle, "KnuckleBow" .. i, { Size = Vector3.new(0.06, 0.06, 0.3),
+			Offset = CFrame.new(0, -0.32 * math.cos(a) - 0.05, 0.15 + 0.48 * math.sin(a)) * CFrame.Angles(-a, 0, 0),
+			Color = SILVER, Material = metal })
+	end
+	for _, side in ipairs({ -1, 1 }) do
+		for i = 0, 5 do
+			local a = math.rad(i * 60)
+			piece(tool, handle, "Ring" .. side .. "_" .. i, { Size = Vector3.new(0.05, 0.05, 0.16),
+				Offset = CFrame.new(side * (0.3 + 0.14 * math.cos(a)), 0, -0.26 + 0.14 * math.sin(a)) * CFrame.Angles(0, math.rad(90) + a, 0),
+				Color = SILVER, Material = metal })
+		end
+	end
+	piece(tool, handle, "GuardGem", { Shape = Enum.PartType.Ball, Size = Vector3.one * 0.16, Offset = CFrame.new(0, 0, -0.42),
+		Color = GEM, Material = Enum.Material.Neon })
+	-- The long, narrow blade: a squared ricasso, then the blade with a
+	-- bright edge, tapering to a needle point.
+	piece(tool, handle, "Ricasso", { Size = Vector3.new(0.14, 0.1, 0.5), Offset = CFrame.new(0, 0, -0.7),
+		Color = STEEL, Material = metal })
+	local blade = piece(tool, handle, "Blade", { Size = Vector3.new(0.12, 0.05, 3.9), Offset = CFrame.new(0, 0, -2.9),
+		Color = STEEL, Material = metal, Reflectance = 0.2 })
+	piece(tool, handle, "Edge", { Size = Vector3.new(0.15, 0.025, 3.8), Offset = CFrame.new(0, 0, -2.9),
+		Color = EDGE, Material = metal, Reflectance = 0.35 })
+	piece(tool, handle, "Tip", { Size = Vector3.new(0.07, 0.04, 0.4), Offset = CFrame.new(0, 0, -5.0),
+		Color = EDGE, Material = metal })
 
-	-- Swing trail along the blade.
+	-- Swing trail along the blade, and the point (camera / thrust effects).
 	local base = Instance.new("Attachment")
 	base.Name = "BladeBase"
-	base.Position = Vector3.new(0, 0, 1.4)
+	base.Position = Vector3.new(0, 0, 1.6)
 	base.Parent = blade
 	local tip = Instance.new("Attachment")
 	tip.Name = "BladeTip"
-	tip.Position = Vector3.new(0, 0, -1.95)
+	tip.Position = Vector3.new(0, 0, -2.3)
 	tip.Parent = blade
 	local trail = Instance.new("Trail")
 	trail.Name = "SwordTrail"
@@ -180,8 +140,8 @@ function SwordModel.Build(): Tool
 	trail.MinLength = 0.02
 	trail.Color = ColorSequence.new({
 		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 236, 170)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 200, 90)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(170, 205, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 130, 255)),
 	})
 	trail.Transparency = NumberSequence.new({
 		NumberSequenceKeypoint.new(0, 0.1),

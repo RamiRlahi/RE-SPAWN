@@ -429,12 +429,8 @@ CAST.swordsman = {
 		play(SFX.swordIn, c.root, 0.7, 0.9)
 	end,
 	[3] = function(c)
-		local dur = c.config.duration or 1.2
-		local t = 0
-		while t < dur do
-			later(t, function() if c.char.Parent then play(SFX.whoosh, c.root, 0.6, 1.3) end end)
-			t += 0.2
-		end
+		-- Phantom Thrust: one sharp lunge (the echoes' hits sound from SwordsmanFX).
+		play(SFX.whoosh, c.root, 0.9, 1.4)
 	end,
 	[4] = function(c)
 		play(SFX.swordIn, c.root, 1, 0.7)

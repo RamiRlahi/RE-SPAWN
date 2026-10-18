@@ -312,14 +312,15 @@ SkillData.swordsman = {
 		description = "Guard for a moment. Parry an attack to negate it, stun the attacker and counter with a huge upward slash. Empowered: longer window, bigger counter.",
 	},
 	[3] = {
-		name = "Whirlwind",
+		name = "Phantom Thrust",
 		slot = 3,
 		keybind = "Q",
-		cooldown = 10.0,
-		damage = 14, -- per spin hit; the last hit deals more and launches
-		range = 13,
-		duration = 1.2,
-		description = "Spin with the blade out, hitting everything around you and dragging smaller foes in; the last cut launches them. Empowered: bigger and longer.",
+		cooldown = 7.0,
+		damage = 45, -- the thrust; each phantom echo deals 60%
+		range = 16, -- length of the thrust line
+		width = 3.5,
+		nudge = 5, -- studs he steps forward
+		description = "A long rapier thrust that carries you forward, piercing everything in line. Each extra projectile adds a phantom echo of the thrust down the same line a beat later. Empowered: longer, harder, two more echoes.",
 	},
 	[4] = {
 		name = "Blade Storm",
@@ -328,7 +329,7 @@ SkillData.swordsman = {
 		cooldown = 35.0,
 		damage = 60, -- per dash slash; the final X deals far more
 		range = 45,
-		description = "Ultimate: plant the sword and slow the world, flash to every enemy in the room in a chain of slashes, then carve a giant X that hits the whole room.",
+		description = "Ultimate: take guard and slow the world, flash to every enemy in the room in a chain of at least 8 cuts, then carve a giant X that hits the whole room.",
 	},
 }
 

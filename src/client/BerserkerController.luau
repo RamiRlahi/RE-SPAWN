@@ -376,48 +376,62 @@ local function popWord(char: Model, text: string, size: number)
 	Debris:AddItem(bb, 1.1)
 end
 
--- ── Poses: two hands on the hilt (CastPoses: +rx raises an arm forward) ─────
--- Both arms reach to the grip: the left arm crosses in (LS ry +) to meet the
--- right. Heavy, grounded moves: wide stance, deep knees, the torso does the work.
-local SPIN = function(t0: number, delay: number, dur: number, turns: number)
-	return function()
-		local a = math.clamp((os.clock() - t0 - delay) / dur, 0, 1)
-		return { Root = { 0, -(1 - (1 - a) ^ 2) * 360 * turns, 0 } }
+-- ── Poses: two hands on the hilt (CastPoses character space) ──────────────
+-- Both arms reach to the grip (twoHandStep re-aims them onto the hilt after
+-- every pose; the right arm's angle sets where the hands are). Signs: W ry +
+-- turns the torso LEFT over planted feet, + rx raises an arm forward, N rx +
+-- tips the head up. Heavy, grounded moves: a long wind-up, a strike that
+-- accelerates into the hit in the same direction as its crescent, the whole
+-- body following the blade through, then a slow settle. The legs come from
+-- CastPoses.body, so the feet stay on the floor in the deepest crouch.
+local QUAD, QUART = Enum.EasingStyle.Quad, Enum.EasingStyle.Quart
+local body = CastPoses.body
+
+-- Whole-body turn (+ = to the left) in the move's own time, whole turns only.
+local SPIN = function(delay: number, dur: number, turns: number)
+	return function(t: number)
+		local a = math.clamp((t - delay) / dur, 0, 1)
+		return { Root = { 0, (1 - (1 - a) ^ 2) * 360 * turns, 0 } }
 	end
 end
 
-local function swingPose(char: Model, step: number)
+local function swingPose(char: Model, step: number, speed: number?)
+	local s = speed or 1
+	local opts = { speed = s }
 	if step == 1 then
-		-- Diagonal cleave: wound high over the right shoulder, then hacked down
-		-- and across to the left hip.
+		-- Diagonal cleave: wound high over the right shoulder, then hacked
+		-- down and across to the left hip (as its crescent).
 		CastPoses.play(char, {
-			{ dur = 0.12, pose = { Root = { 0, 0, 0, 0, -0.4, 0.2 }, W = { 8, 50, 0 }, RS = { 150, 40, 0 }, LS = { 140, 60, 0 },
-				RH = { -18, 0, 8 }, LH = { 22, 0, -8 }, N = { 0, -25, 0 } } },
-			{ dur = 0.1, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -0.8, -0.6 }, W = { -22, -45, 0 }, RS = { 20, -60, 0 },
-				LS = { 25, -30, 0 }, RH = { 30, 0, 8 }, LH = { -30, 0, -8 }, N = { 10, 20, 0 } } },
-			{ dur = 0.22, pose = { Root = { 0, 0, 0, 0, -0.6, -0.4 }, W = { -15, -35, 0 }, RS = { 15, -50, 0 }, LS = { 20, -25, 0 },
-				RH = { 20, 0, 8 }, LH = { -20, 0, -8 } } },
-		}, 0.3)
+			{ dur = 0.12, style = QUAD, pose = body(8, -50, 16, 16,
+				{ RS = { 150, -40, 25 }, LS = { 140, -60, 0 }, N = { 4, 30, 0 } }, 12, 0.2, 0.2) },
+			{ dur = 0.1, style = QUART, pose = body(-24, 40, 34, 34,
+				{ RS = { 25, 55, -35 }, LS = { 30, 30, 20 }, N = { 12, -20, 0 } }, 12, -0.15, -0.6) },
+			{ dur = 0.22, pose = body(-20, 52, 34, 34,
+				{ RS = { 15, 70, -50 }, LS = { 20, 40, 25 }, N = { 10, -24, 0 } }, 12, -0.2, -0.5) },
+		}, 0.32, nil, opts)
 	elseif step == 2 then
-		-- Backhand: dragged low from the left and ripped up and across to the right.
+		-- Backhand: dragged low from the left, ripped up and across to the right.
 		CastPoses.play(char, {
-			{ dur = 0.1, pose = { Root = { 0, 0, 0, 0, -0.7, 0 }, W = { 15, -55, 0 }, RS = { 30, -80, 0 }, LS = { 35, -50, 0 },
-				RH = { 25, 0, 8 }, LH = { -25, 0, -8 } } },
-			{ dur = 0.1, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -0.2, -0.3 }, W = { -18, 60, 0 }, RS = { 80, 90, 0 },
-				LS = { 70, 100, 0 }, RH = { -20, 0, 8 }, LH = { 20, 0, -8 }, N = { -10, -20, 0 } } },
-			{ dur = 0.2, pose = { Root = { 0, 0, 0, 0, -0.3, -0.2 }, W = { -10, 45, 0 }, RS = { 65, 75, 0 }, LS = { 55, 85, 0 } } },
-		}, 0.3)
+			{ dur = 0.1, style = QUAD, pose = body(15, 55, 26, 26,
+				{ RS = { 30, 80, -40 }, LS = { 35, 50, 0 }, N = { -4, -30, 0 } }, 12, -0.2, 0.1) },
+			{ dur = 0.1, style = QUART, pose = body(-16, -55, 20, 20,
+				{ RS = { 80, -90, 30 }, LS = { 70, -100, 0 }, N = { 4, 22, 0 } }, 12, 0.2, -0.3) },
+			{ dur = 0.2, pose = body(-12, -65, 18, 18,
+				{ RS = { 70, -100, 40 }, LS = { 60, -90, 0 }, N = { 4, 26, 0 } }, 12, 0.2, -0.2) },
+		}, 0.3, nil, opts)
 	else
-		-- Overhead smash: heaved high behind the head, then brought straight down
-		-- into the ground.
+		-- Overhead smash: heaved high behind the head, arching back, then
+		-- brought straight down into the ground with the whole body; the
+		-- pose all but freezes a beat as it bites (hit-stop).
 		CastPoses.play(char, {
-			{ dur = 0.18, pose = { Root = { 0, 0, 0, 0, -0.3, 0.3 }, W = { 22, 0, 0 }, RS = { 175, 10, 0 }, LS = { 170, -10, 0 },
-				RH = { -12, 0, 10 }, LH = { 12, 0, -10 }, N = { -20, 0, 0 } } },
-			{ dur = 0.08, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -1.2, -0.5 }, W = { -40, 0, 0 }, RS = { 35, 0, 0 },
-				LS = { 35, 0, 0 }, RH = { 35, 0, 12 }, LH = { -35, 0, -12 }, N = { 20, 0, 0 } } },
-			{ dur = 0.28, pose = { Root = { 0, 0, 0, 0, -1, -0.4 }, W = { -32, 0, 0 }, RS = { 30, 0, 0 }, LS = { 30, 0, 0 },
-				RH = { 30, 0, 12 }, LH = { -30, 0, -12 } } },
-		}, 0.35)
+			{ dur = 0.18, style = QUAD, pose = body(22, 0, 14, 14,
+				{ RS = { 175, 10, 0 }, LS = { 170, -10, 0 }, N = { 10, 0, 0 } }, 12, 0, 0.3) },
+			{ dur = 0.08, style = QUART, pose = body(-40, 0, 42, 42,
+				{ RS = { 35, 0, 0 }, LS = { 35, 0, 0 }, N = { 20, 0, 0 } }, 14, 0, -0.5) },
+			{ dur = 0.28, pose = body(-34, 0, 40, 40,
+				{ RS = { 30, 0, 0 }, LS = { 30, 0, 0 }, N = { 16, 0, 0 } }, 14, 0, -0.4) },
+		}, 0.35, nil, opts)
+		task.delay(0.26 / s, CastPoses.hitStop, char, 0.07)
 	end
 end
 
@@ -435,14 +449,13 @@ local function raisePose(char: Model, windup: number)
 end
 
 local function cleavePose(char: Model)
-	-- Crimson Cleave: a full turn with the blade held out wide in both hands.
-	local t0 = os.clock()
+	-- Crimson Cleave: coiled to the right, then a full turn to the left (as
+	-- its ring) with the blade held out wide in both hands.
 	CastPoses.play(char, {
-		{ dur = 0.08, pose = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { 12, 70, 0 }, RS = { 30, 0, 80 }, LS = { 40, 60, 0 },
-			RH = { -20, 0, 10 }, LH = { 20, 0, -10 } } },
-		{ dur = 0.3, pose = { Root = { 0, 0, 0, 0, -0.5, 0 }, W = { -5, 0, 0 }, RS = { 25, 0, 88 }, LS = { 30, 50, 30 },
-			RH = { -15, 0, 12 }, LH = { 15, 0, -12 } }, wobble = SPIN(t0, 0.08, 0.3, 1) },
-		{ dur = 0.14, pose = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { 10, -30, 0 }, RS = { 20, -40, 0 }, LS = { 25, -20, 0 } } },
+		{ dur = 0.08, style = QUAD, pose = body(12, -70, 24, 24, { RS = { 30, 0, 80 }, LS = { 40, -60, 0 } }, 12) },
+		{ dur = 0.3, pose = body(-5, 0, 22, 22, { RS = { 25, 0, 88 }, LS = { 30, -50, -30 } }, 12),
+			wobble = SPIN(0.08, 0.3, 1) },
+		{ dur = 0.14, pose = body(10, 30, 24, 24, { RS = { 20, 40, 0 }, LS = { 25, 20, 0 } }, 12) },
 	}, 0.3)
 end
 
@@ -694,39 +707,40 @@ end
 -- Rupture: sink low gripping the blade, spring up with it raised, hang with
 -- it overhead, smash it down into a deep crouch.
 local function rupturePose(char: Model)
+	local landed = body(-45, 0, 40, 46, { RS = { 25, 0, 0 }, LS = { 25, 0, 0 }, N = { 25, 0, 0 } }, 14, 0, -0.4)
 	CastPoses.play(char, {
-		{ dur = RUPTURE.crouch, pose = { Root = { 0, 0, 0, 0, -1.1, 0.2 }, W = { -22, 0, 0 }, RS = { 40, 0, 0 }, LS = { 45, 0, 0 },
-			RH = { 55, 0, 10 }, LH = { 50, 0, -10 }, N = { 15, 0, 0 } } },
-		{ dur = RUPTURE.rise, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0 }, W = { 15, 0, 0 }, RS = { 165, 0, 0 },
+		{ dur = RUPTURE.crouch, style = QUAD, pose = body(-22, 0, 36, 36,
+			{ RS = { 40, 0, 0 }, LS = { 45, 0, 0 }, N = { 15, 0, 0 } }, 12, 0, 0.2) },
+		{ dur = RUPTURE.rise, style = QUART, pose = { Root = { 0, 0, 0 }, W = { 15, 0, 0 }, RS = { 165, 0, 0 },
 			LS = { 160, 0, 0 }, RH = { -35, 0, 6 }, LH = { 20, 0, -6 }, N = { -15, 0, 0 } } },
 		{ dur = RUPTURE.hang, pose = { Root = { 0, 0, 0 }, W = { 25, 0, 0 }, RS = { 190, 0, 0 }, LS = { 185, 0, 0 },
 			RH = { -50, 0, 8 }, LH = { -20, 0, -8 }, N = { -25, 0, 0 } } },
-		{ dur = RUPTURE.fall, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -1.3, -0.4 }, W = { -45, 0, 0 },
-			RS = { 25, 0, 0 }, LS = { 25, 0, 0 }, RH = { 45, 0, 14 }, LH = { -40, 0, -14 }, N = { 25, 0, 0 } } },
-		{ dur = 0.3, pose = { Root = { 0, 0, 0, 0, -1.2, -0.4 }, W = { -40, 0, 0 }, RS = { 20, 0, 0 }, LS = { 20, 0, 0 },
-			RH = { 40, 0, 14 }, LH = { -35, 0, -14 } } },
+		{ dur = RUPTURE.fall, style = QUART, pose = landed },
+		{ dur = 0.3, pose = body(-40, 0, 40, 46, { RS = { 20, 0, 0 }, LS = { 20, 0, 0 }, N = { 20, 0, 0 } }, 14, 0, -0.4) },
 	}, 0.35)
+	task.delay(RUPTURE.crouch + RUPTURE.rise + RUPTURE.hang + RUPTURE.fall, CastPoses.hitStop, char, 0.08)
 end
 
 -- Bloodstorm's lean: bent forward, the blade dragged low behind.
 local function stormLeanPose(char: Model, t: number)
 	CastPoses.play(char, {
-		{ dur = t, pose = { Root = { 0, 0, 0, 0, -0.8, 0 }, W = { -35, -20, 0 }, RS = { -25, -20, 30 }, LS = { -10, -40, 0 },
-			RH = { 40, 0, 10 }, LH = { -30, 0, -10 }, N = { 25, 15, 0 } } },
+		{ dur = t, style = QUAD, pose = body(-35, -20, 34, 30,
+			{ RS = { -25, -20, 30 }, LS = { -10, -40, 0 }, N = { 25, 15, 0 } }, 10) },
 	}, 0.1)
 end
 
--- A Bloodstorm swing, alternately from either side: the greatsword heaved
--- high and far round, hacked across and down into a deep crouch with the
--- whole body behind it, then held there a beat as it bites (the hit-stop).
+-- A Bloodstorm swing, alternately from either side (odd: right to left, as
+-- its crescent): the greatsword heaved high and far round, hacked across and
+-- down into a deep crouch with the whole body behind it, then held there a
+-- beat as it bites (the hit-stop).
 local function stormSwingPose(char: Model, i: number, dur: number, freeze: number)
 	local s = if i % 2 == 1 then 1 else -1
-	local hack = { Root = { 0, 0, 0, 0, -1.1, -0.45 }, W = { -28, -s * 60, 0 }, RS = { 30, -s * 70, 0 }, LS = { 35, -s * 50, 0 },
-		RH = { 38, 0, 10 }, LH = { -36, 0, -10 }, N = { 15, s * 15, 0 } }
+	local hack = body(-28, s * 60, 38, 38, { RS = { 30, s * 70, 0 }, LS = { 35, s * 50, 0 }, N = { 15, -s * 15, 0 } },
+		12, -s * 0.2, -0.45)
 	CastPoses.play(char, {
-		{ dur = dur * 0.62, style = Enum.EasingStyle.Sine, pose = { Root = { 0, 0, 0, 0, -0.5, 0.25 }, W = { 12, s * 70, 0 },
-			RS = { 140, s * 75, 0 }, LS = { 130, s * 90, 0 }, RH = { -15, 0, 8 }, LH = { 18, 0, -8 }, N = { 0, -s * 20, 0 } } },
-		{ dur = dur * 0.38, style = Enum.EasingStyle.Quart, pose = hack },
+		{ dur = dur * 0.62, style = Enum.EasingStyle.Sine, pose = body(12, -s * 70, 18, 18,
+			{ RS = { 140, -s * 75, 0 }, LS = { 130, -s * 90, 0 }, N = { 0, s * 20, 0 } }, 10, s * 0.25, 0.25) },
+		{ dur = dur * 0.38, style = QUART, pose = hack },
 		{ dur = freeze, pose = hack },
 	}, 0.2)
 end
@@ -2329,7 +2343,7 @@ function BerserkerController.Basic(char: Model, root: BasePart): boolean
 	lastSwing = now
 	local dir = flatDir(deps.getAim(root), root.CFrame.LookVector)
 	root.CFrame = CFrame.lookAt(root.Position, root.Position + dir)
-	swingPose(char, localStep)
+	swingPose(char, localStep, speed)
 	comboVFX(char, localStep, dir)
 	ClassFX.Sound("whoosh", root, 0.7, if localStep == 3 then 0.7 else 0.85)
 	Network.GetRemoteEvent(Network.Remotes.PerformAttack):FireServer({ direction = dir })
@@ -3468,5 +3482,19 @@ function BerserkerController.Init(d: Deps)
 		end
 	end)
 end
+
+-- The pose functions, for previews and tests (they pose any character model).
+BerserkerController.Poses = {
+	swing = swingPose,
+	cleave = cleavePose,
+	rupture = rupturePose,
+	stormLean = stormLeanPose,
+	stormSwing = stormSwingPose,
+	charge = chargePose,
+	awaken = awakenPose,
+	claw = clawPose,
+	beastSlam = beastSlamPose,
+	carnage = carnagePose,
+}
 
 return BerserkerController
