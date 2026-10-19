@@ -54,6 +54,8 @@ local ENERGY_MAX = 100
 local ENERGY_PER_HIT = 5
 local MARK_TIME = 5          -- seconds a Shadow Mark lasts
 local MARK_BONUS = 0.25      -- +25% damage from the Rogue to a marked enemy
+local POISON_TICK = 1        -- a Shadow Mark also poisons: one tick a second while it lasts…
+local POISON_DAMAGE = 6      -- …for this much (× the Rogue's Damage stat)
 local KILL_SPEED = 1.25      -- move speed after a kill…
 local KILL_SPEED_TIME = 2    -- …for this long
 local HIDDEN_SPEED = 1.3     -- move speed while invisible
@@ -144,10 +146,28 @@ local function marked(t: Target): boolean
 	return (t.character:GetAttribute("ShadowMarkUntil") or 0) > os.clock()
 end
 
-local function mark(t: Target, seconds: number?)
+-- Who poisoned each marked enemy (one ticking poison per enemy; a fresh
+-- mark just keeps it going, under the latest Rogue to mark it).
+local poisoned: { [Model]: Player } = {}
+
+-- A Shadow Mark: the bonus damage, and a poison that ticks while it lasts.
+local function mark(player: Player, t: Target, seconds: number?)
 	local dur = seconds or MARK_TIME
-	t.character:SetAttribute("ShadowMarkUntil", os.clock() + dur)
-	fx({ kind = "mark", model = t.character, duration = dur })
+	local char = t.character
+	char:SetAttribute("ShadowMarkUntil", os.clock() + dur)
+	fx({ kind = "mark", model = char, duration = dur })
+	local ticking = poisoned[char] ~= nil
+	poisoned[char] = player
+	if ticking then return end
+	task.spawn(function()
+		while true do
+			task.wait(POISON_TICK)
+			local by = poisoned[char]
+			if not (by and by.Parent and char.Parent and t.humanoid.Health > 0 and marked(t)) then break end
+			H.dealDamage(by, t, POISON_DAMAGE * stat(by, "damage"), "SHADOW POISON")
+		end
+		poisoned[char] = nil
+	end)
 end
 
 -- One hit from the Rogue: the mark's bonus, energy (`energy`, or the usual
@@ -340,7 +360,7 @@ local function throwDagger(player: Player, char: Model, st: State, origin: Vecto
 			for _, e in ipairs(passed) do
 				struck[e.t.character] = true
 				hit(player, st, e.t, damage, "SHADOW DAGGER")
-				mark(e.t, if enhanced then MARK_TIME * 1.5 else MARK_TIME)
+				mark(player, e.t, if enhanced then MARK_TIME * 1.5 else MARK_TIME)
 				if not enhanced then
 					land(math.min(e.along, flown), e.t)
 					return
@@ -384,7 +404,7 @@ function RogueServer.TryRecast(player: Player, char: Model, skillIndex: number):
 		task.delay(0.05, function()
 			if char.Parent then
 				hit(player, st, target, d.damage * STEP_BONUS, "SHADOW STEP", { forceCrit = true })
-				mark(target)
+				mark(player, target)
 			end
 		end)
 	end
@@ -409,7 +429,7 @@ local function dash(player: Player, char: Model, st: State, origin: Vector3, dir
 		if not char.Parent then return end
 		for _, e in ipairs(onLine(char, origin, dir, dist, width)) do
 			hit(player, st, e.t, damage, "DASH")
-			mark(e.t)
+			mark(player, e.t)
 		end
 	end)
 end
@@ -506,7 +526,7 @@ local function execute(player: Player, char: Model, st: State, config: any, enha
 			if n and n > 0 then
 				table.insert(blasts, { pos = t.rootPart.Position, n = n, model = t.character })
 				hit(player, st, t, damage * EXEC_DETONATE * n, "SHADOW DETONATION")
-				if t.humanoid.Health > 0 then mark(t) end
+				if t.humanoid.Health > 0 then mark(player, t) end
 			end
 		end
 		local tg = target

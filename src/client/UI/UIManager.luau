@@ -79,7 +79,7 @@ local function applySettingsToRuntime(settings: any)
 	-- Read by the character script (sprint toggle vs hold).
 	player:SetAttribute("Setting_toggleSprint", not (settings and settings.toggleSprint == false))
 	-- Read by SkillController (teammates' ult cutscenes on your screen or not).
-	player:SetAttribute("Setting_teammateCinematics", not (settings and settings.teammateCinematics == false))
+	player:SetAttribute("Setting_teammateCinematics", settings ~= nil and settings.teammateCinematics == true)
 	-- Read by IsometricCamera (top-down or a normal third-person camera).
 	player:SetAttribute("Setting_classicCamera", settings ~= nil and settings.classicCamera == true)
 	player:SetAttribute("Setting_lowDetailVFX", settings ~= nil and settings.lowDetailVFX == true)

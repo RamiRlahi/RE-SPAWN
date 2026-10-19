@@ -5131,7 +5131,7 @@ function SkillController.Init()
 	-- The same cinematic camera the caster sees, on their character.
 	playOthersUltCutscene = function(char: Model, classId: string, direction: Vector3)
 		-- (turned off in Settings > Gameplay: your camera stays on you)
-		if player:GetAttribute("Setting_teammateCinematics") == false then return end
+		if player:GetAttribute("Setting_teammateCinematics") ~= true then return end
 		local cfg = SkillData.GetSkill(classId, 4) or {} :: any
 		if classId == "gunslinger" then
 			GunslingerController.PlayStandoff(char, direction)

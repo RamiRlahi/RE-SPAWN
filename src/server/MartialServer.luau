@@ -54,12 +54,15 @@ local COMBO_INTERVAL = 0.3    -- seconds between strikes at 1× attack speed
 local COMBO_RESET = 1.0       -- the combo starts over after this long without a strike
 -- The chain: jab, cross, high kick, spinning strike, elbow, palm, knee.
 local COMBO_DAMAGE = { 16, 16, 22, 22, 24, 26, 40 }
-local COMBO_RANGE = { 7.5, 7.5, 8.5, 7.5, 6, 7.5, 0 }
+-- (each strike drives a blast of air out to its reach: the client draws it
+-- this long, MartialController's COMBO_RANGE)
+local COMBO_RANGE = { 10, 10, 11, 10, 8.5, 10, 0 }
 local COMBO_SOURCE = { "FLOWING FISTS", "FLOWING FISTS", "HIGH KICK", "SPINNING STRIKE", "ELBOW STRIKE", "PALM STRIKE", "POWER KNEE" }
 local COMBO_ARC = math.cos(math.rad(65))
 local COMBO_STEPS = 7
-local PALM_RADIUS = 6         -- the palm strike's burst of Qi
-local FINISH_RADIUS = 8       -- the knee's eruption round where it lands
+local PALM_RADIUS = 7.5       -- the palm strike's burst of Qi
+local PALM_AT = 5             -- (that far in front of him)
+local FINISH_RADIUS = 9.5     -- the knee's eruption round where it lands
 local FINISH_LAND = 0.16      -- seconds from the click to the knee hitting the floor
 local RECOVER = 0.5           -- the finisher, then back to guard: no strikes till then
 
@@ -79,7 +82,7 @@ local FOCUS_EMP = { damage = 1.3, splash = 1.4 }
 -- studs), the uppercut landing `hit` in, back on his feet at `total`;
 -- everything struck is launched and shocked for `stun`; chained lightning
 -- jumps up to `chain` studs.
-local UPPER = { hit = 0.27, total = 0.62, dash = 7, arc = math.cos(math.rad(70)), launch = 52, stun = 0.9, chain = 16,
+local UPPER = { hit = 0.27, total = 0.62, dash = 7, arc = math.cos(math.rad(70)), launch = 55, liftHold = 0.16, stun = 1.3, chain = 16,
 	empChains = 4, chainStun = 0.6 }
 
 -- Ground Slam (matches the client's flight: up, a beat, the dive)
@@ -209,11 +212,14 @@ local function isBoss(t: Target): boolean
 	return t.character:GetAttribute("IsBoss") == true
 end
 
+-- Pushed `power` studs/s away (and `lift` × that up): held for a moment
+-- through SkillManager's knock, so a walking mob can't shrug it off.
 local function shove(t: Target, away: Vector3, power: number, lift: number?)
 	if isBoss(t) then return end
 	local d = Vector3.new(away.X, 0, away.Z)
 	d = if d.Magnitude > 0.05 then d.Unit else Vector3.xAxis
-	pcall(function() t.rootPart:ApplyImpulse((d + Vector3.new(0, lift or 0.3, 0)).Unit * t.rootPart.AssemblyMass * power) end)
+	local u = (d + Vector3.new(0, lift or 0.3, 0)).Unit * power
+	H.knock(t, Vector3.new(u.X, 0, u.Z), u.Y)
 end
 
 local function hold(t: Target, seconds: number)
@@ -231,6 +237,28 @@ local function shock(t: Target, seconds: number)
 	local m = t.character
 	m:SetAttribute("StaggerUntil", math.max(tonumber(m:GetAttribute("StaggerUntil")) or 0, untilT))
 	m:SetAttribute("StunnedUntil", math.max(tonumber(m:GetAttribute("StunnedUntil")) or 0, untilT))
+end
+
+-- The uppercut's knock-up: an upward drive held a moment (a velocity set once
+-- is lost to the mob's own walking), then it flies on and falls back.
+local function launchUp(t: Target, dir: Vector3)
+	local root = t.rootPart
+	if root.Anchored then return end
+	pcall(function() t.humanoid:MoveTo(root.Position) end)
+	local old = root:FindFirstChild("UppercutLift")
+	if old then old:Destroy() end
+	local att = Instance.new("Attachment")
+	att.Name = "UppercutLift"
+	local lv = Instance.new("LinearVelocity")
+	lv.Attachment0 = att
+	lv.RelativeTo = Enum.ActuatorRelativeTo.World
+	lv.MaxForce = math.huge
+	lv.VectorVelocity = Vector3.new(dir.X * 6, UPPER.launch, dir.Z * 6)
+	lv.Parent = att
+	att.Parent = root
+	task.delay(UPPER.liftHold, function()
+		if att.Parent then att:Destroy() end
+	end)
 end
 
 local function rayParams(char: Model): RaycastParams
@@ -294,8 +322,6 @@ function MartialServer.OnBasic(player: Player, char: Model, root: BasePart, payl
 			for _, t in ipairs(inRadius(char, at, FINISH_RADIUS * size)) do
 				if hit(player, t, damage, source) then
 					any = true
-					hold(t, 0.5)
-					shove(t, t.rootPart.Position - at, 30, 1.1)
 					table.insert(struck, t)
 				end
 			end
@@ -316,31 +342,22 @@ function MartialServer.OnBasic(player: Player, char: Model, root: BasePart, payl
 		local d = Vector3.new(t.rootPart.Position.X - root.Position.X, 0, t.rootPart.Position.Z - root.Position.Z)
 		if d.Magnitude <= reach + H.lineReach(t, 0) * 0.5 and math.abs(t.rootPart.Position.Y - root.Position.Y) < 6
 			and (spin or d.Magnitude < 2 or dir:Dot(d.Unit) >= arc) then
+			-- (the knockback, the high kick's pop-up, the stagger and the white
+			-- flash come with the hit: SkillManager's impact profile per strike)
 			if hit(player, t, damage, source) then
 				landed = true
 				table.insert(struck, t)
-				hold(t, if step == 5 then 0.4 else 0.25)
-				if step == 3 then
-					shove(t, d, 16, 1.6) -- (the high kick pops them up)
-				elseif spin then
-					shove(t, d, 22)
-				elseif step == 6 then
-					shove(t, d, 34)
-				end
 			end
 		end
 	end
 	-- the palm strike: a burst of Qi in front of him
-	local palmAt = root.Position + dir * 4
+	local palmAt = root.Position + dir * PALM_AT
 	if step == 6 then
 		local already: { [Model]: boolean } = {}
 		for _, t in ipairs(struck) do already[t.character] = true end
 		for _, t in ipairs(inRadius(char, palmAt, PALM_RADIUS * size)) do
 			if not already[t.character] then
-				if hit(player, t, damage * 0.6, "QI PALM") then
-					landed = true
-					shove(t, t.rootPart.Position - root.Position, 34)
-				end
+				if hit(player, t, damage * 0.6, "QI PALM") then landed = true end
 			end
 		end
 	end
@@ -348,7 +365,7 @@ function MartialServer.OnBasic(player: Player, char: Model, root: BasePart, payl
 		gainCharge(player, st, CHARGE_PER_HIT)
 		if #struck > 0 then pcall(H.ricochet, player, char, struck[1], damage, source) end
 	end
-	fx({ kind = "strike", attacker = player, step = step, pos = root.Position, dir = dir, landed = landed,
+	fx({ kind = "strike", attacker = player, step = step, pos = root.Position, dir = dir, landed = landed, reach = reach,
 		palm = if step == 6 then palmAt else nil, radius = PALM_RADIUS * size })
 end
 
@@ -453,12 +470,9 @@ local function uppercut(player: Player, char: Model, root: BasePart, dir: Vector
 			if hit(player, t, damage, "ELECTRIC UPPERCUT") then
 				table.insert(struck, t)
 				shock(t, UPPER.stun)
-				-- (launched: straight up and a little away; bosses only take the hit)
-				if not isBoss(t) then
-					pcall(function()
-						t.rootPart:ApplyImpulse((Vector3.new(0, 1, 0) + dir * 0.2).Unit * t.rootPart.AssemblyMass * UPPER.launch)
-					end)
-				end
+				-- (knocked up: driven straight up, a little away, for a moment, then
+				-- falling back on their own; bosses only take the hit)
+				if not isBoss(t) then launchUp(t, dir) end
 			end
 		end
 		-- the lightning chains on from the first struck to the nearest enemy

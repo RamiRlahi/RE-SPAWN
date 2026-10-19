@@ -471,12 +471,14 @@ local function buildQuestBoard(m: Model, C: Vector3, maps: { any }, onUse: (Play
 		list.Position = UDim2.fromOffset(30, 20)
 		list.Parent = sg
 		local lay = Instance.new("UIListLayout")
-		lay.Padding = UDim.new(0, 10)
+		lay.Padding = UDim.new(0, 8)
 		lay.Parent = list
+		-- (the rows share the board's height, however many maps there are)
+		local rowH = math.min(86, math.floor((380 - 8 * (#maps - 1)) / math.max(#maps, 1)))
 		for _, map in ipairs(maps) do
 			local row = Instance.new("Frame")
 			row.BackgroundTransparency = 1
-			row.Size = UDim2.new(1, 0, 0, 86)
+			row.Size = UDim2.new(1, 0, 0, rowH)
 			row.Parent = list
 			textLabel(row, "•  " .. map.name, { Size = UDim2.new(1, 0, 0.55, 0), TextXAlignment = Enum.TextXAlignment.Left, TextColor3 = Color3.fromRGB(240, 222, 180) })
 			textLabel(row, "     (Rank: " .. tostring(map.rank or "?") .. ")  " .. map.subtitle, { Size = UDim2.new(1, 0, 0.4, 0), Position = UDim2.fromScale(0, 0.58),

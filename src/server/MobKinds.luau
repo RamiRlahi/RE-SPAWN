@@ -19,6 +19,12 @@
 	  Grave Sniper (Skeleton)  across the room: a red AIM LINE tracks you, locks, then a piercing shot
 	  Ogre Crusher (Zombie)    huge and slow: hammer QUAKE, an inner slam then an outer ring (jump it)
 
+	The Neon Arcade's own (pack 8):
+	  Pixel Slime  (Slime)     a cube of light: a high BIT HOP onto your spot; bursts into two Bitlings
+	  Holo Bot     (Skeleton)  a see-through robot: a LASER down a lane (it charges, then fires)
+	  Glitch       (NPCghost)  a flickering error: BLINKS in behind you, then slashes
+	  Bouncer      (Zombie)    huge, in shades and neon: CHARGES down a line; can't be staggered
+
 	Every move is telegraphed on the floor first (a ring in the kind's colour
 	filling up), and hitting a caster or a crouching ghoul mid-windup
 	(stagger) cancels it.
@@ -817,6 +823,168 @@ kinds.crusher = {
 	dress = dressCrusher, moves = { { id = "quake", every = { 6, 8 } } },
 }
 
+-- ── The Neon Arcade ─────────────────────────────────────────────────────────
+local NEON_PINK = Color3.fromRGB(255, 70, 210)
+local NEON_CYAN = Color3.fromRGB(80, 230, 255)
+local NEON_GOLD = Color3.fromRGB(255, 220, 80)
+local ARCADE_DARK = Color3.fromRGB(24, 18, 44)
+
+-- A pixel-cube slime: a glowing core, a ring of little "pixels" welded round
+-- it (they ride the hop with it), a sparkle of bits.
+local function dressPixel(core: Color3, shell: Color3, scale: number)
+	return function(model: Model)
+		dressSlime(core, shell, true)(model)
+		local inner = slimeParts(model)
+		if not inner then return end
+		for i = 0, 5 do
+			local a = i / 6 * math.pi * 2
+			piece(inner, CFrame.new(math.cos(a) * 1.5 * scale, (0.4 + (i % 2) * 0.5) * scale, math.sin(a) * 1.5 * scale) * CFrame.Angles(a, a, 0),
+				{ Name = "Pixel", Size = Vector3.one * 0.32 * scale, Color = if i % 2 == 0 then core else NEON_CYAN, Material = Enum.Material.Neon })
+		end
+		local bits = Instance.new("ParticleEmitter")
+		bits.Name = "Bits"
+		bits.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		bits.Color = ColorSequence.new(core, NEON_CYAN)
+		bits.LightEmission = 1
+		bits.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.22), NumberSequenceKeypoint.new(1, 0) })
+		bits.Lifetime = NumberRange.new(0.5, 0.9)
+		bits.Speed = NumberRange.new(1, 2)
+		bits.Rate = 5
+		bits.Parent = inner
+	end
+end
+
+-- The Holo Bot: a see-through cyan robot (one of the arcade's spectators,
+-- gone wrong): a glass dome, a pink visor for a face, an antenna, a blaster
+-- for a right hand.
+local function dressHoloBot(model: Model)
+	local bow = model:FindFirstChild("Bow")
+	if bow then bow:Destroy() end
+	strip(model)
+	for _, d in ipairs(model:GetChildren()) do
+		if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" then
+			d.Material = Enum.Material.Glass
+			d.Color = Color3.fromRGB(150, 225, 255)
+			d.Transparency = 0.35
+		end
+	end
+	local head = bodyPart(model, "Head")
+	local torso = bodyPart(model, "Torso")
+	if head then
+		piece(head, CFrame.identity, { Name = "Dome", Shape = Enum.PartType.Ball, Size = Vector3.one * 1.45,
+			Color = Color3.fromRGB(190, 240, 255), Material = Enum.Material.Glass, Transparency = 0.45 })
+		piece(head, CFrame.new(0, 0.08, -0.62), { Name = "Visor", Size = Vector3.new(1.05, 0.3, 0.08), Color = NEON_PINK, Material = Enum.Material.Neon })
+		piece(head, CFrame.new(0, 0.95, 0), { Name = "Antenna", Size = Vector3.new(0.08, 0.6, 0.08), Color = ARCADE_DARK })
+		piece(head, CFrame.new(0, 1.3, 0), { Name = "AntennaTip", Shape = Enum.PartType.Ball, Size = Vector3.one * 0.26, Color = NEON_PINK, Material = Enum.Material.Neon })
+	end
+	if torso then
+		piece(torso, CFrame.new(0, 0.1, -0.52), { Name = "ChestPlate", Size = Vector3.new(1.4, 1.1, 0.1), Color = ARCADE_DARK })
+		piece(torso, CFrame.new(0, 0.1, -0.58) * CFrame.Angles(0, math.rad(90), 0), { Name = "ChestLight", Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(0.06, 0.6, 0.6), Color = NEON_CYAN, Material = Enum.Material.Neon })
+		piece(torso, CFrame.new(0, -0.85, 0), { Name = "Belt", Size = Vector3.new(2.06, 0.22, 1.06), Color = NEON_PINK, Material = Enum.Material.Neon })
+	end
+	local arm = bodyPart(model, "Right Arm")
+	if arm then
+		local grip = CFrame.new(0, -1.05, 0) * CFrame.Angles(math.rad(-90), 0, 0)
+		piece(arm, grip * CFrame.new(0, 0.7, 0), { Name = "Blaster", Size = Vector3.new(0.5, 1.5, 0.5), Color = ARCADE_DARK })
+		piece(arm, grip * CFrame.new(0, 1.5, 0), { Name = "Muzzle", Size = Vector3.new(0.34, 0.12, 0.34), Color = NEON_PINK, Material = Enum.Material.Neon })
+	end
+end
+
+-- The Glitch: a ghost of torn colour, a cyan and a pink copy of it out of
+-- step either side, dead pixels peeling off it.
+local function dressGlitch(model: Model)
+	strip(model)
+	for _, d in ipairs(model:GetChildren()) do
+		if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" then
+			d.Material = Enum.Material.Neon
+			d.Color = Color3.fromRGB(120, 40, 160)
+			d.Transparency = 0.3
+		end
+	end
+	for _, n in ipairs({ "Left Leg", "Right Leg" }) do
+		local leg = bodyPart(model, n)
+		if leg then leg.Transparency = 1 end
+	end
+	eyes(model, Color3.new(1, 1, 1), 0.24, 0.55, 0.2)
+	local torso = bodyPart(model, "Torso")
+	if torso then
+		piece(torso, CFrame.new(-0.22, 0, 0.05), { Name = "GhostCyan", Size = Vector3.new(2, 2, 1), Color = NEON_CYAN, Material = Enum.Material.Neon, Transparency = 0.7 })
+		piece(torso, CFrame.new(0.22, 0, -0.05), { Name = "GhostPink", Size = Vector3.new(2, 2, 1), Color = NEON_PINK, Material = Enum.Material.Neon, Transparency = 0.7 })
+		for k, t in ipairs({ { -1.6, 1.4, 0.35 }, { -2.4, 0.9, 0.55 }, { -3.1, 0.5, 0.75 } }) do
+			piece(torso, CFrame.new((k % 2 - 0.5) * 0.3, t[1], 0.1), { Name = "Tail", Size = Vector3.new(t[2], 0.8, t[2] * 0.6),
+				Color = if k % 2 == 0 then NEON_CYAN else NEON_PINK, Material = Enum.Material.Neon, Transparency = t[3] })
+		end
+		local px = Instance.new("ParticleEmitter")
+		px.Name = "DeadPixels"
+		px.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		px.Color = ColorSequence.new(NEON_PINK, NEON_CYAN)
+		px.LightEmission = 1
+		px.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.3), NumberSequenceKeypoint.new(1, 0.1) })
+		px.Lifetime = NumberRange.new(0.4, 0.8)
+		px.Speed = NumberRange.new(1, 3)
+		px.SpreadAngle = Vector2.new(180, 180)
+		px.Rate = 8
+		px.Parent = torso
+	end
+end
+
+-- The Bouncer: a slab of a doorman in a black suit with neon piping, dark
+-- shades, a velvet-rope post for a club.
+local function dressBouncer(model: Model)
+	strip(model, true)
+	local suit = Color3.fromRGB(20, 18, 26)
+	recolor(model, { "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg" }, suit, Enum.Material.SmoothPlastic)
+	recolor(model, { "Head" }, Color3.fromRGB(110, 86, 150))
+	local head = bodyPart(model, "Head")
+	local torso = bodyPart(model, "Torso")
+	if head then
+		piece(head, CFrame.new(0, 0.12, -0.6), { Name = "Shades", Size = Vector3.new(1.1, 0.26, 0.1), Color = Color3.new(0, 0, 0) })
+		piece(head, CFrame.new(0, 0.12, -0.66), { Name = "ShadesGlint", Size = Vector3.new(1.0, 0.05, 0.02), Color = NEON_CYAN, Material = Enum.Material.Neon })
+		piece(head, CFrame.new(0.66, 0.05, 0), { Name = "Earpiece", Size = Vector3.new(0.12, 0.3, 0.2), Color = NEON_PINK, Material = Enum.Material.Neon })
+	end
+	if torso then
+		for _, side in ipairs({ -1, 1 }) do
+			piece(torso, CFrame.new(side * 0.35, 0.1, -0.52) * CFrame.Angles(0, 0, math.rad(side * -18)),
+				{ Name = "Lapel", Size = Vector3.new(0.12, 1.7, 0.06), Color = NEON_PINK, Material = Enum.Material.Neon })
+		end
+		piece(torso, CFrame.new(0, 0.3, -0.52), { Name = "Tie", Size = Vector3.new(0.22, 1.2, 0.05), Color = NEON_CYAN, Material = Enum.Material.Neon })
+		piece(torso, CFrame.new(0, -0.6, -0.53), { Name = "Badge", Size = Vector3.new(0.6, 0.3, 0.05), Color = NEON_GOLD, Material = Enum.Material.Neon })
+	end
+	local arm = bodyPart(model, "Right Arm")
+	if arm then
+		local grip = CFrame.new(0, -1.05, 0) * CFrame.Angles(math.rad(-90), 0, 0)
+		piece(arm, grip * CFrame.new(0, 1.2, 0), { Name = "Post", Size = Vector3.new(0.34, 3, 0.34), Color = NEON_GOLD, Material = Enum.Material.Metal })
+		piece(arm, grip * CFrame.new(0, 2.8, 0), { Name = "PostKnob", Shape = Enum.PartType.Ball, Size = Vector3.one * 0.7, Color = NEON_GOLD, Material = Enum.Material.Neon })
+	end
+end
+
+kinds.pixelslime = {
+	name = "Pixel Slime", base = "Slime", health = 1.1, damage = 1, xp = 1.3, scale = 1.2, color = NEON_PINK,
+	attrs = { WalkSpeed = 12 },
+	dress = dressPixel(NEON_PINK, Color3.fromRGB(90, 30, 110), 1), moves = { { id = "bithop", every = { 3.2, 4.6 } } },
+}
+kinds.bitling = {
+	name = "Bitling", base = "Slime", health = 0.3, damage = 0.6, xp = 0.3, scale = 0.55, color = NEON_CYAN,
+	attrs = { WalkSpeed = 18 },
+	dress = dressPixel(NEON_CYAN, Color3.fromRGB(30, 70, 110), 0.6),
+}
+kinds.holobot = {
+	name = "Holo Bot", base = "Skeleton", health = 0.9, damage = 1, xp = 1.5, color = NEON_PINK,
+	attrs = { WalkSpeed = 10, Damage = 11, PreferredRange = 26, NoArrows = true },
+	dress = dressHoloBot, moves = { { id = "laser", every = { 3.2, 4.4 } } },
+}
+kinds.glitch = {
+	name = "Glitch", base = "NPCghost", health = 0.85, damage = 1, xp = 1.5, color = NEON_CYAN,
+	attrs = { MobType = "Melee", WalkSpeed = 13, Damage = 10, AttackCooldown = 1.1, AttackRange = 5, XP = 30 },
+	dress = dressGlitch, moves = { { id = "blink", every = { 4, 5.5 } } },
+}
+kinds.bouncer = {
+	name = "Bouncer", base = "Zombie", health = 3.4, damage = 1, xp = 2.6, scale = 1.55, color = NEON_PINK,
+	attrs = { WalkSpeed = 8, Damage = 20, AttackCooldown = 1.6, AttackRange = 7.5, Unstaggerable = true },
+	dress = dressBouncer, moves = { { id = "charge", every = { 5, 7 } } },
+}
+
 -- ── Room packs ──────────────────────────────────────────────────────────────
 -- Each room is one theme: a weighted draw of kinds, with caps so a room is
 -- never all brutes or all necromancers.
@@ -828,17 +996,19 @@ local PACKS: { { [string]: number } } = {
 	{ brute = 1, zombie = 3, skeleton = 3, magmaslime = 1, bonemage = 1, bombardier = 1, crusher = 1 },   -- the warband
 	{ shackled = 5, jailer = 2, executioner = 1, wraith = 2, skeleton = 1 }, -- the prison of souls (6)
 	{ skeleton = 3, zombie = 2, bombardier = 2, sniper = 2, crusher = 1 },  -- the siege (7)
+	{ pixelslime = 4, holobot = 3, glitch = 2, bouncer = 1 },               -- the neon arcade (8)
 }
-local CAPS: { [string]: number } = { crusher = 1, sniper = 2, bombardier = 2, brute = 2, necromancer = 1, bloatslime = 2, magmaslime = 3, bonemage = 3, wraith = 3, executioner = 2, jailer = 3 }
+local CAPS: { [string]: number } = { crusher = 1, sniper = 2, bombardier = 2, brute = 2, necromancer = 1, bloatslime = 2, magmaslime = 3, bonemage = 3, wraith = 3, executioner = 2, jailer = 3, bouncer = 2, holobot = 4, glitch = 3 }
 
 -- A run starts with the three starter mobs only; the rest join in over its
 -- first minutes, each from its own minute, slowly at first (`minutes`: the
 -- run's time).
-local STARTERS: { [string]: boolean } = { zombie = true, skeleton = true, slime = true, shackled = true }
+local STARTERS: { [string]: boolean } = { zombie = true, skeleton = true, slime = true, shackled = true, pixelslime = true }
 local JOINS_AT: { [string]: number } = {
 	ghoul = 2, bonemage = 3, magmaslime = 3, wraith = 5, bloatslime = 5, brute = 7, necromancer = 9,
 	bombardier = 3, sniper = 4, crusher = 6,
 	jailer = 1, executioner = 1, -- (the prison's own: its life from the start)
+	holobot = 0, glitch = 1, bouncer = 2, -- (the arcade's own, likewise)
 }
 local function share(id: string, minutes: number): number
 	if STARTERS[id] then return 1 end
@@ -1898,6 +2068,88 @@ MOVES.quake = function(m, v, d)
 	return true
 end
 
+-- Pixel Slime: squashes down, then a high hop onto your spot (a ring fills
+-- where it will land); pixels burst out where it lands.
+MOVES.bithop = function(m, v, d)
+	if d < 7 or d > 24 then return false end
+	local spot = Vector3.new(v.root.Position.X, m.floorY, v.root.Position.Z)
+	if not reachable(m, m.root.Position, spot) then return false end
+	local r = 4.5
+	local color = m.kind.color or NEON_PINK
+	halt(m)
+	face(m, spot)
+	local tele = ring(spot, r, 0.85, m.floorY, color)
+	if not hold(m, 0.45, true) then
+		cancel(tele)
+		return true
+	end
+	local from = m.root.Position
+	local land = Vector3.new(spot.X, from.Y, spot.Z)
+	local ahead = land + (land - from) + Vector3.new(0, 0.001, 0)
+	m.root.Anchored = true
+	local t0 = os.clock()
+	local dur = 0.4
+	while alive(m) do
+		local a = math.min((os.clock() - t0) / dur, 1)
+		m.root.CFrame = CFrame.lookAt(from:Lerp(land, a) + Vector3.new(0, math.sin(a * math.pi) * 9, 0), Vector3.new(ahead.X, from.Y, ahead.Z))
+		if a >= 1 then break end
+		RunService.Heartbeat:Wait()
+	end
+	if m.root.Parent then m.root.Anchored = false end
+	if not alive(m) then return true end
+	m.root.AssemblyLinearVelocity = Vector3.zero
+	shock(spot, r, color, m.floorY)
+	sparks(spot + Vector3.new(0, 1, 0), color, 14, 14)
+	blast(m, spot + Vector3.new(0, 2, 0), r, power(m) * 1.4)
+	hold(m, 0.6)
+	return true
+end
+
+-- Holo Bot: the blaster charges (a pink lane fills toward you), then a laser
+-- fires down the whole lane. Step out of it.
+MOVES.laser = function(m, v, d)
+	if d < 8 or d > 44 then return false end
+	local params = sightParams(m)
+	local from = Vector3.new(m.root.Position.X, m.floorY + 2.5, m.root.Position.Z)
+	local dir = Vector3.new(v.root.Position.X - from.X, 0, v.root.Position.Z - from.Z)
+	if dir.Magnitude < 1 then return false end
+	dir = dir.Unit
+	local hit = Workspace:Raycast(from, dir * 48, params)
+	local len = if hit then hit.Distance else 48
+	if len < d - 1 then return false end -- (no shot through walls)
+	local width = 3
+	local color = m.kind.color or NEON_PINK
+	halt(m)
+	face(m, from + dir)
+	pose(m, { RightArm = { 90, 0, 0 }, LeftArm = { 40, 0, -20 } }, 0.2)
+	local tele = lane(Vector3.new(from.X, m.floorY, from.Z), dir, len, width, 0.9, m.floorY, color)
+	if not hold(m, 0.9, true) then
+		cancel(tele)
+		pose(m, nil, 0.2)
+		return true
+	end
+	local cf = CFrame.lookAt(from, from + dir) * CFrame.new(0, -0.8, -len / 2)
+	local beam = part({ Size = Vector3.new(width * 0.8, width * 0.5, len), Color = color, Transparency = 0.05, CFrame = cf })
+	local core = part({ Size = Vector3.new(0.5, 0.5, len), Color = Color3.new(1, 1, 1), CFrame = cf })
+	tween(beam, 0.35, { Size = Vector3.new(0.1, 0.1, len), Transparency = 1 })
+	tween(core, 0.35, { Size = Vector3.new(0.05, 0.05, len), Transparency = 1 })
+	Debris:AddItem(beam, 0.4)
+	Debris:AddItem(core, 0.4)
+	sparks(from + dir * len, color, 10, 12)
+	local damage = power(m) * 1.6
+	for _, vv in ipairs(victims()) do
+		local rel = Vector3.new(vv.root.Position.X - from.X, 0, vv.root.Position.Z - from.Z)
+		local along = rel:Dot(dir)
+		if along > 0 and along <= len and (rel - dir * along).Magnitude <= width / 2 + 0.6 and math.abs(vv.root.Position.Y - from.Y) < 6 then
+			strike(m, vv.char, damage, from)
+		end
+	end
+	pose(m, { RightArm = { 110, 0, 0 }, Root = { 6 } }, 0.08)
+	hold(m, 0.45)
+	pose(m, nil, 0.3)
+	return true
+end
+
 -- ── Elite traits at work ────────────────────────────────────────────────────
 local iceZone: (Mob, Vector3) -> ()
 local summonSwarm: (Mob) -> ()
@@ -2093,6 +2345,14 @@ function MobKinds.OnDied(model: Model, pos: Vector3)
 			local a = (i / 3) * math.pi * 2
 			local at = Vector3.new(pos.X + math.cos(a) * 2.5, fy, pos.Z + math.sin(a) * 2.5)
 			deps.spawnKind("slimeling", CFrame.new(at) * CFrame.Angles(0, a, 0), model)
+		end
+	end
+	if kindId == "pixelslime" then
+		sparks(pos, NEON_PINK, 18, 14)
+		for i = 1, 2 do
+			local a = (i / 2) * math.pi * 2 + math.random()
+			local at = Vector3.new(pos.X + math.cos(a) * 2, fy, pos.Z + math.sin(a) * 2)
+			deps.spawnKind("bitling", CFrame.new(at) * CFrame.Angles(0, a, 0), model)
 		end
 	end
 	if hasAffix(model, "volatile") then

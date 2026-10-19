@@ -53,9 +53,11 @@ local COMBO_RESET = 0.9
 local EXEC_TIME = 1.8 -- the Shadow Execution, start to end (RogueServer's EXEC.finish)
 local ENERGY_MAX = 100
 
-local INK = Color3.fromRGB(6, 6, 8)
-local PAPER = Color3.new(1, 1, 1)
-local ASH = Color3.fromRGB(150, 150, 156)
+-- (his colours: shadow purple)
+local INK = Color3.fromRGB(26, 6, 44)
+local PAPER = Color3.fromRGB(214, 160, 255)
+local ASH = Color3.fromRGB(140, 96, 186)
+local VENOM = Color3.fromRGB(150, 255, 90) -- the mark's poison
 
 type Deps = { shake: (number, number) -> (), fovPunch: (number, number) -> (), getAim: (BasePart) -> Vector3 }
 local deps: Deps
@@ -951,6 +953,32 @@ local function onMark(msg: any)
 		smoke.Name = "ShadowMarkSmoke"
 		smoke.Parent = root
 		smokeEmitter(smoke, 12, 2.4)
+		-- the poison: sickly green bubbles rising off it, venom dripping
+		local bubbles = Instance.new("ParticleEmitter")
+		bubbles.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		bubbles.Color = ColorSequence.new(VENOM, Color3.fromRGB(120, 40, 200))
+		bubbles.LightEmission = 0.6
+		bubbles.LightInfluence = 0
+		bubbles.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.15), NumberSequenceKeypoint.new(0.6, 0.35), NumberSequenceKeypoint.new(1, 0) })
+		bubbles.Transparency = NumberSequence.new(0.15, 1)
+		bubbles.Lifetime = NumberRange.new(0.8, 1.4)
+		bubbles.Speed = NumberRange.new(1, 2.5)
+		bubbles.SpreadAngle = Vector2.new(40, 40)
+		bubbles.Acceleration = Vector3.new(0, 2, 0)
+		bubbles.Shape = Enum.ParticleEmitterShape.Box
+		bubbles.Rate = 10
+		bubbles.Parent = smoke
+		local drips = Instance.new("ParticleEmitter")
+		drips.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+		drips.Color = ColorSequence.new(VENOM)
+		drips.LightEmission = 0.4
+		drips.LightInfluence = 0
+		drips.Size = NumberSequence.new(0.12, 0)
+		drips.Lifetime = NumberRange.new(0.5, 0.8)
+		drips.Speed = NumberRange.new(0, 0.5)
+		drips.Acceleration = Vector3.new(0, -22, 0)
+		drips.Rate = 6
+		drips.Parent = smoke
 		local ring = part({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.08, 5, 5), Color = PAPER, Transparency = 0.15 })
 		local band = part({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.1, 4.2, 4.2), Color = INK,
 			Material = Enum.Material.SmoothPlastic, Transparency = 0.25 })
@@ -1293,8 +1321,8 @@ do
 		local box = part({ Size = Vector3.new(c.range * 1.7, 6, c.range * 1.7), Transparency = 1, CFrame = CFrame.new(floor + Vector3.new(0, 3, 0)) })
 		c.smoke = box
 		for _, spec in ipairs({
-			{ col = Color3.fromRGB(14, 14, 17), size = 14, rate = 90, life = 1.6, lo = 0.05 },
-			{ col = Color3.fromRGB(46, 46, 52), size = 9, rate = 50, life = 1.2, lo = 0.15 },
+			{ col = Color3.fromRGB(20, 8, 32), size = 14, rate = 90, life = 1.6, lo = 0.05 },
+			{ col = Color3.fromRGB(62, 30, 92), size = 9, rate = 50, life = 1.2, lo = 0.15 },
 		}) do
 			local e = Instance.new("ParticleEmitter")
 			e.Texture = "rbxasset://textures/particles/smoke_main.dds"

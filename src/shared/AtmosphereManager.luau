@@ -96,15 +96,16 @@ function AtmosphereManager.ApplyDungeonLighting(mapId: string?)
 	local map = if ok and MapData then MapData.Get(mapId) else nil
 	local ml = map and map.lighting
 
-	-- Bright, even light (the map only tints the colour grade)
-	Lighting.Ambient = cfg.DungeonAmbient
-	Lighting.OutdoorAmbient = cfg.DungeonOutdoorAmbient
-	Lighting.Brightness = cfg.DungeonBrightness
-	Lighting.ClockTime = cfg.DungeonClockTime
+	-- Bright, even light (the map only tints the colour grade), unless the map
+	-- asks for the dark (the Neon Arcade: night, so its neon shines)
+	Lighting.Ambient = (ml and ml.ambient) or cfg.DungeonAmbient
+	Lighting.OutdoorAmbient = (ml and ml.outdoorAmbient) or cfg.DungeonOutdoorAmbient
+	Lighting.Brightness = (ml and ml.brightness) or cfg.DungeonBrightness
+	Lighting.ClockTime = (ml and ml.clockTime) or cfg.DungeonClockTime
 	Lighting.GeographicLatitude = cfg.DungeonLatitude
 	Lighting.ColorShift_Top = Color3.new(0, 0, 0)
 	Lighting.ColorShift_Bottom = Color3.new(0, 0, 0)
-	Lighting.ExposureCompensation = cfg.DungeonExposure
+	Lighting.ExposureCompensation = (ml and ml.exposure) or cfg.DungeonExposure
 	Lighting.GlobalShadows = true
 
 	pcall(function()

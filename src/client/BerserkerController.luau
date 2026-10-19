@@ -20,9 +20,12 @@
 	    headlong charge at the aim in a red streak, untouchable, enemies in
 	    the path thrown aside; a crimson burst at the end blows the rest away.
 	    The NEXT skill is Empowered (bigger and more violent).
-	  • R Beast Awakening (a full Rage meter): he freezes, red lightning tears
-	    out of him as the body distorts, the sword is flung aside to stick in
-	    the floor, then the roar (a shockwave, the world flashing red). As the
+	  • R Beast Awakening (a full Rage meter): he freezes, then throws his
+	    arms wide and roars (red energy bursting out of him, a shockwave, the
+	    world flashing red); the sword is flung aside to stick in the floor and
+	    his body tears open into a wolf of black stone, every slab and shard
+	    of it swelling into place as he writhes on all fours, then rises into
+	    its stance. As the
 	    BEAST (12 s; the body itself is the server's: BerserkerLook.DressBeast)
 	    he hunches and bounds, lands heavy, and the blazing look runs: claws
 	    (three red gashes a rake, then the maul), Beast Slam (an enormous leap,
@@ -54,6 +57,9 @@ local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
 local player = Players.LocalPlayer
 
 local BerserkerController = {}
+-- Models wearing the beast that aren't players' characters (the class-select
+-- preview: BerserkerController.PreviewBeast).
+BerserkerController._previews = {} :: { [Model]: boolean }
 
 -- ── Tuning (mirrors BerserkerServer) ────────────────────────────────────────
 local SWING_INTERVAL = 0.48
@@ -67,9 +73,11 @@ local RUPTURE_RANGE = 17 -- the furthest leap (to the cursor)
 local RUPTURE_HEIGHT = 9
 -- Rage and the Beast Awakening, and the beast's kit (mirrors BerserkerServer).
 local RAGE_MAX = 100
-local BEAST = { freeze = 0.45, mutate = 1.15, roar = 0.5 }
-BEAST.change = BEAST.freeze + BEAST.mutate
-BEAST.total = BEAST.change + BEAST.roar
+-- (the rage building, the roar, then the change: down on all fours as the body
+-- tears open, and up into the beast's stance)
+local BEAST = { freeze = 0.3, roar = 0.75, mutate = 0.85, rise = 0.45 }
+BEAST.change = BEAST.freeze + BEAST.roar
+BEAST.total = BEAST.change + BEAST.mutate + BEAST.rise
 local BEAST_TIME = 12
 local BEAST_REVERT = 1.2
 local CLAW_INTERVAL = 0.34
@@ -1059,6 +1067,21 @@ local function beastFxStep(now: number)
 			if f.breath and f.breath.Parent and FxBudget.Allow("berserkerBreath", 4) then f.breath:Emit(5) end
 		end
 	end
+	-- (the preview's beast: its eyes' trails, its breath)
+	for char in pairs(BerserkerController._previews) do
+		local fx = beastFx[char]
+		if not fx and char.Parent then
+			fx = buildBeastFx(char, 0)
+			if fx then beastFx[char] = fx end
+		end
+		if fx then
+			local cycle = math.floor(now * 2.6 / (math.pi * 2))
+			if cycle ~= fx.lastBreath then
+				fx.lastBreath = cycle
+				if fx.breath and fx.breath.Parent then fx.breath:Emit(5) end
+			end
+		end
+	end
 	for char, fx in pairs(beastFx) do
 		if not char.Parent then
 			dropBeastFx(fx)
@@ -1089,23 +1112,21 @@ end
 local ALL_FOURS = { Root = { 0, 0, 0, 0, -1.3, 0 }, W = { -75, 0, 0 }, N = { 55, 0, 0 }, RS = { 80, 0, 12 }, LS = { 80, 0, -12 },
 	RH = { 55, 0, 6 }, LH = { 55, 0, -6 } }
 
--- The awakening: he grips the sword and freezes; then the change takes him,
--- clutching his head, wrenched back and forth, thrown back with the arms
--- flung wide, slammed down on all fours; and he rears up and roars.
+-- The awakening, after the storyboard: hunched over the sword, shaking as
+-- the rage builds; then he throws his arms wide and roars, chest out, the
+-- whole body shaking with it (red energy bursting round him). The change
+-- itself is the beast's own body (beastStep): down on all fours, wrenched
+-- about as it tears open, then up into its stance.
 local function awakenPose(char: Model)
 	char:SetAttribute("BR_OneHand", true)
-	local m = BEAST.mutate
+	local roar = { Root = { 0, 0, 0, 0, -0.15, 0.15 }, W = { 16, 0, 0 }, N = { 12, 0, 0 }, RS = { 22, 0, 82 }, LS = { 22, 0, -82 },
+		RH = { -4, 0, 14 }, LH = { -4, 0, -14 } }
 	CastPoses.play(char, {
-		{ dur = BEAST.freeze, pose = { Root = { 0, 0, 0, 0, -0.15, 0 }, W = { -6, 0, 0 }, RS = { 40, 0, 10 }, LS = { 40, 0, -10 }, N = { -8, 0, 0 } },
-			wobble = TREMBLE(2) },
-		{ dur = m * 0.35, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -0.6, 0 }, W = { -30, 0, 0 }, RS = { 165, 0, -30 },
-			LS = { 165, 0, 30 }, RH = { 25, 0, 10 }, LH = { 25, 0, -10 }, N = { 35, 0, 0 } }, wobble = SPASM(10) },
-		{ dur = m * 0.35, style = Enum.EasingStyle.Back, pose = { Root = { 0, 0, 0, 0, -0.2, 0.2 }, W = { 22, 0, 0 }, RS = { 70, 0, 110 },
-			LS = { 70, 0, -110 }, RH = { -15, 0, 14 }, LH = { -15, 0, -14 }, N = { -45, 0, 0 } }, wobble = SPASM(14) },
-		{ dur = m * 0.3, style = Enum.EasingStyle.Quart, pose = ALL_FOURS, wobble = SPASM(6) },
-		{ dur = BEAST.roar, style = Enum.EasingStyle.Back, pose = { Root = { 0, 0, 0, 0, 0, 0.3 }, W = { 28, 0, 0 }, RS = { 75, 0, 100 },
-			LS = { 75, 0, -100 }, RH = { -10, 0, 16 }, LH = { -10, 0, -16 }, N = { -55, 0, 0 } }, wobble = TREMBLE(5) },
-	}, 0.4)
+		{ dur = BEAST.freeze, pose = { Root = { 0, 0, 0, 0, -0.3, 0 }, W = { -18, 0, 0 }, RS = { 30, 0, 14 }, LS = { 30, 0, -14 },
+			N = { -6, 0, 0 }, RH = { 10, 0, 6 }, LH = { 10, 0, -6 } }, wobble = TREMBLE(2) },
+		{ dur = 0.16, style = Enum.EasingStyle.Back, pose = roar, wobble = TREMBLE(4) },
+		{ dur = math.max(BEAST.roar - 0.16, 0.05), pose = roar, wobble = TREMBLE(5) },
+	}, 0.15)
 	task.delay(BEAST.total + 0.5, function() char:SetAttribute("BR_OneHand", nil) end)
 end
 
@@ -1329,7 +1350,7 @@ do
 	type Gait = { phase: number, air: number, still: number, flourish: string?, flourishAt: number, nextFlourish: number,
 		beat: number, aggro: number, nextScan: number, threat: Vector3?, landAt: number, landHard: number, wasAir: boolean,
 		minVy: number, yaw: number?, turn: number, getUpAt: number, wasDown: boolean, q: { [string]: number },
-		joints: { [string]: Motor6D }?, jointsOf: Model?, vs: number, mv: number, up: number, rest: number }
+		joints: { [string]: Motor6D }?, jointsOf: Model?, vs: number, mv: number, up: number, rest: number, born: number }
 	local gaits: { [Model]: Gait } = {}
 
 	local function blend(a: Spec, b: Spec, k: number): Spec
@@ -1359,7 +1380,7 @@ do
 	local function idleSpec(t: number, ph: number): Spec
 		local b = math.sin(t * 2.6 + ph)
 		return {
-			lean = 32 + b * 2, hip = 3.6 + b * 0.03, head = -6 - b * 3, headYaw = math.sin(t * 0.6 + ph * 2) * 18,
+			lean = 46 + b * 2, hip = 3.6 + b * 0.03, head = -6 - b * 3, headYaw = math.sin(t * 0.6 + ph * 2) * 18,
 			armZ = 18 + b * 3, legZ = 9,
 			RA_f = 0.5, RA_y = 0.55, LA_f = 0.5, LA_y = 0.55,
 			RL_f = -0.25, RL_y = 0, LL_f = -0.55, LL_y = 0,
@@ -1405,7 +1426,9 @@ do
 	end
 
 	local function runSpec(g: Gait, v: number, dt: number, s: number, run: number, sprint: number, stepIn: number, touched: { string }): Spec
-		local stride = 3.4 + 2.4 * run + 1.2 * sprint    -- ground covered per cycle (R6 units)
+		-- (ground covered per cycle, R6 units: long, heavy strides, so the legs
+		-- swing at a big animal's pace, not a dog's)
+		local stride = 5.0 + 3.8 * run + 1.8 * sprint
 		local duty = 0.55 - 0.2 * run - 0.04 * sprint     -- how much of it each paw is down
 		g.phase += dt * v / (stride * s) + stepIn
 		local p = g.phase
@@ -1421,8 +1444,9 @@ do
 				-- (the knee folding forward, the hock back), a smooth arc. The
 				-- hips hold their height; the legs do all the folding.
 				local H = HIND_HIP - 0.1 * sprint
-				local fFront = H * math.tan(math.rad(4 + 4 * run))
-				local fBack = -H * math.tan(math.rad(24 + 10 * run + 4 * sprint))
+				-- (each paw's reach under him matches the longer stride: no sliding)
+				local fFront = H * math.tan(math.rad(8 + 4 * run + 2 * sprint))
+				local fBack = -H * math.tan(math.rad(33 + 3 * run + 2 * sprint))
 				local f, y
 				if q < duty then
 					local u = q / duty
@@ -1494,7 +1518,7 @@ do
 			-- Reared up, chest out, fists hammering it in turn, head thrown back.
 			local b = math.sin(k * 17)
 			return {
-				lean = 8, hip = 3.6, head = -22 - math.max(0, math.sin(k * 3)) * 10, armZ = -34, legZ = 12,
+				lean = 24, hip = 3.6, head = -22 - math.max(0, math.sin(k * 3)) * 10, armZ = -34, legZ = 12,
 				RA_fix = 1, RA_ang = 72 + math.max(0, b) * 30, RA_bend = 70,
 				LA_fix = 1, LA_ang = 72 + math.max(0, -b) * 30, LA_bend = 70,
 				RL_f = 0.15, RL_y = 0, LL_f = -0.05, LL_y = 0,
@@ -1555,12 +1579,13 @@ do
 	end
 
 	-- ── Choosing the pose ────────────────────────────────────────────────
-	local function beastSpec(p: Player, char: Model, g: Gait, root: BasePart, hum: Humanoid, t: number, dt: number,
+	-- (`p` nil: a preview's beast, standing coiled on the spot)
+	local function beastSpec(p: Player?, char: Model, g: Gait, root: BasePart, hum: Humanoid, t: number, dt: number,
 		touched: { string }): (Spec, number)
 		local s = root.Size.Y / 2
-		local ph = (p.UserId % 7) * 0.9
-		local vel = root.AssemblyLinearVelocity
-		local air = hum.FloorMaterial == Enum.Material.Air and not hum.PlatformStand
+		local ph = if p then (p.UserId % 7) * 0.9 else 0
+		local vel = if p then root.AssemblyLinearVelocity else Vector3.zero
+		local air = p ~= nil and hum.FloorMaterial == Enum.Material.Air and not hum.PlatformStand
 		-- (the body's speed jitters frame to frame: the gait reads a smoothed
 		-- one, so its cadence and the pose mix glide instead of flickering)
 		g.vs += (Vector3.new(vel.X, 0, vel.Z).Magnitude - g.vs) * math.min(dt * 4, 1)
@@ -1569,7 +1594,7 @@ do
 		g.mv += (math.clamp((speed - 0.05) / 0.15, 0, 1) - g.mv) * math.min(dt * 5, 1)
 		local moving = g.mv
 		local run = math.clamp((speed - 0.3) / 0.4, 0, 1)
-		local sprint = if p:GetAttribute("IsSprinting") == true then math.clamp((speed - 0.6) / 0.3, 0, 1) else 0
+		local sprint = if p and p:GetAttribute("IsSprinting") == true then math.clamp((speed - 0.6) / 0.3, 0, 1) else 0
 
 		-- turning on the spot
 		local look = root.CFrame.LookVector
@@ -1582,9 +1607,10 @@ do
 		-- the threat, looked for a few times a second
 		if t >= g.nextScan then
 			g.nextScan = t + 0.4
-			g.threat = nearestThreat(root.Position)
+			g.threat = if p then nearestThreat(root.Position) else nil
 		end
-		g.aggro += ((if g.threat then 1 else 0) - g.aggro) * math.min(dt * 4, 1)
+		-- (a preview's beast stays coiled, ready to pounce)
+		g.aggro += ((if g.threat or not p then 1 else 0) - g.aggro) * math.min(dt * 4, 1)
 		local yawTo: number? = nil
 		if g.threat then
 			local l = root.CFrame:PointToObjectSpace(g.threat :: Vector3)
@@ -1667,6 +1693,23 @@ do
 			local up = blend(flatSpec(), coilSpec(t, ph, nil), e * e * (3 - 2 * e))
 			spec = blend(up, spec, math.clamp((sinceDown - 0.7) / 0.2, 0, 1))
 		end
+		-- just born (the awakening): low on all fours, wrenched about as the
+		-- body tears open, a claw raking the floor; then up onto its legs and
+		-- into the stance
+		local sinceBorn = t - g.born
+		if sinceBorn < BEAST.mutate + BEAST.rise then
+			local e = math.clamp((sinceBorn - BEAST.mutate) / BEAST.rise, 0, 1)
+			e = e * e * (3 - 2 * e)
+			local amp = 1 - e
+			local low = flatSpec()
+			low.hip = 2.1
+			low.head = 16 + math.sin(t * 47) * 10 * amp
+			low.headYaw = math.sin(t * 37) * 14 * amp
+			low.roll = math.sin(t * 31) * 7 * amp
+			low.yaw = math.sin(t * 23) * 6 * amp
+			low.RA_y = math.max(0, math.sin(t * 19)) * 0.5 * amp
+			spec = blend(low, spec, e)
+		end
 		return spec, s
 	end
 
@@ -1678,7 +1721,7 @@ do
 		local j = g.joints
 		if j and g.jointsOf == char then
 			local any = j.RL or j.RA
-			if any and any.Parent then return j end
+			if any and any:IsDescendantOf(char) then return j end
 		end
 		local out: { [string]: Motor6D } = {}
 		for key, bone in pairs({ RA = "BeastForeR", LA = "BeastForeL", RL = "BeastShinR", LL = "BeastShinL" }) do
@@ -1696,71 +1739,72 @@ do
 		m.motor.Transform = if k >= 1 then cf else m.motor.Transform:Lerp(cf, k)
 	end
 
-	beastStep = function(dt: number)
-		local now = os.clock()
-		for _, p in ipairs(Players:GetPlayers()) do
-			local char = p.Character
-			if not char then continue end
-			local beast = beastLeft(p) > 0
-			local down = char:GetAttribute("Tumbling") == true
-			local g = gaits[char]
-			if g and g.wasDown and not down and beast then
-				g.getUpAt = now
-				beastWeight[char] = 1
+	-- One body this frame (`p` nil: a preview's beast).
+	local function stepOne(char: Model, p: Player?, now: number, dt: number)
+		local beast = if p then beastLeft(p) > 0 else true
+		local down = char:GetAttribute("Tumbling") == true
+		local g = gaits[char]
+		if g and g.wasDown and not down and beast then
+			g.getUpAt = now
+			beastWeight[char] = 1
+		end
+		if g then g.wasDown = down end
+		local on = beast and not down
+		local w = math.clamp((beastWeight[char] or 0) + (if on then dt else -dt) * 3, 0, 1)
+		beastWeight[char] = if w > 0 then w else nil
+		-- (the beast's long legs outlast the form by a moment, through the
+		-- revert: they keep their feet on the floor until they're gone)
+		local dressed = char:FindFirstChild("BeastShinR") ~= nil or char:FindFirstChild("BeastShinL") ~= nil
+		if w <= 0 and not (dressed and not down) then
+			if not beast and not dressed then
+				gaits[char] = nil
+				beastAttack[char] = nil
 			end
-			if g then g.wasDown = down end
-			local on = beast and not down
-			local w = math.clamp((beastWeight[char] or 0) + (if on then dt else -dt) * 3, 0, 1)
-			beastWeight[char] = if w > 0 then w else nil
-			-- (the beast's long legs outlast the form by a moment, through the
-			-- revert: they keep their feet on the floor until they're gone)
-			local dressed = char:FindFirstChild("BeastShinR") ~= nil or char:FindFirstChild("BeastShinL") ~= nil
-			if w <= 0 and not (dressed and not down) then
-				if not beast and not dressed then
-					gaits[char] = nil
-					beastAttack[char] = nil
-				end
-				continue
-			end
-			local a = math.clamp((beastAttack[char] or 1) + (if CastPoses.isPlaying(char) then -dt else dt) * 8, 0, 1)
-			beastAttack[char] = a
-			local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
-			local hum = char:FindFirstChildOfClass("Humanoid")
-			if not (root and hum) then continue end
-			if not g then
-				g = { phase = 0, air = 0, still = 0, flourish = nil, flourishAt = 0, nextFlourish = now + 2, beat = -1, aggro = 0,
-					nextScan = 0, threat = nil, landAt = -10, landHard = 0, wasAir = false, minVy = 0, yaw = nil, turn = 0,
-					getUpAt = -10, wasDown = down, q = {}, joints = nil, jointsOf = nil, vs = 0, mv = 0, up = 0, rest = 0 }
-				gaits[char] = g
-			end
-			local gait = g :: Gait
-			local touched: { string } = {}
-			local spec, s = beastSpec(p, char, gait, root, hum, now, dt, touched)
-			local motors = beastMotors[char]
-			if not motors then
-				motors = CastPoses.resolveMotors(char)
-				beastMotors[char] = motors
-			end
-			local body = w * a
-			-- The body: leaned, and raised or lowered so the hip joints sit at
-			-- spec.hip over the floor.
-			local lean = spec.lean or 100
-			local raise = ((spec.hip or 2.95) - GROUND + math.cos(math.rad(lean))) * s
-			setMotor(motors.W, { -lean, spec.yaw or 0, spec.roll or 0, 0, raise, 0 }, body)
-			setMotor(motors.N, { lean - 10 + (spec.head or 0), spec.headYaw or 0, 0 }, body)
-			-- Where the torso really is now (ours, or an attack's, or between).
-			local rj = motors.W and motors.W.motor :: Motor6D?
-			if not rj then continue end
-			local torso = rj.C0 * rj.Transform * rj.C1:Inverse()
-			local up = torso.UpVector
-			local tilt = math.atan2(-up.Z, up.Y) -- (the torso's forward lean, root space)
-			local joints = jointsOf(char, gait)
-			local flat = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
-			flat = if flat.Magnitude > 0.01 then flat.Unit else Vector3.zAxis
-			for _, key in ipairs(LIMBS) do
-				local hind = key == "RL" or key == "LL"
-				local m = motors[MOTOR_OF[key]]
-				if not (m and m.motor.Parent) then continue end
+			return
+		end
+		local a = math.clamp((beastAttack[char] or 1) + (if CastPoses.isPlaying(char) then -dt else dt) * 8, 0, 1)
+		beastAttack[char] = a
+		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if not (root and hum) then return end
+		if not g then
+			g = { phase = 0, air = 0, still = 0, flourish = nil, flourishAt = 0, nextFlourish = now + 2, beat = -1, aggro = 0,
+				nextScan = 0, threat = nil, landAt = -10, landHard = 0, wasAir = false, minVy = 0, yaw = nil, turn = 0,
+				getUpAt = -10, wasDown = down, q = {}, joints = nil, jointsOf = nil, vs = 0, mv = 0, up = 0, rest = 0, born = now }
+			gaits[char] = g
+		end
+		local gait = g :: Gait
+		local touched: { string } = {}
+		local spec, s = beastSpec(p, char, gait, root, hum, now, dt, touched)
+		local motors = beastMotors[char]
+		if not motors then
+			motors = CastPoses.resolveMotors(char)
+			beastMotors[char] = motors
+		end
+		local body = w * a
+		-- The body: leaned, and raised or lowered so the hip joints sit at
+		-- spec.hip over the floor. (How far down the torso the hips are: a man's
+		-- 1, the beast's longer frame more; BerserkerLook moves the joints.)
+		local hipM = motors.RH and motors.RH.motor :: Motor6D?
+		local hipC0 = if hipM then hipM.C0 else CFrame.new(0, -s, 0)
+		local hipLen = math.max(-hipC0.Y / s, 0.5)
+		local lean = spec.lean or 100
+		local raise = ((spec.hip or 2.95) - GROUND + hipLen * math.cos(math.rad(lean))) * s
+		setMotor(motors.W, { -lean, spec.yaw or 0, spec.roll or 0, 0, raise, 0 }, body)
+		setMotor(motors.N, { lean - 10 + (spec.head or 0), spec.headYaw or 0, 0 }, body)
+		-- Where the torso really is now (ours, or an attack's, or between).
+		local rj = motors.W and motors.W.motor :: Motor6D?
+		if not rj then return end
+		local torso = rj.C0 * rj.Transform * rj.C1:Inverse()
+		local up = torso.UpVector
+		local tilt = math.atan2(-up.Z, up.Y) -- (the torso's forward lean, root space)
+		local joints = jointsOf(char, gait)
+		local flat = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+		flat = if flat.Magnitude > 0.01 then flat.Unit else Vector3.zAxis
+		for _, key in ipairs(LIMBS) do
+			local hind = key == "RL" or key == "LL"
+			local m = motors[MOTOR_OF[key]]
+			if m and m.motor.Parent then
 				local legW = if dressed and not down then 1 else w
 				local k = if hind then legW else body
 				local planted = if w < 1 then math.min(a, w) else a
@@ -1807,6 +1851,17 @@ do
 				end
 			end
 		end
+	end
+
+	beastStep = function(dt: number)
+		local now = os.clock()
+		for _, p in ipairs(Players:GetPlayers()) do
+			local char = p.Character
+			if char then stepOne(char, p, now, dt) end
+		end
+		for char in pairs(BerserkerController._previews) do
+			if char.Parent then stepOne(char, nil, now, dt) end
+		end
 		for char in pairs(beastMotors) do
 			if not char.Parent or not beastWeight[char] then beastMotors[char] = nil end
 		end
@@ -1816,6 +1871,56 @@ do
 		for char in pairs(beastAttack) do
 			if not char.Parent then beastAttack[char] = nil end
 		end
+	end
+
+	-- The beast on a model that isn't a player's (the class-select preview),
+	-- once BerserkerLook.DressBeast has dressed it: born like the real one
+	-- (low on all fours, wrenched about, then up), then coiled on the spot,
+	-- breathing, swaying, sniffing, its head on you. (Off: it lets go.)
+	function BerserkerController.PreviewBeast(char: Model, on: boolean)
+		local previews = BerserkerController._previews
+		if on then
+			previews[char] = true
+			gaits[char], beastWeight[char], beastMotors[char], beastAttack[char] = nil, nil, nil, nil
+			-- (outside the game proper, Init may not have hooked the gait in)
+			if not BerserkerController._hooked then
+				BerserkerController._hooked = true
+				CastPoses.addPostHook(beastStep)
+			end
+		else
+			previews[char] = nil
+			gaits[char], beastWeight[char], beastMotors[char], beastAttack[char] = nil, nil, nil, nil
+			local fx = beastFx[char]
+			if fx then
+				dropBeastFx(fx)
+				beastFx[char] = nil
+			end
+		end
+	end
+end
+
+-- The beast's body swelling into place as it's born: every slab and shard of
+-- it grown out of nothing in a wave from the torso out (this client only; the
+-- sizes it grows to are the server's).
+function BerserkerController.SproutBeast(char: Model, dur: number)
+	local torso = char:FindFirstChild("Torso") :: BasePart?
+	if not torso then return end
+	for _, d in ipairs(char:GetDescendants()) do
+		if d:IsA("BasePart") and d:HasTag("BerserkerBeast") and d.Transparency < 1 then
+			local size = d.Size
+			local wait = math.min((d.Position - torso.Position).Magnitude / 7, 1) * dur * 0.55
+			d.Size = size * 0.05
+			TweenService:Create(d, TweenInfo.new(dur * 0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out, 0, false, wait), { Size = size }):Play()
+		end
+	end
+end
+
+-- His cloth cape shed while he's the beast (and back after).
+function BerserkerController.ShedCape(char: Model, shed: boolean)
+	local cape = char:FindFirstChild("ClothCape")
+	if not cape then return end
+	for _, d in ipairs(cape:GetDescendants()) do
+		if d:IsA("BasePart") then d.LocalTransparencyModifier = if shed then 1 else 0 end
 	end
 end
 
@@ -2117,7 +2222,7 @@ end
 -- grip. Arms replace the walk / idle animation; the torso turn is added on top
 -- (the hips turn back so the feet keep walking straight). Attack poses
 -- (CastPoses) take over while they play; the hold eases back in after.
-local HOLD_ARMS = { RS = { 40, -10, -50 }, LS = { 130, -50, 130 } }
+local HOLD_ARMS = { RS = { 60, -10, -45 }, LS = { 130, -50, 130 } }
 local HOLD_TURN = { W = { 0, 15, 0 }, RH = { 0, -15, 0 }, LH = { 0, -15, 0 } }
 local holdWeight: { [Model]: number } = {}
 
@@ -2156,11 +2261,15 @@ end
 
 -- ── Both hands on the hilt, always ──────────────────────────────────────────
 -- Runs after every pose (idle hold, walk, every attack): wherever the pose
--- put the right hand, the grip is drawn to the nearest point BOTH arms can
--- reach (R6 arms are short, so that's in front of / above the chest's
--- middle), the right arm re-aims there, and the left arm reaches for the
--- hilt just behind it (toward the pommel). So every swing, slam and spin is
--- two-handed.
+-- put the right hand, the grip goes as far out from him as BOTH arms allow
+-- (R6 arms are short: on the ring where the right hand's reach meets the
+-- left hand's, the left holding the hilt behind the right, toward the
+-- pommel), in the pose's direction, so the arms hold the blade out away from
+-- his chest; the right arm re-aims there, and the left arm reaches for the
+-- hilt just behind it. In an attack that would draw
+-- every swing in tight to his chest, so there the right arm stays out at
+-- full stretch where the pose aimed it (real distance between him and the
+-- blade) and the left hand reaches after the hilt, on it when it can be.
 local REACH_SLACK = 0.97
 local LEFT_BEHIND = 0.55 -- studs from the right hand toward the pommel
 local bladeAxis: { [Tool]: Vector3 } = {}
@@ -2207,7 +2316,8 @@ local function bladeOf(tool: Tool, handle: BasePart): Vector3
 	return v
 end
 
-local function twoHandStep()
+local swingFree: { [Model]: number } = setmetatable({}, { __mode = "k" }) :: any
+local function twoHandStep(dt: number)
 	for _, p in ipairs(Players:GetPlayers()) do
 		local char = p.Character
 		if not (char and isBerserker(p)) or char:GetAttribute("BR_OneHand") or char:GetAttribute("Tumbling") then continue end
@@ -2229,13 +2339,41 @@ local function twoHandStep()
 		local reachL = (handL - ls.C1.Position).Magnitude * REACH_SLACK
 		local pR, pL = rs.C0.Position, ls.C0.Position
 
-		-- The grip: where the pose put the right hand, pulled into reach of both.
+		-- The grip: as far out as both hands reach, toward where the pose put
+		-- the right hand (held), or left out at the right arm's full stretch
+		-- (swinging). (eased between the two over a few frames, so the arm
+		-- doesn't pop)
 		local aR = armIn(rs)
-		local g = aR * handR
-		for _ = 1, 4 do
-			g = inside(g, pL, reachL)
-			g = inside(g, pR, reachR)
+		local free = aR * handR
+		-- (the left hand holds the hilt LEFT_BEHIND toward the pommel: the right
+		-- hand can be wherever that point is within the left arm's reach)
+		local blade0 = (aR * grip.C0 * grip.C1:Inverse()):VectorToWorldSpace(bladeOf(tool, handle))
+		local pL2 = pL + blade0 * LEFT_BEHIND
+		local held = free
+		local across = pL2 - pR
+		local d = across.Magnitude
+		if d > 1e-3 and d < reachR + reachL and d > math.abs(reachR - reachL) then
+			local n = across / d
+			local a = (d * d + reachR * reachR - reachL * reachL) / (2 * d)
+			local ring = math.sqrt(math.max(reachR * reachR - a * a, 0))
+			local c = pR + n * a
+			local off = free - c
+			off -= n * off:Dot(n)
+			if off.Magnitude < 1e-3 then
+				local fwd = Vector3.new(0, -0.5, -1)
+				off = fwd - n * fwd:Dot(n)
+			end
+			held = c + off.Unit * ring
+		else
+			for _ = 1, 4 do
+				held = inside(held, pL2, reachL)
+				held = inside(held, pR, reachR)
+			end
 		end
+		local w = swingFree[char] or 0
+		w = if CastPoses.isPlaying(char) then math.min(1, w + dt * 12) else math.max(0, w - dt * 6)
+		swingFree[char] = w
+		local g = held:Lerp(free, w)
 		aR = aim(rs, aR, handR, g)
 		rs.Transform = rs.C0:Inverse() * aR * rs.C1
 
@@ -2961,10 +3099,10 @@ function BeastMoments.onMaul(msg: any)
 end
 
 -- R · the awakening. He freezes, red motes drawn in to him from all round, a
--- pool of dark light spreading under him; the change wrenches him about
--- (his body flickering red, lightning tearing out of it); at the moment he
--- becomes the beast his body bursts, armour shards flying, and the sword is
--- cast aside; then the roar (onRoar).
+-- pool of dark light spreading under him; the roar (onRoar) shakes him (his
+-- body flickering red, lightning tearing out of it); at the moment he becomes
+-- the beast (onChange) his body bursts, armour shards flying, and the sword
+-- is cast aside.
 function BeastMoments.onAwaken(msg: any)
 	local char = charOf(msg.attacker)
 	local root = rootOf(char)
@@ -3003,7 +3141,7 @@ function BeastMoments.onAwaken(msg: any)
 				return
 			end
 			if k < T.freeze then return end
-			local on = math.random() < 0.3 + 0.5 * (k - T.freeze) / T.mutate
+			local on = math.random() < 0.3 + 0.5 * (k - T.freeze) / T.roar
 			L.hl.FillTransparency = if on then 0.2 + math.random() * 0.4 else 1
 			L.hl.OutlineTransparency = if on then 0 else 0.7
 		end)
@@ -3011,7 +3149,7 @@ function BeastMoments.onAwaken(msg: any)
 	-- the distortion
 	local n = 12
 	for k = 1, n do
-		task.delay(T.freeze + (k - 1) * (T.mutate / n), function()
+		task.delay(T.freeze + (k - 1) * (T.roar / n), function()
 			if not root.Parent then return end
 			local a = math.random() * math.pi * 2
 			local from = root.Position + Vector3.new(0, 1 + math.random(), 0)
@@ -3025,7 +3163,7 @@ function BeastMoments.onAwaken(msg: any)
 		end)
 	end
 	if near(root.Position, 70) then
-		tint("BerserkerChange", { Brightness = -0.1, Saturation = -0.3, Contrast = 0.3, TintColor = Color3.fromRGB(255, 150, 150) }, T.mutate, T.freeze, 0.2)
+		tint("BerserkerChange", { Brightness = -0.1, Saturation = -0.3, Contrast = 0.3, TintColor = Color3.fromRGB(255, 150, 150) }, T.roar, T.freeze, 0.2)
 	end
 	-- the burst: his old shape left behind as light, the armour blown off him
 	task.delay(T.change - 0.06, function()
@@ -3080,9 +3218,10 @@ function BeastMoments.onAwaken(msg: any)
 	end)
 end
 
--- The roar: rings of force blown out of his maw, a pressure wave swelling
--- over the room, a wall of dust rolling out, red lightning into the floor;
--- the world flashes and darkens. He is the BEAST.
+-- The roar, arms flung wide: red energy erupting out of him (flames of it
+-- torn upward, a column of red light), rings of force blown out of his
+-- mouth, a pressure wave swelling over the room, a wall of dust rolling out,
+-- red lightning into the floor; the world flashes and darkens.
 function BeastMoments.onRoar(msg: any)
 	local char = charOf(msg.attacker)
 	local root = rootOf(char)
@@ -3107,18 +3246,59 @@ function BeastMoments.onRoar(msg: any)
 		local a = i / 8 * math.pi * 2 + math.random() * 0.3
 		bolt(pos + Vector3.new(0, 1.5, 0), g + Vector3.new(math.cos(a) * r * 0.6, 0.3, math.sin(a) * r * 0.6), 0.22, 0.22)
 	end
+	-- the red energy bursting out of him: flames of it torn upward round his
+	-- body for as long as he roars, a column of red light
+	if root then
+		lightPillar(g, 16, 3.2, 0.55)
+		local a = Instance.new("Attachment")
+		a.Position = Vector3.new(0, -0.5, 0)
+		a.Parent = root
+		local e = Instance.new("ParticleEmitter")
+		e.Texture = "rbxasset://textures/particles/fire_main.dds"
+		e.Color = ColorSequence.new(HOT, CRIMSON)
+		e.LightEmission = 0.9
+		e.LightInfluence = 0
+		e.Size = NumberSequence.new({ kp(0, 1.6), kp(0.6, 1.1), kp(1, 0) })
+		e.Transparency = NumberSequence.new({ kp(0, 0.2), kp(1, 1) })
+		e.Lifetime = NumberRange.new(0.35, 0.6)
+		e.Speed = NumberRange.new(6, 12)
+		e.SpreadAngle = Vector2.new(65, 65)
+		e.Acceleration = Vector3.new(0, 14, 0)
+		e.Rotation = NumberRange.new(0, 360)
+		e.Shape = Enum.ParticleEmitterShape.Cylinder
+		e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface
+		e.Rate = 70
+		e.Parent = a
+		e:Emit(30)
+		task.delay(BEAST.roar * 0.85, function() e.Enabled = false end)
+		Debris:AddItem(a, BEAST.roar + 0.7)
+	end
 	ClassFX.Sound("boom", pos, 1, 0.5)
 	if near(pos, 80) then
 		screenFlash(0.35)
 		tint("BerserkerRoar", { Brightness = -0.2, Saturation = -0.3, Contrast = 0.4, TintColor = Color3.fromRGB(255, 140, 140) }, 0.3, 0.05, 0.7)
 		deps.shake(if msg.attacker == player then 1.6 else 0.8, 0.5)
 	end
-	if msg.attacker == player then
-		deps.fovPunch(12, 0.4)
-		if char then popWord(char, "BEAST AWAKENING", 34) end
-	end
+	if msg.attacker == player then deps.fovPunch(12, 0.4) end
+end
+
+-- The body becomes the beast (the server has just dressed it): every slab
+-- and shard of it swells into place out of him, his cape is shed. He is the
+-- BEAST.
+function BeastMoments.onChange(msg: any)
+	local p = msg.attacker :: Player
+	local char = charOf(p)
+	if not char then return end
+	task.spawn(function()
+		-- (the body comes over the wire around the same moment as this)
+		local t0 = os.clock()
+		while not char:FindFirstChild("BeastShinR") and os.clock() - t0 < 1 do task.wait() end
+		if not char.Parent then return end
+		BerserkerController.SproutBeast(char, 0.55)
+		BerserkerController.ShedCape(char, true)
+	end)
+	if p == player then popWord(char, "BEAST AWAKENING", 34) end
 	task.defer(function()
-		local p = msg.attacker :: Player
 		if p and p.Parent then pcall(refreshLook, p) end
 		refreshHud()
 	end)
@@ -3134,6 +3314,7 @@ function BeastMoments.onRevert(msg: any)
 	if not char or not root then return end
 	local T = msg.t :: number
 	revertPose(char)
+	BerserkerController.ShedCape(char, false)
 	ghost(char, 0.9)
 	pressureWave(root.Position, 14, 2, 0.45)
 	smoke(root.Position, 14, 3)
@@ -3410,6 +3591,7 @@ local HANDLERS: { [string]: (any) -> () } = {
 	maul = BeastMoments.onMaul,
 	awaken = BeastMoments.onAwaken,
 	roar = BeastMoments.onRoar,
+	change = BeastMoments.onChange,
 	revert = BeastMoments.onRevert,
 	beastSlam = BeastMoments.onBeastSlam,
 	beastSlamImpact = BeastMoments.onBeastSlamImpact,
@@ -3426,6 +3608,7 @@ local HANDLERS: { [string]: (any) -> () } = {
 
 function BerserkerController.Init(d: Deps)
 	deps = d
+	BerserkerController._hooked = true
 	buildHud()
 	refreshHud()
 	for _, a in ipairs({ "BR_BeastUntil", "BR_Rage", "BR_Empowered", "SelectedClass", "InLobby", "SettingsOpen" }) do
@@ -3452,7 +3635,7 @@ function BerserkerController.Init(d: Deps)
 	-- enforced on whatever pose is playing (after every attack pose).
 	CastPoses.addPostHook(function(dt)
 		holdStep(dt)
-		twoHandStep()
+		twoHandStep(dt)
 		beastStep(dt)
 	end)
 	watchLandings()

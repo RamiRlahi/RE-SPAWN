@@ -278,25 +278,70 @@ function BerserkerLook.Dress(char: Model)
 end
 
 -- ── The beast (Beast Awakening) ─────────────────────────────────────────────
--- Built over his armour in R6 units, before the server scales the whole
--- character up (BerserkerServer): a monstrous skull with an open jaw, slit
--- red eyes and swept-back horns; a hunched, spiked back; long arms ending in
--- huge black claws tipped red; red energy cracks; the scarf grown long,
--- trailing behind. The armour that breaks away (helm, breastplate,
--- gauntlets) is hidden, and comes back with UndressBeast.
+-- After the design sheet: a wolf the size of a horse, hewn out of black
+-- stone. Slabs of rock for a body, split by glowing red cracks; a mane of
+-- jagged shards round the neck, a ridge of them down the back and on along
+-- the long tail; boulders for shoulders; long jointed front legs ending in
+-- great black claws; digitigrade hind legs; a wolf's head with slit red eyes,
+-- the jaw hanging open on a red glow. Built in R6 units over his body (the
+-- man, his armour and whatever he wears all hidden, and back with
+-- UndressBeast), before the server scales the whole character up
+-- (BerserkerServer).
+--
+-- (Space: on all fours the torso lies along the body, so the torso's +Y runs
+-- toward the head, -Y toward the tail, and its back, +Z, faces up.)
 local BEAST_TAG = "BerserkerBeast"
-local HIDE = { Helm = true, HelmCrest = true, Visor = true, Cheek = true, ChestPlate = true, Gauntlet = true,
-	GauntletRim = true, PauldronTop = true, Horn = true }
 local HIDE_FLAG = "BeastHidden"
-local FLESH = Color3.fromRGB(46, 12, 16)
-local HIDE_DARK = Color3.fromRGB(20, 12, 14)
-local BONE = Color3.fromRGB(214, 196, 178)
+-- (the armour's flat plate cape stays as it is: clients hide it under the cloth one)
+local KEEP = { HumanoidRootPart = true, Cape = true, CapeRag = true }
+local STONE = Color3.fromRGB(36, 30, 34)
+local STONE_DARK = Color3.fromRGB(22, 18, 21)
+local STONE_EDGE = Color3.fromRGB(54, 46, 50)
+local CLAW_BLACK = Color3.fromRGB(14, 11, 13)
+local CRACK = Color3.fromRGB(255, 34, 44)
+local MAW = Color3.fromRGB(190, 14, 26)
+local BONE = Color3.fromRGB(196, 180, 166)
+local SLATE = Enum.Material.Slate
 
 local function beastPart(parent: BasePart, name: string, shape: string, size: Vector3, offset: CFrame, color: Color3, material: Enum.Material?): BasePart
-	local p = plate(parent, name, shape, size, offset, color, material)
+	local p = plate(parent, name, shape, size, offset, color, material or SLATE)
 	p:RemoveTag(TAG)
 	p:AddTag(BEAST_TAG)
+	-- (only the big slabs cast shadows)
+	p.CastShadow = size.X * size.Y * size.Z > 1.5
 	return p
+end
+
+-- A jagged shard of stone growing out of the surface at `at` (parent-local)
+-- along `n`, its point raked toward `rake`: `w` across the base, `h` tall. (A
+-- corner wedge: its point stands over one corner of its base, so it leans.)
+local function shard(parent: BasePart, at: Vector3, n: Vector3, rake: Vector3, w: number, h: number, color: Color3?): BasePart
+	n = n.Unit
+	local t = rake - n * rake:Dot(n)
+	if t.Magnitude < 1e-3 then
+		t = n:Cross(if math.abs(n.X) < 0.9 then Vector3.xAxis else Vector3.zAxis)
+	end
+	t = t.Unit
+	local u = t:Cross(n)
+	local k = math.sqrt(0.5)
+	-- (the point sits over the base's +X -Z corner: turn that diagonal onto t)
+	local cf = CFrame.fromMatrix(at + n * (h * 0.38), (t + u) * k, n, (u - t) * k)
+	return beastPart(parent, "Shard", "corner", Vector3.new(w, h, w), cf, color or STONE_DARK)
+end
+
+-- A glowing crack along the polyline `pts` (parent-local), lying on a face
+-- whose outward normal is `nrm`.
+local function crack(parent: BasePart, pts: { Vector3 }, nrm: Vector3, width: number?)
+	for i = 1, #pts - 1 do
+		local a, b = pts[i], pts[i + 1]
+		local mid = (a + b) / 2 + nrm.Unit * 0.012
+		beastPart(parent, "BeastCrack", "block", Vector3.new(width or 0.07, 0.04, (b - a).Magnitude + 0.05),
+			CFrame.lookAt(mid, mid + (b - a), nrm), CRACK, Enum.Material.Neon)
+	end
+end
+
+local function slab(parent: BasePart, size: Vector3, cf: CFrame, color: Color3): BasePart
+	return beastPart(parent, "Slab", "block", size, cf, color)
 end
 
 -- The beast's limb joints (R6 units, in the limb's own space): the knee and
@@ -332,13 +377,31 @@ local function limbSeg(parent: BasePart, name: string, a: Vector3, b: Vector3, w
 		CFrame.lookAt((a + b) / 2, b, Vector3.xAxis) * CFrame.Angles(math.rad(-90), 0, 0), color)
 end
 
+-- The beast's longer frame: on a man the shoulders and hips are only 1.5
+-- apart, so the shoulders (and the neck with them) are brought forward along
+-- the body, the hips back, and both set a little wider (R6 units, torso
+-- space; mirrored in BerserkerController's gait, which reads the real joints).
+local BODY_FRONT = 0.9
+local BODY_BACK = 1.0
+local JOINT_FLAG = "BeastJointC0" -- (each moved joint's own C0, to put back)
+local BEAST_JOINTS = {
+	["Right Shoulder"] = Vector3.new(0.15, BODY_FRONT, 0),
+	["Left Shoulder"] = Vector3.new(-0.15, BODY_FRONT, 0),
+	Neck = Vector3.new(0, BODY_FRONT, 0),
+	["Right Hip"] = Vector3.new(0.2, -BODY_BACK, 0),
+	["Left Hip"] = Vector3.new(-0.2, -BODY_BACK, 0),
+}
+
 function BerserkerLook.UndressBeast(char: Model)
 	for _, d in ipairs(char:GetDescendants()) do
 		if d:HasTag(BEAST_TAG) then
 			d:Destroy()
-		elseif d:IsA("BasePart") and d:GetAttribute(HIDE_FLAG) ~= nil then
-			d.Transparency = d:GetAttribute(HIDE_FLAG) :: number
+		elseif (d:IsA("BasePart") or d:IsA("Decal")) and d:GetAttribute(HIDE_FLAG) ~= nil then
+			(d :: any).Transparency = d:GetAttribute(HIDE_FLAG) :: number
 			d:SetAttribute(HIDE_FLAG, nil)
+		elseif d:IsA("Motor6D") and d:GetAttribute(JOINT_FLAG) ~= nil then
+			d.C0 = d:GetAttribute(JOINT_FLAG) :: CFrame
+			d:SetAttribute(JOINT_FLAG, nil)
 		end
 	end
 end
@@ -348,112 +411,165 @@ function BerserkerLook.DressBeast(char: Model)
 	local head = char:FindFirstChild("Head") :: BasePart?
 	local torso = char:FindFirstChild("Torso") :: BasePart?
 	if not (head and torso) then return end
-	-- The armour that breaks away.
+	-- The man is gone: his body, his armour, whatever he wears, his face.
 	for _, d in ipairs(char:GetDescendants()) do
-		if d:IsA("BasePart") and d:HasTag(TAG) and HIDE[d.Name] then
-			d:SetAttribute(HIDE_FLAG, d.Transparency)
-			d.Transparency = 1
+		if (d:IsA("BasePart") and not KEEP[d.Name]) or d:IsA("Decal") then
+			if d:GetAttribute(HIDE_FLAG) == nil then
+				d:SetAttribute(HIDE_FLAG, (d :: any).Transparency)
+				;(d :: any).Transparency = 1
+			end
+		end
+	end
+	-- The longer frame. (The limbs' pieces below are welded to the limbs where
+	-- they are now: they go wherever the moved joints take them.)
+	for name, d in pairs(BEAST_JOINTS) do
+		local m = torso:FindFirstChild(name)
+		if m and m:IsA("Motor6D") then
+			m:SetAttribute(JOINT_FLAG, m.C0)
+			m.C0 = m.C0 + d
 		end
 	end
 
-	-- The head: a long skull, the jaw hanging open, teeth, slit eyes, horns.
-	beastPart(head, "Skull", "block", Vector3.new(1.45, 1.2, 1.55), CFrame.new(0, 0.1, 0.05), HIDE_DARK)
-	beastPart(head, "Brow", "wedge", Vector3.new(1.5, 0.35, 0.5), CFrame.new(0, 0.42, -0.72) * CFrame.Angles(0, math.pi, 0), FLESH)
-	beastPart(head, "Snout", "wedge", Vector3.new(1.15, 0.5, 0.75), CFrame.new(0, -0.18, -0.95) * CFrame.Angles(0, math.pi, 0), HIDE_DARK)
-	beastPart(head, "Jaw", "block", Vector3.new(1.05, 0.26, 0.85), CFrame.new(0, -0.62, -0.72) * CFrame.Angles(R(18), 0, 0), FLESH)
-	beastPart(head, "Maw", "block", Vector3.new(0.85, 0.12, 0.6), CFrame.new(0, -0.42, -0.8), CRIMSON, Enum.Material.Neon)
-	for i = -1, 1, 2 do
-		for k = 0, 1 do
-			beastPart(head, "Fang", "wedge", Vector3.new(0.1, 0.26, 0.1), CFrame.new(i * (0.18 + k * 0.22), -0.33, -1.05 + k * 0.12) * CFrame.Angles(math.pi, 0, 0), BONE, Enum.Material.SmoothPlastic)
-			beastPart(head, "Fang", "wedge", Vector3.new(0.1, 0.22, 0.1), CFrame.new(i * (0.16 + k * 0.22), -0.5, -1.0 + k * 0.12), BONE, Enum.Material.SmoothPlastic)
+	-- ── The body: slabs of rock, the back a ridge of shards ─────────────────
+	-- (from the chest, +2.4, to the rump, -2.8: the hips are at -2, the
+	-- shoulders at +1.4)
+	slab(torso, Vector3.new(2.4, 2.2, 1.5), CFrame.new(0, 0.85, 0.05), STONE)                             -- the barrel
+	slab(torso, Vector3.new(2.05, 1.8, 1.3), CFrame.new(0, -0.8, 0.12), STONE_DARK)                        -- the waist
+	slab(torso, Vector3.new(2.35, 1.5, 1.45), CFrame.new(0, -2.1, 0.2) * CFrame.Angles(R(5), 0, 0), STONE) -- the rump
+	slab(torso, Vector3.new(2.1, 4.4, 0.5), CFrame.new(0, -0.4, 0.95) * CFrame.Angles(R(2), 0, 0), STONE_DARK) -- the back
+	slab(torso, Vector3.new(2.55, 1.0, 1.1), CFrame.new(0, 1.55, 0.55) * CFrame.Angles(R(-6), 0, 0), STONE) -- the withers
+	slab(torso, Vector3.new(2.05, 0.6, 1.3), CFrame.new(0, 2.15, -0.15) * CFrame.Angles(R(10), 0, 0), STONE_EDGE) -- the breast
+	slab(torso, Vector3.new(1.8, 3.6, 0.35), CFrame.new(0, -0.5, -0.78), STONE_DARK)                       -- the belly
+	slab(torso, Vector3.new(1.4, 0.9, 1.2), CFrame.new(0, 2.25, 0.3) * CFrame.Angles(R(-12), 0, 0), STONE) -- the neck
+	-- the ridge down the spine, swept back toward the tail, and a row down each side
+	for i = 0, 11 do
+		shard(torso, Vector3.new(0, 2.1 - i * 0.42, 1.12), Vector3.new(0, 0.25, 1), Vector3.new(0, -1, 0), 0.58 - i * 0.02, 1.5 - i * 0.07)
+	end
+	for i = 0, 8 do
+		for _, sx in ipairs({ -1, 1 }) do
+			shard(torso, Vector3.new(sx * 0.65, 1.7 - i * 0.48, 1.02), Vector3.new(sx * 0.55, 0.2, 1), Vector3.new(sx * 0.3, -1, 0),
+				0.46, 1.0 - i * 0.05, if i % 2 == 0 then STONE else STONE_DARK)
 		end
+	end
+	-- the mane: a ruff of big shards round the neck, flaring back
+	for k = -2, 2 do
+		local x = k * 0.45
+		shard(torso, Vector3.new(x, 2.2, 0.4 + (2 - math.abs(k)) * 0.1), Vector3.new(x * 0.5, 0.55, 1), Vector3.new(x * 0.3, -1, 0.2),
+			0.6, 1.6 - math.abs(k) * 0.15, if k % 2 == 0 then STONE_DARK else STONE)
 	end
 	for _, sx in ipairs({ -1, 1 }) do
-		beastPart(head, "BeastEye", "block", Vector3.new(0.34, 0.1, 0.1), CFrame.new(sx * 0.34, 0.24, -0.84) * CFrame.Angles(0, 0, R(sx * -14)), Color3.fromRGB(255, 40, 40), Enum.Material.Neon)
-		-- horns sweeping back and up, in three segments
-		beastPart(head, "BeastHorn", "corner", Vector3.new(0.42, 0.9, 0.42), CFrame.new(sx * 0.62, 0.78, 0.15) * CFrame.Angles(R(-25), 0, R(sx * -30)), HIDE_DARK)
-		beastPart(head, "BeastHorn", "corner", Vector3.new(0.32, 0.9, 0.32), CFrame.new(sx * 0.95, 1.35, 0.55) * CFrame.Angles(R(-45), 0, R(sx * -15)), BLACK)
-		beastPart(head, "BeastHorn", "corner", Vector3.new(0.2, 0.8, 0.2), CFrame.new(sx * 1.05, 1.8, 1.1) * CFrame.Angles(R(-75), 0, R(sx * -5)), CRIMSON_DARK)
+		shard(torso, Vector3.new(sx * 1.17, 1.9, 0.1), Vector3.new(sx, 0.3, 0.6), Vector3.new(0, -1, 0), 0.5, 1.3)
 	end
-	for k = 0, 2 do
-		beastPart(head, "Crest", "corner", Vector3.new(0.2, 0.55 - k * 0.1, 0.3), CFrame.new(0, 0.8 - k * 0.15, 0.25 + k * 0.38) * CFrame.Angles(R(-35), 0, 0), CRIMSON_DARK)
+	-- red cracks through the back and down the flanks
+	crack(torso, { Vector3.new(-0.6, 1.6, 1.22), Vector3.new(-0.2, 1.0, 1.22), Vector3.new(-0.45, 0.3, 1.22), Vector3.new(-0.1, -0.4, 1.22),
+		Vector3.new(-0.5, -1.2, 1.22) }, Vector3.zAxis)
+	crack(torso, { Vector3.new(0.5, 0.8, 1.22), Vector3.new(0.25, 0.1, 1.22), Vector3.new(0.6, -0.7, 1.22), Vector3.new(0.3, -1.8, 1.22) },
+		Vector3.zAxis)
+	for _, sx in ipairs({ -1, 1 }) do
+		crack(torso, { Vector3.new(sx * 1.21, 1.6, -0.25), Vector3.new(sx * 1.21, 1.0, 0.2), Vector3.new(sx * 1.21, 0.4, -0.1),
+			Vector3.new(sx * 1.21, -0.1, 0.25) }, Vector3.new(sx, 0, 0))
+		crack(torso, { Vector3.new(sx * 1.18, -1.5, 0.3), Vector3.new(sx * 1.18, -2.0, -0.05), Vector3.new(sx * 1.18, -2.6, 0.2) },
+			Vector3.new(sx, 0, 0))
 	end
 
-	-- The torso: a hunched, spiked back, broken plates, glowing cracks.
-	beastPart(torso, "Hump", "block", Vector3.new(2.5, 1.6, 1.1), CFrame.new(0, 0.55, 0.55), FLESH)
-	for k = 0, 3 do
-		beastPart(torso, "SpineSpike", "corner", Vector3.new(0.35, 0.9 - k * 0.12, 0.45), CFrame.new(0, 1.3 - k * 0.55, 1.1) * CFrame.Angles(R(-40), 0, 0), CRIMSON_DARK)
-	end
-	beastPart(torso, "BrokenPlate", "wedge", Vector3.new(0.9, 0.7, 0.2), CFrame.new(-0.55, 0.45, -0.66) * CFrame.Angles(0, 0, R(20)), IRON)
-	beastPart(torso, "BrokenPlate", "wedge", Vector3.new(0.7, 0.55, 0.2), CFrame.new(0.6, -0.1, -0.66) * CFrame.Angles(0, math.pi, R(-15)), IRON)
-	for _, c in ipairs({
-		{ 0.1, 0.4, -0.71, 25, 1.1 }, { -0.25, -0.2, -0.71, -30, 0.8 }, { 0.45, 0.55, -0.71, -50, 0.6 },
-		{ 0.2, 0.3, 1.12, 20, 1.2 }, { -0.4, -0.1, 1.12, -35, 0.9 },
-	}) do
-		beastPart(torso, "BeastCrack", "block", Vector3.new(0.08, c[5], 0.05), CFrame.new(c[1], c[2], c[3]) * CFrame.Angles(0, 0, R(c[4])), CRIMSON, Enum.Material.Neon)
-	end
-	-- (the cloth: his cape, simulated on the client, trails behind him)
-
-	-- The limbs are built as a wolf's, scaled up into a monster: long, powerful
-	-- digitigrade hind legs (a heavy thigh, then the lower leg on its own knee
-	-- joint: shin back to the hock, the long hock down to a clawed paw) that
-	-- hold the pelvis high; and long front legs, the arms, with an elbow, ending
-	-- in great claws. The knee and elbow are Motor6Ds on hidden bones; the
-	-- client bends them every frame (BerserkerController) so the paws land
-	-- where the stride puts them. The man's own legs (and their armour) are
-	-- hidden: the thigh pieces ride on them as the upper bone.
-	local function hide(part: BasePart)
-		if part:GetAttribute(HIDE_FLAG) == nil then
-			part:SetAttribute(HIDE_FLAG, part.Transparency)
-			part.Transparency = 1
+	-- ── The tail: long and heavy, a ridge of shards along it ────────────────
+	local at = Vector3.new(0, -2.85, 0.75)
+	local tail = {
+		{ dir = Vector3.new(0, -1, 0.45).Unit, len = 1.3, w = 0.78 },
+		{ dir = Vector3.new(0, -1, 0.1).Unit, len = 1.2, w = 0.58 },
+		{ dir = Vector3.new(0, -1, -0.2).Unit, len = 1.1, w = 0.4 },
+	}
+	for i, seg in ipairs(tail) do
+		local b = at + seg.dir * seg.len
+		limbSeg(torso, "Tail", at, b, seg.w, seg.w * 0.9, if i == 2 then STONE_DARK else STONE)
+		local top = Vector3.new(0, seg.dir.Z, -seg.dir.Y) -- (square to it, up)
+		for k = 0, 2 do
+			local p = at + seg.dir * seg.len * (0.15 + k * 0.33) + top * seg.w * 0.4
+			shard(torso, p, top + Vector3.new(if k == 1 then 0.25 else -0.25, 0, 0), seg.dir, seg.w * 0.7, 1.0 - (i - 1) * 0.22 - k * 0.06)
 		end
+		if i == 1 then crack(torso, { at + top * (seg.w * 0.46), b + top * (seg.w * 0.46) }, top, 0.06) end
+		at = b
 	end
-	for _, d in ipairs(char:GetDescendants()) do
-		if d:IsA("BasePart") and d:HasTag(TAG) then
-			local w = d:FindFirstChildOfClass("WeldConstraint")
-			local p0 = w and w.Part0
-			if p0 and (p0.Name == "Left Leg" or p0.Name == "Right Leg") then hide(d) end
-		end
+	shard(torso, at, tail[3].dir, Vector3.new(0, tail[3].dir.Z, -tail[3].dir.Y), 0.36, 0.8)
+
+	-- ── The head: a wolf's, slit eyes, the jaw open on a red glow ───────────
+	slab(head, Vector3.new(1.5, 1.1, 1.4), CFrame.new(0, 0.15, 0.1), STONE)                                   -- the skull
+	slab(head, Vector3.new(1.55, 0.3, 0.5), CFrame.new(0, 0.55, -0.45) * CFrame.Angles(R(-10), 0, 0), STONE_DARK) -- the brow
+	slab(head, Vector3.new(0.95, 0.55, 1.15), CFrame.new(0, -0.05, -1.05), STONE)                             -- the muzzle
+	beastPart(head, "Snout", "wedge", Vector3.new(0.95, 0.4, 0.95), CFrame.new(0, 0.42, -0.95), STONE_EDGE)  -- (its bridge)
+	slab(head, Vector3.new(0.45, 0.28, 0.2), CFrame.new(0, 0.12, -1.66), CLAW_BLACK)                          -- the nose
+	beastPart(head, "Jaw", "block", Vector3.new(0.85, 0.24, 1.05),
+		CFrame.new(0, -0.42, -0.45) * CFrame.Angles(R(-14), 0, 0) * CFrame.new(0, 0, -0.52), STONE_DARK)
+	beastPart(head, "Maw", "block", Vector3.new(0.7, 0.1, 0.8), CFrame.new(0, -0.33, -0.95), MAW, Enum.Material.Neon)
+	for _, sx in ipairs({ -1, 1 }) do
+		beastPart(head, "Fang", "wedge", Vector3.new(0.1, 0.26, 0.12), CFrame.new(sx * 0.32, -0.38, -1.5) * CFrame.Angles(math.pi, 0, 0), BONE, Enum.Material.SmoothPlastic)
+		beastPart(head, "Fang", "wedge", Vector3.new(0.08, 0.2, 0.1), CFrame.new(sx * 0.14, -0.36, -1.6) * CFrame.Angles(math.pi, 0, 0), BONE, Enum.Material.SmoothPlastic)
+		beastPart(head, "Fang", "wedge", Vector3.new(0.09, 0.2, 0.1), CFrame.new(sx * 0.26, -0.56, -1.3), BONE, Enum.Material.SmoothPlastic)
+		-- the eyes: slits, slanted down to the snout
+		beastPart(head, "BeastEye", "block", Vector3.new(0.36, 0.1, 0.08), CFrame.new(sx * 0.4, 0.3, -0.71) * CFrame.Angles(0, 0, R(sx * 16)),
+			Color3.fromRGB(255, 40, 40), Enum.Material.Neon)
+		-- pointed ears, laid back; ruffs of shards at the cheeks
+		shard(head, Vector3.new(sx * 0.5, 0.62, 0.15), Vector3.new(sx * 0.35, 1, 0.15), Vector3.new(0, 0, 1), 0.46, 0.95, STONE)
+		shard(head, Vector3.new(sx * 0.74, -0.15, -0.1), Vector3.new(sx, -0.1, 0.2), Vector3.new(0, 0, 1), 0.42, 0.8)
+		shard(head, Vector3.new(sx * 0.6, 0.2, 0.72), Vector3.new(sx * 0.6, 0.2, 1), Vector3.new(0, 0.3, 1), 0.5, 1.1)
+		crack(head, { Vector3.new(sx * 0.76, 0.25, -0.4), Vector3.new(sx * 0.76, 0.4, 0.1), Vector3.new(sx * 0.76, 0.2, 0.6) }, Vector3.new(sx, 0, 0), 0.06)
+	end
+	-- the mane carried up over the skull
+	for k = -1, 1 do
+		shard(head, Vector3.new(k * 0.45, 0.62, 0.5), Vector3.new(k * 0.4, 0.7, 0.8), Vector3.new(0, 0, 1), 0.56, 1.3 - math.abs(k) * 0.15)
 	end
 
-	-- The front legs: bulked upper arm, the elbow, a long forearm, great claws.
+	-- ── The legs: built as a wolf's, scaled up into a monster ───────────────
+	-- Long, powerful digitigrade hind legs (a heavy thigh, then the lower leg
+	-- on its own knee joint: shin back to the hock, the long hock down to a
+	-- clawed paw) that hold the pelvis high; and long front legs, the arms,
+	-- with an elbow, ending in great claws. The knee and elbow are Motor6Ds on
+	-- hidden bones; the client bends them every frame (BerserkerController)
+	-- so the paws land where the stride puts them.
 	for _, side in ipairs({ "Left Arm", "Right Arm" }) do
 		local arm = char:FindFirstChild(side) :: BasePart?
 		if not arm then continue end
 		local sx = if side == "Left Arm" then -1 else 1
-		beastPart(arm, "Forearm", "block", Vector3.new(1.3, 1.5, 1.3), CFrame.new(0, -0.15, 0), FLESH)
-		beastPart(arm, "ArmCrack", "block", Vector3.new(0.07, 1.1, 0.05), CFrame.new(sx * 0.2, -0.15, -0.67) * CFrame.Angles(0, 0, R(sx * 15)), CRIMSON, Enum.Material.Neon)
-		for k = -1, 1, 2 do
-			beastPart(arm, "ShoulderSpike", "corner", Vector3.new(0.4, 1.2, 0.4), CFrame.new(sx * 0.35, 1.7, k * 0.35) * CFrame.Angles(R(k * 15), 0, R(sx * -28)), CRIMSON_DARK)
-		end
+		slab(arm, Vector3.new(1.35, 1.7, 1.35), CFrame.new(0, -0.05, 0), STONE)                                   -- upper arm
+		-- the shoulder: a boulder, capped
+		slab(arm, Vector3.new(1.75, 1.35, 1.75), CFrame.new(sx * 0.12, 0.8, 0.05) * CFrame.Angles(R(6), R(sx * 10), R(sx * -8)), STONE_EDGE)
+		slab(arm, Vector3.new(1.3, 0.5, 1.3), CFrame.new(sx * 0.2, 1.55, 0.05) * CFrame.Angles(R(-8), 0, R(sx * -14)), STONE)
+		shard(arm, Vector3.new(sx * 0.7, 1.3, 0.1), Vector3.new(sx * 0.7, 0.6, 0.4), Vector3.new(0, 0, 1), 0.5, 1.1)
+		shard(arm, Vector3.new(sx * 0.5, 1.45, 0.6), Vector3.new(sx * 0.5, 0.7, 0.6), Vector3.new(0, 0.2, 1), 0.44, 0.9, STONE)
+		crack(arm, { Vector3.new(sx * 0.68, 0.4, -0.3), Vector3.new(sx * 0.68, -0.1, 0.1), Vector3.new(sx * 0.68, -0.6, -0.2) }, Vector3.new(sx, 0, 0))
 		local fore = beastBone(char, arm, "BeastFore" .. (if sx > 0 then "R" else "L"), "BeastElbow", ARM_ELBOW)
-		beastPart(fore, "LongArm", "block", Vector3.new(1.05, 1.3, 1.05), CFrame.new(0, -0.7, -0.08), HIDE_DARK)
-		beastPart(fore, "Paw", "block", Vector3.new(1.3, 0.5, 1.35), CFrame.new(0, -1.5, -0.18), HIDE_DARK)
+		beastPart(fore, "LongArm", "block", Vector3.new(1.12, 1.45, 1.12), CFrame.new(0, -0.7, -0.08), STONE)
+		shard(fore, Vector3.new(0, -0.05, 0.5), Vector3.new(0, 0.3, 1), Vector3.new(0, 1, 0), 0.45, 0.9)       -- the elbow spur
+		crack(fore, { Vector3.new(0.25, -0.2, -0.65), Vector3.new(-0.1, -0.7, -0.65), Vector3.new(0.2, -1.2, -0.65) }, -Vector3.zAxis)
+		slab(fore, Vector3.new(1.3, 0.4, 1.3), CFrame.new(0, -1.35, -0.12), STONE_EDGE)                           -- the wrist
+		beastPart(fore, "Paw", "block", Vector3.new(1.4, 0.48, 1.45), CFrame.new(0, -1.62, -0.22), STONE_DARK)
 		for k = -1, 2 do
 			local x = (k - 0.5) * 0.36
-			beastPart(fore, "Claw", "wedge", Vector3.new(0.16, 1.3, 0.34), CFrame.new(x, -2.15, -0.55) * CFrame.Angles(R(-28), 0, 0), BLACK)
-			beastPart(fore, "ClawTip", "wedge", Vector3.new(0.12, 0.4, 0.2), CFrame.new(x, -2.78, -0.88) * CFrame.Angles(R(-28), 0, 0), CRIMSON, Enum.Material.Neon)
+			beastPart(fore, "Claw", "wedge", Vector3.new(0.18, 1.2, 0.36), CFrame.new(x, -2.15, -0.58) * CFrame.Angles(R(-28), 0, 0), CLAW_BLACK)
+			beastPart(fore, "ClawTip", "wedge", Vector3.new(0.13, 0.42, 0.22), CFrame.new(x, -2.78, -0.88) * CFrame.Angles(R(-28), 0, 0),
+				Color3.fromRGB(150, 12, 22), Enum.Material.Neon)
 		end
 	end
-	-- The hind legs.
 	for _, side in ipairs({ "Left Leg", "Right Leg" }) do
 		local leg = char:FindFirstChild(side) :: BasePart?
 		if not leg then continue end
-		hide(leg)
 		local sx = if side == "Left Leg" then -1 else 1
-		limbSeg(leg, "Thigh", Vector3.new(0, 1.05, 0.1), Vector3.new(0, -0.65, -0.05), 1.2, 1.3, FLESH)
-		beastPart(leg, "Haunch", "block", Vector3.new(1.25, 1.0, 1.05), CFrame.new(0, 0.7, 0.35), HIDE_DARK)
+		limbSeg(leg, "Thigh", Vector3.new(0, 1.05, 0.1), Vector3.new(0, -0.65, -0.05), 1.3, 1.4, STONE)
+		slab(leg, Vector3.new(1.45, 1.2, 1.5), CFrame.new(0, 0.75, 0.35) * CFrame.Angles(R(-6), 0, 0), STONE_EDGE) -- the haunch
+		shard(leg, Vector3.new(sx * 0.45, 1.0, 1.0), Vector3.new(sx * 0.4, 0.3, 1), Vector3.new(0, 1, 0.3), 0.5, 1.0)
+		shard(leg, Vector3.new(sx * 0.2, 0.45, 1.05), Vector3.new(sx * 0.3, 0.2, 1), Vector3.new(0, 1, 0.3), 0.4, 0.8, STONE)
+		crack(leg, { Vector3.new(sx * 0.74, 0.9, 0.2), Vector3.new(sx * 0.74, 0.4, -0.15), Vector3.new(sx * 0.74, -0.1, 0.1) }, Vector3.new(sx, 0, 0))
 		local shin = beastBone(char, leg, "BeastShin" .. (if sx > 0 then "R" else "L"), "BeastKnee", LEG_KNEE)
-		limbSeg(shin, "Shin", Vector3.new(0, 0.1, -0.05), Vector3.new(0, -1.1, 0.55), 0.72, 0.78, HIDE_DARK)
-		limbSeg(shin, "Hock", Vector3.new(0, -1.1, 0.55), Vector3.new(0, -2.05, 0.05), 0.5, 0.55, HIDE_DARK)
-		beastPart(shin, "HindPaw", "block", Vector3.new(0.8, 0.3, 0.95), CFrame.new(0, -2.08, -0.25), BLACK)
+		limbSeg(shin, "Shin", Vector3.new(0, 0.1, -0.05), Vector3.new(0, -1.1, 0.55), 0.8, 0.85, STONE)
+		limbSeg(shin, "Hock", Vector3.new(0, -1.1, 0.55), Vector3.new(0, -2.05, 0.05), 0.55, 0.6, STONE_DARK)
+		beastPart(shin, "HindPaw", "block", Vector3.new(0.85, 0.32, 1.0), CFrame.new(0, -2.08, -0.25), STONE_DARK)
 		for k = -1, 1 do
-			beastPart(shin, "Talon", "wedge", Vector3.new(0.14, 0.3, 0.45), CFrame.new(k * 0.28, -2.1, -0.85), BLACK)
+			beastPart(shin, "Talon", "wedge", Vector3.new(0.15, 0.32, 0.5), CFrame.new(k * 0.28, -2.1, -0.88), CLAW_BLACK)
 		end
-		beastPart(shin, "HockSpike", "corner", Vector3.new(0.3, 0.7, 0.3), CFrame.new(0, -1.05, 0.8) * CFrame.Angles(R(35), 0, 0), CRIMSON_DARK)
+		shard(shin, Vector3.new(0, -1.1, 0.78), Vector3.new(0, -0.2, 1), Vector3.new(0, 1, 0), 0.35, 0.7)          -- the hock spur
 	end
 
-	-- Red energy leaking out of him, black smoke off the back.
+	-- Red energy leaking out of the cracks, black smoke off the back.
 	local leak = Instance.new("ParticleEmitter")
 	leak.Name = "BeastEnergy"
 	leak.Texture = "rbxasset://textures/particles/fire_main.dds"

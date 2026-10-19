@@ -763,70 +763,527 @@ function CastPoses.iceBlizzard(char: Model?)
 end
 
 -- ═════════════════════════════════════════════════════════════════════════════
--- Class-selection preview: hold each class's ultimate pose until stopped.
--- (Heavy Knight uses its uploaded ult animation instead.)
+-- Class-selection preview (and the summon reward's): each class makes an
+-- entrance (a little piece of theatre in character), lands in its signature
+-- pose, and then keeps living in it (breathing, shifting its weight, a
+-- flourish now and then) until stopped. The poses replace whatever the rig is
+-- animating (a held weapon's arm, the idle), so they read as authored.
+-- Entrances that come in from the side come from the screen's right (the
+-- caller passes the camera's right; without it, the model's own left). Each
+-- entrance names its moments (`beats`, seconds from the start) for
+-- UltPreviewFX to put its effects on: CastPoses.previewBeats(classId).
+-- (The Fire Knight plays its uploaded ultimate animation instead.)
 -- ═════════════════════════════════════════════════════════════════════════════
-local ULT_PREVIEW_POSES: { [string]: Pose } = {
-	-- Rain of Arrows: bow raised to the sky at full draw.
-	ranger = { LS = { 155, 0, -10 }, LE = { 5, 0, 0 }, RS = { 125, 0, 30 }, RE = { 125, 0, 0 },
-		W = { 22, -15, 0 }, N = { 30, -10, 0 }, RH = { 14, 0, 6 }, LH = { -8, 0, -6 } },
-	-- Divine Ascent: kneeling in prayer, hands clasped at the chin.
-	cleric = (function(): Pose
-		local p = CastPoses.kneelOnOneKnee(-22)
-		p.N = { -36, 0, 0 }
-		p.RS, p.LS = { 102, 0, -36 }, { 102, 0, 36 }
-		p.RE, p.LE = { 115, 0, 0 }, { 115, 0, 0 }
-		return p
-	end)(),
-	-- Blizzard: standing still and menacing, staring ahead.
-	ice_mage = MENACE,
-	-- High Noon: revolver arm straight out, off hand hovering over the hammer,
-	-- chin down under the hat brim, feet planted wide.
-	gunslinger = { RS = { 90, 0, 0 }, LS = { 42, 0, 28 }, LE = { 30, 0, 0 },
-		W = { 0, -18, 0 }, N = { -10, 16, 0 }, RH = { 6, 0, 10 }, LH = { -6, 0, -10 } },
-	-- Blade Storm: en garde — side on, the rapier held straight out
-	-- (ClassSelectionScreen turns the blade to run along the arm), the off
-	-- hand curled up behind the head.
-	swordsman = (function(): Pose
-		-- (SwordsmanController's fencer(-3, 60, 22, 26, 0.1, { 90, 0, 0 }, { 150, 10, 15 }))
-		local p = CastPoses.body(-3, 60, -26, -22, nil, 7, 0, 0.1)
-		local t = CFrame.fromEulerAnglesXYZ(math.rad(-3), math.rad(60), 0):Inverse()
-		local function aim(elev: number, yaw: number, out: number): { number }
-			local rx, ry, rz = (t * CFrame.Angles(0, math.rad(yaw), 0) * CFrame.Angles(math.rad(elev), 0, 0) * CFrame.Angles(0, 0, math.rad(out))):ToEulerAnglesXYZ()
-			return { math.deg(rx), math.deg(ry), math.deg(rz) }
-		end
-		p.RS, p.LS, p.N = aim(90, 0, 0), aim(150, 10, -15), { 1.8, -51, 0 }
-		return p
-	end)(),
-	-- The assassin's stance: crouched low and turned side-on, the dagger held
-	-- out low in front, the off hand drawn back, head down, eyes up.
-	rogue = { Root = { 0, 0, 0, 0, -0.7, 0 }, W = { -24, 28, 0 }, N = { -14, -24, 0 },
-		RS = { 62, 0, 22 }, RE = { 55, 0, 0 }, LS = { -28, 0, -48 }, LE = { 40, 0, 0 },
-		RH = { -32, 0, 8 }, LH = { 34, 0, -10 }, RK = { 40, 0, 0 }, LK = { 55, 0, 0 } },
-	-- The berserker's stance: hunched and turned into the camera, feet planted
-	-- wide, the greatsword hanging low at his side and dragging behind, the
-	-- other fist clenched out in front, head down, glaring up.
-	-- The mage's Apocalypse: the right hand raised to the sky, calling it
-	-- down, the left low and open, the grimoire floating open at his side;
-	-- feet apart, chin up.
-	mage = { W = { 6, -12, 0 }, N = { -12, 10, 0 }, RS = { 150, 0, 28 }, LS = { 30, 0, -32 },
-		RH = { 4, 0, 9 }, LH = { -4, 0, -9 } },
-	-- The Martial Artist's Crimson Hadouken: a deep lunge, left foot forward,
-	-- both palms thrust out together ahead.
-	martial_artist = { Root = { 0, 0, 0, 0, -0.6, -0.3 }, W = { -12, 8, 0 }, N = { 0, -4, 0 }, RS = { 90, 0, -15 }, LS = { 90, 0, 15 },
-		LH = { 42, 0, -12 }, RH = { -36, 0, 14 } },
-	berserker = { Root = { 0, 0, 0, 0, -0.35, 0 }, W = { -18, -22, 0 }, N = { 14, 18, 0 },
-		RS = { -22, 0, 24 }, LS = { 38, 0, -32 },
-		RH = { 18, 0, 14 }, LH = { -16, 0, -14 } },
-}
+local SINE, BACK, LINEAR = Enum.EasingStyle.Sine, Enum.EasingStyle.Back, Enum.EasingStyle.Linear
 
-function CastPoses.holdUltPreview(char: Model?, classId: string): boolean
-	local pose = ULT_PREVIEW_POSES[classId]
-	if not char or not pose then return false end
-	CastPoses.play(char, {
-		{ dur = 0.35, style = Enum.EasingStyle.Back, pose = pose },
-		{ dur = 1e6, pose = pose }, -- held until CastPoses.stop
-	})
+-- ── Building blocks ─────────────────────────────────────────────────────────
+-- (CastPoses blends each angle on its own: of the two ways to write a turn,
+-- and whole turns either side, take the one nearest the rough angles.)
+local function nearest(rx: number, ry: number, rz: number, guess: { number }): { number }
+	local function near(a: number, ref: number): number
+		return a + 360 * math.floor((ref - a) / 360 + 0.5)
+	end
+	local best: { number } = {}
+	local bestD = math.huge
+	for _, c in ipairs({ { rx, ry, rz }, { rx + 180, 180 - ry, rz + 180 } }) do
+		local v = { near(c[1], guess[1]), near(c[2], guess[2]), near(c[3], guess[3]) }
+		local d = math.abs(v[1] - guess[1]) + math.abs(v[2] - guess[2]) + math.abs(v[3] - guess[3])
+		if d < bestD then best, bestD = v, d end
+	end
+	return best
+end
+
+-- An arm AIMED in the world ({ elev from hanging, 90 = level; yaw + = to his
+-- left; out + = away from the body, - = across it }), turned back into
+-- shoulder angles under the torso's lean and twist.
+local function aimArm(lean: number, twist: number, aim: { number }, left: boolean?): { number }
+	local out = if left then -(aim[3] or 0) else (aim[3] or 0)
+	local world = CFrame.Angles(0, math.rad(aim[2] or 0), 0) * CFrame.Angles(math.rad(aim[1]), 0, 0) * CFrame.Angles(0, 0, math.rad(out))
+	local torso = CFrame.fromEulerAnglesXYZ(math.rad(lean), math.rad(twist), 0)
+	local rx, ry, rz = (torso:Inverse() * world):ToEulerAnglesXYZ()
+	return nearest(math.deg(rx), math.deg(ry), math.deg(rz), { aim[1] - lean, (aim[2] or 0) - twist, out })
+end
+
+-- A grounded figure (CastPoses.body: left foot `front` forward, right foot
+-- `back` back) with both arms aimed and the head on what's ahead.
+local function figure(lean: number, twist: number, front: number, back: number, ra: { number }, la: { number }, look: number?,
+	shiftZ: number?): Pose
+	local p = CastPoses.body(lean, twist, front, back, nil, 7, 0, shiftZ)
+	p.RS = aimArm(lean, twist, ra)
+	p.LS = aimArm(lean, twist, la, true)
+	p.N = { (look or 0) - lean * 0.6, -twist * 0.85, 0 }
+	return p
+end
+
+-- `p` with some joints changed.
+local function with(p: Pose, changes: Pose): Pose
+	local out = table.clone(p)
+	for k, v in pairs(changes) do out[k] = v end
+	return out
+end
+
+-- `p` with one joint's angles moved by `d` (the arm's roll for a twirl, ...).
+local function nudged(p: Pose, key: string, d: { number }): Pose
+	local v = p[key] or { 0, 0, 0 }
+	local out = table.clone(p)
+	out[key] = { (v[1] or 0) + (d[1] or 0), (v[2] or 0) + (d[2] or 0), (v[3] or 0) + (d[3] or 0), v[4] or 0, v[5] or 0, v[6] or 0 }
+	return out
+end
+
+-- `p` carried to `offset` (studs, the model's own space) and turned `yaw`
+-- degrees (the whole body: an entrance from somewhere else).
+local function placed(p: Pose, offset: Vector3, yaw: number?): Pose
+	local r = p.Root or { 0, 0, 0, 0, 0, 0 }
+	local out = table.clone(p)
+	out.Root = { r[1] or 0, yaw or (r[2] or 0), r[3] or 0, (r[4] or 0) + offset.X, (r[5] or 0) + offset.Y, (r[6] or 0) + offset.Z }
+	return out
+end
+
+-- The yaw that faces the body along `dir` (the model's own space).
+local function yawFor(dir: Vector3): number
+	return math.deg(math.atan2(-dir.X, -dir.Z))
+end
+
+-- A walking stride (for an entrance's wobble): legs and the free arm swinging,
+-- a bob. `rate` radians a second, `stride` degrees.
+local function stride(t: number, rate: number, deg: number, arms: boolean?): Pose
+	local s = math.sin(t * rate)
+	local p: Pose = { RH = { s * deg, 0, 0 }, LH = { -s * deg, 0, 0 },
+		Root = { 0, 0, 0, 0, math.abs(math.cos(t * rate)) * 0.12, 0 } }
+	if arms ~= false then p.LS = { s * deg * 0.6, 0, 0 } end
+	return p
+end
+
+-- 0..1 now and then: every `period` seconds, rising over `up` from `at`,
+-- held `hold`, settling back over `down`.
+local function beat(t: number, period: number, at: number, up: number, hold: number, down: number): number
+	local u = (t % period) - at
+	if u < 0 then return 0 end
+	if u < up then return math.sin(u / up * math.pi / 2) end
+	u -= up
+	if u < hold then return 1 end
+	u -= hold
+	if u < down then return math.cos(u / down * math.pi / 2) end
+	return 0
+end
+
+-- ── The signature poses ─────────────────────────────────────────────────────
+local GUNSLINGER_POSE: Pose = { RS = { 90, 0, 0 }, LS = { 42, 0, 28 }, LE = { 30, 0, 0 },
+	W = { 0, -18, 0 }, N = { -10, 16, 0 }, RH = { 6, 0, 10 }, LH = { -6, 0, -10 } }
+-- (en garde: SwordsmanController's fencer(-3, 60, 22, 26, 0.1, { 90, 0, 0 }, { 150, 10, 15 }))
+local SWORDSMAN_POSE: Pose = (function(): Pose
+	local p = CastPoses.body(-3, 60, -26, -22, nil, 7, 0, 0.1)
+	p.RS, p.LS, p.N = aimArm(-3, 60, { 90, 0, 0 }), aimArm(-3, 60, { 150, 10, 15 }, true), { 1.8, -51, 0 }
+	return p
+end)()
+local ROGUE_POSE: Pose = { Root = { 0, 0, 0, 0, -0.7, 0 }, W = { -24, 28, 0 }, N = { -14, -24, 0 },
+	RS = { 62, 0, 22 }, RE = { 55, 0, 0 }, LS = { -28, 0, -48 }, LE = { 40, 0, 0 },
+	RH = { -32, 0, 8 }, LH = { 34, 0, -10 }, RK = { 40, 0, 0 }, LK = { 55, 0, 0 } }
+local MAGE_POSE: Pose = { W = { 6, -12, 0 }, N = { -12, 10, 0 }, RS = { 150, 0, 28 }, LS = { 30, 0, -32 },
+	RH = { 4, 0, 9 }, LH = { -4, 0, -9 } }
+local BERSERKER_POSE: Pose = { Root = { 0, 0, 0, 0, -0.35, 0 }, W = { -18, -22, 0 }, N = { 14, 18, 0 },
+	RS = { -12, 0, 50 }, LS = { 38, 0, -32 }, RH = { 18, 0, 14 }, LH = { -16, 0, -14 } }
+-- The Martial Artist's guard: a front stance, left foot and left fist leading
+-- at shoulder height, the right fist held in front of the chest.
+local KARATE_POSE: Pose = figure(-6, -20, 28, 26, { 55, 14, -28 }, { 82, 6, -10 }, 2)
+-- The Cleric standing composed, the scepter held upright before him in both
+-- hands: the fists side by side at his belly, just right of centre (so the
+-- scepter, leaning a touch outward, stands beside his face, not over it).
+local SCEPTER_POSE: Pose = { W = { 2, 0, 0 }, N = { 4, 0, 0 }, RS = { 60, 0, -40 }, LS = { 55, 0, 60 },
+	RH = { 0, 0, 3 }, LH = { 0, 0, -3 } }
+-- The Ranger low and side on, the bow held out level, arrows drawn to the
+-- cheek; `yaw` turns the aim (and her head) left (+) or right.
+local function rangerAim(yaw: number): Pose
+	local twist = -62 + yaw * 0.6
+	local p = figure(-10, twist, 30, 30, { 95, 52 + yaw, 0 }, { 92, yaw - 4, 0 }, 4)
+	p.N = { 8, (yaw - twist) * 0.95, 0 }
+	return p
+end
+local RANGER_POSE: Pose = rangerAim(0)
+
+type Preview = { intro: { Stage }, pose: Pose, idle: (number) -> Pose, beats: { [string]: number }? }
+-- (an entrance from the side is built from where the screen's right is, in
+-- the model's own space: `right`, and `toward` the camera)
+type PreviewCtx = { right: Vector3, toward: Vector3 }
+local PREVIEWS: { [string]: Preview | (PreviewCtx) -> Preview } = {}
+
+-- ── Martial Artist ──────────────────────────────────────────────────────────
+-- He steps forward and plants his feet (black ink bursting off the floor as
+-- he lands it, crimson energy kindling round his fists), raises his fists into
+-- his guard, and settles it with one small, controlled adjustment. He holds it,
+-- breathing; now and then a sharp kiai tightens everything.
+PREVIEWS.martial_artist = (function(): Preview
+	local relaxed: Pose = { Root = { 0, 0, 0, 0, 0, 2.5 }, RS = { 6, 0, 6 }, LS = { 6, 0, -6 } }
+	local striding: Pose = { Root = { 0, 0, 0, 0, -0.05, 1.2 }, LH = { 28, 0, -4 }, RH = { -18, 0, 4 }, RS = { -12, 0, 6 }, LS = { 16, 0, -6 } }
+	local planted = figure(-4, -16, 26, 24, { 12, 0, 10 }, { 12, 0, -10 }, 0)
+	local raised = figure(-7, -26, 28, 26, { 50, 18, -30 }, { 78, 12, -8 }, 0)
+	return {
+		intro = {
+			{ dur = 0.3, style = SINE, pose = relaxed },
+			{ dur = 0.25, style = SINE, pose = striding },
+			{ dur = 0.2, style = QUART, pose = planted },
+			{ dur = 0.3, style = BACK, pose = raised },
+			{ dur = 0.35, style = SINE, pose = KARATE_POSE },
+		},
+		pose = KARATE_POSE,
+		beats = { ink = 0.75, fists = 0.75 },
+		idle = function(t)
+			local kiai = beat(t, 5, 2.5, 0.06, 0.15, 0.35)
+			local b = math.sin(t * 1.7)
+			return {
+				W = { b * 1.1, 0, 0 },
+				RS = { b - 5 * kiai, 0, 0 },
+				LS = { math.sin(t * 1.7 + 1) + 4 * kiai, 0, 0 },
+				N = { -4 * kiai, 0, 0 },
+			}
+		end,
+	}
+end)()
+
+-- ── Rogue ───────────────────────────────────────────────────────────────────
+-- Smoke bursts across the platform; he rises out of it in a crouch and steps
+-- clear, flicks his dagger up into the air, crosses and uncrosses his hands in
+-- a quick trick while it spins, catches it (UltPreviewFX flies the dagger) and
+-- drops into his crouch. His weight shifts side to side, his eyes scan, and now
+-- and then the dagger flips over in his hand (UltPreviewFX turns it).
+PREVIEWS.rogue = (function(): Preview
+	local hidden: Pose = { Root = { 0, 0, 0, 0, -1.1, 1.5 }, W = { -30, 0, 0 }, N = { -10, 0, 0 }, RS = { 20, 0, 10 }, LS = { 20, 0, -10 },
+		RH = { 55, 0, 6 }, LH = { 20, 0, -6 } }
+	local risen: Pose = { Root = { 0, 0, 0, 0, 0, 0.4 }, W = { -4, 10, 0 }, N = { 0, -8, 0 }, RS = { 30, 0, 8 }, LS = { 12, 0, -10 },
+		RH = { 8, 0, 4 }, LH = { -6, 0, -4 } }
+	return {
+		intro = {
+			{ dur = 0.05, pose = hidden },
+			{ dur = 0.45, pose = hidden },
+			{ dur = 0.45, style = SINE, pose = risen },
+			{ dur = 0.12, style = QUAD, pose = with(risen, { RS = { 10, 0, 10 }, N = { 4, -8, 0 } }) },
+			{ dur = 0.1, style = QUART, pose = with(risen, { RS = { 160, 0, 8 }, N = { 18, -6, 0 } }) },
+			{ dur = 0.18, style = QUAD, pose = with(risen, { RS = { 65, 0, -50 }, LS = { 65, 0, 50 }, N = { 26, 0, 0 } }) },
+			{ dur = 0.18, style = QUAD, pose = with(risen, { RS = { 70, 0, 25 }, LS = { 70, 0, -25 }, N = { 22, 0, 0 } }) },
+			{ dur = 0.14, style = SINE, pose = with(risen, { RS = { 135, 0, 5 }, LS = { 20, 0, -12 }, N = { 16, 0, 0 } }) },
+			{ dur = 0.28, style = BACK, pose = ROGUE_POSE },
+		},
+		pose = ROGUE_POSE,
+		-- (from `idle` the dagger flips every 4.5 s, 2.5 s in, over 0.4 s)
+		beats = { smoke = 0, toss = 1.12, catch = 1.67, idle = 1.95 },
+		idle = function(t)
+			local shift = math.sin(t * 1.3)
+			return {
+				Root = { 0, 0, 0, shift * 0.15, math.sin(t * 2.6) * 0.04, 0 },
+				W = { math.sin(t * 2) * 1, shift * 4, 0 },
+				N = { 0, math.sin(t * 0.8) * 12, 0 },
+			}
+		end,
+	}
+end)()
+
+-- ── Mage ────────────────────────────────────────────────────────────────────
+-- He floats down from above with his spellbook beside him, arms a little out,
+-- watching the ground come up; lands softly on the platform (a rune flashing
+-- out round his feet), straightens, and raises his hand as the book flares.
+-- The raised hand slowly circles; every few seconds a pulse of power.
+PREVIEWS.mage = (function(): Preview
+	local high: Pose = { Root = { 0, 0, 0, 0, 16, 0 }, W = { 6, 0, 0 }, N = { -20, 0, 0 }, RS = { 30, 0, 35 }, LS = { 30, 0, -35 },
+		RH = { -6, 0, 4 }, LH = { 4, 0, -4 } }
+	return {
+		intro = {
+			{ dur = 0.05, pose = high },
+			{ dur = 1.2, pose = with(high, { Root = { 0, 0, 0, 0, 2.2, 0 }, N = { -12, 0, 0 }, RS = { 22, 0, 28 }, LS = { 22, 0, -28 } }) },
+			{ dur = 0.5, style = SINE, pose = { Root = { 0, 0, 0, 0, -0.35, 0 }, W = { -10, 0, 0 }, N = { -8, 0, 0 }, RS = { 18, 0, 22 },
+				LS = { 18, 0, -22 }, RH = { 10, 0, 3 }, LH = { 10, 0, -3 } } },
+			{ dur = 0.4, style = SINE, pose = { RS = { 8, 0, 8 }, LS = { 8, 0, -8 } } },
+			{ dur = 0.35, style = BACK, pose = MAGE_POSE },
+		},
+		pose = MAGE_POSE,
+		beats = { descend = 0, land = 1.75, open = 2.3 },
+		idle = function(t)
+			local push = beat(t, 5, 2.5, 0.12, 0.15, 0.5)
+			return {
+				W = { math.sin(t * 1.8) * 1.2 - 3 * push, 0, 0 },
+				N = { 4 * push, 0, 0 },
+				RS = { math.sin(t * 1.6) * 5 + 8 * push, 0, math.cos(t * 1.6) * 5 },
+				LS = { 0, 0, -15 * push },
+			}
+		end,
+	}
+end)()
+
+-- ── Gunslinger ──────────────────────────────────────────────────────────────
+-- He walks in from the right, unhurried, the revolver spinning round his finger
+-- down by his hip (UltPreviewFX spins the gun in his hand; the arm stays put);
+-- stops in the middle, turns to face front, catches it (a glint) and settles
+-- into High Noon. Every so often he fans the hammer (or the gun twirls again).
+local GS = { walk = 2.2, dist = 11 }
+PREVIEWS.gunslinger = function(ctx: PreviewCtx): Preview
+	local yawW = yawFor(-ctx.right)
+	local walking: Pose = { RS = { 30, 0, 8 }, LS = { 0, 0, -6 }, N = { -12, 0, 0 } }
+	local standing: Pose = { RS = { 40, 0, 8 }, LS = { 6, 0, -6 }, N = { -14, 0, 0 } }
+	return {
+		intro = {
+			{ dur = 0.05, pose = placed(walking, ctx.right * GS.dist, yawW) },
+			{ dur = GS.walk, style = LINEAR, pose = placed(walking, Vector3.zero, yawW), wobble = function(t)
+				return stride(math.max(t - 0.05, 0), 7, 26)
+			end },
+			{ dur = 0.3, style = SINE, pose = standing },
+			{ dur = 0.08, pose = with(standing, { RS = { 48, 0, 8 } }) },
+			{ dur = 0.3, style = BACK, pose = GUNSLINGER_POSE },
+		},
+		pose = GUNSLINGER_POSE,
+		-- (the gun spins from `walk` till `catch`; from `idle` it twirls now and
+		-- then, on the same 6 s round as the hammer fanning)
+		beats = { walk = 0.05, catch = 0.05 + GS.walk + 0.3, idle = 0.05 + GS.walk + 0.3 + 0.08 + 0.3 },
+		idle = function(t)
+			-- fanning the hammer: three slaps of the off hand, the gun kicking with each
+			local fan = beat(t, 6, 1.8, 0.04, 0.02, 0.08) + beat(t, 6, 1.95, 0.04, 0.02, 0.08) + beat(t, 6, 2.1, 0.04, 0.02, 0.08)
+			return {
+				W = { math.sin(t * 2) * 1, math.sin(t * 0.7) * 3, 0 },
+				N = { 0, 0, math.sin(t * 0.5) * 3 },
+				RS = { 9 * fan + math.sin(t * 1.3) * 1.5, 0, 0 },
+				LS = { 22 * fan, 0, 0 },
+			}
+		end,
+	}
+end
+
+-- ── Ranger ──────────────────────────────────────────────────────────────────
+-- She leaps in from the left, facing the way she's going, and lands low
+-- (leaves scattering); reaches over her shoulder for three arrows (they glow
+-- green in her hand), raises the bow and draws them onto it (UltPreviewFX lays
+-- them on), aiming off to the screen's right, her chest to you; slowly scans
+-- left... and right for a target, then holds her aim. The string trembles; the
+-- aim drifts a little.
+PREVIEWS.ranger = function(ctx: PreviewCtx): Preview
+	-- (a right-handed archer's chest faces a quarter turn right of her aim: aim
+	-- off to the screen's right, a little toward the camera, and it's hers you see)
+	local yawJ = yawFor(ctx.right)
+	local yawA = yawJ - 12
+	local function facing(p: Pose): Pose return placed(p, Vector3.zero, yawA) end
+	local tucked: Pose = { W = { -10, 0, 0 }, N = { -10, 0, 0 }, RS = { 40, 0, 40 }, LS = { 60, 0, -30 }, RH = { 50, 0, 6 }, LH = { 20, 0, -6 } }
+	local landed = placed(figure(-22, 0, 30, 34, { 30, 0, 40 }, { 60, 0, -30 }, -6), Vector3.new(0, -0.4, 0), yawJ)
+	local crouched = facing(figure(-14, -20, 28, 30, { 25, 0, 20 }, { 55, 0, -20 }, 0))
+	local aim = facing(RANGER_POSE)
+	return {
+		intro = {
+			{ dur = 0.05, pose = placed(tucked, -ctx.right * 9 + Vector3.new(0, 5, 0), yawJ) },
+			{ dur = 0.3, pose = placed(with(tucked, { RH = { 75, 0, 6 }, LH = { 55, 0, -6 } }), -ctx.right * 4 + Vector3.new(0, 6, 0), yawJ) },
+			{ dur = 0.28, style = QUART, pose = landed },
+			{ dur = 0.22, style = SINE, pose = crouched },
+			{ dur = 0.3, style = QUAD, pose = with(crouched, { RS = aimArm(-14, -20, { 205, 0, 20 }), N = { 10, 30, 0 } }) },
+			{ dur = 0.35, style = SINE, pose = aim },
+			{ dur = 0.9, style = SINE, pose = facing(rangerAim(22)) },
+			{ dur = 1.1, style = SINE, pose = facing(rangerAim(-26)) },
+			{ dur = 0.6, style = SINE, pose = aim },
+		},
+		pose = aim,
+		-- (`arrows`: drawn from the quiver into her hand; `nock`: laid on the bow)
+		beats = { land = 0.63, arrows = 1.15, nock = 1.3 },
+		idle = function(t)
+			local drift = math.sin(t * 0.6)
+			return {
+				W = { math.sin(t * 2) * 1, drift * 3, 0 },
+				RS = { math.sin(t * 31) * 0.5, 0, math.cos(t * 27) * 0.4 },
+				LS = { math.sin(t * 2) * 0.6, 0, 0 },
+			}
+		end,
+	}
+end
+
+-- ── Cleric ──────────────────────────────────────────────────────────────────
+-- He kneels, head bowed in prayer; golden light comes down round him and a
+-- scepter forms in it, hanging in the air before him. He slowly rises, reaches
+-- out and takes it (UltPreviewFX puts it in his hand), and holds it upright in
+-- both hands, composed. He breathes; now and then he lifts his eyes.
+PREVIEWS.cleric = (function(): Preview
+	local kneel = CastPoses.kneelOnOneKnee(-22)
+	kneel.N = { -36, 0, 0 }
+	kneel.RS, kneel.LS = { 102, 0, -36 }, { 102, 0, 36 }
+	kneel.RE, kneel.LE = { 115, 0, 0 }, { 115, 0, 0 }
+	local standing: Pose = { N = { 6, 0, 0 }, RS = { 20, 0, -14 }, LS = { 20, 0, 14 }, RH = { 0, 0, 3 }, LH = { 0, 0, -3 } }
+	return {
+		intro = {
+			{ dur = 0.45, style = SINE, pose = kneel },
+			{ dur = 1.2, pose = kneel, wobble = function(t) return { W = { math.sin(t * 2) * 1.2, 0, 0 } } end },
+			{ dur = 0.9, style = SINE, pose = standing },
+			{ dur = 0.4, style = SINE, pose = with(standing, { RS = { 80, 0, -36 }, N = { 0, 0, 0 } }) },
+			{ dur = 0.35, style = SINE, pose = SCEPTER_POSE },
+		},
+		pose = SCEPTER_POSE,
+		beats = { light = 0.5, scepter = 1.3, grab = 2.95 },
+		idle = function(t)
+			local up = beat(t, 6, 2, 0.7, 0.9, 0.9)
+			local b = math.sin(t * 1.8)
+			return {
+				W = { b * 1.2, 0, 0 },
+				N = { 26 * up, 0, 0 },
+				RS = { b * 0.8, 0, 0 },
+				LS = { b * 0.8, 0, 0 },
+			}
+		end,
+	}
+end)()
+
+-- ── Ice Mage ────────────────────────────────────────────────────────────────
+-- Frozen enemies stand round the platform (UltPreviewFX). She walks in from the
+-- right, calm and unhurried, between them, frost trailing behind her and ice
+-- spreading over each as she passes, stops in the middle and turns to face you.
+-- Her head tilts slowly; her hands flex now and then.
+local ICE = { walk = 3, dist = 12 }
+PREVIEWS.ice_mage = function(ctx: PreviewCtx): Preview
+	local yawW = yawFor(-ctx.right)
+	local yawT = yawFor(ctx.toward)
+	local walking: Pose = { W = { -2, 0, 0 }, N = { -6, 0, 0 }, RS = { 14, 0, 14 }, LS = { 14, 0, -14 } }
+	local facing = placed(MENACE, Vector3.zero, yawT)
+	return {
+		intro = {
+			{ dur = 0.05, pose = placed(walking, ctx.right * ICE.dist, yawW) },
+			{ dur = ICE.walk, style = LINEAR, pose = placed(walking, Vector3.zero, yawW), wobble = function(t)
+				return stride(math.max(t - 0.05, 0), 5.2, 18, false)
+			end },
+			{ dur = 0.45, style = SINE, pose = facing },
+		},
+		pose = facing,
+		beats = { walk = 0.05, arrive = 0.05 + ICE.walk },
+		idle = function(t)
+			local b = math.sin(t * 2.6) * 1.4
+			local flex = beat(t, 4, 1.2, 0.18, 0.25, 0.4)
+			return {
+				W = { b, 0, 0 },
+				N = { 0, 0, math.sin(t * 0.7) * 8 },
+				RS = { 0, 0, b * 0.6 + 10 * flex },
+				LS = { 0, 0, -b * 0.6 - 10 * flex },
+			}
+		end,
+	}
+end
+-- (how far she walks and in how long: UltPreviewFX times the ice to it)
+CastPoses.ICE_WALK = ICE
+
+-- ── Sword Master ────────────────────────────────────────────────────────────
+-- A duelist's salute (standing tall, the blade raised straight up before his
+-- face, then swept down and out to the side), then he drops into en garde. He
+-- keeps light on his feet, the point making small circles; every few seconds a
+-- feint.
+PREVIEWS.swordsman = (function(): Preview
+	local rest: Pose = { RS = { 22, 0, 10 }, LS = { 10, 0, -10 }, N = { -20, 0, 0 } }
+	local salute: Pose = { RS = { 165, 0, -20 }, LS = { 8, 0, -8 }, N = { -6, 0, 0 } }
+	return {
+		intro = {
+			{ dur = 0.4, style = SINE, pose = rest },
+			{ dur = 0.4, style = SINE, pose = salute },
+			{ dur = 0.3, pose = salute },
+			{ dur = 0.25, style = QUAD, pose = { RS = { 35, 0, 42 }, LS = { 8, 0, -8 }, N = { -12, 0, 0 } } },
+			{ dur = 0.3, style = BACK, pose = SWORDSMAN_POSE },
+		},
+		pose = SWORDSMAN_POSE,
+		idle = function(t)
+			local feint = beat(t, 4, 2, 0.07, 0.06, 0.25)
+			return {
+				Root = { 0, 0, 0, 0, math.abs(math.sin(t * 4.5)) * 0.1 - 0.05, -0.35 * feint },
+				W = { math.sin(t * 2) * 0.8, 6 * feint, 0 },
+				RS = { math.sin(t * 3) * 3 - 6 * feint, 0, math.cos(t * 3) * 3 },
+			}
+		end,
+	}
+end)()
+
+-- ── Berserker ───────────────────────────────────────────────────────────────
+-- After the storyboard. He walks in from the right, slow and heavy, hunched,
+-- the greatsword dragging behind him (UltPreviewFX lays the blade back along
+-- the floor, sparks scraping off its point); stops in the middle and turns to
+-- face you; throws his arms wide and roars, shaking with it, red energy
+-- bursting round him; then the change takes him and he doubles over, and his
+-- body tears open into the beast (UltPreviewFX dresses it and the beast's own
+-- body takes over: low on all fours as it changes, then up into its stance).
+-- (Without UltPreviewFX, the summon reward's, he settles into his stance.)
+local BR = { walk = 2.6, dist = 10 }
+PREVIEWS.berserker = function(ctx: PreviewCtx): Preview
+	local yawW = yawFor(-ctx.right)
+	local trudge: Pose = { W = { -14, 0, 0 }, N = { 10, 0, 0 }, RS = { -16, 0, 10 }, LS = { 6, 0, -8 } }
+	local halt: Pose = { Root = { 0, 0, 0, 0, -0.1, 0 }, W = { -16, 0, 0 }, N = { 12, 0, 0 }, RS = { -10, 0, 12 }, LS = { 14, 0, -12 },
+		RH = { 6, 0, 8 }, LH = { 6, 0, -8 } }
+	local roar: Pose = { Root = { 0, 0, 0, 0, -0.15, 0.15 }, W = { 16, 0, 0 }, N = { 12, 0, 0 }, RS = { 22, 0, 82 }, LS = { 22, 0, -82 },
+		RH = { -4, 0, 14 }, LH = { -4, 0, -14 } }
+	local doubled: Pose = { Root = { 0, 0, 0, 0, -0.6, 0.1 }, W = { -45, 0, 0 }, N = { 30, 0, 0 }, RS = { 60, 0, -25 }, LS = { 60, 0, 25 },
+		RH = { 25, 0, 10 }, LH = { 25, 0, -10 } }
+	-- (the whole body shaking with the roar)
+	local function shaking(t: number): Pose
+		local a, b = math.sin(t * 43) * 3, math.sin(t * 37 + 1) * 3
+		return { W = { a * 0.5, b * 0.6, 0 }, N = { b, a, 0 }, RS = { a, 0, b }, LS = { b, 0, a } }
+	end
+	local halted = 0.05 + BR.walk
+	local roared = halted + 0.45 + 0.25
+	return {
+		intro = {
+			{ dur = 0.05, pose = placed(trudge, ctx.right * BR.dist, yawW) },
+			{ dur = BR.walk, style = LINEAR, pose = placed(trudge, Vector3.zero, yawW), wobble = function(t)
+				local u = math.max(t - 0.05, 0)
+				local p = stride(u, 4.6, 20, false)
+				-- the free arm swings; the shoulders roll under the weight
+				p.LS = { math.sin(u * 4.6) * 14, 0, 0 }
+				p.W = { 0, math.sin(u * 4.6) * 6, 0 }
+				return p
+			end },
+			{ dur = 0.45, style = SINE, pose = halt },
+			{ dur = 0.25, pose = halt },
+			{ dur = 0.18, style = BACK, pose = roar },
+			{ dur = 0.85, pose = roar, wobble = shaking },
+			{ dur = 0.3, style = QUART, pose = doubled, wobble = shaking },
+		},
+		pose = BERSERKER_POSE,
+		-- (`walk`: the sword drags; `halt`: he stops; `roar`: the arms fly open;
+		-- `change`: the beast)
+		beats = { walk = 0.05, halt = halted, roar = roared, change = roared + 0.18 + 0.85 + 0.3 },
+		idle = function(t)
+			local snarl = beat(t, 5, 2.5, 0.08, 0.35, 0.3)
+			return {
+				W = { math.sin(t * 1.6) * 3, 0, 0 },
+				N = { -8 * snarl, math.sin(t * 0.6) * 4, math.sin(t * 30) * 4 * snarl },
+				LS = { math.sin(t * 25) * 0.8 + 4 * snarl, 0, 0 },
+			}
+		end,
+	}
+end
+
+local function resolvePreview(classId: string, ctx: PreviewCtx): Preview?
+	local def = PREVIEWS[classId]
+	if type(def) == "function" then return def(ctx) end
+	return def :: Preview?
+end
+
+-- Where the screen's right is, and toward the camera, in `root`'s own space
+-- (`right`: the camera's right in the world; without it, the model's left).
+local function previewCtx(root: BasePart?, right: Vector3?): PreviewCtx
+	local r = Vector3.new(-1, 0, 0)
+	if root and right then
+		local l = root.CFrame:VectorToObjectSpace(right)
+		l = Vector3.new(l.X, 0, l.Z)
+		if l.Magnitude > 0.01 then r = l.Unit end
+	end
+	return { right = r, toward = r:Cross(Vector3.yAxis) }
+end
+
+-- The entrance's moments for `classId` (seconds from the start; empty if none).
+function CastPoses.previewBeats(classId: string): { [string]: number }
+	local def = resolvePreview(classId, previewCtx(nil, nil))
+	return if def and def.beats then def.beats else {}
+end
+
+export type PreviewOptions = { right: Vector3? }
+
+function CastPoses.holdUltPreview(char: Model?, classId: string, opts: PreviewOptions?): boolean
+	if not char then return false end
+	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local def = resolvePreview(classId, previewCtx(root, opts and opts.right))
+	if not def then return false end
+	local stages = table.clone(def.intro)
+	local introLen = 0
+	for _, st in ipairs(stages) do introLen += st.dur end
+	-- held, alive, until CastPoses.stop
+	local idle = def.idle
+	table.insert(stages, { dur = 1e6, pose = def.pose, wobble = function(t: number)
+		return idle(math.max(t - introLen, 0))
+	end })
+	CastPoses.play(char, stages, nil, true)
 	return true
 end
 

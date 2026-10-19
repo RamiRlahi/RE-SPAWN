@@ -24,6 +24,8 @@
 	                             (BossAI.Kinds), the player put in its arena
 	                             (sent into a run first if in the lobby; set
 	                             "DevMove" on the boss model to call a move)
+	  tower|userId|radius        an immunity tower (ImmunityTower) on the floor
+	                             16 studs in front of the player
 --]]
 
 local Players = game:GetService("Players")
@@ -148,6 +150,20 @@ function DevHooks.Init()
 			-- (off the arena's cross, where its flame vents are)
 			if root then root.CFrame = CFrame.new(mid + Vector3.new(30, 5, 16)) end
 			return mid
+		elseif cmd == "tower" then
+			local p = plr(a)
+			local char = p and p.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if not (char and root) then return "no character" end
+			local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z).Unit
+			local at = root.Position + look * 16
+			local rp = RaycastParams.new()
+			rp.FilterDescendantsInstances = { char }
+			local hit = workspace:Raycast(at + Vector3.new(0, 4, 0), Vector3.new(0, -40, 0), rp)
+			local floor = if hit then hit.Position else at - Vector3.new(0, 3, 0)
+			local ImmunityTower = require(script.Parent:WaitForChild("ImmunityTower")) :: any
+			ImmunityTower.Spawn(CFrame.lookAt(floor, floor - look), { radius = tonumber(b) })
+			return floor
 		end
 		return "unknown command"
 	end

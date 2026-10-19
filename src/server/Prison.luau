@@ -268,6 +268,13 @@ local function step()
 			table.remove(spots, i)
 			continue
 		end
+		-- Someone in the run choosing a tome: the lights stop where they are
+		-- (they can't see anyone, and the time in the light starts over).
+		if RunScope.Get(s.runId, "TomesPaused") == true then
+			table.clear(s.seen)
+			if s.lamp:GetAttribute("Hunting") then s.lamp:SetAttribute("Hunting", false) end
+			continue
+		end
 		local inside = playersIn(s)
 		local resting = now < s.restUntil or now < (alarmRestUntil[s.runId] or 0)
 		if s.lamp:GetAttribute("Resting") ~= resting then s.lamp:SetAttribute("Resting", resting) end

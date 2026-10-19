@@ -17,9 +17,10 @@
 	  M1  EMBERBLADE         Cinder Slash → Scorching Cross → Furnace Breaker
 	                         (explodes) → Infernal Execution (a wound-up slam and
 	                         a line of fire).
-	  E   BLAZING CHARGE     ignite, charge, drag whoever's caught, finish with a
-	                         launching upward slash. Empowered: a bull rush that
-	                         plows through everything and leaves the path burning.
+	  E   FIRE TORNADO       spin with the sword out inside a tornado of fire that
+	                         follows him: it burns, Scorches and drags in everyone
+	                         inside, then bursts and throws them out. Empowered:
+	                         bigger, longer, and the ground burns along his path.
 	  F   PHOENIX SLAM       soar up and become a phoenix of fire; the player
 	                         picks where to land with a marker (FireKnightAim),
 	                         then dives: an explosion and burning ground.
@@ -408,66 +409,68 @@ function FireKnightServer.OnBasic(player: Player, char: Model, root: BasePart, p
 	end)
 end
 
--- ── E: Blazing Charge ───────────────────────────────────────────────────────
-local CHARGE_WINDUP = 0.22
+-- ── E: Fire Tornado ─────────────────────────────────────────────────────────
+-- He spins with the greatsword swept out and a tornado of fire wraps round
+-- him and goes where he goes (he can walk while it lasts). Every tick it
+-- burns everyone inside, Scorches them every other tick and drags them round
+-- and in; at the end it bursts, throwing them out. Overheated: bigger,
+-- longer, and the ground burns along his path.
+local TORNADO = { dur = 2.6, empDur = 3.4, tick = 0.25, radius = 7.5, empRadius = 9.5, tickMult = 0.32, burstMult = 1.6,
+	swirl = 14, pull = 9 }
 
-local function blazingCharge(player: Player, char: Model, st: State, dir: Vector3, config: any, empowered: boolean)
+local function fireTornado(player: Player, char: Model, st: State, config: any, empowered: boolean)
 	local root = rootOf(char)
 	if not root then return end
 	local area = config.areaMultiplier or 1
-	local dur = if empowered then 0.5 else 0.38
-	local dist = (config.dashDistance or 22) * (if empowered then 1.45 else 1)
-	local width = 4.5 * area
+	local dur = if empowered then TORNADO.empDur else TORNADO.dur
+	local radius = (if empowered then TORNADO.empRadius else TORNADO.radius) * area
 	local damage = (config.damage or 40) * fireMult(st)
-	st.busyUntil = os.clock() + CHARGE_WINDUP + dur + 0.4
-	char:SetAttribute("InvulnerableUntil", os.clock() + CHARGE_WINDUP + dur)
-	fx({ kind = "charge", attacker = player, dir = dir, windup = CHARGE_WINDUP, dur = dur, dist = dist, empowered = empowered })
+	st.busyUntil = os.clock() + dur + 0.1
+	fx({ kind = "tornado", attacker = player, dur = dur, radius = radius, empowered = empowered })
 
-	task.delay(CHARGE_WINDUP, function()
-		if not char.Parent then return end
-		local caught: { [Model]: Target } = {}
-		local firstAt: number? = nil
-		local lastPatch = root.Position
+	task.spawn(function()
 		local t0 = os.clock()
+		local n = 0
+		local lastPatch = root.Position
 		while os.clock() - t0 < dur do
-			task.wait(0.05)
+			task.wait(TORNADO.tick)
 			if not char.Parent or not root.Parent then return end
-			local p = root.Position
-			for _, t in ipairs(inCircle(char, p + dir * 1.5, width)) do
-				if not caught[t.character] then
-					caught[t.character] = t
-					firstAt = firstAt or os.clock()
-					H.dealDamage(player, t, damage, "BLAZING CHARGE")
-					applyScorch(player, t, 1)
-				end
-			end
-			-- Whoever's caught is dragged along in front of the charge.
-			for _, t in pairs(caught) do
+			n += 1
+			local c = root.Position
+			local struck = 0
+			for _, t in ipairs(inCircle(char, c, radius)) do
+				if H.dealDamage(player, t, damage * TORNADO.tickMult, "FIRE TORNADO") then struck += 1 end
+				if n % 2 == 0 then applyScorch(player, t, 1) end
+				-- dragged round with the fire and in toward him
 				if not isHeavy(t) and not t.rootPart.Anchored and t.humanoid.Health > 0 then
-					t.rootPart.AssemblyLinearVelocity = dir * (dist / dur) * 0.9 + Vector3.new(0, t.rootPart.AssemblyLinearVelocity.Y, 0)
+					local d = Vector3.new(t.rootPart.Position.X - c.X, 0, t.rootPart.Position.Z - c.Z)
+					if d.Magnitude > 0.5 then
+						local u = d.Unit
+						local v = Vector3.new(-u.Z, 0, u.X) * TORNADO.swirl - u * (if d.Magnitude > 3 then TORNADO.pull else 0)
+						-- (held till the next tick, so their own walking can't undo it)
+						H.knock(t, v, 4, TORNADO.tick)
+					end
 				end
 			end
-			if empowered and (p - lastPatch).Magnitude >= 4 then
-				-- The bull rush leaves its whole path burning.
-				addPatch(player, p, 3.5 * area, 4)
-				lastPatch = p
+			if struck > 0 then gainHeat(player, st, math.min(struck, 2)) end
+			if empowered and (c - lastPatch).Magnitude >= 4 then
+				addPatch(player, c, 3.5 * area, 4)
+				lastPatch = c
 			end
-			-- A plain charge stops a moment after it meets someone.
-			if not empowered and firstAt and os.clock() - firstAt > 0.12 then break end
 		end
 
-		-- The upward slash at the end: launches the smaller ones.
-		local p = root.Position
-		fx({ kind = "rise", attacker = player, pos = p, dir = dir, empowered = empowered })
-		local n = 0
-		for _, t in pairs(caught) do n += 1 end
-		for _, t in ipairs(inArc(char, p, dir, 9 * area, 0)) do
-			H.dealDamage(player, t, damage * 1.2, "RISING SLASH")
-			applyScorch(player, t, 1)
-			n += 1
+		-- the burst: the tornado blows apart, throwing everyone out
+		if not char.Parent or not root.Parent then return end
+		local c = root.Position
+		fx({ kind = "tornadoEnd", attacker = player, pos = c, radius = radius * 1.3, empowered = empowered })
+		local hits = 0
+		for _, t in ipairs(inCircle(char, c, radius * 1.3)) do
+			H.dealDamage(player, t, damage * TORNADO.burstMult, "TORNADO BURST")
+			applyScorch(player, t, 2)
+			hits += 1
 		end
-		gainHeat(player, st, 6 + math.min(n, 6))
-		if infernoActive(st) then infernoBlast(player, char, st, p + dir * 4) end
+		gainHeat(player, st, 6 + math.min(hits, 6))
+		if infernoActive(st) then infernoBlast(player, char, st, c) end
 	end)
 end
 
@@ -773,7 +776,7 @@ function FireKnightServer.OnSkill(player: Player, char: Model, skillIndex: numbe
 	local empowered = overheated(st) or infernoActive(st)
 	if infernoActive(st) then config.areaMultiplier = (config.areaMultiplier or 1) * 1.3 end
 	if skillIndex == 1 then
-		blazingCharge(player, char, st, dir, config, empowered)
+		fireTornado(player, char, st, config, empowered)
 	elseif skillIndex == 2 then
 		phoenixSlam(player, char, st, dir, config, empowered)
 	elseif skillIndex == 3 then

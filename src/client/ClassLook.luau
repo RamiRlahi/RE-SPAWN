@@ -211,6 +211,23 @@ function ClassLook.Apply(character: Model, classId: string, opts: Options?)
 				grip0 = bladeDown(tool):Inverse()
 			end
 			tool.Parent = character
+			-- A Tool landing in a Humanoid's model gets welded into its right
+			-- hand by Roblox ("RightGrip", a moment later); LookGrip below holds
+			-- it instead, so that weld goes (it would glue the Ranger's bow to
+			-- both hands, and pin a weapon the preview turns in the hand), as
+			-- does one left behind by a weapon shown before.
+			local function dropAutoGrip(w: Instance)
+				if w.Name ~= "RightGrip" or not w:IsA("JointInstance") then return end
+				task.defer(function()
+					local p1 = (w :: JointInstance).Part1
+					if w.Parent and (p1 == handle or not (p1 and p1:IsDescendantOf(game))) then w:Destroy() end
+				end)
+			end
+			for _, w in ipairs(right:GetChildren()) do dropAutoGrip(w) end
+			local gripWatch = right.ChildAdded:Connect(dropAutoGrip)
+			tool.AncestryChanged:Connect(function()
+				if not tool:IsDescendantOf(character) then gripWatch:Disconnect() end
+			end)
 			-- Hold it the way an equipped tool is held in-game: Roblox's
 			-- default "toolnone" arm pose (the copy has no Animate script).
 			if not o.handTilt and not o.plant and not o.onBack then

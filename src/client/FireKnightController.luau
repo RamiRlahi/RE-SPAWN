@@ -7,7 +7,7 @@
 	  • Emberblade: your own swings are predicted (pose, flaming crescents,
 	    explosions) on click; the server resolves hits and sends everyone
 	    else's swings over FireKnightFX.
-	  • Skills: the Blazing Charge movement, the Phoenix Slam flight (rise,
+	  • Skills: the Fire Tornado spin, the Phoenix Slam flight (rise,
 	    the landing marker under the cursor, the dive), the Earthshaker
 	    wind-up and the Heart of the Inferno awakening (camera close-up).
 	  • Every Fire Knight effect for every player, in real flame (FireFX's
@@ -39,6 +39,7 @@ local SwordFX = require(script.Parent:WaitForChild("SwordFX"))
 local FireFX = require(script.Parent:WaitForChild("FireFX"))
 local SafeMove = require(script.Parent:WaitForChild("SafeMove"))
 local UltimateCameraChoreography = require(script.Parent:WaitForChild("UltimateCameraChoreography"))
+local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
 
 local player = Players.LocalPlayer
 
@@ -50,7 +51,8 @@ local CLASS = "heavy_knight"
 local SWING_INTERVAL = 0.42
 local COMBO_RESET = 1.2
 local EXECUTION_WINDUP = 0.32
-local CHARGE_WINDUP = 0.22
+-- Fire Tornado: the wind-up, then the spin (Overheated: longer).
+local TORNADO = { windup = 0.14, dur = 2.6, empDur = 3.4 }
 local QUAKE_WINDUP = 0.55
 local AWAKEN = 1.6
 local PHOENIX_RISE = 0.55
@@ -464,33 +466,21 @@ local function swingPose(char: Model, step: number)
 	end
 end
 
-local function chargePose(char: Model, windup: number, dur: number)
-	-- He lowers the sword (tip trailing low behind him), crouches and
-	-- ignites, then drives forward in long running strides.
-	gripTo(char, 1, windup)
-	local t0 = os.clock()
+-- Fire Tornado: the blade swung round low to the right, then carried flat
+-- at the waist in both hands as the whole body spins round and round inside
+-- the fire (a whole number of turns, so he ends facing the way he started).
+local function spinPose(char: Model, dur: number)
+	local w = TORNADO.windup
+	gripTo(char, 0, w)
+	local spinFor = math.max(dur - w, 0.1)
+	local turns = math.max(1, math.floor(spinFor * 2.4 + 0.5))
+	local rate = turns * 360 / spinFor
 	CastPoses.play(char, {
-		{ dur = windup, style = QUAD, pose = pose(-18, 25, 22, 22, -35, 30, 25, 0, { N = { 12, -15, 0 } }) },
-		{ dur = dur, pose = pose(-34, 12, 30, 30, -40, 25, 30, 0, { N = { 26, -8, 0 } }),
-			wobble = function()
-				local s = math.sin((os.clock() - t0) * 22) * 28
-				return { RH = { s, 0, 0 }, LH = { -s, 0, 0 }, LS = { -s * 0.6, 0, 0 } }
-			end },
-	}, nil, true)
-end
-
-local function risePose(char: Model)
-	-- The upward slash: sunk low with the blade down by the floor, then
-	-- ripped up and over, rising onto the toes.
-	gripTo(char, 1, 0.05)
-	local up = pose(10, -5, 18, 18, 165, 0, 160, 0, { N = { -18, 0, 0 } })
-	up.Root[5] += 0.6
-	CastPoses.play(char, {
-		{ dur = 0.06, style = QUAD, pose = pose(-24, 10, 32, 32, 18, 5, 20, 0, { N = { 18, 0, 0 } }) },
-		{ dur = 0.12, style = QUART, pose = up },
-		{ dur = 0.22, pose = pose(6, 0, 16, 16, 150, 0, 145, 0, { N = { -12, 0, 0 } }) },
-	}, 0.42, true)
-	gripBack(char, 0.5, 0.3)
+		{ dur = w, style = QUAD, pose = pose(-6, -45, 14, 14, 25, -105, 20, -80, { N = { 0, 30, 0 } }) },
+		{ dur = spinFor, pose = pose(-10, 40, 22, 22, 30, 100, 25, 75, { N = { 0, -24, 0 } }), wobble = function(t: number)
+			return { Root = { 0, math.max(t - w, 0) * rate, 0 } }
+		end },
+	}, 0.3, true)
 end
 
 local function quakePose(char: Model, windup: number)
@@ -1347,53 +1337,6 @@ function FireKnightController.CanCast(_skillIndex: number): boolean
 	return os.clock() >= busyUntil
 end
 
--- A mob close in front (a plain charge stops just after meeting one).
-local function enemyAhead(root: BasePart, dir: Vector3, reach: number): boolean
-	local mobs = Workspace:FindFirstChild("Mobs")
-	if not mobs then return false end
-	local p = root.Position + dir * 1.5
-	for _, m in ipairs(mobs:GetChildren()) do
-		if not m:IsA("Model") then continue end
-		local r = (m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart) :: BasePart?
-		local h = m:FindFirstChildOfClass("Humanoid")
-		if r and h and h.Health > 0 then
-			local d = r.Position - p
-			if Vector3.new(d.X, 0, d.Z).Magnitude < reach and math.abs(d.Y) < 6 then return true end
-		end
-	end
-	return false
-end
-
-local function chargeMove(root: BasePart, dir: Vector3, dist: number, dur: number, plows: boolean)
-	local stand = SafeMove.StandHeight(root)
-	dist = SafeMove.ClampDash(root, dir, dist)
-	local att = Instance.new("Attachment")
-	att.Parent = root
-	local lv = Instance.new("LinearVelocity")
-	lv.Attachment0 = att
-	lv.RelativeTo = Enum.ActuatorRelativeTo.World
-	lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
-	lv.MaxAxesForce = Vector3.new(1e6, 0, 1e6)
-	lv.VectorVelocity = dir * (dist / dur)
-	lv.Parent = root
-	local t0 = os.clock()
-	local contactAt: number? = nil
-	local conn: RBXScriptConnection? = nil
-	conn = RunService.Heartbeat:Connect(function()
-		local now = os.clock()
-		if not plows and not contactAt and enemyAhead(root, dir, 4.5) then contactAt = now end
-		if now - t0 >= dur or (contactAt and now - contactAt > 0.12) or not root.Parent then
-			if conn then conn:Disconnect() end
-			lv:Destroy()
-			att:Destroy()
-			if root.Parent then
-				root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
-				SafeMove.SnapToFloor(root, stand)
-			end
-		end
-	end)
-end
-
 function FireKnightController.OnCast(skillIndex: number, char: Model, root: BasePart, aimDir: Vector3, config: any)
 	local dir = flat(aimDir)
 	root.CFrame = CFrame.lookAt(root.Position, root.Position + dir)
@@ -1401,16 +1344,12 @@ function FireKnightController.OnCast(skillIndex: number, char: Model, root: Base
 	local hot = empowered(player)
 	char:SetAttribute("AllowSkillMovement", false)
 	if skillIndex == 1 then
-		-- Blazing Charge: ignite, then drive forward.
-		local dur = if hot then 0.5 else 0.38
-		local dist = (config.dashDistance or 22) * (if hot then 1.45 else 1)
-		busyUntil = now + CHARGE_WINDUP + dur + 0.4
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		if hum then hum.AutoRotate = false end
-		chargePose(char, CHARGE_WINDUP, dur)
-		task.delay(CHARGE_WINDUP, chargeMove, root, dir, dist, dur, hot)
-		releaseAfter(char, CHARGE_WINDUP + dur + 0.3)
-		task.delay(CHARGE_WINDUP + dur + 0.3, function() if hum then hum.AutoRotate = true end end)
+		-- Fire Tornado: spun round inside the fire, free to walk it about.
+		local dur = if hot then TORNADO.empDur else TORNADO.dur
+		busyUntil = now + dur + 0.1
+		char:SetAttribute("AllowSkillMovement", true)
+		spinPose(char, dur)
+		releaseAfter(char, dur + 0.05)
 	elseif skillIndex == 2 then
 		-- Phoenix Slam: up into the air as the phoenix; the marker picks
 		-- where it dives.
@@ -1450,64 +1389,134 @@ local function onCombo(msg: any)
 	if root then ClassFX.Sound("whoosh", root, 0.5, 0.9) end
 end
 
-local function onCharge(msg: any)
+-- Fire Tornado (every client): the tornado effect made for it,
+-- ReplicatedStorage.Tornado (its spinning wind of fire and the waves rolling
+-- up off the floor), set at his feet and carried with him. It starts small
+-- and swells to full size (sized to the tornado's reach); at the end its
+-- emitters stop and what's left blows away. Its burst-only emitters (an
+-- EmitCount attribute, after EmitDelay) go off once as it appears.
+local TORNADO_FX = {
+	grow = 0.7,        -- seconds from small to full size
+	steps = 8,         -- (sizes re-set this many times while it grows)
+	start = 0.25,      -- the size it starts at
+	baseRadius = 7.5,  -- the reach the effect was made at full size for
+	lift = 0.6,        -- its part sits this far over the floor (its Main attachment is at -0.6)
+}
+
+local function scaledSeq(seq: NumberSequence, k: number): NumberSequence
+	local kps = {}
+	for _, kp in ipairs(seq.Keypoints) do
+		table.insert(kps, NumberSequenceKeypoint.new(kp.Time, kp.Value * k, kp.Envelope * k))
+	end
+	return NumberSequence.new(kps)
+end
+
+local function onTornado(msg: any)
 	local char = charOf(msg.attacker)
 	local root = rootOf(char)
 	if not char or not root then return end
-	if msg.attacker ~= player then chargePose(char, msg.windup, msg.dur) end
-	-- The whole body ignites, then a trail of fire along the ground behind
-	-- the charge (a flaming bull rush when Empowered).
-	FireFX.Flames(root.Position, 3.2, 7, 1.4)
-	FireFX.Puff("embers", CFrame.new(root.Position), 0.35, 20)
-	ClassFX.Sound("fireWhoosh", root, 0.8, 0.8)
-	ClassFX.Sound("charge", root, 0.4, 1.3)
-	local hl = Instance.new("Highlight")
-	hl.FillColor = FIRE
-	hl.FillTransparency = 0.45
-	hl.OutlineColor = HOT
-	hl.Adornee = char
-	hl.Parent = ClassFX.Folder()
-	Debris:AddItem(hl, msg.windup + msg.dur + 0.1)
-	local big = msg.empowered == true
-	task.delay(msg.windup, function()
-		local t0 = os.clock()
-		local last = root.Position
-		while os.clock() - t0 < msg.dur and root.Parent do
-			task.wait(0.03)
-			local p = root.Position
-			if (p - last).Magnitude > 1.4 then
-				SwordFX.Streak(last + Vector3.new(0, 0.5, 0), p + Vector3.new(0, 0.5, 0), if big then 2 else 1.2, FIRE, 0.2)
-				local g = onGround(p)
-				FireFX.Puff("roll", CFrame.new(g + Vector3.new(0, 1, 0)), if big then 3.6 else 2.6, 1, function(e)
-					e.EmissionDirection = Enum.NormalId.Top
-					e.Speed = NumberRange.new(2, 5)
-				end)
-				FireFX.Puff("lick", CFrame.new(g + Vector3.new(0, 0.8, 0)), 0.9, if big then 5 else 3)
-				-- the body wrapped in flame as he goes
-				FireFX.Puff("flame", CFrame.new(p), if big then 3 else 2.2, 1, nil, Vector3.new(1.5, 3, 1.5))
-				last = p
+	local dur = tonumber(msg.dur) or TORNADO.dur
+	local r = tonumber(msg.radius) or TORNADO_FX.baseRadius
+	if msg.attacker ~= player then spinPose(char, dur) end
+	trail(char, dur)
+	ClassFX.Sound("fireWhoosh", root, 0.9, 0.7)
+	ClassFX.Sound("wind", root, 0.7, 0.9)
+	if msg.attacker == player then deps.shake(0.3, 0.2) end
+	local template = ReplicatedStorage:FindFirstChild("Tornado")
+	if not (template and template:IsA("BasePart")) then return end
+
+	-- a copy of it, unseen holders that never touch anything
+	local fx = template:Clone()
+	local lvl = fx:FindFirstChild("Lvlup")
+	local lvlPart = if lvl and lvl:IsA("BasePart") then lvl else nil
+	local lvlRel = if lvlPart then template.CFrame:ToObjectSpace((template :: any).Lvlup.CFrame) else CFrame.identity
+	type Em = { e: ParticleEmitter, size: NumberSequence, speed: NumberRange }
+	local ems: { Em } = {}
+	local density = 1 - 0.6 * FxBudget.Pressure() -- (fewer when the frame rate's struggling)
+	for _, d in ipairs({ fx :: Instance, unpack(fx:GetDescendants()) }) do
+		if d:IsA("BasePart") then
+			d.Anchored, d.CanCollide, d.CanQuery, d.CanTouch, d.CastShadow = true, false, false, false, false
+			d.Transparency = 1
+		elseif d:IsA("ParticleEmitter") then
+			d.Rate *= density
+			table.insert(ems, { e = d, size = d.Size, speed = d.Speed })
+		end
+	end
+	local full = r / TORNADO_FX.baseRadius
+	local function setScale(k: number)
+		for _, m in ipairs(ems) do
+			m.e.Size = scaledSeq(m.size, k)
+			m.e.Speed = NumberRange.new(m.speed.Min * k, m.speed.Max * k)
+		end
+	end
+	setScale(TORNADO_FX.start * full)
+	local floorY = groundY(root.Position)
+	local function place()
+		local c = root.Position
+		fx.CFrame = CFrame.new(c.X, floorY + TORNADO_FX.lift, c.Z)
+		if lvlPart then lvlPart.CFrame = fx.CFrame * lvlRel end
+	end
+	place()
+	fx.Parent = ClassFX.Folder()
+	for _, m in ipairs(ems) do
+		local n = tonumber(m.e:GetAttribute("EmitCount"))
+		if n and n > 0 then
+			task.delay(tonumber(m.e:GetAttribute("EmitDelay")) or 0, function()
+				if m.e.Parent then m.e:Emit(n) end
+			end)
+		end
+	end
+
+	local t0 = os.clock()
+	local floorAt, grown = 0, 0
+	local conn: RBXScriptConnection
+	conn = RunService.RenderStepped:Connect(function()
+		local t = os.clock() - t0
+		if t >= dur or not root.Parent or not fx.Parent then
+			conn:Disconnect()
+			local longest = 0
+			for _, m in ipairs(ems) do
+				m.e.Enabled = false
+				longest = math.max(longest, m.e.Lifetime.Max)
+			end
+			Debris:AddItem(fx, longest + 0.2)
+			return
+		end
+		-- (the floor under him, a few times a second)
+		if t - floorAt > 0.07 then
+			floorAt = t
+			floorY = groundY(root.Position)
+		end
+		place()
+		-- growing: small to full size, re-sized in a few steps
+		if grown < TORNADO_FX.steps then
+			local g = math.clamp(t / TORNADO_FX.grow, 0, 1)
+			local stepNow = math.floor(g * TORNADO_FX.steps)
+			if stepNow > grown then
+				grown = stepNow
+				local e = 1 - (1 - grown / TORNADO_FX.steps) ^ 2
+				setScale((TORNADO_FX.start + (1 - TORNADO_FX.start) * e) * full)
 			end
 		end
-		if big then ClassFX.Afterimages(char, FIRE, 4, 0.06) end
 	end)
 end
 
-local function onRise(msg: any)
-	local char = charOf(msg.attacker)
+-- The tornado blowing apart: an explosion, a ring of fire bursting out and
+-- the flames flung off it.
+local function onTornadoEnd(msg: any)
 	local pos = msg.pos :: Vector3
-	local dir = msg.dir :: Vector3
-	if char then
-		risePose(char)
-		trail(char, 0.35)
+	local r = tonumber(msg.radius) or 10
+	local big = msg.empowered == true
+	explosion(pos, r * 0.7, big)
+	FireFX.FlameRing(pos, r * 0.85, if big then 9 else 6)
+	FireFX.Puff("lick", CFrame.new(pos + Vector3.new(0, 1.5, 0)), 1.2, 18)
+	ClassFX.Sound("fireBurst", pos, 0.9, 0.85)
+	if msg.attacker == player then
+		deps.shake(0.8, 0.25)
+		deps.fovPunch(6, 0.25)
+	elseif near(pos, 50) then
+		deps.shake(0.3, 0.15)
 	end
-	-- The upward slash rips a column of fire out of the ground.
-	local base = CFrame.lookAt(pos + Vector3.new(0, 1, 0), pos + Vector3.new(0, 1, 0) + dir)
-	crescent(base * CFrame.Angles(0, 0, math.rad(-80)), if msg.empowered then 8 else 6.5, 170, 1.6, 0.3, 1,
-		if msg.empowered then HOT else FIRE)
-	eruption(pos + dir * 4, if msg.empowered then 16 else 11, if msg.empowered then 3 else 2.2)
-	FireFX.Puff("lick", CFrame.new(pos + dir * 4 + Vector3.new(0, 2, 0)), 1, 16)
-	ClassFX.Sound("swordHit", pos, 0.9, 0.8)
-	if msg.attacker == player then deps.shake(0.7, 0.18) end
 end
 
 -- ── Phoenix Slam (every client) ──
@@ -1891,8 +1900,8 @@ end
 
 local HANDLERS: { [string]: (any) -> () } = {
 	combo = onCombo,
-	charge = onCharge,
-	rise = onRise,
+	tornado = onTornado,
+	tornadoEnd = onTornadoEnd,
 	phoenixRise = onPhoenixRise,
 	phoenixDive = onPhoenixDive,
 	phoenixImpact = onPhoenixImpact,
@@ -1957,8 +1966,7 @@ end
 -- The pose functions, for previews and tests (they pose any character model).
 FireKnightController.Poses = {
 	swing = swingPose,
-	charge = chargePose,
-	rise = risePose,
+	spin = spinPose,
 	quake = quakePose,
 	plant = plantSword,
 	raise = raisePose,

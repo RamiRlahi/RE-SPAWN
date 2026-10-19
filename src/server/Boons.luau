@@ -266,7 +266,8 @@ end
 -- ── Co-op synergies ───────────────────────────────────────────────────────
 local FIRE = { ["CINDER SLASH"] = true, ["SCORCHING CROSS"] = true, ["FURNACE BREAKER"] = true, ["INFERNAL EXECUTION"] = true,
 	["PHOENIX SLAM"] = true, ["PHOENIX FLARE"] = true, ["FIRE RING"] = true, ["FIRE LINE"] = true, ["INFERNO BLAST"] = true,
-	["INFERNO ERUPTION"] = true, ["HEART OF THE INFERNO"] = true, ["BURNING GROUND"] = true, ["BLAZING CHARGE"] = true,
+	["INFERNO ERUPTION"] = true, ["HEART OF THE INFERNO"] = true, ["BURNING GROUND"] = true, ["FIRE TORNADO"] = true,
+	["TORNADO BURST"] = true,
 	["IGNITE"] = true, ["SCORCH"] = true, BOON_BURN = true, BOON_EMBER = true }
 local HOLY = { ["RADIANT BOLT"] = true, ["DIVINE BEAM"] = true, ["RADIANT GROUND"] = true, ["DIVINE ASCENT"] = true, BOON_BELL = true }
 local LIGHTNING = { BOON_CHAIN = true, BOON_THUNDER = true }

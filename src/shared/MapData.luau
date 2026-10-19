@@ -4,17 +4,24 @@
 	The maps a party can pick at the lobby's gates. Each is the same procedural
 	dungeon with its own theme: the light (applied on entering), a tint over the
 	stone, which room packs its mobs come in (MobKinds' PACKS, by index), and
-	its bosses.
+	its bosses. Some bring their own pieces (`assets`) and rules: the Prison of
+	Souls' searchlights, the Neon Arcade's neon rooms and immunity towers.
 
 	  MapData.Maps          the list, in gate order
 	  MapData.Get(id)       one map (nil for an unknown id)
 	  MapData.DEFAULT       the map used when none was picked
 --]]
 
--- (every dungeon is lit bright and clear; a map only tints the colour grade)
+-- (every dungeon is lit bright and clear; a map tints the colour grade, and a
+-- map whose art is its own glow can ask for the dark instead: the rest)
 export type Lighting = {
 	tint: Color3,           -- ColorCorrection tint
 	saturation: number,
+	clockTime: number?,     -- (the dark: night, so the neon shines)
+	ambient: Color3?,
+	outdoorAmbient: Color3?,
+	brightness: number?,
+	exposure: number?,
 }
 
 export type Map = {
@@ -32,6 +39,13 @@ export type Map = {
 	unlockFloor: number?,   -- your deepest floor must reach this to enter
 	assets: string?,        -- its own dungeon pieces: a folder in ReplicatedStorage (DungeonGenerator)
 	prison: boolean?,       -- the prison: spotlights hunt you, three sightings raise the alarm (Prison.luau)
+	arcade: boolean?,       -- the arcade: neon rooms (no torches, candles or rubble) and immunity towers (ImmunityTower)
+	-- How its rooms are joined (DungeonGenerator): "stairs" (the default:
+	-- corridors, stairs where they change height), "lift" (corridors, a lift
+	-- at each change of height) or "portal" (no corridors, no map: the floor
+	-- taken room by room, 1 → 2 choices → 3 → 2 → the boss, each room's portals
+	-- opening when it's cleared, each saying what's through it: RoomPortals).
+	transit: string?,
 }
 
 local MapData = {}
@@ -49,6 +63,7 @@ MapData.Maps = {
 		bosses = { "fallen_angel", "colossus", "witch" },
 		assets = "map:crypt assets",
 		prison = true,
+		transit = "lift",
 		lighting = {
 			tint = Color3.fromRGB(226, 242, 238),
 			saturation = 0.1,
@@ -82,6 +97,29 @@ MapData.Maps = {
 		lighting = {
 			tint = Color3.fromRGB(232, 242, 255),
 			saturation = 0.15,
+		},
+	},
+	{
+		id = "arcade",
+		name = "The Neon Arcade",
+		subtitle = "Break the towers",
+		rank = "S",
+		description = "A floating arcade in the void, taken room by room: clear a room and its portals light, each showing what waits beyond. Towers of magenta light make the monsters round them untouchable: shatter a tower and its shields fall.",
+		color = Color3.fromRGB(255, 70, 210),
+		stone = Color3.fromRGB(255, 255, 255),
+		packs = { 8 },
+		bosses = { "djinn" },
+		assets = "map:arcade assets",
+		arcade = true,
+		transit = "portal",
+		lighting = {
+			tint = Color3.fromRGB(236, 226, 255),
+			saturation = 0.3,
+			clockTime = 0,
+			ambient = Color3.fromRGB(96, 86, 150),
+			outdoorAmbient = Color3.fromRGB(78, 66, 130),
+			brightness = 1,
+			exposure = 0.2,
 		},
 	},
 	{

@@ -234,14 +234,15 @@ type ImpactProfile = { kb: number, lift: number, stagger: number, style: string,
 local IMPACT_PROFILES: { [string]: ImpactProfile } = {
 	-- Fire Knight (Scorch / burning-ground ticks have no profile: no impact
 	-- VFX or stagger on every tick)
-	["CINDER SLASH"]         = { kb = 4,  lift = 0,  stagger = 0.3,  style = "fire" },
-	["SCORCHING CROSS"]      = { kb = 4,  lift = 0,  stagger = 0.3,  style = "fire" },
-	["FURNACE BREAKER"]      = { kb = 14, lift = 6,  stagger = 0.45, style = "fire", heavy = true },
-	["INFERNAL EXECUTION"]   = { kb = 26, lift = 10, stagger = 0.7,  style = "fire", heavy = true },
+	["CINDER SLASH"]         = { kb = 14, lift = 2,  stagger = 0.35, style = "fire" },
+	["SCORCHING CROSS"]      = { kb = 14, lift = 2,  stagger = 0.35, style = "fire" },
+	["FURNACE BREAKER"]      = { kb = 22, lift = 8,  stagger = 0.5,  style = "fire", heavy = true },
+	["INFERNAL EXECUTION"]   = { kb = 34, lift = 12, stagger = 0.75, style = "fire", heavy = true },
 	["FIRE LINE"]            = { kb = 0,  lift = 0,  stagger = 0.2,  style = "fire" },
 	["INFERNO BLAST"]        = { kb = 10, lift = 4,  stagger = 0.3,  style = "fire" },
-	["BLAZING CHARGE"]       = { kb = 0,  lift = 0,  stagger = 0.5,  style = "fire", heavy = true },
-	["RISING SLASH"]         = { kb = 6,  lift = 42, stagger = 0.9,  style = "fire", heavy = true },
+	-- (the tornado swirls them itself, FireKnightServer; the burst throws them out)
+	["FIRE TORNADO"]         = { kb = 0,  lift = 0,  stagger = 0.35, style = "fire" },
+	["TORNADO BURST"]        = { kb = 34, lift = 20, stagger = 0.8,  style = "fire", heavy = true },
 	["PHOENIX SLAM"]         = { kb = 34, lift = 16, stagger = 0.9,  style = "fire", heavy = true },
 	["PHOENIX FLARE"]        = { kb = 12, lift = 8,  stagger = 0.4,  style = "fire" },
 	["EARTHSHAKER"]          = { kb = 30, lift = 10, stagger = 0.8,  style = "fire", heavy = true },
@@ -309,6 +310,23 @@ local IMPACT_PROFILES: { [string]: ImpactProfile } = {
 	["SHADOW SLASH"]       = { kb = 2,  lift = 0,  stagger = 0.35, style = "slash" },
 	["SHADOW DETONATION"]  = { kb = 10, lift = 8,  stagger = 0.6,  style = "slash", heavy = true },
 	["SHADOW EXECUTION"]   = { kb = 16, lift = 46, stagger = 1.0,  style = "slash", heavy = true },
+	-- Martial Artist. Every strike of the chain knocks them back (the knee and
+	-- the kick up as well); the skills shove / launch with their own impulses
+	-- (MartialServer), so theirs only flash, stagger and draw the hit marker.
+	["FLOWING FISTS"]      = { kb = 16, lift = 3,  stagger = 0.35, style = "fist" },
+	["HIGH KICK"]          = { kb = 10, lift = 26, stagger = 0.55, style = "fist", heavy = true },
+	["SPINNING STRIKE"]    = { kb = 24, lift = 6,  stagger = 0.45, style = "fist", heavy = true },
+	["ELBOW STRIKE"]       = { kb = 18, lift = 4,  stagger = 0.45, style = "fist" },
+	["PALM STRIKE"]        = { kb = 32, lift = 8,  stagger = 0.5,  style = "fist", heavy = true },
+	["QI PALM"]            = { kb = 26, lift = 6,  stagger = 0.4,  style = "fist" },
+	["POWER KNEE"]         = { kb = 28, lift = 18, stagger = 0.7,  style = "fist", heavy = true },
+	["FOCUS STRIKE"]       = { kb = 0,  lift = 0,  stagger = 0.4,  style = "fist", heavy = true },
+	["FOCUS STRIKE!"]      = { kb = 0,  lift = 0,  stagger = 0.6,  style = "fist", heavy = true },
+	["INK SPLASH"]         = { kb = 0,  lift = 0,  stagger = 0.5,  style = "fist" },
+	["ELECTRIC UPPERCUT"]  = { kb = 0,  lift = 0,  stagger = 0.9,  style = "fist", heavy = true },
+	["CHAIN LIGHTNING"]    = { kb = 0,  lift = 0,  stagger = 0.4,  style = "fist" },
+	["GROUND SLAM"]        = { kb = 0,  lift = 0,  stagger = 0.4,  style = "fist", heavy = true },
+	["CRIMSON HADOUKEN"]   = { kb = 0,  lift = 0,  stagger = 0.6,  style = "fist", heavy = true },
 }
 
 -- How many effect messages a player's hits may send each second. The hits
@@ -338,6 +356,39 @@ local function fxAllowed(player: Player, key: string, perSecond: number): boolea
 	return true
 end
 
+-- Knockback that lands. A walking Humanoid's own movement cancels a velocity
+-- set on it within a frame or two (and a stagger only stops its AI giving new
+-- orders: it carries on to its last MoveTo), so the push is held for a moment
+-- with a LinearVelocity across the floor, its walk target dropped, and the
+-- lift put straight onto its velocity (gravity brings it down). Mobs only.
+local KNOCKBACK_SCALE = 2.2 -- every hit's knockback (the profiles' kb, the Knockback tome on top)
+local KNOCK_TIME = 0.26     -- seconds the push is held
+local function knock(target: { character: Model, humanoid: Humanoid, rootPart: BasePart }, push: Vector3, lift: number, hold: number?)
+	local root = target.rootPart
+	if root.Anchored or Players:GetPlayerFromCharacter(target.character) then return end
+	pcall(function() target.humanoid:MoveTo(root.Position) end)
+	local old = root:FindFirstChild("KnockbackPush")
+	if old then old:Destroy() end
+	local flat = Vector3.new(push.X, 0, push.Z)
+	if flat.Magnitude > 0.05 then
+		local att = Instance.new("Attachment")
+		att.Name = "KnockbackPush"
+		local lv = Instance.new("LinearVelocity")
+		lv.Attachment0 = att
+		lv.RelativeTo = Enum.ActuatorRelativeTo.World
+		lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
+		lv.MaxAxesForce = Vector3.new(1e6, 0, 1e6)
+		lv.VectorVelocity = flat
+		lv.Parent = att
+		att.Parent = root
+		task.delay(hold or KNOCK_TIME, function()
+			if att.Parent then att:Destroy() end
+		end)
+	end
+	local v = root.AssemblyLinearVelocity
+	root.AssemblyLinearVelocity = Vector3.new(flat.X, math.max(v.Y, 0) + math.max(lift, 0), flat.Z)
+end
+
 local function applyImpact(player: Player, target: { character: Model, humanoid: Humanoid, rootPart: BasePart }, source: string, crit: boolean)
 	local profile = IMPACT_PROFILES[source]
 	if not profile then return end
@@ -357,12 +408,16 @@ local function applyImpact(player: Player, target: { character: Model, humanoid:
 			end
 		end
 		if profile.kb > 0 or profile.lift > 0 then
-			local mult = (crit and 1.3 or 1) * math.max(PlayerStats.GetStat(player, "knockback"), 0.1)
-			local v = flatAway * profile.kb * mult + Vector3.new(0, profile.lift * mult, 0)
-			target.rootPart.AssemblyLinearVelocity = Vector3.new(
-				target.rootPart.AssemblyLinearVelocity.X * 0.3 + v.X,
-				math.max(target.rootPart.AssemblyLinearVelocity.Y, 0) + v.Y,
-				target.rootPart.AssemblyLinearVelocity.Z * 0.3 + v.Z)
+			local mult = (crit and 1.3 or 1) * math.max(PlayerStats.GetStat(player, "knockback"), 0.1) * KNOCKBACK_SCALE
+			if target.character:GetAttribute("IsBoss") == true then
+				-- (bosses drive themselves: only a nudge, as before)
+				local v = flatAway * profile.kb * mult * 0.3
+				target.rootPart.AssemblyLinearVelocity += Vector3.new(v.X, 0, v.Z)
+			else
+				-- (the heavy ones built not to stagger give less ground)
+				local heavy = if target.character:GetAttribute("Unstaggerable") == true then 0.4 else 1
+				knock(target, flatAway * profile.kb * mult * heavy, profile.lift * mult * heavy)
+			end
 		end
 	end
 
@@ -386,8 +441,9 @@ local function dealDamage(player: Player, target: { character: Model, humanoid: 
 	local finalAmount = math.max(0, math.floor(amount))
 	if finalAmount <= 0 or target.humanoid.Health <= 0 then return nil, nil end
 	if isFriendly(target.character) then return nil, nil end -- belt and braces: no friendly fire
-	-- A boss mid-intro or mid-signature move can't be hurt: say so.
-	if target.character:GetAttribute("BossInvulnerable") == true then
+	-- A boss mid-intro or mid-signature move can't be hurt, nor a mob an
+	-- immunity tower is shielding (ImmunityTower): say so.
+	if target.character:GetAttribute("BossInvulnerable") == true or target.character:GetAttribute("TowerShielded") == true then
 		if fxAllowed(player, "immune", 4) then
 			Network.GetRemoteEvent(Network.Remotes.DamageDealt):FireClient(player, {
 				position = target.rootPart.Position + Vector3.new(0, 2.5, 0),
@@ -1902,6 +1958,7 @@ function SkillManager.Init()
 	MartialServer.Init({
 		getPotentialTargets = getPotentialTargets,
 		dealDamage = dealDamage,
+		knock = knock,
 		fxAllowed = fxAllowed,
 		lineReach = lineReach,
 		ricochet = ricochet,
@@ -1915,6 +1972,7 @@ function SkillManager.Init()
 	FireKnightServer.Init({
 		getPotentialTargets = getPotentialTargets,
 		dealDamage = dealDamage,
+		knock = knock,
 		addParryHook = MobManager.AddParryHook,
 		addIncomingHook = MobManager.AddIncomingHook,
 	})

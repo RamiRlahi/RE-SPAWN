@@ -153,7 +153,8 @@ local function playPreviewAnimation(character: Model, classId: string)
 	if not ClassData.IsPlayable(classId) then return end
 	-- Every class shows its ultimate pose; only the Heavy Knight's is an uploaded
 	-- animation, the others are held procedural poses.
-	if classId ~= "heavy_knight" and CastPoses.holdUltPreview(character, classId) then
+	-- (entrances from the side come in from the screen's right)
+	if classId ~= "heavy_knight" and CastPoses.holdUltPreview(character, classId, { right = workspace.CurrentCamera.CFrame.RightVector }) then
 		return
 	end
 
@@ -819,8 +820,11 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		local accent = locked and Color3.fromRGB(90, 90, 95) or info.accentColor
 		constellation.Show(classId, accent, locked)
 
-		-- Apply class-specific cosmetic armor preview on the character
-		applyClassCosmetics(classId)
+		-- Apply class-specific cosmetic armor preview on the character. (A
+		-- failing preview must not stop the rest of the page updating: the
+		-- carousel would sit on the last class and seem to skip this one.)
+		local okLook, lookErr = pcall(applyClassCosmetics, classId)
+		if not okLook then warn("[ClassSelection] preview failed for", classId, lookErr) end
 		setSilhouette(previewTarget(), false)
 		if locked then
 			setSilhouette(previewTarget(), true)

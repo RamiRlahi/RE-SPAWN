@@ -120,7 +120,14 @@ local function title(small: string, big: string, color: Color3, hold: number, y:
 end
 
 -- A full-screen colour wash (flash or tint).
-local function wash(color: Color3, from: number, to: number, t: number, life: number?)
+local wash: (Color3, number, number, number, number?) -> ()
+BossCinematic.Title = function(small: string, big: string, color: Color3, holdT: number, y: number?)
+	title(small, big, color, holdT, y)
+end
+BossCinematic.Wash = function(color: Color3, from: number, to: number, t: number)
+	wash(color, from, to, t)
+end
+function wash(color: Color3, from: number, to: number, t: number, life: number?)
 	local gui = screen("BossWash", 135)
 	local f = Instance.new("Frame")
 	f.Size = UDim2.fromScale(1, 1)
@@ -136,6 +143,7 @@ end
 -- ── The intro ───────────────────────────────────────────────────────────────
 local SUBTITLES: { [string]: string } = {
 	fallen_angel = "CAST OUT OF HEAVEN",
+	djinn = "INSERT COIN TO CONTINUE",
 	warlord = "WARLORD OF IRON",
 	colossus = "ANCIENT TITAN",
 	witch = "MISTRESS OF HEXES",

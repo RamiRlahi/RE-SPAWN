@@ -12,6 +12,16 @@ local StarterGui = game:GetService("StarterGui")
 
 print("[Client] Initializing SoloProject Client...")
 
+-- No Roblox "Reset Character" (Esc menu): death has its own flow here
+-- (DeathManager: revive or give up), and a reset only left you lying dead on
+-- the floor. (SetCore can fail until the core scripts are up: retried.)
+task.spawn(function()
+	for _ = 1, 20 do
+		if pcall(function() StarterGui:SetCore("ResetButtonCallback", false) end) then return end
+		task.wait(0.5)
+	end
+end)
+
 -- Every word in the Arcade font (but the map's), from the start.
 do
 	local ok, err = pcall(function() require(script:WaitForChild("FontStyle")).Init() end)
@@ -146,6 +156,10 @@ end)
 pcall(function()
 	require(script:WaitForChild("AngelAttackFX")).Init()
 end)
+-- The arcade's boss, ZAR-0: its hologram body in motion, and its attacks.
+pcall(function()
+	require(script:WaitForChild("DjinnFX")).Init()
+end)
 -- The Rogue's wind-blown scarf, on every Rogue.
 pcall(function()
 	require(script:WaitForChild("RogueScarf")).Init()
@@ -158,6 +172,7 @@ pcall(function()
 	require(script:WaitForChild("VfxDetail")).Init()
 	require(script:WaitForChild("PerfMode")).Init() -- low frame rate: shadows and scenery effects off
 	require(script:WaitForChild("PrisonFX")).Init() -- the prison map's searchlights and alarm
+	require(script:WaitForChild("PortalSpin")).Init() -- the arcade's portals: their swirls turning
 	-- The lobby: party panel, invite prompts, its menu states.
 	require(script:WaitForChild("UI"):WaitForChild("LobbyHUD")).Init(if successUI then UIManager else nil)
 end)

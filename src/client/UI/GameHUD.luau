@@ -71,7 +71,8 @@ local DAMAGE_TRAIL_SPEED = 2.5  -- how fast the trail catches up (per second fra
 -- ─── SKILL ICON ASSET IDs ─────────────────────────────────────
 -- Upload your 4 skill icons to Roblox (Game Explorer > Images) and paste the asset IDs here.
 -- Format: "rbxassetid://123456789"
-local SKILL_ICONS_BY_CLASS = {
+-- (`passive`: uploaded for when the bar shows one; not drawn yet)
+local SKILL_ICONS_BY_CLASS: { [string]: { [any]: string } } = {
 	cleric = {
 		[1] = "rbxassetid://83970690874192",  -- 1st ability (E)
 		[2] = "rbxassetid://79167595723607",  -- 2nd ability (F)
@@ -85,10 +86,60 @@ local SKILL_ICONS_BY_CLASS = {
 		[4] = "rbxassetid://123385594261124",  -- Ultimate (R)
 	},
 	heavy_knight = {
-		[1] = "rbxassetid://100153299372067",  -- 1st ability (E)
-		[2] = "rbxassetid://130845824985540",  -- 2nd ability (F)
-		[3] = "rbxassetid://129819062572666",  -- 3rd ability (Q)
-		[4] = "rbxassetid://90460231425099",   -- Ultimate (R)
+		[1] = "rbxassetid://132155579159537",  -- Fire Tornado (E)
+		[2] = "rbxassetid://91314905448390",   -- Phoenix Slam (F)
+		[3] = "rbxassetid://131134579080569",  -- Infernal Earthshaker (Q)
+		[4] = "rbxassetid://73181276426858",   -- Heart of the Inferno (R)
+		passive = "rbxassetid://79763025422259", -- Heat of War
+	},
+	martial_artist = {
+		[1] = "rbxassetid://74728376681187",   -- Focus Strike (E)
+		[2] = "rbxassetid://90742192763242",   -- Electric Uppercut (F)
+		[3] = "rbxassetid://81505553763631",   -- Ground Slam (Q)
+		[4] = "rbxassetid://130269422401080",  -- Crimson Hadouken (R)
+		passive = "rbxassetid://135519619953111", -- Qi Charge
+	},
+	mage = {
+		[1] = "rbxassetid://88301943962437",   -- Arcane Burst (E)
+		[2] = "rbxassetid://75801188793124",   -- Astral Prison (F)
+		[3] = "rbxassetid://124123608046140",  -- Arcane Shift (Q)
+		[4] = "rbxassetid://102883539726716",  -- Apocalypse (R)
+		passive = "rbxassetid://103445564097184", -- Arcane Charge
+	},
+	rogue = {
+		[1] = "rbxassetid://76025835812755",   -- Shadow Dagger (E)
+		[2] = "rbxassetid://126886113502981",  -- Dash (F)
+		[3] = "rbxassetid://96103077837816",   -- Invisibility (Q)
+		[4] = "rbxassetid://90722823590745",   -- Shadow Execution (R)
+		passive = "rbxassetid://71335807182719", -- Shadow Energy
+	},
+	gunslinger = {
+		[1] = "rbxassetid://94409821434570",   -- Fan the Hammer (E)
+		[2] = "rbxassetid://132307778799944",  -- Gunslinger's Roll (F)
+		[3] = "rbxassetid://74725489937058",   -- Deadeye Ricochet (Q)
+		[4] = "rbxassetid://73749330909862",   -- High Noon (R)
+		passive = "rbxassetid://115132974561524", -- Deadeye
+	},
+	swordsman = {
+		[1] = "rbxassetid://81023610019830",   -- Sword Rush (E)
+		[2] = "rbxassetid://135280785520672",  -- Parry (F)
+		[3] = "rbxassetid://84667638225077",   -- Phantom Thrust (Q)
+		[4] = "rbxassetid://88484267696144",   -- Blade Storm (R)
+		passive = "rbxassetid://138073571091241", -- Battle Momentum
+	},
+	ice_mage = {
+		[1] = "rbxassetid://110861546175994",  -- Ice Spikes (E)
+		[2] = "rbxassetid://85167837069373",   -- Ice Beam (F)
+		[3] = "rbxassetid://122144064327132",  -- Ice Clone (Q)
+		[4] = "rbxassetid://76962430268191",   -- Blizzard (R)
+		passive = "rbxassetid://121373899038583", -- (passive)
+	},
+	-- (the beast's skills share these slots)
+	berserker = {
+		[1] = "rbxassetid://76976244029000",   -- Rupture (E)
+		[2] = "rbxassetid://103491694383784",  -- Bloodstorm (F)
+		[3] = "rbxassetid://80913065419728",   -- Crimson Charge (Q)
+		[4] = "rbxassetid://74715237240108",   -- Beast Awakening (R)
 	},
 }
 
@@ -492,11 +543,11 @@ local function createSkillSlot(parent: Frame, index: number, keybind: string): {
 		BgTransparency = 1,
 		ZIndex = 10,
 	})
-	UITheme.AddCorner(glow, (SKILL_SIZE + 8) / 2)
+	UITheme.AddCorner(glow, 8)
 	local glowStroke = UITheme.AddStroke(glow, C.GoldBright, 2, 0.8)
 	glowStroke.Name = "GlowStroke"
 
-	-- Outer gold ring
+	-- Outer gold frame (square, slightly rounded corners)
 	local ring = makeFrame({
 		Name = "Ring",
 		Parent = slotContainer,
@@ -506,11 +557,11 @@ local function createSkillSlot(parent: Frame, index: number, keybind: string): {
 		BgColor = C.SkillBg,
 		ZIndex = 11,
 	})
-	UITheme.AddCorner(ring, SKILL_SIZE / 2)
+	UITheme.AddCorner(ring, 6)
 	UITheme.AddStroke(ring, C.Gold, 2.5, 0.05)
 	UITheme.AddGradient(ring, C.StoneMid, C.SkillBg, 90)
 
-	-- Inner circle: a CanvasGroup so the icon and cooldown sweep clip to the circle
+	-- Inner square: a CanvasGroup so the icon and cooldown sweep clip to it
 	local innerCircle = Instance.new("CanvasGroup")
 	innerCircle.Name = "InnerCircle"
 	innerCircle.Size = UDim2.new(1, -8, 1, -8)
@@ -520,7 +571,7 @@ local function createSkillSlot(parent: Frame, index: number, keybind: string): {
 	innerCircle.BorderSizePixel = 0
 	innerCircle.ZIndex = 12
 	innerCircle.Parent = ring
-	UITheme.AddCorner(innerCircle, (SKILL_SIZE - 8) / 2)
+	UITheme.AddCorner(innerCircle, 4)
 	UITheme.AddStroke(innerCircle, C.GoldDim, 1, 0.3)
 
 	-- Skill icon image

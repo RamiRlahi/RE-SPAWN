@@ -9,6 +9,7 @@
 	      nature — Ranger nature: green slash, leaves
 	      holy   — Cleric: golden cross flash, ring, motes
 	      ice    — Ice Mage: shard spray, frost puff
+	      fist   — Martial Artist: a white starburst hit marker, crimson ring
 	  • a white hit-flash on the target (recolour, not a Highlight — the game
 	    already runs close to Roblox's on-screen Highlight limit)
 	  • crits: larger and gold-tinged; heavy hits: a small shake for the attacker
@@ -111,7 +112,7 @@ end
 -- ─── Hit flash on the target ────────────────────────────────────────────────
 local flashing: { [Model]: { [BasePart]: { Color3 | Enum.Material } } } = {}
 
-local function hitFlash(model: Model?, crit: boolean)
+local function hitFlash(model: Model?, crit: boolean, hold: number?)
 	if not model or not model.Parent then return end
 	local saved = flashing[model]
 	if not saved then
@@ -131,7 +132,7 @@ local function hitFlash(model: Model?, crit: boolean)
 	end
 	local stamp = os.clock()
 	model:SetAttribute("HitFlashStamp", stamp)
-	task.delay(crit and 0.1 or 0.07, function()
+	task.delay(hold or (crit and 0.1 or 0.07), function()
 		if model:GetAttribute("HitFlashStamp") ~= stamp then return end -- a newer hit owns the flash
 		for p, orig in pairs(saved) do
 			if p.Parent then
@@ -265,6 +266,35 @@ STYLES.ice = function(h)
 	flashLight(c, Color3.fromRGB(150, 230, 255), 3 * h.scale, 12)
 end
 
+-- Martial Artist: the hit marker. A white starburst turned to the camera
+-- (spikes shooting out of a white core), a crimson ring punched out of it,
+-- sparks flung on the way the blow went.
+local FIST_RED = Color3.fromRGB(226, 26, 46)
+STYLES.fist = function(h)
+	local c = h.pos + Vector3.new(0, 1, 0)
+	local eye = camera.CFrame.Position
+	local face = CFrame.lookAt(c, eye)
+	local tint = if h.crit then CRIT_GOLD else Color3.new(1, 1, 1)
+	local n = if h.heavy then 8 else 6
+	local turn = math.random() * math.pi
+	for i = 1, n do
+		local a = CFrame.Angles(0, 0, turn + i / n * math.pi * 2)
+		local len = (if i % 2 == 0 then 1.5 else 2.5) * h.scale
+		local spike = part({ Size = Vector3.new(0.24 * h.scale, len, 0.05), Color = tint, CFrame = face * a * CFrame.new(0, len * 0.5 + 0.3, 0) })
+		TweenService:Create(spike, TweenInfo.new(0.16, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+			Size = Vector3.new(0.03, len * 1.4, 0.03), CFrame = face * a * CFrame.new(0, len * 0.9 + 0.7, 0), Transparency = 1 }):Play()
+		Debris:AddItem(spike, 0.2)
+	end
+	local core = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 1.2 * h.scale, CFrame = CFrame.new(c), Color = tint })
+	pop(core, Vector3.one * 3.2 * h.scale, 0.12)
+	ringWave(c, eye - c, 0.4, 2.8 * h.scale, 0.2, FIST_RED)
+	burst(c, { Texture = TEX_SPARKLE, Color = ColorSequence.new(Color3.new(1, 1, 1), FIST_RED), LightEmission = 1,
+		Size = seq(0, 0.45 * h.scale, 1, 0), Lifetime = NumberRange.new(0.15, 0.3), Speed = NumberRange.new(18, 32),
+		SpreadAngle = Vector2.new(40, 40), EmissionDirection = Enum.NormalId.Front, Acceleration = Vector3.new(0, -30, 0) },
+		math.floor(12 * h.scale))
+	flashLight(c, Color3.fromRGB(255, 220, 220), 3 * h.scale, 10)
+end
+
 -- ─── Attacker shake on heavy hits ───────────────────────────────────────────
 local lastShake = 0
 local function shake(amount: number)
@@ -319,7 +349,8 @@ function HitFX.Init()
 			currentAttacker = nil
 		end
 		if typeof(p.model) == "Instance" and p.model:IsA("Model") and FxBudget.Allow("hitFlash", 30) then
-			hitFlash(p.model, crit)
+			-- (the Martial Artist's hits hold the white a beat longer)
+			hitFlash(p.model, crit, if p.style == "fist" then 0.12 else nil)
 		end
 		if p.attacker == player and (heavy or crit) then
 			shake(heavy and 0.35 or 0.2)

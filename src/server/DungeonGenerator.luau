@@ -66,6 +66,7 @@ type StairData = {
 	cframe: CFrame,
 	lowerFloorY: number,
 	upperFloorY: number,
+	toLower: Vector3, -- (flat) from the gap between the two floors toward the lower one
 }
 
 type CellData = {
@@ -472,7 +473,8 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 				local stairX = (startX + (CORRIDOR_WIDTH / 2) - 0.5) * FLOOR_SIZE
 				local rotY = (t2 > t1) and 180 or 0
 				local stairCF = CFrame.new(stairX, minFY, stairZ) * CFrame.Angles(0, math.rad(rotY), 0)
-				table.insert(stairList, { cframe = stairCF, lowerFloorY = minFY, upperFloorY = math.max(y1, y2) })
+				table.insert(stairList, { cframe = stairCF, lowerFloorY = minFY, upperFloorY = math.max(y1, y2),
+					toLower = if y1 < y2 then Vector3.new(0, 0, 1) else Vector3.new(0, 0, -1) })
 
 				local archwayPos = Vector3.new(stairX, wY2, (fromRoom.gz - 2.5) * FLOOR_SIZE)
 				table.insert(doorwayList, { position = archwayPos, rotY = 180 })
@@ -505,7 +507,8 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 				local stairX = (startX + (CORRIDOR_WIDTH / 2) - 0.5) * FLOOR_SIZE
 				local rotY = (t2 > t1) and 0 or 180
 				local stairCF = CFrame.new(stairX, minFY, stairZ) * CFrame.Angles(0, math.rad(rotY), 0)
-				table.insert(stairList, { cframe = stairCF, lowerFloorY = minFY, upperFloorY = math.max(y1, y2) })
+				table.insert(stairList, { cframe = stairCF, lowerFloorY = minFY, upperFloorY = math.max(y1, y2),
+					toLower = if y1 < y2 then Vector3.new(0, 0, -1) else Vector3.new(0, 0, 1) })
 
 				local archwayPos = Vector3.new(stairX, wY2, (fromRoom.gz + fromRoom.d + 1.5) * FLOOR_SIZE)
 				table.insert(doorwayList, { position = archwayPos, rotY = 0 })
@@ -538,7 +541,8 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 				local stairZ = (startZ + (CORRIDOR_WIDTH / 2) - 0.5) * FLOOR_SIZE
 				local rotY = (t2 > t1) and 90 or -90
 				local stairCF = CFrame.new(stairX, minFY, stairZ) * CFrame.Angles(0, math.rad(rotY), 0)
-				table.insert(stairList, { cframe = stairCF, lowerFloorY = minFY, upperFloorY = math.max(y1, y2) })
+				table.insert(stairList, { cframe = stairCF, lowerFloorY = minFY, upperFloorY = math.max(y1, y2),
+					toLower = if y1 < y2 then Vector3.new(-1, 0, 0) else Vector3.new(1, 0, 0) })
 
 				local archwayPos = Vector3.new((fromRoom.gx + fromRoom.w + 1.5) * FLOOR_SIZE, wY2, stairZ)
 				table.insert(doorwayList, { position = archwayPos, rotY = 90 })
@@ -571,7 +575,8 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 				local stairZ = (startZ + (CORRIDOR_WIDTH / 2) - 0.5) * FLOOR_SIZE
 				local rotY = (t2 > t1) and -90 or 90
 				local stairCF = CFrame.new(stairX, minFY, stairZ) * CFrame.Angles(0, math.rad(rotY), 0)
-				table.insert(stairList, { cframe = stairCF, lowerFloorY = minFY, upperFloorY = math.max(y1, y2) })
+				table.insert(stairList, { cframe = stairCF, lowerFloorY = minFY, upperFloorY = math.max(y1, y2),
+					toLower = if y1 < y2 then Vector3.new(1, 0, 0) else Vector3.new(-1, 0, 0) })
 
 				local archwayPos = Vector3.new((fromRoom.gx - 2.5) * FLOOR_SIZE, wY2, stairZ)
 				table.insert(doorwayList, { position = archwayPos, rotY = -90 })
@@ -819,6 +824,73 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 	end
 
 	return rooms, floorGrid, doorwayList, stairList
+end
+
+-- ── 1b. A floor taken room by room (MapData transit "portal": the Neon Arcade)
+-- No corridors and no map to explore: a path chosen one room at a time.
+-- Layers of 1, 2, 3, 2 and 1 rooms (the start; then two to choose between,
+-- three, two; then the boss), each room an island floating far from the rest
+-- (out of sight of each other). Every room's exits lead to every room of the
+-- next layer: RoomPortals puts a portal for each on its far wall, labelled
+-- with what's through it, opening when the room is cleared.
+local LAYERS_GAP = 30 -- tiles between layers (along +X) and between a layer's rooms (along Z)
+local function buildLayeredGraph(rng: Random, config: DungeonConfig): ({ RoomData }, { [string]: CellData })
+	local rooms: { RoomData } = {}
+	local floorGrid: { [string]: CellData } = {}
+	local function pick(list: { string }): string return list[rng:NextInteger(1, #list)] end
+	local function shuffle(t: { string }): { string }
+		for i = #t, 2, -1 do
+			local j = rng:NextInteger(1, i)
+			t[i], t[j] = t[j], t[i]
+		end
+		return t
+	end
+	local plan = {
+		{ "Start" },
+		shuffle({ "Combat", pick({ "Combat", "Elite", "Treasure" }) }),
+		shuffle({ "Combat", pick({ "Combat", "Elite" }), pick({ "Shop", "Rest", "Gamble", "Treasure", "Event", "Cursed" }) }),
+		shuffle({ pick({ "Combat", "Elite" }), pick({ "Rest", "Shop", "Event", "Purge" }) }),
+		{ "Boss" },
+	}
+	local id = 0
+	local prev: { RoomData } = {}
+	for layer, types in ipairs(plan) do
+		local this: { RoomData } = {}
+		for k, rtype in ipairs(types) do
+			id += 1
+			-- (square and odd, one size per kind of room: a true middle tile, and
+			-- the same room always looks the same size)
+			local w = if rtype == "Boss" then 13 elseif rtype == "Combat" or rtype == "Elite" then 11 else 9
+			local d = w
+			local gx = (layer - 1) * LAYERS_GAP - math.floor(w / 2)
+			local gz = math.floor((k - (#types + 1) / 2) * LAYERS_GAP) - math.floor(d / 2)
+			local room: RoomData = {
+				id = id,
+				roomType = rtype :: RoomType,
+				tier = 0,
+				floorY = FLOOR_Y_OFFSET,
+				wallY = WALL_Y_OFFSET,
+				gx = gx,
+				gz = gz,
+				w = w,
+				d = d,
+				centerWorld = Vector3.new((gx + w / 2) * FLOOR_SIZE, FLOOR_Y_OFFSET, (gz + d / 2) * FLOOR_SIZE),
+				connections = {},
+			}
+			for x = gx, gx + w - 1 do
+				for z = gz, gz + d - 1 do
+					floorGrid[x .. "_" .. z] = { floorY = FLOOR_Y_OFFSET, wallY = WALL_Y_OFFSET, tier = 0 }
+				end
+			end
+			table.insert(rooms, room)
+			table.insert(this, room)
+		end
+		for _, a in ipairs(prev) do
+			for _, b in ipairs(this) do table.insert(a.connections, b.id) end
+		end
+		prev = this
+	end
+	return rooms, floorGrid
 end
 
 -- ── 2. Seamless Wall, Pure Gate & Pillar Placement ────────────────────────────
@@ -1120,6 +1192,10 @@ local function constructPerimeterWallsAndPillars(
 	processVerticalEdges(eastEdges, Vector3.new(1, 0, 0), 90, 0.5)
 	processVerticalEdges(westEdges, Vector3.new(-1, 0, 0), -90, -0.5)
 
+	-- 4. Corner Pillars wherever two walls meet: room corners, the corners of
+	-- corridors, and the wall ends where a corridor meets a room (framing its
+	-- doorway, and closing the seam there). Not round the lift shafts. The
+	-- corridors' are half size (standing on the floor all the same).
 	local function isRoomTile(gx: number, gz: number): boolean
 		for _, room in ipairs(rooms) do
 			if gx >= room.gx and gx < room.gx + room.w and gz >= room.gz and gz < room.gz + room.d then
@@ -1128,31 +1204,46 @@ local function constructPerimeterWallsAndPillars(
 		end
 		return false
 	end
-
-	local function isCorridorTile(gx: number, gz: number): boolean
-		return hasFloor(gx, gz) and not isRoomTile(gx, gz)
-	end
-
 	local function isCorridorArea(pos: Vector3): boolean
 		local gxCenter = math.floor(pos.X / FLOOR_SIZE + 0.5)
 		local gzCenter = math.floor(pos.Z / FLOOR_SIZE + 0.5)
 		for dx = -1, 1 do
 			for dz = -1, 1 do
-				if isCorridorTile(gxCenter + dx, gzCenter + dz) then
+				if hasFloor(gxCenter + dx, gzCenter + dz) and not isRoomTile(gxCenter + dx, gzCenter + dz) then
 					return true
 				end
 			end
 		end
 		return false
 	end
-
-	-- 4. Spawn Corner Pillars ONLY at room corners (strictly NO pillars in corridors/hallways, near gates, or near stairs)
+	local CORRIDOR_PILLAR_SCALE = 0.5
+	local function bottomOf(inst: Instance): number
+		if inst:IsA("BasePart") then
+			return inst.Position.Y - inst.Size.Y / 2
+		end
+		local cf, size = (inst :: Model):GetBoundingBox()
+		return cf.Position.Y - size.Y / 2
+	end
 	for _, cornerPos in pairs(corners) do
-		if not isNearGate(cornerPos, 16) and not isCorridorArea(cornerPos) and not isNearStair(cornerPos, 18) then
+		if not isNearStair(cornerPos, 13) then
 			local pillarTemplate = pickRandom(assets.pillars, rng)
 			if pillarTemplate then
-				local pillarCF = CFrame.new(cornerPos)
-				spawnInstance(pillarTemplate, pillarCF, wallsFolder)
+				local pillar = spawnInstance(pillarTemplate, CFrame.new(cornerPos), wallsFolder)
+				if isNearGate(cornerPos, 16) or isCorridorArea(cornerPos) then
+					local floorAt = bottomOf(pillar)
+					if pillar:IsA("Model") then
+						pillar:ScaleTo(pillar:GetScale() * CORRIDOR_PILLAR_SCALE)
+					elseif pillar:IsA("BasePart") then
+						pillar.Size *= CORRIDOR_PILLAR_SCALE
+					end
+					-- (shrunk about its middle: set back down on the floor)
+					local drop = Vector3.new(0, floorAt - bottomOf(pillar), 0)
+					if pillar:IsA("Model") then
+						pillar:PivotTo(pillar:GetPivot() + drop)
+					elseif pillar:IsA("BasePart") then
+						pillar.CFrame += drop
+					end
+				end
 			end
 		end
 	end
@@ -1186,7 +1277,8 @@ local function constructPerimeterWallsAndPillars(
 			if flush and i % 2 == 0 then wallCenter += seg.normal * 0.06 end
 			if not isNearGate(wallCenter, 12) and not isBlockingStairOpening(wallCenter, seg.normal) then
 				local wallCF = CFrame.new(wallCenter) * CFrame.Angles(0, math.rad(seg.rotY), 0)
-				local wallPiece = pickRandom(wallList, rng)
+				-- (the arcade's alternate in turn: hex, circuit, hex...)
+				local wallPiece = if arcadeTheme and #wallList > 0 then wallList[(i - 1) % #wallList + 1] else pickRandom(wallList, rng)
 				-- Architectural variation instead of one long flat wall: an
 				-- arched alcove set back into it, or a broken stretch with the
 				-- deeper wall behind showing, and pilasters at the joints.
@@ -1467,6 +1559,248 @@ local function buildExtractPortal(cf: CFrame, parent: Instance): BasePart
 	t.TextStrokeTransparency = 0.2
 	t.Parent = sign
 	return zone
+end
+
+-- ── Room lifts (between two rooms on different floor heights) ──────────────
+-- Where a corridor climbs to a room on the next height, the one-tile gap
+-- between the two floors is a lift shaft: a wooden platform in a timber
+-- frame, stone walls either side, a slatted wooden gate at each landing.
+-- Step on and the gates close, it carries everyone on it to the other floor
+-- and that landing's gate opens. Waiting at the far landing calls it over.
+-- Riders are held to the platform for the ride (as the exit lift does).
+local LIFT = {
+	shaft = 12,         -- along the corridor (one floor tile)
+	width = 23,         -- across it (the corridor, two tiles)
+	rideTime = 2.4,
+	depart = 0.8,       -- seconds someone stands on it before it goes
+	gateTime = 0.45,
+	gateUp = 8,         -- how far a gate slides up to open
+	callReach = 9,      -- studs out from a landing's gate that call it over
+}
+local LIFT_WOOD = Color3.fromRGB(110, 76, 48)
+local LIFT_WOOD_DARK = Color3.fromRGB(70, 48, 32)
+local LIFT_ROPE = Color3.fromRGB(150, 128, 92)
+local LIFT_STONE = Color3.fromRGB(58, 56, 62)
+
+local function constructRoomLift(stair: StairData, parent: Instance, floorsFolder: Instance)
+	local model = Instance.new("Model")
+	model.Name = "RoomLift"
+	model.Parent = parent
+	local center = stair.cframe.Position
+	local toLower = stair.toLower
+	-- (the frame faces the lower landing: local -Z toward it, X across)
+	local flatCenter = Vector3.new(center.X, 0, center.Z)
+	local frame = CFrame.lookAt(flatCenter, flatCenter + toLower)
+	local half = LIFT.shaft / 2
+
+	-- where the two floors' tops really are
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { floorsFolder }
+	local function floorTop(pos: Vector3, guess: number): number
+		local hit = Workspace:Raycast(Vector3.new(pos.X, guess + 10, pos.Z), Vector3.new(0, -20, 0), params)
+		return if hit then hit.Position.Y else guess
+	end
+	local lowTop = floorTop(center + toLower * (half + 3), stair.lowerFloorY)
+	local highTop = floorTop(center - toLower * (half + 3), stair.upperFloorY)
+	if highTop - lowTop < 2 then highTop = lowTop + (stair.upperFloorY - stair.lowerFloorY) end
+	local rise = highTop - lowTop
+
+	local function part(props: { [string]: any }): BasePart
+		local p = Instance.new("Part")
+		p.Anchored = true
+		p.CanTouch = false
+		p.TopSurface, p.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
+		for k, v in pairs(props) do (p :: any)[k] = v end
+		p.Parent = model
+		return p
+	end
+	-- a point in the shaft: x across, z along (- toward the lower landing), at height y
+	local function at(x: number, y: number, z: number): CFrame
+		return frame * CFrame.new(x, 0, z) + Vector3.new(0, y, 0)
+	end
+
+	-- the shaft: stone walls either side, a floor at the bottom, and the face
+	-- of the upper floor at its far end
+	local wallH = rise + 18
+	for _, sx in ipairs({ -1, 1 }) do
+		part({ Name = "ShaftWall", Size = Vector3.new(1.4, wallH, LIFT.shaft + 1.4), CFrame = at(sx * (LIFT.width / 2 + 0.7), lowTop - 1 + wallH / 2, 0),
+			Material = Enum.Material.Slate, Color = LIFT_STONE })
+	end
+	part({ Name = "ShaftFloor", Size = Vector3.new(LIFT.width, 1, LIFT.shaft), CFrame = at(0, lowTop - 1.5, 0),
+		Material = Enum.Material.Slate, Color = Color3.fromRGB(46, 44, 50) })
+	part({ Name = "UpperFace", Size = Vector3.new(LIFT.width, rise + 1, 1), CFrame = at(0, lowTop + (rise - 1) / 2, half - 0.5),
+		Material = Enum.Material.Slate, Color = LIFT_STONE })
+
+	-- the timber frame: posts at the corners, beams over the top, a pulley
+	local topY = highTop + 13
+	for _, sx in ipairs({ -1, 1 }) do
+		for _, sz in ipairs({ -1, 1 }) do
+			part({ Name = "Post", Size = Vector3.new(1.2, topY - lowTop + 1, 1.2),
+				CFrame = at(sx * (LIFT.width / 2 - 0.4), (lowTop + topY) / 2, sz * (half - 0.4)),
+				Material = Enum.Material.Wood, Color = LIFT_WOOD_DARK })
+		end
+		part({ Name = "Beam", Size = Vector3.new(1.2, 1.2, LIFT.shaft), CFrame = at(sx * (LIFT.width / 2 - 0.4), topY, 0),
+			Material = Enum.Material.Wood, Color = LIFT_WOOD_DARK })
+	end
+	part({ Name = "CrossBeam", Size = Vector3.new(LIFT.width, 1.4, 1.4), CFrame = at(0, topY + 0.6, 0),
+		Material = Enum.Material.Wood, Color = LIFT_WOOD_DARK })
+	part({ Name = "Pulley", Shape = Enum.PartType.Cylinder, Size = Vector3.new(1, 3.4, 3.4), CFrame = at(0, topY - 1.2, 0),
+		Material = Enum.Material.Wood, Color = LIFT_WOOD, CanCollide = false })
+
+	-- the car: the platform, a rail along each side; ropes up to the beam
+	local car: { BasePart } = {}
+	local function carPart(props: { [string]: any }): BasePart
+		local p = part(props)
+		table.insert(car, p)
+		return p
+	end
+	local floor = carPart({ Name = "Platform", Size = Vector3.new(LIFT.width - 0.4, 1, LIFT.shaft - 1.4), CFrame = at(0, lowTop - 0.5, -0.5),
+		Material = Enum.Material.WoodPlanks, Color = LIFT_WOOD })
+	for _, sx in ipairs({ -1, 1 }) do
+		carPart({ Name = "Rail", Size = Vector3.new(0.6, 3.5, LIFT.shaft - 1.6), CFrame = at(sx * (LIFT.width / 2 - 0.6), lowTop + 1.75, -0.5),
+			Material = Enum.Material.Wood, Color = LIFT_WOOD_DARK })
+	end
+	local ropes: { { part: BasePart, x: number } } = {}
+	for _, sx in ipairs({ -1, 1 }) do
+		local r = part({ Name = "Rope", Size = Vector3.new(0.3, 1, 0.3), Material = Enum.Material.Fabric, Color = LIFT_ROPE, CanCollide = false })
+		table.insert(ropes, { part = r, x = sx * (LIFT.width / 2 - 2) })
+	end
+	local function placeRopes(y: number)
+		for _, r in ipairs(ropes) do
+			local len = math.max(topY - 1.2 - y, 0.5)
+			r.part.Size = Vector3.new(0.3, len, 0.3)
+			r.part.CFrame = at(r.x, y + len / 2, -0.5)
+		end
+	end
+	placeRopes(lowTop)
+
+	-- a slatted wooden gate at each landing (closed: across the edge)
+	type Gate = { parts: { BasePart }, closed: { CFrame } }
+	local function gate(z: number, baseY: number): Gate
+		local g: Gate = { parts = {}, closed = {} }
+		local function add(p: BasePart)
+			table.insert(g.parts, p)
+			table.insert(g.closed, p.CFrame)
+		end
+		for _, y in ipairs({ 1.2, 5.6 }) do
+			add(part({ Name = "GateBar", Size = Vector3.new(LIFT.width - 1.6, 0.6, 0.5), CFrame = at(0, baseY + y, z),
+				Material = Enum.Material.Wood, Color = LIFT_WOOD_DARK, CanCollide = false }))
+		end
+		for k = -5, 5 do
+			add(part({ Name = "GateSlat", Size = Vector3.new(0.8, 6.6, 0.3), CFrame = at(k * 2, baseY + 3.4, z),
+				Material = Enum.Material.WoodPlanks, Color = LIFT_WOOD, CanCollide = false }))
+		end
+		-- (one unseen panel does the blocking)
+		add(part({ Name = "GateBlock", Size = Vector3.new(LIFT.width - 1.6, 7, 0.4), CFrame = at(0, baseY + 3.5, z), Transparency = 1 }))
+		return g
+	end
+	local lowGate = gate(-half + 0.3, lowTop)
+	local highGate = gate(half - 0.3, highTop)
+	local function setGate(g: Gate, open: boolean, instant: boolean?)
+		for i, p in ipairs(g.parts) do
+			local cf = g.closed[i] + Vector3.new(0, if open then LIFT.gateUp else 0, 0)
+			if instant then
+				p.CFrame = cf
+			else
+				TweenService:Create(p, TweenInfo.new(LIFT.gateTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { CFrame = cf }):Play()
+			end
+			if p.Name == "GateBlock" then p.CanCollide = not open end
+		end
+	end
+	setGate(lowGate, true, true)
+	setGate(highGate, false, true)
+
+	-- who's where
+	local function playersIn(cf: CFrame, size: Vector3): { Player }
+		local out = {}
+		for _, plr in ipairs(Players:GetPlayers()) do
+			local char = plr.Character
+			local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if root and hum and hum.Health > 0 and plr:GetAttribute("IsDead") ~= true then
+				local rel = cf:PointToObjectSpace(root.Position)
+				if math.abs(rel.X) <= size.X / 2 and math.abs(rel.Y) <= size.Y / 2 and math.abs(rel.Z) <= size.Z / 2 then
+					table.insert(out, plr)
+				end
+			end
+		end
+		return out
+	end
+	local function onCar(): { Player }
+		return playersIn(floor.CFrame * CFrame.new(0, 4, 0), Vector3.new(LIFT.width, 8, LIFT.shaft))
+	end
+	local function waitingAt(up: boolean): boolean
+		local y = if up then highTop else lowTop
+		local z = if up then half + LIFT.callReach / 2 else -half - LIFT.callReach / 2
+		return #playersIn(at(0, y + 4, z), Vector3.new(LIFT.width, 9, LIFT.callReach)) > 0
+	end
+
+	local isUp = false
+	local busy = false
+	local armed = true -- (riders who've just arrived step off before it'll go again)
+	local function travel()
+		busy = true
+		setGate(lowGate, false)
+		setGate(highGate, false)
+		task.wait(LIFT.gateTime + 0.1)
+		local riders: { { root: BasePart, rel: CFrame } } = {}
+		for _, plr in ipairs(onCar()) do
+			local root = (plr.Character :: Model):FindFirstChild("HumanoidRootPart") :: BasePart
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.Anchored = true
+			table.insert(riders, { root = root, rel = floor.CFrame:ToObjectSpace(root.CFrame) })
+		end
+		local start: { [BasePart]: CFrame } = {}
+		for _, c in ipairs(car) do start[c] = c.CFrame end
+		local floorStart = floor.CFrame
+		local from, to = if isUp then rise else 0, if isUp then 0 else rise
+		local t0 = os.clock()
+		while true do
+			local a = math.clamp((os.clock() - t0) / LIFT.rideTime, 0, 1)
+			local k = a * a * (3 - 2 * a) -- (eases off the mark and into the landing)
+			local dy = from + (to - from) * k
+			local move = Vector3.new(0, dy - from + math.sin(a * 50) * 0.03, 0)
+			for c, cf in pairs(start) do
+				if c.Parent then c.CFrame = cf + move end
+			end
+			local floorNow = floorStart + move
+			for _, rd in ipairs(riders) do
+				if rd.root.Parent then rd.root.CFrame = floorNow * rd.rel end
+			end
+			placeRopes(lowTop + dy)
+			if a >= 1 or not model.Parent then break end
+			RunService.Heartbeat:Wait()
+		end
+		for _, rd in ipairs(riders) do
+			if rd.root.Parent then rd.root.Anchored = false end
+		end
+		isUp = not isUp
+		armed = #riders == 0
+		setGate(if isUp then highGate else lowGate, true)
+		task.wait(LIFT.gateTime)
+		busy = false
+	end
+
+	task.spawn(function()
+		local since: number? = nil
+		while model.Parent do
+			task.wait(0.15)
+			if busy then continue end
+			if #onCar() == 0 then
+				armed = true
+				since = nil
+				-- called from the other landing
+				if waitingAt(not isUp) then task.spawn(travel) end
+			elseif armed then
+				since = since or os.clock()
+				if os.clock() - since >= LIFT.depart then
+					since = nil
+					task.spawn(travel)
+				end
+			end
+		end
+	end)
 end
 
 local function constructDungeonLiftExit(liftCF: CFrame, parentFolder: Folder, runId: string)
@@ -1840,7 +2174,57 @@ end
 
 -- ── 4b. Rich Cosmetics, Rubble & Barriers Placement ─────────────────────────
 
+-- (the Neon Arcade's rooms, MapData.arcade: no rubble, stone cover, torch-lit
+-- braziers, hanging fire or candles; its props stand on the floor, and its
+-- corners burn violet)
+local arcadeTheme = false
+
+-- The arcade's props, laid out the same way in every room, mirrored side to
+-- side (you come in on the -X wall and leave by the portals on the +X wall):
+-- a row of cabinets facing in along each side wall, hologram spectators
+-- cheering between them, and the scoreboard over the entrance.
+local function arcadeProps(room: RoomData, propsFolder: Folder)
+	local byName: { [string]: Instance } = {}
+	for _, c in ipairs(assets.cosmetics) do byName[c.Name] = c end
+	local minX, maxX = room.gx, room.gx + room.w - 1
+	local minZ, maxZ = room.gz, room.gz + room.d - 1
+	local y = room.floorY + 0.5
+	local inset = 2.5
+	local zN = minZ * FLOOR_SIZE - FLOOR_SIZE / 2 + inset
+	local zS = maxZ * FLOOR_SIZE + FLOOR_SIZE / 2 - inset
+	local x0 = minX * FLOOR_SIZE - FLOOR_SIZE / 2
+	local span = room.w * FLOOR_SIZE
+	local function put(name: string, x: number, z: number, rotY: number)
+		local t = byName[name]
+		if t then spawnInstance(t, CFrame.new(x, y, z) * CFrame.Angles(0, math.rad(rotY), 0), propsFolder, true) end
+	end
+	-- Fights get the crowd; quiet rooms stay quiet (the shop, the rest).
+	local busy = room.roomType == "Combat" or room.roomType == "Elite" or room.roomType == "Boss" or room.roomType == "Start"
+	for _, k in ipairs(if busy then { 0.25, 0.75 } else { 0.5 }) do
+		local x = x0 + span * k
+		put("Arcade_Cabinet", x - 2, zN, 180)
+		put("Arcade_Cabinet", x + 2, zN, 180)
+		put("Arcade_Cabinet", x - 2, zS, 0)
+		put("Arcade_Cabinet", x + 2, zS, 0)
+	end
+	if busy then
+		put("Holo_Spectator_Cheer", x0 + span * 0.5 - 2, zN, 180)
+		put("Holo_Spectator", x0 + span * 0.5 + 2, zN, 180)
+		put("Holo_Spectator", x0 + span * 0.5 - 2, zS, 0)
+		put("Holo_Spectator_Cheer", x0 + span * 0.5 + 2, zS, 0)
+	end
+	-- the scoreboard high over the way in, facing the room
+	local zc = (room.gz + (room.d - 1) / 2) * FLOOR_SIZE
+	put("Score_Board", x0 + inset, zc, -90)
+end
+
 local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Random)
+	local violet: Instance? = nil
+	if arcadeTheme then
+		for _, c in ipairs(assets.cosmetics) do
+			if c.Name == "Brazier_Purple" then violet = c end
+		end
+	end
 	for _, room in ipairs(rooms) do
 		local minX, maxX = room.gx, room.gx + room.w - 1
 		local minZ, maxZ = room.gz, room.gz + room.d - 1
@@ -1849,14 +2233,18 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 
 		-- Hazards: the boss arena gets lava, flame vents and cover pillars;
 		-- about a third of the combat rooms get spike traps.
-		if room.roomType == "Boss" then
+		-- (not in the arcade: its rooms are clean boards, and its boss turns
+		-- the arena floor into one)
+		if arcadeTheme then
+			-- nothing
+		elseif room.roomType == "Boss" then
 			Hazards.BuildBossArena(room :: any, propsFolder, rng)
 		elseif room.roomType == "Combat" and room.id ~= 1 and rng:NextNumber() < 0.35 then
 			Hazards.BuildTraps(room :: any, propsFolder, rng)
 		end
 
 		-- 1. Rubble: Generously placed along wall perimeters and in all room corners (raised +3 studs)
-		if #assets.rubble > 0 then
+		if #assets.rubble > 0 and not arcadeTheme then
 			local rubbleClusters = rng:NextInteger(3, 6)
 			for _ = 1, rubbleClusters do
 				local side = rng:NextInteger(1, 4)
@@ -1872,7 +2260,7 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 		end
 
 		-- 2. Barriers: Placed as tactical cover inside combat/elite rooms
-		if #assets.barriers > 0 and (room.roomType == "Combat" or room.roomType == "Elite") then
+		if #assets.barriers > 0 and not arcadeTheme and (room.roomType == "Combat" or room.roomType == "Elite") then
 			local barrierCount = rng:NextInteger(2, 4)
 			for _ = 1, barrierCount do
 				local bx = rng:NextInteger(minX + 1, maxX - 1)
@@ -1887,7 +2275,9 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 		end
 
 		-- 3. Cosmetics: Exactly 1 per room, placed near a wall facing opposite of the wall (into the room), raised by +6.2 studs (+3 studs higher)
-		if #assets.cosmetics > 0 then
+		if arcadeTheme then
+			arcadeProps(room, propsFolder)
+		elseif #assets.cosmetics > 0 then
 			local cosTemplate = pickRandom(assets.cosmetics, rng)
 			if cosTemplate then
 				local wallSide = rng:NextInteger(1, 4)
@@ -1917,6 +2307,8 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 					rotY = 90
 				end
 
+				-- (the arcade's props stand on the floor, their pivots at their base)
+				if arcadeTheme then cosPos = Vector3.new(cosPos.X, room.floorY + 0.5, cosPos.Z) end
 				local cf = CFrame.new(cosPos) * CFrame.Angles(0, math.rad(rotY), 0)
 				spawnInstance(cosTemplate, cf, propsFolder, true)
 			end
@@ -1945,14 +2337,18 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 				-- Only on open floor (not inside a wall or doorway prop).
 				local hit = Workspace:Raycast(p + Vector3.new(0, 12, 0), Vector3.new(0, -24, 0), cornerParams)
 				if hit and math.abs(hit.Position.Y - room.floorY) < 4 then
-					AtmosphereManager.PlaceBrazier(CFrame.new(hit.Position), propsFolder, rng)
+					if not arcadeTheme then
+						AtmosphereManager.PlaceBrazier(CFrame.new(hit.Position), propsFolder, rng)
+					elseif violet then
+						spawnInstance(violet, CFrame.new(hit.Position), propsFolder, true)
+					end
 				end
 			end
 		end
 
 		-- 3c. Hanging fire bowls on chains that rise out of view, over the
 		-- open floor either side of the room's centre (clear of the reward).
-		if room.w >= 3 and room.d >= 3 then
+		if room.w >= 3 and room.d >= 3 and not arcadeTheme then
 			local cx = (room.gx + room.w / 2) * FLOOR_SIZE
 			local cz = (room.gz + room.d / 2) * FLOOR_SIZE
 			local spreadX = room.w * FLOOR_SIZE * 0.26
@@ -1969,7 +2365,7 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 		local rayParams = RaycastParams.new()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 		rayParams.FilterDescendantsInstances = { propsFolder }
-		for _ = 1, AtmosphereManager.Config.CandlesPerRoom do
+		for _ = 1, if arcadeTheme then 0 else AtmosphereManager.Config.CandlesPerRoom do
 			local side = rng:NextInteger(1, 4)
 			local inset = 3.2
 			local x, z
@@ -2048,6 +2444,7 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 		assets = own :: any
 		wallPieceLen = own.wallLen
 	end
+	arcadeTheme = map ~= nil and map.arcade == true
 
 	-- Clean this run's previous level
 	DungeonGenerator.Clear(runId)
@@ -2072,7 +2469,18 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 	print(`[DungeonGenerator] ─── Building Roguelite Dungeon (Seed: {seed}, Floor Y: {FLOOR_Y_OFFSET}, Wall Y: {WALL_Y_OFFSET}) ───`)
 
 	-- 1. Graph Layout Construction
-	local rooms, floorGrid0, doorwayList, stairList = buildDungeonGraph(rng, cfg)
+	-- How the rooms are joined (MapData.transit): corridors with stairs (the
+	-- default) or lifts where they change height; or portals: a floor taken
+	-- room by room (buildLayeredGraph, RoomPortals), no corridors at all.
+	local transit = (map and map.transit) or "stairs"
+	local layered = transit == "portal"
+	local rooms, floorGrid0, doorwayList, stairList
+	if layered then
+		rooms, floorGrid0 = buildLayeredGraph(rng, cfg)
+		doorwayList, stairList = {}, {}
+	else
+		rooms, floorGrid0, doorwayList, stairList = buildDungeonGraph(rng, cfg)
+	end
 	-- (into this run's slot)
 	local floorGrid = shiftLayout(slot * SLOT_TILES, rooms, floorGrid0, doorwayList, stairList)
 	local startRoom = rooms[1]
@@ -2133,6 +2541,32 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 		end
 	end
 
+	-- The arcade's floors are laid to a plan, not shuffled: plain panels, with
+	-- circuit tiles running round the room's edge and in a cross through its
+	-- middle (each turned along its line), all one shade.
+	local arcadePlan: { [string]: number } = {} -- key → the circuit tile's turn
+	local arcadePanel, arcadeCircuit = nil, nil
+	if arcadeTheme then
+		for _, f in ipairs(assets.floors) do
+			if f.Name == "Floor_Panel" then arcadePanel = f elseif f.Name == "Floor_Circuit" then arcadeCircuit = f end
+		end
+		for _, room in ipairs(rooms) do
+			local minX, maxX = room.gx, room.gx + room.w - 1
+			local minZ, maxZ = room.gz, room.gz + room.d - 1
+			local cx, cz = room.gx + math.floor(room.w / 2), room.gz + math.floor(room.d / 2)
+			for x = minX, maxX do
+				for z = minZ, maxZ do
+					local rot: number? = nil
+					if z == minZ or z == maxZ then rot = 0
+					elseif x == minX or x == maxX then rot = 90
+					elseif z == cz then rot = 0
+					elseif x == cx then rot = 90 end
+					if rot then arcadePlan[x .. "_" .. z] = rot end
+				end
+			end
+		end
+	end
+
 	for key, cellData in pairs(floorGrid) do
 		local coords = string.split(key, "_")
 		local gx = tonumber(coords[1]) :: number
@@ -2143,13 +2577,18 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 		local isCenterPiece = (centerPieceGrid[key] == true)
 		local floorTemplate: Instance? = nil
 
-		if isCenterPiece and #assets.centerPieces > 0 then
+		local planned = arcadePlan[key]
+		if arcadeTheme and arcadePanel and arcadeCircuit then
+			floorTemplate = if planned then arcadeCircuit else arcadePanel
+		elseif isCenterPiece and #assets.centerPieces > 0 then
 			floorTemplate = pickRandom(assets.centerPieces, rng)
 		else
 			floorTemplate = pickRandom(assets.floors, rng)
 		end
 
-		if floorTemplate then
+		if floorTemplate and arcadeTheme and arcadePanel then
+			spawnInstance(floorTemplate, CFrame.new(pos) * CFrame.Angles(0, math.rad(planned or 0), 0), floorsFolder, true)
+		elseif floorTemplate then
 			local rotY = rng:NextInteger(0, 3) * 90
 			local cf = CFrame.new(pos) * CFrame.Angles(0, math.rad(rotY), 0)
 			local tile = spawnInstance(floorTemplate, cf, floorsFolder, true)
@@ -2184,8 +2623,8 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 			local template = pickRandom(assets.centerPieces, rng)
 			if template then
 				local mid = Vector3.new((room.gx + (room.w - 1) / 2) * FLOOR_SIZE, room.floorY + 0.08, (room.gz + (room.d - 1) / 2) * FLOOR_SIZE)
-				local cf = CFrame.new(mid) * CFrame.Angles(0, math.rad(rng:NextInteger(0, 3) * 90), 0)
-				spawnInstance(template, cf, floorsFolder, true)
+				local turn = if arcadeTheme then 0 else rng:NextInteger(0, 3) * 90
+				spawnInstance(template, CFrame.new(mid) * CFrame.Angles(0, math.rad(turn), 0), floorsFolder, true)
 			end
 		end
 	end
@@ -2193,49 +2632,48 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 	-- 3. Continuous Perimeter Wall, Pure Gate & Corner Pillar Construction
 	constructPerimeterWallsAndPillars(rooms, floorGrid, doorwayList, stairList, wallsFolder, rng)
 
-	-- 4. Inter-Floor Staircase Placement (connecting tiers)
-	if #stairList > 0 then
-		print(`[DungeonGenerator] Placing {#stairList} inter-floor staircase(s)...`)
-		for idx, stairData in ipairs(stairList) do
+	-- 4. Between rooms on different heights (each corridor's gap): a lift
+	-- (the Prison of Souls), or stairs
+	if transit == "lift" and #stairList > 0 then
+		local liftsFolder = Instance.new("Folder", dungeonFolder)
+		liftsFolder.Name = "Lifts"
+		for _, stairData in ipairs(stairList) do
+			constructRoomLift(stairData, liftsFolder, floorsFolder)
+		end
+	elseif #stairList > 0 then
+		for _, stairData in ipairs(stairList) do
 			local stairTemplate = pickRandom(assets.stairs, rng)
 			local heightDiff = stairData.upperFloorY - stairData.lowerFloorY
-			print(`[DungeonGenerator]   Stair #{idx}: LowerY={stairData.lowerFloorY}, UpperY={stairData.upperFloorY}, HeightDiff={heightDiff}, Pos={stairData.cframe.Position}`)
-
-			-- Shift stair 1 stud back along its orientation
+			-- (shifted 1 stud back along its orientation)
 			local adjustedCF = stairData.cframe * CFrame.new(0, 0, 1)
 			local stairPos = adjustedCF.Position
 			local _, stairRotY, _ = adjustedCF:ToEulerAnglesYXZ()
-
 			if stairTemplate then
-				-- Raise by +7 studs (half of 14-stud model height) so bottom sits on the floor
-				local raisedCF = adjustedCF * CFrame.new(0, 7, 0)
-				spawnInstance(stairTemplate, raisedCF, stairsFolder)
-				print(`[DungeonGenerator]   → Placed stair asset: {stairTemplate.Name} (raised +7, pushed back 1 stud)`)
+				-- (raised by half the 14-stud model's height, so it stands on the floor)
+				spawnInstance(stairTemplate, adjustedCF * CFrame.new(0, 7, 0), stairsFolder)
 			else
-				-- Fallback: procedural walkable ramp connecting lower to upper floor
+				-- no stair pieces: a walkable ramp from the lower floor to the upper
 				local rampLen = math.sqrt(STAIR_LENGTH * STAIR_LENGTH + heightDiff * heightDiff)
 				local rampAngle = math.atan2(heightDiff, STAIR_LENGTH)
-
-				-- Position ramp at midpoint between lower and upper floor
 				local midY = (stairData.lowerFloorY + stairData.upperFloorY) / 2
-
 				local ramp = Instance.new("Part")
 				ramp.Name = "ProceduralStairRamp"
 				ramp.Size = Vector3.new(STAIR_WIDTH, 2, rampLen)
-				-- Position at stair XZ, midpoint Y, then rotate by corridor direction, then tilt by slope angle
-				ramp.CFrame = CFrame.new(stairPos.X, midY, stairPos.Z)
-					* CFrame.Angles(0, stairRotY, 0)
-					* CFrame.Angles(-rampAngle, 0, 0)
+				ramp.CFrame = CFrame.new(stairPos.X, midY, stairPos.Z) * CFrame.Angles(0, stairRotY, 0) * CFrame.Angles(-rampAngle, 0, 0)
 				ramp.Anchored = true
 				ramp.CanCollide = true
 				ramp.Material = Enum.Material.Cobblestone
 				ramp.Color = Color3.fromRGB(55, 55, 60)
 				ramp.Parent = stairsFolder
-				print(`[DungeonGenerator]   → Placed fallback ramp (no stair assets found). Size={ramp.Size}`)
 			end
 		end
-	else
-		print("[DungeonGenerator] No inter-floor stairs generated (all rooms may be on same tier).")
+	end
+	-- (room by room: each room's exits, a portal for each room of the next layer)
+	if layered then
+		local ok, err = pcall(function()
+			require(script.Parent:WaitForChild("RoomPortals")).Build(rooms :: any, runId, propsFolder)
+		end)
+		if not ok then warn("[DungeonGenerator] portals:", err) end
 	end
 
 	-- 5. Exit Lift (Elevator to next floor) in the Boss Chamber
@@ -2276,6 +2714,18 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 		grid = floorGrid,
 		rooms = roomListPayload,
 	}
+	-- (room by room, the map is only ever the room you're in: the start, for now;
+	-- RoomPortals sends each next one)
+	if layered then
+		local r = startRoom
+		local grid = {}
+		for x = r.gx, r.gx + r.w - 1 do
+			for z = r.gz, r.gz + r.d - 1 do
+				grid[x .. "_" .. z] = floorGrid[x .. "_" .. z]
+			end
+		end
+		mapPayload = { tileSize = FLOOR_SIZE, grid = grid, rooms = { roomListPayload[1] } }
+	end
 	d.payload = mapPayload
 
 	-- The map's stone: its tint over every floor and wall (not over a map's
@@ -2317,6 +2767,13 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 		if not ok then warn("[DungeonGenerator] prison:", err) end
 	else
 		RunScope.Set(runId, "Prison", nil)
+	end
+	-- The arcade: immunity towers shielding the mobs in its combat rooms.
+	if map and map.arcade then
+		local ok, err = pcall(function()
+			require(script.Parent:WaitForChild("ImmunityTower")).SetupRooms(rooms :: any, level, propsFolder, rng)
+		end)
+		if not ok then warn("[DungeonGenerator] towers:", err) end
 	end
 
 	print(`[DungeonGenerator] Dungeon ready for run {runId} ({if map then map.name else mapId}, level {level}, slot {slot}): {#rooms} rooms.`)

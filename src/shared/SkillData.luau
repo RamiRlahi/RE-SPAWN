@@ -73,13 +73,12 @@ local SkillData: { [string]: ClassSkills } = {
 	-- The Fire Knight (class id kept as heavy_knight; FireKnightServer).
 	heavy_knight = {
 		[1] = {
-			name = "Blazing Charge",
+			name = "Fire Tornado",
 			slot = 1,
 			keybind = "E",
-			cooldown = 7.0,
-			damage = 40, -- on contact; the upward slash deals more
-			dashDistance = 22,
-			description = "Charge forward in flames, dragging enemies along, and finish with an upward slash that launches them. Overheated: a flaming bull rush that plows through everything and leaves the path burning.",
+			cooldown = 9.0,
+			damage = 40, -- each tick inside hits for 32% of this, the burst at the end for 160%
+			description = "Spin with your sword out inside a tornado of fire that follows you as you move: it burns and Scorches everyone inside and drags them round, then bursts and throws them out. Overheated: bigger, longer, and the ground burns in your wake.",
 		},
 		[2] = {
 			name = "Phoenix Slam",

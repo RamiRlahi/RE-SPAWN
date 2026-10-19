@@ -1603,6 +1603,7 @@ local function activateMob(record: MobRecord)
 
 	-- (the Fallen Angel is built from parts: the place's boss template is a slime)
 	local model = if record.bossKind == "fallen_angel" then BossAI.BuildFallenAngel()
+		elseif record.bossKind == "djinn" then BossAI.BuildDjinn()
 		elseif record.template then record.template:Clone() else createFallbackMob()
 	-- Rank tags for abilities that care (e.g. the Gunslinger's Silver Dollar).
 	model:SetAttribute("IsBoss", record.isBoss)
@@ -1719,7 +1720,8 @@ local function planRoom(group: RoomMobGroup)
 			if #themed > 0 then kinds = themed end
 		end
 		-- Without a body of its own, a boss is the Fallen Angel (built from parts).
-		if not template then kinds = { "fallen_angel" } end
+		-- (the djinn is built from parts too)
+		if not template then kinds = if table.find(kinds, "djinn") then { "djinn" } else { "fallen_angel" } end
 		table.insert(group.mobs, {
 			template = template,
 			spawnCFrame = CFrame.new((room.gx + room.w / 2) * FLOOR_SIZE, room.floorY, (room.gz + room.d / 2) * FLOOR_SIZE),

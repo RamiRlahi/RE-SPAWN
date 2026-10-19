@@ -26,9 +26,12 @@
 	Full, it unlocks:
 
 	  R  BEAST AWAKENING
-	                   he freezes, his body tears open and grows, the sword is
-	                   cast aside, a roar blows everything near away: for 12 s
-	                   he is the BEAST ("BR_BeastUntil"), bigger, faster, harder
+	                   he freezes, then throws his arms wide and roars (red
+	                   energy bursting out of him blows everything near away);
+	                   the sword is cast aside and his body tears open into a
+	                   wolf of black stone, down on all fours as it changes,
+	                   then up into its stance: for 12 s he is the BEAST
+	                   ("BR_BeastUntil"), bigger, faster, harder
 	                   hitting, skills recharging twice as fast, and a new kit:
 	  M1 Claws         claw, claw, claw, then a brutal downward maul that staggers.
 	  E  Beast Slam    an enormous leap, a crash on all fours: those under him
@@ -100,10 +103,12 @@ local RAGE_HEAVY = 3          -- more for a heavy blow (a finisher, a skill)
 local RAGE_KILL = 6           -- per kill
 local RAGE_HURT = 70          -- × the share of his max health a hit takes
 
--- Beast Awakening (mirrored in BerserkerController).
-local BEAST = { freeze = 0.45, mutate = 1.15, roar = 0.5 }
-BEAST.change = BEAST.freeze + BEAST.mutate -- the moment the body becomes the beast
-BEAST.total = BEAST.change + BEAST.roar
+-- Beast Awakening (mirrored in BerserkerController): the rage building, the
+-- roar (arms flung wide), then the body tears open into the beast, down on
+-- all fours as it changes, and up into its stance.
+local BEAST = { freeze = 0.3, roar = 0.75, mutate = 0.85, rise = 0.45 }
+BEAST.change = BEAST.freeze + BEAST.roar -- the moment the body becomes the beast
+BEAST.total = BEAST.change + BEAST.mutate + BEAST.rise
 local BEAST_TIME = 12
 local BEAST_SCALE = 1.25 -- (~7'5" against a 6' man)
 local BEAST_REVERT = 1.2      -- sinking back to his knees
@@ -155,7 +160,7 @@ type State = {
 	busyUntil: number,
 	guardUntil: number,
 	beastToken: number,
-	jump: number?,
+	jump: { height: number, power: number }?, -- (his own, while he's the beast)
 }
 
 local H: any = nil -- helpers from SkillManager
@@ -432,6 +437,22 @@ local function dropSword(player: Player, char: Model)
 	end
 end
 
+-- The man's body back: his size, his look, his own jump and speed. (The jump
+-- is set after the scale: ScaleTo scales the Humanoid's jump with the body,
+-- so the one saved is from before it grew.)
+local function restoreBody(char: Model, st: State)
+	pcall(function() char:ScaleTo(1) end)
+	BerserkerLook.UndressBeast(char)
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	local jump = st.jump
+	if hum and jump then
+		hum.JumpHeight = jump.height
+		hum.JumpPower = jump.power
+	end
+	st.jump = nil
+	char:SetAttribute("SpeedMult", nil)
+end
+
 -- Back to the man: down on his knees, the body shrinks, the sword reforms.
 local function revert(player: Player, st: State)
 	st.beastToken += 1 -- (anything still pending for the beast is off)
@@ -442,12 +463,7 @@ local function revert(player: Player, st: State)
 	fx({ kind = "revert", attacker = player, t = BEAST_REVERT })
 	task.delay(BEAST_REVERT * 0.55, function()
 		if player.Character ~= char or not char.Parent then return end
-		pcall(function() char:ScaleTo(1) end)
-		BerserkerLook.UndressBeast(char)
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		if hum and st.jump then hum.JumpHeight = st.jump end
-		st.jump = nil
-		char:SetAttribute("SpeedMult", nil)
+		restoreBody(char, st)
 		WeaponManager.EquipWeapon(player, "berserker")
 	end)
 end
@@ -459,26 +475,34 @@ local function awaken(player: Player, char: Model, st: State, root: BasePart, di
 	st.busyUntil = os.clock() + BEAST.total + 0.1
 	char:SetAttribute("InvulnerableUntil", os.clock() + BEAST.total + 0.3)
 	fx({ kind = "awaken", attacker = player, dir = dir, t = BEAST })
-	task.delay(BEAST.change, function()
+	-- The roar, arms flung wide: red energy bursts out of him and the
+	-- shockwave throws back everything near.
+	task.delay(BEAST.freeze, function()
 		if st.beastToken ~= token or player.Character ~= char or not root.Parent then return end
-		-- The sword is cast aside; the body tears open into the beast.
-		dropSword(player, char)
-		BerserkerLook.DressBeast(char)
-		pcall(function() char:ScaleTo(BEAST_SCALE) end)
-		local hum = char:FindFirstChildOfClass("Humanoid")
-		if hum then
-			st.jump = hum.JumpHeight
-			hum.JumpHeight = hum.JumpHeight * BEAST_JUMP
-		end
-		char:SetAttribute("SpeedMult", BEAST_SPEED)
-		player:SetAttribute("BR_BeastUntil", Workspace:GetServerTimeNow() + BEAST_TIME)
-		-- The roar: a shockwave throws back everything near.
 		local center = root.Position
 		local r = BEAST_ROAR * (config.areaMultiplier or 1)
 		fx({ kind = "roar", attacker = player, pos = center, radius = r })
 		local hits = inRadius(char, center, dir, r, -1)
 		for _, t in ipairs(hits) do shove(t, t.rootPart.Position - center, 55) end
 		strike(player, hits, (config.damage or 160) * 0.4 * damageMult(player), "BEAST ROAR", true)
+	end)
+	task.delay(BEAST.change, function()
+		if st.beastToken ~= token or player.Character ~= char or not root.Parent then return end
+		-- The sword is cast aside; the body tears open into the beast.
+		dropSword(player, char)
+		-- (his own jump, taken before the body grows: ScaleTo scales it too)
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		local jump = if hum then { height = hum.JumpHeight, power = hum.JumpPower } else nil
+		BerserkerLook.DressBeast(char)
+		pcall(function() char:ScaleTo(BEAST_SCALE) end)
+		if hum and jump then
+			st.jump = jump
+			hum.JumpHeight = jump.height * BEAST_JUMP
+			hum.JumpPower = jump.power * BEAST_JUMP
+		end
+		char:SetAttribute("SpeedMult", BEAST_SPEED)
+		player:SetAttribute("BR_BeastUntil", Workspace:GetServerTimeNow() + BEAST_TIME)
+		fx({ kind = "change", attacker = player })
 		task.delay(BEAST_TIME, function()
 			if st.beastToken == token then revert(player, st) end
 		end)
@@ -697,6 +721,9 @@ function BerserkerServer.Reset(player: Player)
 	local st = getState(player)
 	st.step, st.lastSwing, st.busyUntil, st.guardUntil = 0, 0, 0, 0
 	st.beastToken += 1
+	-- (still the beast: the man back first, his own jump with him)
+	local char = player.Character
+	if char and char:FindFirstChild("BeastShinR") then restoreBody(char, st) end
 	st.jump = nil
 	player:SetAttribute("BR_BeastUntil", nil)
 	player:SetAttribute("BR_Empowered", nil)

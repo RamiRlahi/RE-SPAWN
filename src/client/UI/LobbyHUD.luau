@@ -210,10 +210,12 @@ local function openPicker()
 			label(g, `THIS WEEK: {m.name}  ·  {m.description}`, 16, m.color, { AnchorPoint = Vector2.new(0.5, 0),
 				Position = UDim2.new(0.5, 0, 0.06, 78), Size = UDim2.fromOffset(1000, 22), TextXAlignment = Enum.TextXAlignment.Center, TextWrapped = true })
 		end
+		-- (a card per map: the row as wide as they are)
+		local rowW = #MapData.Maps * 252 + (#MapData.Maps - 1) * 16
 		local row = Instance.new("Frame")
 		row.AnchorPoint = Vector2.new(0.5, 0.5)
 		row.Position = UDim2.new(0.5, 0, 0.55, 10)
-		row.Size = UDim2.fromOffset(1060, 420)
+		row.Size = UDim2.fromOffset(rowW, 420)
 		row.BackgroundTransparency = 1
 		row.Parent = g
 		local lay = Instance.new("UIListLayout")
@@ -226,7 +228,7 @@ local function openPicker()
 		local fit = Instance.new("UIScale")
 		fit.Parent = row
 		local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
-		fit.Scale = math.min(1, (vp.X - 40) / 1060)
+		fit.Scale = math.min(1, (vp.X - 40) / rowW)
 		for i, map in ipairs(MapData.Maps) do
 			local card = Instance.new("TextButton")
 			card.Name = map.id

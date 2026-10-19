@@ -384,6 +384,38 @@ TalentData.martial_artist = {
 	},
 }
 
+-- Berserker: a greatsword driven point-down, a wolf's fangs either side.
+TalentData.berserker = {
+	name = "The Stone Wolf",
+	lines = {
+		{ 0.5, 0.92, 0.44, 0.84 }, { 0.5, 0.92, 0.56, 0.84 }, -- point (down)
+		{ 0.44, 0.84, 0.44, 0.36 }, { 0.56, 0.84, 0.56, 0.36 }, -- blade
+		{ 0.22, 0.36, 0.78, 0.36 },                             -- guard
+		{ 0.47, 0.36, 0.47, 0.16 }, { 0.53, 0.36, 0.53, 0.16 }, -- grip
+		{ 0.47, 0.16, 0.5, 0.08 }, { 0.53, 0.16, 0.5, 0.08 },   -- pommel
+		{ 0.22, 0.36, 0.16, 0.6 }, { 0.16, 0.6, 0.24, 0.72 },   -- left fang
+		{ 0.78, 0.36, 0.84, 0.6 }, { 0.84, 0.6, 0.76, 0.72 },   -- right fang
+	},
+	nodes = {
+		{ id = "bloodlust", name = "Bloodlust", glyph = "BL", x = 0.5, y = 0.36, cost = 1,
+			description = "+0.06x Damage", effect = { stat = "damage", operation = "multiplier", value = 0.06 } },
+		{ id = "thick_hide", name = "Thick Hide", glyph = "TH", x = 0.5, y = 0.16, cost = 2, requires = "bloodlust",
+			description = "+50 Max HP", effect = { stat = "maxHealth", operation = "add", value = 50 } },
+		{ id = "heavy_swing", name = "Heavy Swing", glyph = "HS", x = 0.22, y = 0.36, cost = 2, requires = "bloodlust",
+			description = "+15% Knockback", effect = { stat = "knockback", operation = "percent", value = 0.15 } },
+		{ id = "frenzy", name = "Frenzy", glyph = "FR", x = 0.78, y = 0.36, cost = 2, requires = "bloodlust",
+			description = "+10% Attack Speed", effect = { stat = "basicAttackSpeed", operation = "percent", value = 0.1 } },
+		{ id = "hunters_pace", name = "Hunter's Pace", glyph = "HP", x = 0.5, y = 0.6, cost = 3, requires = "bloodlust",
+			description = "+8% Move Speed", effect = { stat = "movementSpeed", operation = "percent", value = 0.08 } },
+		{ id = "fang_rend", name = "Fang Rend", glyph = "FN", x = 0.16, y = 0.6, cost = 4, requires = "heavy_swing",
+			description = "+5% Crit Chance", effect = { stat = "critChance", operation = "percent", value = 0.05 } },
+		{ id = "red_feast", name = "Red Feast", glyph = "RF", x = 0.84, y = 0.6, cost = 4, requires = "frenzy",
+			description = "+5% Lifesteal", effect = { stat = "lifesteal", operation = "percent", value = 0.05 } },
+		{ id = "wolf_unbound", name = "Wolf Unbound", glyph = "WU", x = 0.5, y = 0.92, cost = 6, requires = "hunters_pace",
+			description = "+15% Ability Duration", effect = { stat = "abilityDuration", operation = "percent", value = 0.15 } },
+	},
+}
+
 local TalentModule = {}
 
 function TalentModule.Get(classId: string): Constellation?

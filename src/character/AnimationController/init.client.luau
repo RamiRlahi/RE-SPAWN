@@ -76,6 +76,8 @@ local RUN_SPEED = 34
 -- Fire Knight's Inferno).
 local function speedMult(): number
 	local m = tonumber(character:GetAttribute("SpeedMult")) or 1
+	-- the run's movement speed (Agility Tome etc.; PlayerStats, 16 = normal)
+	m *= (tonumber(player:GetAttribute("Stat_movementSpeed")) or WALK_SPEED) / WALK_SPEED
 	-- (standing in a Frozen elite's ice)
 	local until_ = character:GetAttribute("IceSlowUntil")
 	if typeof(until_) == "number" and workspace:GetServerTimeNow() < until_ then
@@ -783,6 +785,12 @@ function UpdateMovement()
 			end
 		else
 			humanoid.WalkSpeed = 0
+			-- Planted: no walk cycle treading on the spot under the swing.
+			if character:GetAttribute("Rooted") == true then
+				if WalkTrack and WalkTrack.IsPlaying then WalkTrack:Stop(0.1) end
+				if RunTrack and RunTrack.IsPlaying then RunTrack:Stop(0.1) end
+				if not isAttacking and IdleTrack and not IdleTrack.IsPlaying then IdleTrack:Play(0.1) end
+			end
 		end
 		stopSpeedSprintVFX()
 		return

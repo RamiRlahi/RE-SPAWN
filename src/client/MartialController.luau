@@ -62,10 +62,10 @@ local CHARGE_MAX = 100
 local FOCUS = { full = 1.1, empFull = 0.55, hold = 2.4, hit = 0.08, lunge = 1.5, fullLunge = 6, fullReach = 11, splash = 8,
 	walk = 5 } -- (he can creep about while it charges: walk speed, normal is 16)
 -- Electric Uppercut (matches MartialServer): the drop into a crouch, the
--- crouch dash in (`reach` studs), up out of the crouch into the uppercut
--- (it lands `hit` in), a beat held, back to guard. His feet stay on the
--- floor throughout.
-local UPPER = { crouch = 0.06, dash = 0.16, rise = 0.14, hang = 0.1, fall = 0.16, hit = 0.27, total = 0.62, reach = 7 }
+-- crouch dash in (`reach` studs), then, planted, the fist swung up from the
+-- knee (`swing`: it lands `hit` in), carried on up (`rise`), a beat held,
+-- back to guard. His feet stay on the floor throughout.
+local UPPER = { crouch = 0.05, dash = 0.14, swing = 0.08, rise = 0.08, hang = 0.12, fall = 0.15, hit = 0.27, total = 0.62, reach = 7 }
 -- Ground Slam: a leap straight up (rise), a beat hanging at the top
 -- (dash), then a dive in a straight line down onto the spot (fall).
 local ASCENT = { rise = 0.3, dash = 0.08, fall = 0.22 }
@@ -74,7 +74,13 @@ local ASCENT_HEIGHT = 14
 -- cinematic), then the thrust, held a beat; the sphere leaves the palms at
 -- `v0` and surges up to the server's speed (`ramp`: how quickly).
 local HADO = { charge = 1.3, hold = 0.45, v0 = 18, ramp = 0.3 }
-local LUNGE = { 0.8, 0.8, 0.6, 0.4, 0.9, 1.2, 1.8 } -- how far each strike of the chain steps in
+-- The chain (matches MartialServer): how far each strike reaches (its blast
+-- of air is drawn that far), how far it pushes him in behind it, and how
+-- long his feet stay planted for it (at 1× attack speed).
+local COMBO_RANGE = { 10, 10, 11, 10, 8.5, 10, 0 }
+local LUNGE = { 1.2, 1.2, 0.8, 0.6, 1.2, 1.8, 2.4 }
+local PLANTED = { 0.24, 0.24, 0.28, 0.3, 0.24, 0.3, 0.5 }
+local PALM_RADIUS, PALM_AT, FINISH_RADIUS = 7.5, 5, 9.5
 local COMBO_STEPS = 7
 local FINISH_LAND = 0.16 -- the flying knee hits the floor (matches MartialServer)
 local RECOVER = 0.5      -- the finisher, then back to guard
@@ -939,69 +945,147 @@ local function stepRigs(_dt: number)
 end
 
 -- ── Poses ───────────────────────────────────────────────────────────────────
+-- (CastPoses character space.) The strikes and the uppercut stand on
+-- CastPoses.body, so on R6 the feet stay on the floor whatever the lean, and
+-- the hips turn back against the twist. Signs: `lean` - = forward; `twist`
+-- + = the torso turned to his LEFT (right shoulder forward); `front` is the
+-- left foot's angle forward, `back` the right foot's back (negative swaps
+-- them: the right foot forward). The arms are AIMED in the world
+-- ({ elev from hanging, 90 = level; yaw + = to his left; out + = away from
+-- the body, - = across it }) and turned back into shoulder angles under the
+-- torso's lean and twist, so a fist lands where it's aimed however hard the
+-- body turns in behind it. The head stays on the target (`look` + = up).
+local QUAD, QUART = Enum.EasingStyle.Quad, Enum.EasingStyle.Quart
+type Pose = { [string]: { number } }
+type Aim = { number } -- { elev, yaw, out }
+
+-- (CastPoses blends each angle on its own, so of the two ways to write the
+-- same turn, and whole turns either side, this takes the one nearest the
+-- rough angles `guess`: an arm raised past the vertical then swings up
+-- through the top instead of the long way round.)
+local function nearest(rx: number, ry: number, rz: number, guess: { number }): { number }
+	local function near(a: number, ref: number): number
+		return a + 360 * math.floor((ref - a) / 360 + 0.5)
+	end
+	local best: { number } = {}
+	local bestD = math.huge
+	for _, c in ipairs({ { rx, ry, rz }, { rx + 180, 180 - ry, rz + 180 } }) do
+		local v = { near(c[1], guess[1]), near(c[2], guess[2]), near(c[3], guess[3]) }
+		local d = math.abs(v[1] - guess[1]) + math.abs(v[2] - guess[2]) + math.abs(v[3] - guess[3])
+		if d < bestD then best, bestD = v, d end
+	end
+	return best
+end
+
+local function aimed(lean: number, twist: number, aim: Aim, left: boolean?): { number }
+	local out = if left then -(aim[3] or 0) else (aim[3] or 0)
+	local world = CFrame.Angles(0, math.rad(aim[2] or 0), 0) * CFrame.Angles(math.rad(aim[1]), 0, 0)
+		* CFrame.Angles(0, 0, math.rad(out))
+	local torso = CFrame.fromEulerAnglesXYZ(math.rad(lean), math.rad(twist), 0)
+	local rx, ry, rz = (torso:Inverse() * world):ToEulerAnglesXYZ()
+	return nearest(math.deg(rx), math.deg(ry), math.deg(rz), { aim[1] - lean, (aim[2] or 0) - twist, out })
+end
+
+-- A fighter's whole body: the stance, both arms aimed, the head on the
+-- target; `shiftZ` slides the weight (- = onto the front foot).
+local function fighter(lean: number, twist: number, front: number, back: number, ra: Aim, la: Aim, look: number?,
+	shiftZ: number?): Pose
+	local p = CastPoses.body(lean, twist, front, back, nil, 7, 0, shiftZ)
+	p.RS = aimed(lean, twist, ra)
+	p.LS = aimed(lean, twist, la, true)
+	p.N = { (look or 0) - lean * 0.6, -twist * 0.85, 0 }
+	return p
+end
+
+-- `p` standing on its left leg, the right leg at `angle` (world: forward
+-- from hanging) and `out` to the side.
+local function onLeftLeg(p: Pose, lean: number, angle: number, out: number?): Pose
+	p.RH = { angle - lean, 0, out or 6 }
+	return p
+end
+
+-- `p` spun `yaw` degrees round (the whole body, feet and all).
+local function spun(p: Pose, yaw: number): Pose
+	local r = p.Root or { 0, 0, 0, 0, 0, 0 }
+	p.Root = { r[1] or 0, yaw, r[3] or 0, r[4] or 0, r[5] or 0, r[6] or 0 }
+	return p
+end
+
+-- Guard: left foot forward, fists up, the right at the chin.
+local GUARD = fighter(-6, 12, 14, 18, { 70, 4, -22 }, { 76, -4, -26 }, 2)
+
+-- The chain. Every strike: a quick wind-up (Quad), the blow (Quart: fastest
+-- at the hit), held a beat, then back to guard. Each one steps in and his
+-- feet stay planted till it's thrown (MartialController.Basic).
 local STRIKES = {
-	-- 1 · the jab: chambered at the hip, then snapped out with the whole body
-	-- behind it, a deep step in, the left fist guarding the chin
-	{ { dur = 0.045, pose = { RS = { 30, 0, 24 }, LS = { 75, 0, -28 }, W = { 6, -24, 0 }, N = { 0, 16, 0 }, Root = { 0, 0, 0, 0, -0.3, 0.2 },
-			RH = { 14, 0, 8 }, LH = { -10, 0, -8 } } },
-		{ dur = 0.055, style = Enum.EasingStyle.Quart, pose = { RS = { 98, 0, -8 }, LS = { 78, 0, -30 }, W = { -8, 32, 0 }, N = { 0, -16, 0 },
-			Root = { 0, 0, 0, 0, -0.35, -0.35 }, RH = { 26, 0, 8 }, LH = { -24, 0, -8 } } },
-		{ dur = 0.08, pose = { RS = { 96, 0, -8 }, LS = { 76, 0, -30 }, W = { -6, 30, 0 }, Root = { 0, 0, 0, 0, -0.32, -0.3 } } } },
-	-- 2 · the cross: the hips whipped round into it, the left driven through,
-	-- the right pulled back to the hip
-	{ { dur = 0.045, pose = { LS = { 30, 0, -24 }, RS = { 75, 0, 28 }, W = { 6, 26, 0 }, N = { 0, -16, 0 }, Root = { 0, 0, 0, 0, -0.3, 0.2 } } },
-		{ dur = 0.055, style = Enum.EasingStyle.Quart, pose = { LS = { 98, 0, 8 }, RS = { 20, 0, 30 }, W = { -10, -36, 0 }, N = { 0, 18, 0 },
-			Root = { 0, 0, 0, 0, -0.38, -0.4 }, RH = { -24, 0, 8 }, LH = { 28, 0, -8 } } },
-		{ dur = 0.08, pose = { LS = { 96, 0, 8 }, RS = { 22, 0, 30 }, W = { -8, -34, 0 }, Root = { 0, 0, 0, 0, -0.35, -0.35 } } } },
-	-- 3 · the high kick: the knee chambered up, then the right leg snapped
-	-- high over the head, the body leaning back off the standing leg, fists
-	-- kept up in guard
-	{ { dur = 0.06, pose = { RH = { 75, 0, 12 }, LH = { -6, 0, -6 }, W = { 8, 10, 0 }, N = { 0, -8, 0 }, RS = { 60, 0, 22 }, LS = { 72, 0, -22 },
-			Root = { 0, 0, 0, 0, -0.2, 0.1 } } },
-		{ dur = 0.07, style = Enum.EasingStyle.Quart, pose = { RH = { 128, 0, 16 }, LH = { -10, 0, -6 }, W = { 18, 14, 0 }, N = { -10, -6, 0 },
-			RS = { 40, 0, 42 }, LS = { 82, 0, -30 }, Root = { 0, 0, 0, 0, 0.05, 0.25 } } },
-		{ dur = 0.1, pose = { RH = { 120, 0, 14 }, LH = { -8, 0, -6 }, W = { 15, 12, 0 }, RS = { 42, 0, 40 }, LS = { 80, 0, -30 },
-			Root = { 0, 0, 0, 0, 0, 0.2 } } } },
-	-- 4 · the spinning strike: wound right round, then the whole body spins
-	-- through, the right leg sweeping out at full stretch, arms flung wide
-	{ { dur = 0.06, pose = { Root = { 0, -110, 0, 0, -0.25, 0 }, W = { 0, -20, 0 }, RS = { 50, 0, 50 }, LS = { 50, 0, -50 }, N = { 0, 40, 0 },
-			RH = { 10, 0, -6 }, LH = { -6, 0, -8 } } },
-		{ dur = 0.09, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 70, -14, 0, 0.1, 0 }, W = { 0, 10, -16 }, RS = { 20, 0, 75 },
-			LS = { 60, 0, -70 }, N = { 0, -20, 0 }, RH = { 18, 0, 92 }, LH = { -4, 0, -10 } } },
-		{ dur = 0.08, pose = { Root = { 0, 95, -10, 0, 0.05, 0 }, W = { 0, 6, -12 }, RS = { 20, 0, 70 }, LS = { 55, 0, -65 }, RH = { 14, 0, 80 } } } },
-	-- 5 · the elbow: the arm drawn back and out, then whipped across the
-	-- chest at shoulder height with a hard turn of the hips, low and close
-	{ { dur = 0.05, pose = { RS = { 80, 0, 46 }, LS = { 70, 0, -26 }, W = { 4, -32, 0 }, N = { 0, 18, 0 }, Root = { 0, 0, 0, 0, -0.35, 0.15 },
-			RH = { 18, 0, 10 }, LH = { -14, 0, -10 } } },
-		{ dur = 0.05, style = Enum.EasingStyle.Quart, pose = { RS = { 92, 0, -62 }, LS = { 64, 0, -30 }, W = { -12, 48, 0 }, N = { 0, -14, 0 },
-			Root = { 0, 0, 0, 0, -0.45, -0.45 }, RH = { 32, 0, 8 }, LH = { -28, 0, -8 } } },
-		{ dur = 0.1, pose = { RS = { 90, 0, -58 }, LS = { 62, 0, -30 }, W = { -10, 44, 0 }, Root = { 0, 0, 0, 0, -0.42, -0.4 } } } },
-	-- 6 · the palm strike: the hand coiled back at the hip, the body low,
-	-- then the open palm driven out in a deep lunge as the Qi bursts from it
-	{ { dur = 0.07, pose = { RS = { 18, 0, 26 }, LS = { 72, 0, -22 }, W = { 10, -34, 0 }, N = { 0, 24, 0 }, Root = { 0, 0, 0, 0, -0.5, 0.35 },
-			RH = { 26, 0, 12 }, LH = { -18, 0, -12 } } },
-		{ dur = 0.06, style = Enum.EasingStyle.Quart, pose = { RS = { 100, 0, -10 }, LS = { 38, 0, -32 }, W = { -14, 34, 0 }, N = { 0, -10, 0 },
-			Root = { 0, 0, 0, 0, -0.65, -0.6 }, RH = { 48, 0, 8 }, LH = { -36, 0, -8 } } },
-		{ dur = 0.14, pose = { RS = { 98, 0, -10 }, LS = { 38, 0, -32 }, W = { -12, 32, 0 }, Root = { 0, 0, 0, 0, -0.6, -0.55 } } } },
-	-- 7 · the finisher: a hop up, the right knee driven high and both fists
-	-- raised, then everything brought down into the floor in a deep crouch
-	-- (the eruption); and 8 · recovery: back up into guard, fists raised
-	{ { dur = 0.07, pose = { Root = { 0, 0, 0, 0, 0.7, 0.1 }, RH = { 105, 0, 6 }, LH = { -12, 0, -6 }, RS = { 150, 0, 22 }, LS = { 150, 0, -22 },
-			W = { 10, 0, 0 }, N = { -14, 0, 0 } } },
-		{ dur = 0.09, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, -1.15, -0.3 }, RH = { 84, 0, 10 }, LH = { -30, 0, -10 },
-			RS = { 28, 0, 12 }, LS = { 28, 0, -12 }, W = { -32, 0, 0 }, N = { 18, 0, 0 } } },
-		{ dur = 0.12, pose = { Root = { 0, 0, 0, 0, -1.1, -0.28 }, RH = { 80, 0, 10 }, LH = { -28, 0, -10 }, RS = { 26, 0, 12 }, LS = { 26, 0, -12 },
-			W = { -30, 0, 0 }, N = { 16, 0, 0 } } },
-		{ dur = 0.2, style = Enum.EasingStyle.Sine, pose = { Root = { 0, 0, 0, 0, -0.35, 0 }, RS = { 70, 0, 20 }, LS = { 82, 0, -26 },
-			W = { -6, 12, 0 }, N = { 0, -10, 0 }, RH = { 14, 0, 10 }, LH = { -12, 0, -10 } } },
-		{ dur = 0.12, pose = { Root = { 0, 0, 0, 0, -0.32, 0 }, RS = { 68, 0, 20 }, LS = { 80, 0, -26 }, W = { -5, 12, 0 }, N = { 0, -10, 0 },
-			RH = { 12, 0, 10 }, LH = { -10, 0, -10 } } } },
+	-- 1 · the jab: the right fist chambered at the hip, then snapped out level
+	-- with the shoulders turning in behind it and the weight on the front
+	-- (left) foot, the left fist kept up at the chin
+	{ { dur = 0.045, style = QUAD, pose = fighter(-4, -16, 19, 16, { 20, 0, 12 }, { 74, 0, -26 }, 4) },
+		{ dur = 0.055, style = QUART, pose = fighter(-12, 28, 26, 36, { 92, 20, 0 }, { 72, 0, -28 }, 4, -0.35) },
+		{ dur = 0.08, pose = fighter(-10, 25, 24, 32, { 90, 20, 0 }, { 72, 0, -28 }, 4, -0.3) } },
+	-- 2 · the cross: a step through onto the right foot, the hips whipped the
+	-- other way and the left fist driven through, the right back at the chin
+	{ { dur = 0.045, style = QUAD, pose = fighter(-4, 16, 6, 6, { 74, 0, -26 }, { 20, 0, 12 }, 4) },
+		{ dur = 0.055, style = QUART, pose = fighter(-13, -30, -36, -24, { 72, 0, -28 }, { 93, -20, 0 }, 4, -0.4) },
+		{ dur = 0.08, pose = fighter(-11, -27, -32, -22, { 72, 0, -28 }, { 91, -20, 0 }, 4, -0.35) } },
+	-- 3 · the high kick: the right knee chambered up, then the leg snapped
+	-- high in front, the body leaning back off the standing leg, the right
+	-- arm thrown down for balance, the left fist kept up
+	{ { dur = 0.06, style = QUAD, pose = onLeftLeg(fighter(2, 8, 4, 4, { 56, 0, -14 }, { 74, -4, -24 }, 4), 2, 60) },
+		{ dur = 0.07, style = QUART, pose = onLeftLeg(fighter(14, 10, -4, 4, { 24, 0, 30 }, { 80, -4, -24 }, 12), 14, 140, 4) },
+		{ dur = 0.1, pose = onLeftLeg(fighter(12, 10, -4, 4, { 26, 0, 30 }, { 78, -4, -24 }, 10), 12, 132, 4) } },
+	-- 4 · the spinning strike: wound round to the right, then the whole body
+	-- spins right round on the left foot, the right leg swept out level
+	-- through everything round him, arms flung wide, the torso tipped away
+	-- from the leg; it comes back square to the front inside the strike
+	-- (the full turn ends at 360, which the recovery counts as no turn).
+	(function()
+		local sweep = function(yaw: number): Pose
+			local p = spun(fighter(0, 0, -2, 2, { 78, 0, 78 }, { 70, 0, 78 }, 0), yaw)
+			p.W = { 0, 0, 14 }               -- (tipped to his left, away from the leg)
+			p.RH = { 0, 0, 76 }              -- level out to the side (with the tip: 90)
+			p.LH = { 0, 0, -18 }             -- the standing leg kept straight under him
+			p.Root[5] = 0.18                 -- (up on the standing leg)
+			return p
+		end
+		return {
+			{ dur = 0.05, style = QUAD, pose = spun(fighter(-8, -14, 20, 14, { 55, 0, 45 }, { 55, 0, 45 }, 0), -60) },
+			{ dur = 0.08, style = QUART, pose = sweep(120) },
+			{ dur = 0.07, pose = sweep(220) },
+			{ dur = 0.08, style = QUAD, pose = spun(table.clone(GUARD), 360) },
+		}
+	end)(),
+	-- 5 · the elbow: the right arm drawn back level and out, then whipped
+	-- across the chest at shoulder height with a hard turn of the hips, low
+	-- and close, the left fist up
+	{ { dur = 0.05, style = QUAD, pose = fighter(-4, -30, 23, 18, { 86, -55, 0 }, { 74, 0, -26 }, 2) },
+		{ dur = 0.05, style = QUART, pose = fighter(-12, 42, 26, 40, { 88, 55, 0 }, { 72, 0, -28 }, 2, -0.4) },
+		{ dur = 0.1, pose = fighter(-10, 38, 23, 35, { 86, 50, 0 }, { 72, 0, -28 }, 2, -0.35) } },
+	-- 6 · the palm strike: the hand coiled back at the hip, the body turned
+	-- away and low, then the open palm driven out level in a deep lunge as the
+	-- Qi bursts from it, the left fist pulled back
+	{ { dur = 0.07, style = QUAD, pose = fighter(-2, -32, 22, 20, { 15, 0, 18 }, { 74, 0, -26 }, 4, 0.2) },
+		{ dur = 0.06, style = QUART, pose = fighter(-15, 30, 30, 42, { 94, 18, 0 }, { 30, 0, -30 }, 4, -0.55) },
+		{ dur = 0.14, pose = fighter(-13, 28, 30, 40, { 92, 18, 0 }, { 32, 0, -30 }, 4, -0.5) } },
+	-- 7 · the finisher: a hop, the right knee driven high and both fists
+	-- raised, then everything brought down into the floor, kneeling on the
+	-- right knee with both fists driven down (the eruption, FINISH_LAND in);
+	-- then back up into guard
+	{ { dur = 0.07, style = QUAD, pose = CastPoses.lift(onLeftLeg(fighter(6, 0, -10, 10, { 150, 0, 14 }, { 150, 0, 14 }, 10), 6, 80), 0.8) },
+		{ dur = 0.09, style = QUART, pose = fighter(-28, 0, 46, 46, { 28, 0, 10 }, { 28, 0, 10 }, -10, -0.2) },
+		{ dur = 0.12, pose = fighter(-26, 0, 46, 46, { 30, 0, 10 }, { 30, 0, 10 }, -8, -0.2) },
+		{ dur = 0.2, style = Enum.EasingStyle.Sine, pose = GUARD },
+		{ dur = 0.12, pose = GUARD } },
 }
 local STRIKE_HAND = { "R", "L", "kick", "kick", "R", "R", "both" }
 
-local function strikePose(char: Model, n: number)
-	CastPoses.play(char, STRIKES[n] or STRIKES[1], if n == COMBO_STEPS then 0.25 else 0.18)
-	fistStreak(char, STRIKE_HAND[n] or "R", if n >= 6 then 0.3 else 0.2)
+-- `speed`: attack speed; the whole strike plays that much faster, so it's
+-- thrown in full (the spin comes back square) before the next one cuts in.
+local function strikePose(char: Model, n: number, speed: number?)
+	local s = math.max(speed or 1, 1)
+	CastPoses.play(char, STRIKES[n] or STRIKES[1], if n == COMBO_STEPS then 0.25 else 0.18, nil, { speed = s })
+	fistStreak(char, STRIKE_HAND[n] or "R", (if n >= 6 then 0.3 else 0.2) / s)
 end
 
 -- Focus Strike: 1 · Hold / charge (a wide low stance, left foot forward, the
@@ -1040,26 +1124,24 @@ local function focusPunchPose(char: Model, c: number)
 	task.delay(FOCUS.hit * 0.3, function() fistStreak(char, "R", 0.25) end)
 end
 
--- Electric Uppercut, the crouch dash (after the Wind God Fist): 1 · drop
--- into a crouch → 2 · dash in low, bent right over, the right fist dragged
--- low behind by the knee, eyes up on them → 3 · up out of the crouch into
--- the uppercut, the fist driven straight at the sky, the body twisted into
--- it and leaning back, the left fist clenched down by the hip, feet planted
--- → held → back to guard.
+-- Electric Uppercut (after the Wind God Fist): first the dash, then the
+-- punch. 1 · drop into a crouch → 2 · dash in low, bent right over in a long
+-- running stride, the right fist dragged low behind by the knee, the left
+-- up on guard, eyes up on them → 3 · planted: the right foot driven in
+-- ahead, the left leg stretched long behind, and the fist swung up from the
+-- knee past the outside of his head with the shoulders turning in behind
+-- it (the hit) → 4 · carried on up at the sky, the left fist dropped by the
+-- hip, eyes following them up → held → back to guard.
 local function uppercutPose(char: Model)
 	local U = UPPER
-	local low = { Root = { 0, 0, 0, 0, -1.2, 0 }, W = { -38, -24, 0 }, N = { 26, 18, 0 }, RS = { -24, 0, 10 }, LS = { 46, 0, -36 },
-		RH = { 62, 0, 8 }, LH = { -52, 0, -8 } }
+	local up = fighter(-6, 36, -37, -42, { 164, 4, 16 }, { 18, 0, -6 }, 16, -0.2)
 	CastPoses.play(char, {
-		{ dur = U.crouch, pose = { Root = { 0, 0, 0, 0, -0.9, 0 }, W = { -28, -20, 0 }, N = { 20, 14, 0 }, RS = { -10, 0, 10 }, LS = { 52, 0, -32 },
-			RH = { 50, 0, 8 }, LH = { -40, 0, -8 } } },
-		{ dur = U.dash, pose = low },
-		{ dur = U.rise, style = Enum.EasingStyle.Quart, pose = { Root = { 0, 0, 0, 0, 0, 0 }, W = { 14, 34, 0 }, N = { -26, -12, 0 },
-			RS = { 176, 0, 4 }, LS = { -14, 0, -18 }, RH = { 26, 0, 6 }, LH = { -12, 0, -6 } } },
-		{ dur = U.hang, pose = { Root = { 0, 0, 0, 0, 0, 0 }, W = { 16, 32, 0 }, N = { -28, -10, 0 }, RS = { 178, 0, 2 }, LS = { -12, 0, -20 },
-			RH = { 22, 0, 6 }, LH = { -10, 0, -6 } } },
-		{ dur = U.fall, pose = { Root = { 0, 0, 0, 0, -0.2, 0 }, W = { 4, 14, 0 }, N = { -6, 0, 0 }, RS = { 130, 0, 12 }, LS = { 20, 0, -30 },
-			RH = { 20, 0, 8 }, LH = { 8, 0, -8 } } },
+		{ dur = U.crouch, style = QUAD, pose = fighter(-24, -18, 40, 28, { -6, 0, 14 }, { 76, -10, -26 }, 14) },
+		{ dur = U.dash, pose = fighter(-32, -22, 52, 37, { -26, 0, 12 }, { 84, -10, -26 }, 22) },
+		{ dur = U.swing, style = QUART, pose = fighter(-12, 30, -33, -42, { 150, 6, 16 }, { 22, 0, -8 }, 12, -0.25) },
+		{ dur = U.rise, pose = up },
+		{ dur = U.hang, pose = up },
+		{ dur = U.fall, style = QUAD, pose = fighter(-6, 14, 10, 16, { 100, 4, -10 }, { 56, 0, -24 }, 8) },
 	}, 0.25)
 end
 
@@ -1111,14 +1193,44 @@ local function hadoPose(char: Model)
 end
 
 -- ── M1: Flowing Fists ───────────────────────────────────────────────────────
--- 1 · jab and 2 · cross: a crescent of Qi off the fist, a flurry of phantom
--- fists thrown round the real one, rings of air bursting off the punch.
--- 3 · the high kick: a tall crescent of Qi swept up in front. 4 · the
--- spinning strike: a ring of Qi swept all the way round him, wind kicked up
--- off the floor. 5 · the elbow: a short starburst where it lands. 6 · the
--- palm: a small dragon bursts out of it, a shell of Qi, cracked ground.
--- 7 · the finisher: the floor erupts where the knee lands, rock thrown up,
--- a shockwave. Every strike stamps a ring of Qi at his feet.
+-- Every strike drives air out to its full reach (rings of air racing along
+-- the blow, speed lines; a ring swept round him for the spin and the knee),
+-- so you can see how far it hits. 1 · jab and 2 · cross: a crescent of Qi
+-- off the fist, a flurry of phantom fists thrown round the real one. 3 · the
+-- high kick: a tall crescent of Qi swept up in front. 4 · the spinning
+-- strike: a ring of Qi swept all the way round him, wind kicked up off the
+-- floor. 5 · the elbow: a short starburst where it lands. 6 · the palm: a
+-- small dragon bursts out of it, a shell of Qi, cracked ground. 7 · the
+-- finisher: the floor erupts where the knee lands, rock thrown up, a
+-- shockwave. Every strike stamps a ring of Qi at his feet.
+
+-- A ring of air bursting off a punch, standing across the line of it.
+local function punchRing(at: Vector3, dir: Vector3, radius: number, life: number, color: Color3?)
+	SwordFX.Arc({ cf = CFrame.lookAt(at, at + dir) * CFrame.Angles(math.rad(90), 0, 0), radius = radius, arc = 359, width = 0.35,
+		color = color or CRIMSON, life = life, draw = 0.001, grow = 1.1, core = WHITE })
+end
+
+-- A blast of air driven off a strike out to its full reach (so you see how
+-- far it hits): rings of air racing out along the line, swelling as they
+-- go, and speed lines streaking ahead. `k` sizes the rings.
+local AIR = Color3.fromRGB(255, 232, 232)
+local function airBlast(from: Vector3, dir: Vector3, reach: number, k: number)
+	if reach < 1 or not FxBudget.Allow("maAir", 12) then return end
+	for i = 1, 3 do
+		local u = i / 3
+		task.delay((i - 1) * 0.03, function()
+			punchRing(from + dir * (0.6 + (reach - 0.6) * u), dir, (0.6 + 1.4 * u) * k, 0.14 + 0.06 * u, if i == 3 then AIR else HOT)
+		end)
+	end
+	SwordFX.Streak(from, from + dir * reach, 0.45 * k, AIR, 0.06, 5, WHITE)
+end
+
+-- A ring of air swept flat round him out to `reach` (the spin, the knee).
+local function airRing(at: Vector3, dir: Vector3, reach: number, draw: number)
+	if not FxBudget.Allow("maAir", 12) then return end
+	SwordFX.Arc({ cf = CFrame.lookAt(at, at + dir), radius = reach * 0.5, arc = 359, width = 0.55, color = AIR, life = 0.3,
+		draw = draw, grow = 0.9, core = WHITE })
+end
 
 -- Chunks of the floor thrown up round `center` (the finisher).
 local function chunks(center: Vector3, count: number, speed: number)
@@ -1142,6 +1254,7 @@ local function eruption(at: Vector3, radius: number, mine: boolean)
 	floorRing(g, radius, 0.35, CRIMSON, 1.1)
 	task.delay(0.06, function() floorRing(g, radius * 1.3, 0.4, HOT, 0.6) end)
 	shell(g + Vector3.new(0, 0.6, 0), 1, radius * 1.8, 0.35, CRIMSON)
+	airRing(g + Vector3.new(0, 0.6, 0), Vector3.new(0, 0, -1), radius * 1.15, 0.001)
 	flare(g + Vector3.new(0, 1, 0), radius * 0.9, 0.22, WHITE)
 	PackFX.Burst("Anime/Crack-01", CFrame.new(g + Vector3.new(0, 0.1, 0)), { color = BLOOD, scale = 0.9 })
 	if FxBudget.Allow("maFinishRocks", 3) then
@@ -1155,12 +1268,6 @@ local function eruption(at: Vector3, radius: number, mine: boolean)
 		deps.shake(0.55, 0.2)
 		deps.fovPunch(4, 0.2)
 	end
-end
-
--- A ring of air bursting off a punch, standing across the line of it.
-local function punchRing(at: Vector3, dir: Vector3, radius: number, life: number, color: Color3?)
-	SwordFX.Arc({ cf = CFrame.lookAt(at, at + dir) * CFrame.Angles(math.rad(90), 0, 0), radius = radius, arc = 359, width = 0.35,
-		color = color or CRIMSON, life = life, draw = 0.001, grow = 1.1, core = WHITE })
 end
 
 -- Phantom fists: streaks of Qi thrown in a flurry round the real one.
@@ -1184,6 +1291,7 @@ local function strikeFx(msg: any)
 	local mine = msg.attacker == nil or msg.attacker == player
 	local fist = pos + dir * 2.6 + Vector3.new(0, 0.6, 0)
 	local feet = onGround(pos)
+	local reach = tonumber(msg.reach) or COMBO_RANGE[n] or 8
 	if not FxBudget.Allow("maStrike", 14) then return end
 	-- (a stamp of Qi at his feet)
 	floorRing(feet, if n == 4 or n == 6 then 4.5 else 2.4, 0.25, CRIMSON, 0.45)
@@ -1194,7 +1302,7 @@ local function strikeFx(msg: any)
 		streak(knee - Vector3.new(0, 2, 0), knee + Vector3.new(0, 1.5, 0), 0.5, 0.15, HOT)
 		ClassFX.Sound("whoosh", knee, 0.6, 0.75)
 		local at = (msg.palm :: Vector3?) or (pos + dir * 2.5)
-		local r = tonumber(msg.radius) or 8
+		local r = tonumber(msg.radius) or FINISH_RADIUS
 		task.delay(FINISH_LAND, function() eruption(at, r, mine) end)
 	elseif n == 3 then
 		-- the high kick: a tall crescent of Qi swept up in front of him
@@ -1203,6 +1311,10 @@ local function strikeFx(msg: any)
 			color = CRIMSON, life = 0.24, draw = 0.06, grow = 0.35, core = WHITE, sweep = -1 })
 		SwordFX.Arc({ cf = CFrame.lookAt(c, c + dir) * CFrame.Angles(0, 0, math.rad(80)), radius = 2.6, arc = 120, width = 0.45,
 			color = HOT, life = 0.2, draw = 0.06, grow = 0.3, core = WHITE, sweep = -1 })
+		-- (the air it throws off: a big crescent, a blast out to the reach)
+		SwordFX.Arc({ cf = CFrame.lookAt(c, c + dir) * CFrame.Angles(0, 0, math.rad(90)), radius = 4.6, arc = 120, width = 0.5,
+			color = AIR, life = 0.26, draw = 0.07, grow = 0.6, core = WHITE, sweep = -1 })
+		airBlast(c + Vector3.new(0, 1.6, 0), dir, reach, 1.2)
 		sparks(c + dir * 2 + Vector3.new(0, 2, 0), 10, 16)
 		ClassFX.Sound("whoosh", c, 0.55, 0.9)
 	elseif n == 5 then
@@ -1213,6 +1325,7 @@ local function strikeFx(msg: any)
 		punchRing(hit, dir, 1.3, 0.18, HOT)
 		SwordFX.Arc({ cf = CFrame.lookAt(hit - dir * 0.6, hit + dir) * CFrame.Angles(0, 0, math.rad(-80)), radius = 1.6,
 			arc = 140, width = 0.5, color = CRIMSON, life = 0.16, draw = 0.03, grow = 0.3, core = WHITE })
+		airBlast(hit, dir, reach, 1.1)
 		sparks(hit, 12, 20)
 		ClassFX.Sound("punch", hit, 0.45, 0.8)
 	elseif n == 1 or n == 2 then
@@ -1220,9 +1333,8 @@ local function strikeFx(msg: any)
 		local hand = fist + side * (if n == 1 then 0.5 else -0.5)
 		SwordFX.Arc({ cf = CFrame.lookAt(hand, hand + dir) * CFrame.Angles(0, 0, math.rad(if n == 1 then 70 else -70)), radius = 2.4,
 			arc = 120, width = 0.6, color = CRIMSON, life = 0.2, draw = 0.04, grow = 0.35, core = WHITE })
-		punchRing(hand + dir * 1.2, dir, 1.0, 0.2)
-		task.delay(0.05, function() punchRing(hand + dir * 2.6, dir, 1.5, 0.22, HOT) end)
-		if FxBudget.Allow("maPhantom", 8) then phantoms(hand, dir, if n == 1 then 3 else 4, 6) end
+		airBlast(hand, dir, reach, 1)
+		if FxBudget.Allow("maPhantom", 8) then phantoms(hand, dir, if n == 1 then 3 else 4, reach * 0.7) end
 		ClassFX.Sound("whoosh", hand, 0.4, 1 + n * 0.08)
 	elseif n == 4 then
 		-- the spinning strike: a full ring of Qi swept round him at the height
@@ -1232,6 +1344,7 @@ local function strikeFx(msg: any)
 			grow = 0.4, core = WHITE })
 		SwordFX.Arc({ cf = CFrame.lookAt(c + Vector3.new(0, 0.6, 0), c + Vector3.new(0, 0.6, 0) + dir) * CFrame.Angles(0, 0, math.rad(8)),
 			radius = 2.7, arc = 300, width = 0.5, color = HOT, life = 0.22, draw = 0.08, grow = 0.3, core = WHITE })
+		airRing(c, dir, reach, 0.09)
 		if FxBudget.Allow("maKickPack", 4) then
 			PackFX.Burst("Anime/Wind-02", CFrame.new(feet + Vector3.new(0, 0.4, 0)), { color = CRIMSON, scale = 0.9 })
 		end
@@ -1239,14 +1352,13 @@ local function strikeFx(msg: any)
 		ClassFX.Sound("whoosh", c, 0.6, 0.8)
 	elseif n == 6 then
 		-- the palm strike
-		local p = (msg.palm :: Vector3?) or (pos + dir * 4)
-		local r = tonumber(msg.radius) or 6
+		local p = (msg.palm :: Vector3?) or (pos + dir * PALM_AT)
+		local r = tonumber(msg.radius) or PALM_RADIUS
 		local hands = pos + dir * 2.2 + Vector3.new(-dir.Z, 0, dir.X) * 0.5 + Vector3.new(0, 0.4, 0)
 		flare(hands, 6, 0.2, WHITE)
 		shell(p, 1, r * 2.2, 0.32, CRIMSON)
 		flare(p, r * 1.3, 0.25)
-		punchRing(hands + dir * 1.5, dir, 1.6, 0.25)
-		punchRing(hands + dir * 3.5, dir, 2.6, 0.3, HOT)
+		airBlast(hands, dir, reach + r * 0.5, 1.5)
 		PackFX.Burst("Anime/Shoot-01", CFrame.lookAt(p, p + dir), { color = CRIMSON, scale = 1.1 })
 		floorRing(onGround(p), r, 0.35, CRIMSON, 0.8)
 		if FxBudget.Allow("maPalmDragon", 2) then
@@ -1290,7 +1402,9 @@ end
 local function onStrike(msg: any)
 	if msg.attacker ~= player then
 		local char = charOf(msg.attacker)
-		if char then strikePose(char, tonumber(msg.step) or 1) end
+		if char then
+			strikePose(char, tonumber(msg.step) or 1, tonumber(msg.attacker:GetAttribute("Stat_basicAttackSpeed")))
+		end
 		strikeFx(msg)
 	end
 	if msg.landed and FxBudget.Allow("maLanded", 14) then strikeLanded(msg) end
@@ -1948,7 +2062,7 @@ local function uppercutFly(char: Model, root: BasePart, dir: Vector3): number
 		elseif t < a2 then
 			p = o:Lerp(dashEnd, easeOut((t - a1) / U.dash))
 		else
-			p = dashEnd:Lerp(stepEnd, easeOut(math.min((t - a2) / U.rise, 1)))
+			p = dashEnd:Lerp(stepEnd, easeOut(math.min((t - a2) / U.swing, 1)))
 		end
 		if mv.alive() then mv.set(p) end
 		if t >= U.total then
@@ -2010,7 +2124,7 @@ local function uppercutFx(char: Model?, pos: Vector3, dir: Vector3, dash: number
 	-- him as he rises
 	local t0 = os.clock()
 	local nextArc = 0
-	animate(U.crouch + U.dash + U.rise + U.hang, function()
+	animate(U.crouch + U.dash + U.swing + U.rise + U.hang, function()
 		local t = os.clock() - t0
 		if t < nextArc or not char then return nil end
 		nextArc = t + 0.035
@@ -2695,27 +2809,75 @@ local function attackSpeed(): number
 	return math.max(tonumber(player:GetAttribute("Stat_basicAttackSpeed")) or 1, 0.1)
 end
 
+-- Feet planted: a Rooted character can't walk (AnimationController holds it
+-- still and stops the walk cycle under the pose). Each strike keeps it going,
+-- so a chain of them stays planted till the last is thrown.
+local plantToken = 0
+local function plant(char: Model, seconds: number)
+	plantToken += 1
+	local token = plantToken
+	char:SetAttribute("Rooted", true)
+	task.delay(seconds, function()
+		if plantToken == token and char.Parent then char:SetAttribute("Rooted", nil) end
+	end)
+end
+
+-- A push in behind a strike: carried `dist` studs along `dir` over `t`
+-- seconds, level (short of walls and ledges), then stopped dead. Returns how
+-- far it goes.
+local function nudge(root: BasePart, dir: Vector3, dist: number, t: number): number
+	local old = root:FindFirstChild("MartialNudge")
+	if old then old:Destroy() end
+	dist = math.min(SafeMove.ClampDash(root, dir, dist), SafeMove.ClampToFloor(root, dir, dist))
+	if dist < 0.05 then return 0 end
+	local att = Instance.new("Attachment")
+	att.Name = "MartialNudge"
+	local lv = Instance.new("LinearVelocity")
+	lv.Attachment0 = att
+	lv.RelativeTo = Enum.ActuatorRelativeTo.World
+	lv.ForceLimitMode = Enum.ForceLimitMode.PerAxis
+	lv.MaxAxesForce = Vector3.new(1e5, 0, 1e5)
+	lv.VectorVelocity = dir * (dist / t)
+	lv.Parent = att
+	att.Parent = root
+	task.delay(t, function()
+		if not att.Parent then return end -- (a newer push took over)
+		att:Destroy()
+		if root.Parent then
+			local v = root.AssemblyLinearVelocity
+			root.AssemblyLinearVelocity = Vector3.new(0, v.Y, 0)
+		end
+	end)
+	return dist
+end
+
 function MartialController.Basic(char: Model, root: BasePart): boolean
 	local now = os.clock()
 	if now < busyUntil or char:GetAttribute("IsSkillCasting") == true then return true end
-	if now - lastSwing < COMBO_INTERVAL / attackSpeed() then return true end
+	local speed = attackSpeed()
+	if now - lastSwing < COMBO_INTERVAL / speed then return true end
 	if now - lastSwing > COMBO_RESET then step = 0 end
 	step = step % COMBO_STEPS + 1
 	lastSwing = now
 	-- (after the finisher: a beat to recover, then the chain starts over)
 	if step == COMBO_STEPS then
-		busyUntil = now + RECOVER / attackSpeed()
+		busyUntil = now + RECOVER / speed
 	end
 	local dir = flat(deps.getAim(root))
-	-- (a step in behind each strike, short of walls and ledges)
-	local lunge = math.min(SafeMove.ClampDash(root, dir, LUNGE[step]), SafeMove.ClampToFloor(root, dir, LUNGE[step]))
-	root.CFrame = CFrame.lookAt(root.Position + dir * lunge, root.Position + dir * (lunge + 1))
-	strikePose(char, step)
-	-- (the swing is drawn now; the hits come back from the server)
+	root.CFrame = CFrame.lookAt(root.Position, root.Position + dir)
+	-- No walking through a strike: the feet planted till it's thrown, and a
+	-- push in behind it.
+	local fast = math.max(speed, 1)
+	plant(char, PLANTED[step] / fast)
+	local lunge = nudge(root, dir, LUNGE[step], 0.1 / fast)
+	strikePose(char, step, speed)
+	-- (the swing is drawn now, from partway along the push; the hits come
+	-- back from the server)
 	local size = tonumber(player:GetAttribute("Stat_size")) or 1
-	strikeFx({ pos = root.Position, dir = dir, step = step, landed = false,
-		palm = if step == 6 then root.Position + dir * 4 elseif step == COMBO_STEPS then root.Position + dir * 2.5 else nil,
-		radius = (if step == COMBO_STEPS then 8 else 6) * size })
+	local at = root.Position + dir * lunge * 0.5
+	strikeFx({ pos = at, dir = dir, step = step, landed = false, reach = COMBO_RANGE[step] * size,
+		palm = if step == 6 then at + dir * PALM_AT elseif step == COMBO_STEPS then at + dir * 2.5 else nil,
+		radius = (if step == COMBO_STEPS then FINISH_RADIUS else PALM_RADIUS) * size })
 	if step == COMBO_STEPS then step = 0 end
 	Network.GetRemoteEvent(Network.Remotes.PerformAttack):FireServer({ direction = dir })
 	return true
@@ -2742,6 +2904,7 @@ function MartialController.OnCast(skillIndex: number, char: Model, root: BasePar
 		char:SetAttribute("AllowSkillMovement", false)
 		busyUntil = os.clock() + UPPER.total
 		releaseAfter(char, UPPER.total + 0.05)
+		plant(char, UPPER.total)
 		uppercutPose(char)
 		local origin = root.Position
 		local dash = uppercutFly(char, root, dir)

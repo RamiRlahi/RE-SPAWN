@@ -15,6 +15,9 @@
 	  The Fallen Angel   (void)   Dark Descent · Feather Storm · Void Cross · Shadow Dash ·
 	                              Blade Sweep · JUDGEMENT (pillars fall from the sky, then a
 	                              slam floods the whole arena: hide behind a pillar)
+	  ZAR-0, the Arcade Djinn (holo)  Block Drop · Laser Grid · Hand Slam · Glitch Strike ·
+	                              Coin Spray · GAME OVER (the floor a game board: only the lit
+	                              tiles are safe, round after round)
 
 	Bosses are not staggered by hits (MobManager / SkillManager), so a player
 	hitting non-stop can't lock them out of their moves.
@@ -85,6 +88,12 @@ BossAI.Kinds = {
 		moves = { "dark_descent", "feather_storm", "void_cross", "shadow_dash", "blade_sweep", "judgement" },
 		signature = "judgement", gap = 1.4,
 	},
+	djinn = {
+		name = "★ ZAR-0, The Arcade Djinn", health = 4.3, damage = 1.3, xp = 4,
+		color = Color3.fromRGB(255, 70, 210),
+		moves = { "block_drop", "laser_grid", "hand_slam", "glitch_strike", "coin_spray", "game_over" },
+		signature = "game_over", gap = 1.3,
+	},
 } :: { [string]: Kind }
 
 -- What each signature move is called on screen.
@@ -93,6 +102,7 @@ local SIGNATURE_NAMES: { [string]: string } = {
 	nova = "HEX NOVA",
 	meteors = "METEOR RAIN",
 	judgement = "JUDGEMENT FROM ON HIGH",
+	game_over = "GAME OVER",
 }
 -- A signature move comes at least this often (every Nth move).
 local SIGNATURE_EVERY = 4
@@ -1696,9 +1706,531 @@ function BossAI.BuildFallenAngel(): Model
 	return m
 end
 
+-- ── ZAR-0, the Arcade Djinn (the Neon Arcade's boss) ───────────────────────
+-- A giant hologram genie flickering out of the arcade's machines: a broad
+-- chest in an open vest, huge arms ending in fists, goggles, a crest of
+-- glowing strands, and no legs, only a wisp of a tail. Built from parts like
+-- the Fallen Angel ("DjinnBuilt", "SelfRigged"); DjinnFX moves its joints on
+-- every client ("DjinnPose") and draws its attacks (bossFX kind "djinn").
+-- The red telegraphs and the damage are here.
+--   Block Drop     falling blocks (tetrominoes) onto squares round each player
+--   Laser Grid     the arena striped with lasers, then the gaps between them
+--   Hand Slam      a giant holo fist from the sky, one hand after the other
+--   Glitch Strike  it blinks out, reappears behind you and swipes
+--   Coin Spray     rings of rolling coins out from it (jump them)
+--   GAME OVER      (signature) the floor is a board: only the lit tiles are
+--                  safe, round after round, faster each time
+local DJINN_PINK = Color3.fromRGB(255, 70, 210)
+local DJINN_CELL = 5 -- studs, one block of a tetromino
+
+local function dpose(b: Boss, name: string?)
+	if b.model.Parent then b.model:SetAttribute("DjinnPose", name) end
+end
+
+-- A red square on the floor filling from its middle over `t`.
+local function telegraphSquare(center: Vector3, size: number, t: number, floorY: number)
+	local pos = Vector3.new(center.X, floorY + 0.09, center.Z)
+	local edge = part({ Size = Vector3.new(size, 0.1, size), CFrame = CFrame.new(pos), Color = TELEGRAPH, Transparency = 0.65 })
+	local fill = part({ Size = Vector3.new(0.3, 0.12, 0.3), CFrame = CFrame.new(pos + Vector3.new(0, 0.02, 0)), Color = TELEGRAPH, Transparency = 0.35 })
+	TweenService:Create(fill, TweenInfo.new(t, Enum.EasingStyle.Linear), { Size = Vector3.new(size, 0.12, size) }):Play()
+	Debris:AddItem(edge, t)
+	Debris:AddItem(fill, t)
+end
+
+-- The arena it fights in (its room's flat bounds), or a square round home.
+local function arena(b: Boss): { minX: number, maxX: number, minZ: number, maxZ: number, floorY: number }
+	local room = deps.roomAt(b.home) or deps.roomAt(b.root.Position)
+	if room then return room end
+	return { minX = b.home.X - 66, maxX = b.home.X + 66, minZ = b.home.Z - 66, maxZ = b.home.Z + 66, floorY = b.floorY }
+end
+
+local TETROMINOES = {
+	{ { 0, 0 }, { 1, 0 }, { 2, 0 }, { 3, 0 } }, -- I
+	{ { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } }, -- O
+	{ { 0, 0 }, { 1, 0 }, { 2, 0 }, { 1, 1 } }, -- T
+	{ { 0, 0 }, { 1, 0 }, { 1, 1 }, { 2, 1 } }, -- S
+	{ { 0, 0 }, { 0, 1 }, { 0, 2 }, { 1, 2 } }, -- L
+}
+local BLOCK_COLORS = {
+	Color3.fromRGB(80, 230, 255), Color3.fromRGB(255, 220, 80), Color3.fromRGB(190, 110, 255),
+	Color3.fromRGB(110, 255, 140), Color3.fromRGB(255, 120, 60), Color3.fromRGB(255, 70, 210),
+}
+
+MOVES.block_drop = function(b, target)
+	-- It conducts with both hands, and blocks fall from the sky: a tetromino
+	-- over each player in turn (one of its squares right where they stand),
+	-- red squares first.
+	local count = if b.enraged then 6 else 4
+	local warnT = if b.enraged then 1.0 else 1.2
+	local room = arena(b)
+	face(b, target.root.Position)
+	dpose(b, "conduct")
+	if not hold(b, 0.35) then return end
+	local list: { Victim } = {}
+	for _, v in ipairs(victims()) do
+		if flatDist(v.root.Position, b.root.Position) < 100 then table.insert(list, v) end
+	end
+	if #list == 0 then return end
+	for i = 1, count do
+		local v = list[(i - 1) % #list + 1]
+		if v.root.Parent then
+			local shape = TETROMINOES[math.random(1, #TETROMINOES)]
+			local turn = math.random(0, 3)
+			local pick = shape[math.random(1, #shape)]
+			local vel = v.root.AssemblyLinearVelocity
+			local base = v.root.Position + Vector3.new(vel.X, 0, vel.Z) * 0.2
+			local cells: { Vector3 } = {}
+			for _, c in ipairs(shape) do
+				local x, z = c[1] - pick[1], c[2] - pick[2]
+				for _ = 1, turn do x, z = -z, x end
+				local pos = Vector3.new(
+					math.clamp(base.X + x * DJINN_CELL, room.minX + DJINN_CELL / 2, room.maxX - DJINN_CELL / 2),
+					b.floorY,
+					math.clamp(base.Z + z * DJINN_CELL, room.minZ + DJINN_CELL / 2, room.maxZ - DJINN_CELL / 2))
+				table.insert(cells, pos)
+				telegraphSquare(pos, DJINN_CELL - 0.3, warnT, b.floorY)
+			end
+			bossFX(b, { kind = "djinn", move = "blocks", cells = cells, size = DJINN_CELL, delay = warnT, tint = BLOCK_COLORS[(i - 1) % #BLOCK_COLORS + 1] })
+			task.delay(warnT, function()
+				if not alive(b) then return end
+				for _, vv in ipairs(victims()) do
+					for _, c in ipairs(cells) do
+						local p = vv.root.Position
+						if math.abs(p.X - c.X) <= DJINN_CELL / 2 + 0.6 and math.abs(p.Z - c.Z) <= DJINN_CELL / 2 + 0.6 then
+							deps.hurt(vv.char, dmg(b, 0.55), c)
+							break
+						end
+					end
+				end
+			end)
+		end
+		if not hold(b, 0.28) then return end
+	end
+	hold(b, warnT)
+end
+
+MOVES.laser_grid = function(b, _target)
+	-- Arms flung wide: lasers stripe the whole arena one way, then the gaps
+	-- between them (enraged: then the same the other way, quicker).
+	local room = arena(b)
+	local gap, width = 16, 5
+	local axes = if math.random() < 0.5 then { "x", "z" } else { "z", "x" }
+	local passes = if b.enraged then 2 else 1
+	dpose(b, "cast")
+	for p = 1, passes do
+		local axis = axes[p]
+		for half = 0, 1 do
+			local wind = if b.enraged then 0.75 else 0.95
+			if p > 1 then wind *= 0.85 end
+			local lines = {}
+			local lo = if axis == "x" then room.minZ else room.minX
+			local hi = if axis == "x" then room.maxZ else room.maxX
+			local at = lo + gap * (0.5 + half * 0.5)
+			while at < hi - 1 do
+				local from = if axis == "x" then Vector3.new(room.minX, b.floorY, at) else Vector3.new(at, b.floorY, room.minZ)
+				local dir = if axis == "x" then Vector3.xAxis else Vector3.zAxis
+				local len = if axis == "x" then room.maxX - room.minX else room.maxZ - room.minZ
+				table.insert(lines, { from = from, dir = dir, len = len })
+				telegraphBeam(from, dir, len, width, wind, b.floorY)
+				at += gap
+			end
+			bossFX(b, { kind = "djinn", move = "grid", phase = "warn", lines = lines, width = width, duration = wind })
+			if not hold(b, wind) then return end
+			bossFX(b, { kind = "djinn", move = "grid", phase = "fire", lines = lines, width = width })
+			for _, v in ipairs(victims()) do
+				local pos = v.root.Position
+				for _, l in ipairs(lines) do
+					local across = if axis == "x" then math.abs(pos.Z - l.from.Z) else math.abs(pos.X - l.from.X)
+					if across <= width / 2 + 0.5 and pos.Y - b.floorY < 9 then
+						deps.hurt(v.char, dmg(b, 0.6), nil)
+						break
+					end
+				end
+			end
+			if not hold(b, 0.2) then return end
+		end
+	end
+	hold(b, 0.4)
+end
+
+MOVES.hand_slam = function(b, target)
+	-- A giant fist of light comes down out of the sky onto its prey, one hand
+	-- then the other (enraged: three, faster).
+	local slams = if b.enraged then 3 else 2
+	local r = if b.enraged then 10 else 9
+	local tgt = target
+	for s = 1, slams do
+		local spot = Vector3.new(tgt.root.Position.X, b.floorY, tgt.root.Position.Z)
+		local hand = if s % 2 == 1 then "R" else "L"
+		local wind = if s > 1 then 0.75 elseif b.enraged then 0.8 else 0.95
+		face(b, spot)
+		dpose(b, "raise" .. hand)
+		telegraphCircle(spot, r, wind, b.floorY)
+		bossFX(b, { kind = "djinn", move = "slam", phase = "raise", hand = hand, pos = spot, radius = r, duration = wind })
+		if not hold(b, wind) then return end
+		dpose(b, "slam" .. hand)
+		blast(spot, r, dmg(b, 0.9))
+		shock(spot, r, DJINN_PINK, b.floorY)
+		bossFX(b, { kind = "djinn", move = "slam", phase = "impact", hand = hand, pos = spot, radius = r })
+		if not hold(b, 0.3) then return end
+		tgt = nearestVictim(b) or tgt
+	end
+	hold(b, 0.45)
+end
+
+MOVES.glitch_strike = function(b, target)
+	-- It glitches out of sight, back in behind its prey, and swipes a wide
+	-- arc (a red fan first). Enraged, it does it twice.
+	local tries = if b.enraged then 2 else 1
+	local tgt = target
+	for k = 1, tries do
+		if not tgt.root.Parent then break end
+		local tp = tgt.root.Position
+		local back = -tgt.root.CFrame.LookVector
+		back = Vector3.new(back.X, 0, back.Z)
+		back = if back.Magnitude > 0.1 then back.Unit else Vector3.xAxis
+		local dist = reach(b, tp, back, 9, 4)
+		local spot = Vector3.new(tp.X, b.floorY, tp.Z) + back * dist
+		bossFX(b, { kind = "djinn", move = "glitch", phase = "out", pos = b.root.Position })
+		b.model:SetAttribute("DjinnGlitch", true)
+		if not hold(b, 0.35) then return end
+		takeOff(b)
+		local cf = CFrame.lookAt(Vector3.new(spot.X, standY(b), spot.Z), Vector3.new(tp.X, standY(b), tp.Z))
+		b.root.CFrame = cf
+		local m = mover(b)
+		m.pos.Position = cf.Position
+		m.rot.CFrame = cf.Rotation
+		touchDown(b)
+		b.model:SetAttribute("DjinnGlitch", nil)
+		bossFX(b, { kind = "djinn", move = "glitch", phase = "in", pos = cf.Position })
+		local radius, half = 17, math.rad(60)
+		local origin = Vector3.new(spot.X, b.floorY, spot.Z)
+		local look = cf.LookVector
+		local dir = Vector3.new(look.X, 0, look.Z).Unit
+		local wind = if k > 1 then 0.55 else 0.7
+		telegraphCone(origin, dir, radius, half, wind, b.floorY)
+		dpose(b, "swipeWind")
+		if not hold(b, wind) then return end
+		dpose(b, "swipe")
+		bossFX(b, { kind = "djinn", move = "glitch", phase = "slash", pos = origin, dir = dir, radius = radius, half = half })
+		for _, v in ipairs(victims()) do
+			local rel = Vector3.new(v.root.Position.X - origin.X, 0, v.root.Position.Z - origin.Z)
+			local dd = rel.Magnitude
+			if dd <= radius + 1 and (dd < 4 or math.acos(math.clamp(rel.Unit:Dot(dir), -1, 1)) <= half + math.rad(5)) then
+				deps.hurt(v.char, dmg(b, 0.8), origin)
+			end
+		end
+		if not hold(b, 0.35) then return end
+		tgt = nearestVictim(b) or tgt
+	end
+	hold(b, 0.35)
+end
+
+MOVES.coin_spray = function(b, _target)
+	-- It spins, flinging rings of golden coins rolling out across the floor
+	-- in every direction: step between them, or jump them.
+	local waves = if b.enraged then 3 else 2
+	local n = if b.enraged then 14 else 11
+	local speed, range = 28, 60
+	local center = Vector3.new(b.root.Position.X, b.floorY, b.root.Position.Z)
+	dpose(b, "spin")
+	for w = 1, waves do
+		local offset = (w - 1) * math.pi / n + math.random() * 0.2
+		local coins = {}
+		for k = 0, n - 1 do
+			local a = offset + k / n * math.pi * 2
+			local dir = Vector3.new(math.cos(a), 0, math.sin(a))
+			local len = math.max(4, reach(b, center, dir, range, 1))
+			telegraphBeam(center, dir, math.min(len, 9), 1.6, 0.55, b.floorY)
+			table.insert(coins, { dir = dir, len = len })
+		end
+		bossFX(b, { kind = "djinn", move = "coins", pos = center, coins = coins, speed = speed, delay = 0.55 })
+		if not hold(b, 0.55) then return end
+		task.spawn(function()
+			local hit: { [Model]: boolean } = {}
+			local t0 = os.clock()
+			while alive(b) do
+				local dist = (os.clock() - t0) * speed
+				if dist > range then break end
+				for _, v in ipairs(victims()) do
+					if not hit[v.char] and v.root.Position.Y - b.floorY < 4.5 then
+						for _, c in ipairs(coins) do
+							if dist <= c.len then
+								local at = center + c.dir * dist
+								if flatDist(v.root.Position, at) <= 2.3 then
+									hit[v.char] = true
+									deps.hurt(v.char, dmg(b, 0.45), at)
+									break
+								end
+							end
+						end
+					end
+				end
+				RunService.Heartbeat:Wait()
+			end
+		end)
+		if not hold(b, 0.55) then return end
+	end
+	hold(b, 0.6)
+end
+
+-- GAME OVER: it rises over the middle of the arena and the floor becomes a
+-- game board. Each round a few tiles light up (safe: at least one near each
+-- player) and the rest go red, then blow; quicker every round.
+MOVES.game_over = function(b, _target)
+	local room = arena(b)
+	local TILE = 12
+	local nx = math.max(1, math.floor((room.maxX - room.minX) / TILE + 0.5))
+	local nz = math.max(1, math.floor((room.maxZ - room.minZ) / TILE + 0.5))
+	local mid = Vector3.new((room.minX + room.maxX) / 2, 0, (room.minZ + room.maxZ) / 2)
+	dpose(b, "rise")
+	takeOff(b)
+	local rot = b.root.CFrame.Rotation
+	if not glide(b, CFrame.new(mid.X, standY(b) + 8, mid.Z) * rot, 1.0, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut) then return end
+	local rounds = if b.enraged then 4 else 3
+	bossFX(b, { kind = "djinn", move = "gameover", phase = "start", rounds = rounds })
+	if not hold(b, 0.5) then return end
+	local function tileOf(p: Vector3): (number, number)
+		return math.clamp(math.floor((p.X - room.minX) / TILE), 0, nx - 1), math.clamp(math.floor((p.Z - room.minZ) / TILE), 0, nz - 1)
+	end
+	for round = 1, rounds do
+		local safe: { [number]: boolean } = {}
+		local list = {}
+		local function add(i: number, j: number)
+			local key = j * nx + i
+			if i >= 0 and i < nx and j >= 0 and j < nz and not safe[key] then
+				safe[key] = true
+				table.insert(list, { i, j })
+			end
+		end
+		local want = math.max(3, math.floor(nx * nz * (0.3 - 0.04 * (round - 1))))
+		-- one near each player first (never the one they're on after round 1)
+		for _, v in ipairs(victims()) do
+			local i, j = tileOf(v.root.Position)
+			local step = if round == 1 then 1 else 2
+			local di, dj = math.random(-step, step), math.random(-step, step)
+			if round > 1 and di == 0 and dj == 0 then di = step end
+			add(math.clamp(i + di, 0, nx - 1), math.clamp(j + dj, 0, nz - 1))
+		end
+		local guard = 0
+		while #list < want and guard < 400 do
+			guard += 1
+			add(math.random(0, nx - 1), math.random(0, nz - 1))
+		end
+		local warnT = math.max(1.3, 2.3 - 0.3 * (round - 1))
+		dpose(b, "cast")
+		local data = { kind = "djinn", move = "gameover", phase = "round", room = room, tile = TILE, nx = nx, nz = nz,
+			safe = list, duration = warnT, round = round, rounds = rounds }
+		bossFX(b, data)
+		if not hold(b, warnT) then return end
+		dpose(b, "conduct")
+		data.phase = "blast"
+		bossFX(b, data)
+		for _, v in ipairs(victims()) do
+			local p = v.root.Position
+			local inside = p.X >= room.minX and p.X <= room.maxX and p.Z >= room.minZ and p.Z <= room.maxZ
+			local i, j = tileOf(p)
+			if inside and not safe[j * nx + i] then deps.hurt(v.char, dmg(b, 1.1), nil) end
+		end
+		if not hold(b, 0.7) then return end
+	end
+	bossFX(b, { kind = "djinn", move = "gameover", phase = "end" })
+	dpose(b, nil)
+	glide(b, CFrame.new(mid.X, standY(b), mid.Z) * rot, 0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+	touchDown(b)
+	hold(b, 0.4)
+end
+
+-- ── The Djinn's body ────────────────────────────────────────────────────────
+-- Joints (Motor6Ds on invisible pivots, as the angel's): "Body" (the chest,
+-- everything hangs from it), "Head", "ArmL"/"ArmR", "Tail1".."Tail4" (each on
+-- the one before), and a "Strand" for each lock of its glowing crest.
+local DJINN_SCALE = 2.6
+local DJINN = {
+	holo = Color3.fromRGB(205, 160, 255),
+	holoDeep = Color3.fromRGB(140, 90, 230),
+	vest = Color3.fromRGB(46, 22, 80),
+	pink = Color3.fromRGB(255, 80, 210),
+	cyan = Color3.fromRGB(90, 230, 255),
+	gold = Color3.fromRGB(255, 215, 110),
+}
+
+function BossAI.BuildDjinn(): Model
+	local S = DJINN_SCALE
+	local m = Instance.new("Model")
+	m.Name = "ArcadeDjinn"
+	m:SetAttribute("DjinnBuilt", true)
+	m:SetAttribute("SelfRigged", true)
+	m:SetAttribute("DjinnScale", S)
+	m:SetAttribute("NoContact", true)
+	m:SetAttribute("KeepDistance", 14)
+	m.ModelStreamingMode = Enum.ModelStreamingMode.Atomic
+
+	local function sc(cf: CFrame): CFrame
+		return CFrame.new(cf.Position * S) * cf.Rotation
+	end
+	local root = Instance.new("Part")
+	root.Name = "HumanoidRootPart"
+	root.Size = Vector3.new(2, 2.2, 1.2) * S
+	root.CFrame = sc(CFrame.new(0, 1.1, 0))
+	root.Transparency = 1
+	root.Anchored = true
+	root.CanTouch = false
+	root.Parent = m
+	m.PrimaryPart = root
+
+	local FF = Enum.Material.ForceField
+	local NEON = Enum.Material.Neon
+	local function mk(name: string, size: Vector3, cf: CFrame, color: Color3, material: Enum.Material?, base: BasePart, shape: Enum.PartType?, transparency: number?): BasePart
+		local q = Instance.new("Part")
+		q.Name = name
+		if shape then q.Shape = shape end
+		q.Size = size * S
+		q.CFrame = sc(cf)
+		q.Color = color
+		q.Material = material or FF
+		q.Transparency = transparency or 0
+		q.Anchored = true
+		q.CanCollide, q.CanTouch, q.CanQuery, q.Massless, q.CastShadow = false, false, false, true, false
+		q.TopSurface, q.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
+		local w = Instance.new("WeldConstraint")
+		w.Part0, w.Part1 = base, q
+		w.Parent = q
+		q.Parent = m
+		return q
+	end
+	local function pivot(name: string, cf: CFrame, on: BasePart?): BasePart
+		local base = on or root
+		local j = Instance.new("Part")
+		j.Name = name .. "Pivot"
+		j.Size = Vector3.one * 0.2
+		j.CFrame = sc(cf)
+		j.Transparency = 1
+		j.Anchored = true
+		j.CanCollide, j.CanTouch, j.CanQuery, j.Massless, j.CastShadow = false, false, false, true, false
+		j.Parent = m
+		local mo = Instance.new("Motor6D")
+		mo.Name = name
+		mo.Part0, mo.Part1 = base, j
+		mo.C0 = base.CFrame:ToObjectSpace(j.CFrame)
+		mo.C1 = CFrame.identity
+		mo.Parent = j
+		return j
+	end
+	local BALL, CYL = Enum.PartType.Ball, Enum.PartType.Cylinder
+	local UPC = CFrame.Angles(0, 0, math.rad(90)) -- a cylinder standing up
+
+	local body = pivot("Body", CFrame.new(0, 3.0, 0))
+	local head = pivot("Head", CFrame.new(0, 5.6, 0), body)
+	local arms = {
+		[-1] = pivot("ArmL", CFrame.new(-1.95, 5.1, 0), body),
+		[1] = pivot("ArmR", CFrame.new(1.95, 5.1, 0), body),
+	}
+
+	-- ── The chest: a glowing hologram in an open vest, a coin for a buckle ──
+	mk("Chest", Vector3.new(3.0, 2.2, 1.7), CFrame.new(0, 4.35, 0), DJINN.holo, FF, body)
+	mk("ChestCore", Vector3.new(2.8, 2.0, 1.5), CFrame.new(0, 4.35, 0), DJINN.holoDeep, NEON, body, nil, 0.75)
+	mk("Belly", Vector3.new(2.4, 1.3, 1.45), CFrame.new(0, 2.95, 0), DJINN.holo, FF, body)
+	mk("Sash", Vector3.new(2.55, 0.38, 1.6), CFrame.new(0, 3.5, 0), DJINN.pink, NEON, body)
+	mk("Buckle", Vector3.new(0.12, 0.85, 0.85), CFrame.new(0, 3.5, -0.82) * CFrame.Angles(0, math.rad(90), 0), DJINN.gold, NEON, body, CYL)
+	for _, side in ipairs({ -1, 1 }) do
+		mk("Vest", Vector3.new(0.95, 2.1, 0.12), CFrame.new(side * 1.0, 4.35, -0.9), DJINN.vest, Enum.Material.SmoothPlastic, body)
+		mk("VestTrim", Vector3.new(0.1, 2.1, 0.14), CFrame.new(side * 0.55, 4.35, -0.91), DJINN.gold, NEON, body)
+		mk("VestBack", Vector3.new(1.45, 2.1, 0.12), CFrame.new(side * 0.75, 4.35, 0.9), DJINN.vest, Enum.Material.SmoothPlastic, body)
+		mk("Shoulder", Vector3.one * 1.45, CFrame.new(side * 1.95, 5.15, 0), DJINN.holo, FF, body, BALL)
+	end
+	-- a chain of gold links round the neck
+	for i = 0, 9 do
+		local a = i / 10 * math.pi * 2
+		mk("Chain", Vector3.new(0.22, 0.14, 0.14), CFrame.new(math.cos(a) * 0.75, 5.35, math.sin(a) * 0.62) * CFrame.Angles(0, -a, 0), DJINN.gold, NEON, body)
+	end
+
+	-- ── The head: goggles, pointed ears, a beard, a crest of light ──
+	mk("Head", Vector3.new(1.5, 1.6, 1.4), CFrame.new(0, 6.35, 0), DJINN.holo, FF, head)
+	mk("Beard", Vector3.new(1.15, 0.85, 0.5), CFrame.new(0, 5.8, -0.55), DJINN.holoDeep, FF, head)
+	mk("GoggleBand", Vector3.new(1.62, 0.36, 1.5), CFrame.new(0, 6.55, 0), DJINN.vest, Enum.Material.SmoothPlastic, head)
+	for _, side in ipairs({ -1, 1 }) do
+		mk("Lens", Vector3.new(0.52, 0.38, 0.12), CFrame.new(side * 0.36, 6.55, -0.77), DJINN.cyan, NEON, head)
+		mk("Ear", Vector3.new(0.14, 0.7, 0.32), CFrame.new(side * 0.82, 6.5, 0) * CFrame.Angles(0, 0, math.rad(side * -30)), DJINN.holo, FF, head)
+	end
+	mk("Mouth", Vector3.new(0.6, 0.08, 0.05), CFrame.new(0, 6.0, -0.72), DJINN.pink, NEON, head)
+	-- the crest: locks of light swept back over its head, pink at the tips
+	for k = 0, 6 do
+		local x = (k - 3) * 0.2
+		local lean = math.rad(-25 - math.abs(k - 3) * 6)
+		local top = CFrame.new(x, 7.05, 0.05 + math.abs(k - 3) * 0.05) * CFrame.Angles(lean, 0, math.rad((k - 3) * -9))
+		local strand = pivot("Strand", top, head)
+		local len = 1.6 + (3 - math.abs(k - 3)) * 0.3
+		mk("Lock", Vector3.new(0.28, len, 0.28), top * CFrame.new(0, len / 2, 0), DJINN.holoDeep, FF, strand)
+		mk("LockTip", Vector3.new(0.22, 0.5, 0.22), top * CFrame.new(0, len + 0.15, 0), DJINN.pink, NEON, strand)
+	end
+
+	-- ── The arms: huge, a gold bracer, a fist ──
+	for _, side in ipairs({ -1, 1 }) do
+		local arm = arms[side]
+		local sh = CFrame.new(side * 1.95, 5.1, 0) * CFrame.Angles(0, 0, math.rad(side * 14))
+		mk("UpperArm", Vector3.new(1.15, 2.2, 1.15), sh * CFrame.new(0, -1.1, 0), DJINN.holo, FF, arm)
+		mk("Forearm", Vector3.new(1.35, 2.0, 1.35), sh * CFrame.new(0, -3.05, 0), DJINN.holo, FF, arm)
+		mk("Bracer", Vector3.new(1.48, 0.4, 1.48), sh * CFrame.new(0, -2.35, 0), DJINN.gold, NEON, arm)
+		mk("BracerLow", Vector3.new(1.42, 0.18, 1.42), sh * CFrame.new(0, -3.75, 0), DJINN.cyan, NEON, arm)
+		mk("Fist", Vector3.new(1.6, 1.4, 1.6), sh * CFrame.new(0, -4.65, 0), DJINN.holo, FF, arm)
+		mk("Knuckles", Vector3.new(1.62, 0.3, 0.3), sh * CFrame.new(0, -4.4, -0.72), DJINN.pink, NEON, arm)
+		mk("Ring", Vector3.new(0.3, 0.3, 0.3), sh * CFrame.new(side * 0.55, -4.2, -0.8), DJINN.gold, NEON, arm, BALL)
+	end
+
+	-- ── The tail: a wisp of light curling away under it, no legs ──
+	local tails = {
+		{ at = CFrame.new(0, 2.35, 0.1), seg = CFrame.new(0, -0.45, 0.12), size = Vector3.new(2.0, 1.0, 1.4) },
+		{ at = CFrame.new(0, 1.55, 0.3), seg = CFrame.new(0, -0.4, 0.15), size = Vector3.new(1.5, 0.9, 1.05) },
+		{ at = CFrame.new(0, 0.85, 0.55), seg = CFrame.new(0, -0.3, 0.2), size = Vector3.new(1.0, 0.7, 0.75) },
+		{ at = CFrame.new(0, 0.35, 0.9), seg = CFrame.new(0, -0.05, 0.35), size = Vector3.new(0.55, 0.5, 0.8) },
+	}
+	local prev: BasePart = body
+	for k, t in ipairs(tails) do
+		local tail = pivot("Tail" .. k, t.at, prev)
+		mk("Tail", t.size, t.at * t.seg, DJINN.holo, FF, tail)
+		if k == #tails then
+			mk("TailTip", Vector3.new(0.35, 0.35, 0.6), t.at * CFrame.new(0, 0.1, 0.8), DJINN.pink, NEON, tail)
+		else
+			mk("TailBand", Vector3.new(t.size.X * 1.02, 0.12, t.size.Z * 1.02), t.at * t.seg * CFrame.new(0, t.size.Y * 0.35, 0), DJINN.cyan, NEON, tail, nil, 0.3)
+		end
+		prev = tail
+	end
+
+	-- Sparkle round it, and pixels drifting off the tail.
+	local chest = m:FindFirstChild("Chest") :: BasePart
+	local glint = Instance.new("ParticleEmitter")
+	glint.Name = "HoloGlint"
+	glint.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	glint.Color = ColorSequence.new(Color3.new(1, 1, 1), DJINN.pink)
+	glint.LightEmission = 1
+	glint.LightInfluence = 0
+	glint.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.3, 0.35 * S), NumberSequenceKeypoint.new(1, 0) })
+	glint.Lifetime = NumberRange.new(0.6, 1.1)
+	glint.Speed = NumberRange.new(0.5, 1.5)
+	glint.Shape = Enum.ParticleEmitterShape.Box
+	glint.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+	glint.Rate = 8
+	glint.Parent = chest
+	local motes = Instance.new("ParticleEmitter")
+	motes.Name = "PixelMotes"
+	motes.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	motes.Color = ColorSequence.new(DJINN.cyan, DJINN.pink)
+	motes.LightEmission = 1
+	motes.LightInfluence = 0
+	motes.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.25 * S), NumberSequenceKeypoint.new(1, 0) })
+	motes.Lifetime = NumberRange.new(1, 1.8)
+	motes.Speed = NumberRange.new(1, 3)
+	motes.Acceleration = Vector3.new(0, 3, 0)
+	motes.SpreadAngle = Vector2.new(40, 40)
+	motes.Rate = 8
+	motes.Parent = root
+	return m
+end
+
 -- ── Attach ──────────────────────────────────────────────────────────────────
 local function addAura(b: Boss)
-	if b.model:GetAttribute("AngelBuilt") == true then return end -- (it glows with its own embers)
+	if b.model:GetAttribute("SelfRigged") == true then return end -- (the angel and the djinn glow on their own)
 	local fire = Instance.new("Fire")
 	fire.Name = "BossFlames"
 	fire.Color = b.kind.color
@@ -1786,13 +2318,14 @@ function BossAI.Attach(model: Model, kindId: string)
 	-- Angel comes down out of the sky for it.
 	model:SetAttribute("BossBusy", true)
 	setInvulnerable(b, true)
-	local descend = kindId == "fallen_angel"
+	local descend = kindId == "fallen_angel" or kindId == "djinn"
 	local landCF = root.CFrame
 	if descend then
 		landCF = CFrame.new(landCF.X, standY(b), landCF.Z) * landCF.Rotation
 		root.CFrame = landCF + Vector3.new(0, 34, 0)
 		takeOff(b)
 		pose(b, "cast")
+		dpose(b, "rise")
 	end
 	task.spawn(function()
 		task.wait(0.2)
@@ -1811,6 +2344,7 @@ function BossAI.Attach(model: Model, kindId: string)
 			glide(b, landCF, INTRO_TIME * 0.6, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
 			touchDown(b)
 			pose(b, nil)
+			dpose(b, nil)
 		else
 			task.wait(INTRO_TIME * 0.45)
 		end
@@ -1835,7 +2369,7 @@ function BossAI.Attach(model: Model, kindId: string)
 	end)
 	-- The Fallen Angel keeps turned toward its prey (no stepping round to
 	-- face it: it turns where it hovers).
-	if model:GetAttribute("AngelBuilt") == true then
+	if model:GetAttribute("SelfRigged") == true then
 		hum.AutoRotate = false
 		task.spawn(function()
 			while alive(b) do
@@ -1898,6 +2432,8 @@ function BossAI.Attach(model: Model, kindId: string)
 				-- air or frozen in a pose)
 				touchDown(b)
 				pose(b, nil)
+				dpose(b, nil)
+				if model.Parent then model:SetAttribute("DjinnGlitch", nil) end
 				if signature and model.Parent then setInvulnerable(b, false) end
 				if model.Parent then model:SetAttribute("BossBusy", false) end
 				local gap = if b.enraged then (if kind.gap then kind.gap * 0.6 else GAP_ENRAGED) else kind.gap or GAP
