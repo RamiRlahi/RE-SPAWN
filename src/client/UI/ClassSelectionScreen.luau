@@ -327,32 +327,44 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		callbacks.onBackToTitle()
 	end)
 
-	local headerTitle = Instance.new("TextLabel")
-	headerTitle.Name = "HeaderTitle"
-	headerTitle.Size = UDim2.new(0, 450, 0, 30)
-	headerTitle.AnchorPoint = Vector2.new(0.5, 0)
-	headerTitle.Position = UDim2.new(0.5, 0, 0, 12)
-	headerTitle.BackgroundTransparency = 1
-	headerTitle.Text = "CHOOSE YOUR CLASS"
-	headerTitle.TextColor3 = M.BrassLight
-	headerTitle.Font = MenuStyle.Font
-	headerTitle.TextSize = 30
-	headerTitle.TextStrokeColor3 = Color3.fromRGB(36, 8, 3)
-	headerTitle.TextStrokeTransparency = 0.1
-	headerTitle.Parent = topBar
+	local headerCategory = Instance.new("TextLabel")
+	headerCategory.Name = "HeaderCategory"
+	headerCategory.Size = UDim2.new(0, 500, 0, 16)
+	headerCategory.AnchorPoint = Vector2.new(0.5, 0)
+	headerCategory.Position = UDim2.new(0.5, 0, 0, 8)
+	headerCategory.BackgroundTransparency = 1
+	headerCategory.Text = "— CHOOSE YOUR CLASS • 1 OF 10 —"
+	headerCategory.TextColor3 = M.ParchmentMuted
+	headerCategory.Font = MenuStyle.Font
+	headerCategory.TextSize = 13
+	headerCategory.Parent = topBar
 
-	local headerCounter = Instance.new("TextLabel")
-	headerCounter.Name = "HeaderCounter"
-	headerCounter.Size = UDim2.new(0, 450, 0, 20)
-	headerCounter.AnchorPoint = Vector2.new(0.5, 0)
-	headerCounter.Position = UDim2.new(0.5, 0, 0, 42)
-	headerCounter.BackgroundTransparency = 1
-	headerCounter.Text = "CLASS 1 OF 8"
-	headerCounter.TextColor3 = M.ParchmentMuted
-	headerCounter.Font = MenuStyle.Font
-	headerCounter.TextSize = 14
-	headerCounter.Parent = topBar
-	MenuStyle.Rule(topBar, 66, 0.26)
+	local heroClassName = Instance.new("TextLabel")
+	heroClassName.Name = "HeroClassName"
+	heroClassName.Size = UDim2.new(0, 600, 0, 36)
+	heroClassName.AnchorPoint = Vector2.new(0.5, 0)
+	heroClassName.Position = UDim2.new(0.5, 0, 0, 24)
+	heroClassName.BackgroundTransparency = 1
+	heroClassName.Text = "BERSERKER"
+	heroClassName.TextColor3 = M.BrassLight
+	heroClassName.Font = MenuStyle.Font
+	heroClassName.TextSize = 36
+	heroClassName.TextStrokeColor3 = Color3.fromRGB(36, 8, 3)
+	heroClassName.TextStrokeTransparency = 0.1
+	heroClassName.Parent = topBar
+
+	local heroClassRole = Instance.new("TextLabel")
+	heroClassRole.Name = "HeroClassRole"
+	heroClassRole.Size = UDim2.new(0, 600, 0, 18)
+	heroClassRole.AnchorPoint = Vector2.new(0.5, 0)
+	heroClassRole.Position = UDim2.new(0.5, 0, 0, 60)
+	heroClassRole.BackgroundTransparency = 1
+	heroClassRole.Text = '"The Crimson Ravager" · [MELEE / HIGH DAMAGE]'
+	heroClassRole.TextColor3 = M.Parchment
+	heroClassRole.Font = MenuStyle.Font
+	heroClassRole.TextSize = 14
+	heroClassRole.Parent = topBar
+	MenuStyle.Rule(topBar, 80, 0.26)
 
 	---------------------------------------------------------------------
 	-- Left Panel: Identity, Lore & Animated Stats
@@ -372,54 +384,65 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	leftPanel.Visible = false
 	local constellation = TalentConstellation.Create(container)
 
-	-- Summon (gacha) entry point.
-	-- Summon (gacha) entry point: a square plaque with a die on it.
-	local summonBtn = Instance.new("TextButton")
-	summonBtn.Name = "SummonButton"
-	summonBtn.AnchorPoint = Vector2.new(1, 0)
-	summonBtn.Position = UDim2.new(1, -24, 0, 12)
-	summonBtn.Size = UDim2.fromOffset(62, 62)
-	summonBtn.Parent = container
-	local die = Instance.new("Frame")
-	die.Name = "Die"
-	die.AnchorPoint = Vector2.new(0.5, 0.5)
-	die.Position = UDim2.fromScale(0.5, 0.5)
-	die.Size = UDim2.fromOffset(34, 34)
-	die.Rotation = -10
-	die.BackgroundColor3 = M.Parchment
-	die.BorderSizePixel = 0
-	die.ZIndex = 5
-	die.Parent = summonBtn
-	UITheme.AddCorner(die, 7)
-	UITheme.AddStroke(die, M.Ink, 1.5, 0)
-	UITheme.AddGradient(die, Color3.fromRGB(255, 248, 232), Color3.fromRGB(214, 190, 150), 45)
-	-- Five pips.
-	for _, at in ipairs({ { 0.25, 0.25 }, { 0.75, 0.25 }, { 0.5, 0.5 }, { 0.25, 0.75 }, { 0.75, 0.75 } }) do
-		local pip = Instance.new("Frame")
-		pip.AnchorPoint = Vector2.new(0.5, 0.5)
-		pip.Position = UDim2.fromScale(at[1], at[2])
-		pip.Size = UDim2.fromOffset(7, 7)
-		pip.BackgroundColor3 = M.Crimson
-		pip.BorderSizePixel = 0
-		pip.ZIndex = 6
-		pip.Parent = die
-		UITheme.AddCorner(pip, 4)
-	end
+	-- Top-Right Controls: Slider button to hide/show the right UI panel & Co-op
+	local isRightPanelOpen = true
+	local toggleSliderBtn = Instance.new("TextButton")
+	toggleSliderBtn.Name = "ToggleSliderButton"
+	toggleSliderBtn.AnchorPoint = Vector2.new(1, 0)
+	toggleSliderBtn.Position = UDim2.new(1, -24, 0, 14)
+	toggleSliderBtn.Size = UDim2.fromOffset(136, 46)
+	toggleSliderBtn.BackgroundColor3 = M.PlaqueDark
+	toggleSliderBtn.BorderSizePixel = 0
+	toggleSliderBtn.AutoButtonColor = false
+	toggleSliderBtn.Text = ""
+	toggleSliderBtn.Parent = container
+
+	MenuStyle.Plaque(toggleSliderBtn, true)
+	local toggleStroke = UITheme.AddStroke(toggleSliderBtn, M.BrassDark, 1.2, 0.2)
+
+	local sliderLabel = Instance.new("TextLabel")
+	sliderLabel.Name = "SliderLabel"
+	sliderLabel.Size = UDim2.new(1, -52, 1, 0)
+	sliderLabel.Position = UDim2.new(0, 10, 0, 0)
+	sliderLabel.BackgroundTransparency = 1
+	sliderLabel.Font = MenuStyle.Font
+	sliderLabel.TextSize = 13
+	sliderLabel.TextColor3 = M.Parchment
+	sliderLabel.TextXAlignment = Enum.TextXAlignment.Left
+	sliderLabel.Text = "HIDE UI"
+	sliderLabel.Parent = toggleSliderBtn
+
+	local sliderTrack = Instance.new("Frame")
+	sliderTrack.Name = "SliderTrack"
+	sliderTrack.Size = UDim2.fromOffset(36, 18)
+	sliderTrack.AnchorPoint = Vector2.new(1, 0.5)
+	sliderTrack.Position = UDim2.new(1, -8, 0.5, 0)
+	sliderTrack.BackgroundColor3 = Color3.fromRGB(36, 24, 20)
+	sliderTrack.BorderSizePixel = 0
+	sliderTrack.Parent = toggleSliderBtn
+	UITheme.AddCorner(sliderTrack, 9)
+	local trackStroke = UITheme.AddStroke(sliderTrack, M.BrassDark, 1, 0.4)
+
+	local sliderKnob = Instance.new("Frame")
+	sliderKnob.Name = "SliderKnob"
+	sliderKnob.Size = UDim2.fromOffset(14, 14)
+	sliderKnob.AnchorPoint = Vector2.new(0, 0.5)
+	sliderKnob.Position = UDim2.new(1, -16, 0.5, 0)
+	sliderKnob.BackgroundColor3 = M.BrassLight
+	sliderKnob.BorderSizePixel = 0
+	sliderKnob.Parent = sliderTrack
+	UITheme.AddCorner(sliderKnob, 7)
+
 	-- Co-op party (invite friends; XP is shared in the dungeon).
 	CoopScreen.Init() -- listen for party updates and invites from the start
 	local coopBtn = Instance.new("TextButton")
 	coopBtn.Name = "CoopButton"
 	coopBtn.AnchorPoint = Vector2.new(1, 0)
-	coopBtn.Position = UDim2.new(1, -98, 0, 12)
-	coopBtn.Size = UDim2.fromOffset(150, 62)
+	coopBtn.Position = UDim2.new(1, -168, 0, 14)
+	coopBtn.Size = UDim2.fromOffset(130, 46)
 	coopBtn.Parent = container
-	MenuStyle.PlaqueButton(coopBtn, "CO-OP", { ribbon = true, textSize = 20 }, function()
+	MenuStyle.PlaqueButton(coopBtn, "CO-OP", { ribbon = true, textSize = 17 }, function()
 		CoopScreen.Open()
-	end)
-
-	MenuStyle.PlaqueButton(summonBtn, "", {}, function()
-		SoundManager.PlayConfirm()
-		SummonScreen.Open()
 	end)
 
 	local leftScroll = Instance.new("ScrollingFrame")
@@ -582,11 +605,68 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	---------------------------------------------------------------------
 	local rightPanel = Instance.new("Frame")
 	rightPanel.Name = "RightPanel"
-	rightPanel.Size = UDim2.new(0, 360, 1, -170)
+	rightPanel.Size = UDim2.new(0, 380, 1, -170)
 	rightPanel.AnchorPoint = Vector2.new(1, 0)
 	rightPanel.Position = UDim2.new(1, -24, 0, 75)
 	rightPanel.Parent = container
 	MenuStyle.Plaque(rightPanel)
+
+	local edgeTabBtn = Instance.new("TextButton")
+	edgeTabBtn.Name = "EdgeTabButton"
+	edgeTabBtn.Size = UDim2.fromOffset(26, 44)
+	edgeTabBtn.AnchorPoint = Vector2.new(1, 0.5)
+	edgeTabBtn.Position = UDim2.new(0, 0, 0.5, 0)
+	edgeTabBtn.BackgroundColor3 = M.PlaqueDark
+	edgeTabBtn.BorderSizePixel = 0
+	edgeTabBtn.Font = MenuStyle.Font
+	edgeTabBtn.TextSize = 13
+	edgeTabBtn.TextColor3 = M.BrassLight
+	edgeTabBtn.Text = "⮞"
+	edgeTabBtn.Parent = rightPanel
+	UITheme.AddCorner(edgeTabBtn, 5)
+	UITheme.AddStroke(edgeTabBtn, M.BrassDark, 1, 0.3)
+
+	local function updateSliderState(instant: boolean?)
+		local tweenTime = if instant then 0 else 0.22
+		local panelTime = if instant then 0 else 0.32
+		local targetKnobPos = if isRightPanelOpen then UDim2.new(1, -16, 0.5, 0) else UDim2.new(0, 2, 0.5, 0)
+		local targetKnobColor = if isRightPanelOpen then M.BrassLight else Color3.fromRGB(80, 75, 80)
+		local targetTrackColor = if isRightPanelOpen then Color3.fromRGB(36, 24, 20) else Color3.fromRGB(16, 12, 14)
+		local targetPanelPos = if isRightPanelOpen then UDim2.new(1, -24, 0, 75) else UDim2.new(1, 420, 0, 75)
+
+		sliderLabel.Text = if isRightPanelOpen then "HIDE UI" else "SHOW UI"
+		edgeTabBtn.Text = if isRightPanelOpen then "⮞" else "⮜"
+
+		if instant then
+			sliderKnob.Position = targetKnobPos
+			sliderKnob.BackgroundColor3 = targetKnobColor
+			sliderTrack.BackgroundColor3 = targetTrackColor
+			rightPanel.Position = targetPanelPos
+		else
+			TweenService:Create(sliderKnob, TweenInfo.new(tweenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Position = targetKnobPos,
+				BackgroundColor3 = targetKnobColor,
+			}):Play()
+			TweenService:Create(sliderTrack, TweenInfo.new(tweenTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				BackgroundColor3 = targetTrackColor,
+			}):Play()
+			TweenService:Create(rightPanel, TweenInfo.new(panelTime, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
+				Position = targetPanelPos,
+			}):Play()
+		end
+	end
+
+	toggleSliderBtn.MouseButton1Click:Connect(function()
+		isRightPanelOpen = not isRightPanelOpen
+		SoundManager.Play("Select")
+		updateSliderState(false)
+	end)
+
+	edgeTabBtn.MouseButton1Click:Connect(function()
+		isRightPanelOpen = not isRightPanelOpen
+		SoundManager.Play("Select")
+		updateSliderState(false)
+	end)
 
 	local rightScroll = Instance.new("ScrollingFrame")
 	rightScroll.Name = "RightScroll"
@@ -830,7 +910,13 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 			setSilhouette(previewTarget(), true)
 		end
 
-		headerCounter.Text = `CLASS {index} OF {#ClassData.Order} • {info.name:upper()}`
+		headerCategory.Text = `— CHOOSE YOUR CLASS • {index} OF {#ClassData.Order} —`
+		heroClassName.Text = if locked then `{info.name:upper()} · LOCKED` else info.name:upper()
+		heroClassName.TextColor3 = accent
+		heroClassRole.Text = if locked then "This class is still being forged. Check back soon." else `"{info.title}" · [{info.role:upper()}]`
+
+		skillsHeader.Text = `{info.name:upper()} COMBAT SKILLS`
+		skillsHeader.TextColor3 = accent
 
 		-- Update Left Panel
 		classNameLabel.Text = if locked then `{info.name:upper()} · LOCKED` else info.name:upper()
@@ -841,7 +927,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		descLabel.Text = if locked then "This class is still being forged. Check back soon." else info.description
 		-- Confirm is disabled on locked classes.
 		if confirmLabel then
-			confirmLabel.Text = if locked then "LOCKED" else "CONFIRM CLASS"
+			confirmLabel.Text = if locked then "LOCKED" else `CONFIRM {info.name:upper()}`
 			confirmLabel.TextColor3 = if locked then M.ParchmentMuted else M.Parchment
 		end
 
@@ -867,91 +953,157 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		for i, ab in ipairs(info.abilities) do
 			local abCard = Instance.new("Frame")
 			abCard.Name = "Ability_" .. i
-			abCard.Size = UDim2.new(1, 0, 0, 58)
+			abCard.Size = UDim2.new(1, 0, 0, 68)
 			abCard.LayoutOrder = i
 			abCard.Parent = abilitiesContainer
 			MenuStyle.Plaque(abCard, true)
+			UITheme.AddCorner(abCard, 7)
+			local cardStroke = UITheme.AddStroke(abCard, M.BrassDark, 1, 0.4)
 
-			local abTag = Instance.new("TextLabel")
-			abTag.Name = "Tag"
-			abTag.Size = UDim2.new(0, 96, 0, 18)
-			abTag.Position = UDim2.new(0, 10, 0, 8)
-			abTag.BackgroundColor3 = M.Crimson
-			abTag.BorderSizePixel = 0
-			abTag.Font = MenuStyle.Font
-			abTag.TextSize = 12
-			abTag.TextColor3 = M.Parchment
-			abTag.Text = ab.tag:upper()
-			abTag.ZIndex = 3
-			abTag.Parent = abCard
-			UITheme.AddStroke(abTag, Color3.fromRGB(59, 16, 12), 1, 0.2)
+			-- 1. ICONS FIRST (Prominent square icon on the left)
+			local iconFrame = Instance.new("Frame")
+			iconFrame.Name = "IconFrame"
+			iconFrame.Size = UDim2.fromOffset(46, 46)
+			iconFrame.Position = UDim2.new(0, 8, 0.5, 0)
+			iconFrame.AnchorPoint = Vector2.new(0, 0.5)
+			iconFrame.BackgroundColor3 = Color3.fromRGB(16, 12, 16)
+			iconFrame.BorderSizePixel = 0
+			iconFrame.ZIndex = 3
+			iconFrame.Parent = abCard
+			UITheme.AddCorner(iconFrame, 6)
+			UITheme.AddStroke(iconFrame, accent, 1, 0.3)
 
-			local hasPreview = not locked and ab.videoId and ab.videoId ~= ""
+			local iconAsset = ab.icon or ""
+			if iconAsset ~= "" then
+				local iconImg = Instance.new("ImageLabel")
+				iconImg.Name = "IconImg"
+				iconImg.Size = UDim2.fromScale(1, 1)
+				iconImg.BackgroundTransparency = 1
+				iconImg.Image = iconAsset
+				iconImg.ScaleType = Enum.ScaleType.Fit
+				iconImg.ZIndex = 4
+				iconImg.Parent = iconFrame
+				UITheme.AddCorner(iconImg, 6)
+			else
+				local glyph = Instance.new("TextLabel")
+				glyph.Size = UDim2.fromScale(1, 1)
+				glyph.BackgroundTransparency = 1
+				glyph.Font = MenuStyle.Font
+				glyph.TextSize = 18
+				glyph.TextColor3 = accent
+				glyph.ZIndex = 4
+				glyph.Text = if string.find(ab.tag, "M1", 1, true) then "⚔"
+					elseif string.find(ab.tag, "ULT", 1, true) then "★"
+					elseif string.find(ab.tag, "PASS", 1, true) then "◈"
+					else tostring(i)
+				glyph.Parent = iconFrame
+			end
+
+			-- 2. TAG BADGE & ABILITY NAME
+			local tagBadge = Instance.new("TextLabel")
+			tagBadge.Name = "Tag"
+			tagBadge.Size = UDim2.fromOffset(78, 18)
+			tagBadge.Position = UDim2.new(0, 62, 0, 7)
+			tagBadge.BackgroundColor3 = M.Crimson
+			tagBadge.BorderSizePixel = 0
+			tagBadge.Font = MenuStyle.Font
+			tagBadge.TextSize = 10
+			tagBadge.TextColor3 = M.Parchment
+			tagBadge.Text = ab.tag:upper()
+			tagBadge.ZIndex = 3
+			tagBadge.Parent = abCard
+			UITheme.AddCorner(tagBadge, 3)
+			UITheme.AddStroke(tagBadge, Color3.fromRGB(59, 16, 12), 1, 0.2)
 
 			local abName = Instance.new("TextLabel")
 			abName.Name = "Name"
-			abName.Size = if hasPreview then UDim2.new(1, -204, 0, 18) else UDim2.new(1, -124, 0, 18)
-			abName.Position = UDim2.new(0, 114, 0, 8)
+			abName.Size = UDim2.new(1, -232, 0, 18)
+			abName.Position = UDim2.new(0, 146, 0, 7)
 			abName.BackgroundTransparency = 1
 			abName.Font = MenuStyle.Font
-			abName.TextSize = 16
+			abName.TextSize = 15
 			abName.TextColor3 = M.BrassLight
 			abName.ZIndex = 3
 			abName.TextXAlignment = Enum.TextXAlignment.Left
 			abName.Text = if locked then "???" else ab.name
 			abName.Parent = abCard
 
-			if hasPreview then
-				local prevBtn = Instance.new("TextButton")
-				prevBtn.Name = "PreviewButton"
-				prevBtn.Size = UDim2.fromOffset(76, 20)
-				prevBtn.AnchorPoint = Vector2.new(1, 0)
-				prevBtn.Position = UDim2.new(1, -8, 0, 7)
-				prevBtn.BackgroundColor3 = Color3.fromRGB(36, 26, 24)
-				prevBtn.BorderSizePixel = 0
-				prevBtn.Font = MenuStyle.Font
-				prevBtn.TextSize = 11
-				prevBtn.TextColor3 = accent
-				prevBtn.Text = "▶ PREVIEW"
-				prevBtn.ZIndex = 4
-				prevBtn.Parent = abCard
-
-				local prevCorner = Instance.new("UICorner")
-				prevCorner.CornerRadius = UDim.new(0, 4)
-				prevCorner.Parent = prevBtn
-
-				local prevStroke = Instance.new("UIStroke")
-				prevStroke.Color = accent
-				prevStroke.Thickness = 1
-				prevStroke.Transparency = 0.4
-				prevStroke.Parent = prevBtn
-
-				prevBtn.MouseEnter:Connect(function()
-					TweenService:Create(prevBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(56, 38, 32), TextColor3 = Color3.new(1, 1, 1) }):Play()
-				end)
-				prevBtn.MouseLeave:Connect(function()
-					TweenService:Create(prevBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(36, 26, 24), TextColor3 = accent }):Play()
-				end)
-				prevBtn.MouseButton1Click:Connect(function()
-					SoundManager.Play("Hover")
-					AbilityPreview.Show(ab.name, ab.tag, ab.videoId or "", accent, ab.description)
-				end)
-			end
-
+			-- QUICK SUMMARY (Punchy & readable, no walls of text)
+			local quickSummary = ab.summary or ab.description
 			local abDesc = Instance.new("TextLabel")
-			abDesc.Name = "Desc"
-			abDesc.Size = UDim2.new(1, -20, 0, 24)
-			abDesc.Position = UDim2.new(0, 10, 0, 28)
+			abDesc.Name = "Summary"
+			abDesc.Size = UDim2.new(1, -156, 0, 36)
+			abDesc.Position = UDim2.new(0, 62, 0, 27)
 			abDesc.BackgroundTransparency = 1
 			abDesc.Font = MenuStyle.Font
-			abDesc.TextSize = 12
+			abDesc.TextSize = 11
 			abDesc.TextColor3 = M.Parchment
 			abDesc.TextWrapped = true
 			abDesc.TextTruncate = Enum.TextTruncate.AtEnd
 			abDesc.ZIndex = 3
 			abDesc.TextXAlignment = Enum.TextXAlignment.Left
-			abDesc.Text = if locked then "" else ab.description
+			abDesc.TextYAlignment = Enum.TextYAlignment.Top
+			abDesc.Text = if locked then "Locked class ability." else quickSummary
 			abDesc.Parent = abCard
+
+			-- 3. VIDEO PREVIEW BUTTON
+			local prevBtn = Instance.new("TextButton")
+			prevBtn.Name = "PreviewButton"
+			prevBtn.Size = UDim2.fromOffset(78, 28)
+			prevBtn.AnchorPoint = Vector2.new(1, 0.5)
+			prevBtn.Position = UDim2.new(1, -8, 0.5, 0)
+			prevBtn.BackgroundColor3 = Color3.fromRGB(36, 26, 24)
+			prevBtn.BorderSizePixel = 0
+			prevBtn.Font = MenuStyle.Font
+			prevBtn.TextSize = 11
+			prevBtn.TextColor3 = accent
+			prevBtn.Text = "▶ PREVIEW"
+			prevBtn.ZIndex = 4
+			prevBtn.Parent = abCard
+
+			local prevCorner = Instance.new("UICorner")
+			prevCorner.CornerRadius = UDim.new(0, 4)
+			prevCorner.Parent = prevBtn
+
+			local prevStroke = Instance.new("UIStroke")
+			prevStroke.Color = accent
+			prevStroke.Thickness = 1
+			prevStroke.Transparency = 0.3
+			prevStroke.Parent = prevBtn
+
+			local function triggerPreview()
+				if locked then return end
+				SoundManager.Play("Hover")
+				AbilityPreview.Show(ab.name, ab.tag, ab.videoId or "", accent, ab.description, ab.icon, ab.summary)
+			end
+
+			prevBtn.MouseEnter:Connect(function()
+				TweenService:Create(prevBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(56, 38, 32), TextColor3 = Color3.new(1, 1, 1) }):Play()
+				prevStroke.Transparency = 0
+			end)
+			prevBtn.MouseLeave:Connect(function()
+				TweenService:Create(prevBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(36, 26, 24), TextColor3 = accent }):Play()
+				prevStroke.Transparency = 0.3
+			end)
+			prevBtn.MouseButton1Click:Connect(triggerPreview)
+
+			-- Whole card hover & click
+			local cardClickBtn = Instance.new("TextButton")
+			cardClickBtn.Name = "CardClick"
+			cardClickBtn.Size = UDim2.new(1, -90, 1, 0)
+			cardClickBtn.BackgroundTransparency = 1
+			cardClickBtn.Text = ""
+			cardClickBtn.ZIndex = 5
+			cardClickBtn.Parent = abCard
+			cardClickBtn.MouseButton1Click:Connect(triggerPreview)
+			cardClickBtn.MouseEnter:Connect(function()
+				cardStroke.Color = accent
+				cardStroke.Transparency = 0.1
+			end)
+			cardClickBtn.MouseLeave:Connect(function()
+				cardStroke.Color = M.BrassDark
+				cardStroke.Transparency = 0.4
+			end)
 		end
 
 		-- Update Equipment Card

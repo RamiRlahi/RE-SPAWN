@@ -64,7 +64,7 @@ function AbilityPreview.Hide()
 	close()
 end
 
-function AbilityPreview.Show(name: string, tag: string, videoId: string, accentColor: Color3?, description: string?)
+function AbilityPreview.Show(name: string, tag: string, videoId: string, accentColor: Color3?, description: string?, icon: string?, summary: string?)
 	local accent = accentColor or M.BrassLight
 
 	if not gui then
@@ -108,7 +108,7 @@ function AbilityPreview.Show(name: string, tag: string, videoId: string, accentC
 	-- Modal Frame
 	local modal = Instance.new("Frame")
 	modal.Name = "Modal"
-	modal.Size = UDim2.fromOffset(720, 520)
+	modal.Size = UDim2.fromOffset(740, 540)
 	modal.AnchorPoint = Vector2.new(0.5, 0.5)
 	modal.Position = UDim2.fromScale(0.5, 0.5)
 	modal.BackgroundColor3 = M.PlaqueDark
@@ -126,11 +126,42 @@ function AbilityPreview.Show(name: string, tag: string, videoId: string, accentC
 	modalStroke.Thickness = 1.5
 	modalStroke.Parent = modal
 
+	local headerXOffset = 24
+	if icon and icon ~= "" then
+		local iconFrame = Instance.new("Frame")
+		iconFrame.Name = "AbilityIconFrame"
+		iconFrame.Size = UDim2.fromOffset(36, 36)
+		iconFrame.Position = UDim2.new(0, 24, 0, 11)
+		iconFrame.BackgroundColor3 = Color3.fromRGB(15, 12, 18)
+		iconFrame.BorderSizePixel = 0
+		iconFrame.Parent = modal
+
+		local icCorner = Instance.new("UICorner")
+		icCorner.CornerRadius = UDim.new(0, 6)
+		icCorner.Parent = iconFrame
+
+		local icStroke = Instance.new("UIStroke")
+		icStroke.Color = accent
+		icStroke.Thickness = 1
+		icStroke.Transparency = 0.3
+		icStroke.Parent = iconFrame
+
+		local iconImg = Instance.new("ImageLabel")
+		iconImg.Name = "IconImg"
+		iconImg.Size = UDim2.fromScale(1, 1)
+		iconImg.BackgroundTransparency = 1
+		iconImg.Image = icon
+		iconImg.ScaleType = Enum.ScaleType.Fit
+		iconImg.Parent = iconFrame
+
+		headerXOffset = 68
+	end
+
 	-- Header Tag Badge
 	local tagBadge = Instance.new("TextLabel")
 	tagBadge.Name = "TagBadge"
-	tagBadge.Size = UDim2.fromOffset(100, 22)
-	tagBadge.Position = UDim2.new(0, 24, 0, 18)
+	tagBadge.Size = UDim2.fromOffset(108, 24)
+	tagBadge.Position = UDim2.new(0, headerXOffset, 0, 17)
 	tagBadge.BackgroundColor3 = M.Crimson
 	tagBadge.BorderSizePixel = 0
 	tagBadge.Font = FONT
@@ -148,8 +179,8 @@ function AbilityPreview.Show(name: string, tag: string, videoId: string, accentC
 	-- Header Title
 	local titleLabel = Instance.new("TextLabel")
 	titleLabel.Name = "Title"
-	titleLabel.Size = UDim2.new(1, -180, 0, 26)
-	titleLabel.Position = UDim2.new(0, 134, 0, 16)
+	titleLabel.Size = UDim2.new(1, -(headerXOffset + 170), 0, 26)
+	titleLabel.Position = UDim2.new(0, headerXOffset + 118, 0, 16)
 	titleLabel.BackgroundTransparency = 1
 	titleLabel.Font = FONT
 	titleLabel.TextSize = 22
@@ -229,16 +260,18 @@ function AbilityPreview.Show(name: string, tag: string, videoId: string, accentC
 		placeholder.BackgroundTransparency = 1
 		placeholder.Parent = vidContainer
 
-		local playIcon = Instance.new("TextLabel")
-		playIcon.Size = UDim2.fromOffset(64, 64)
-		playIcon.AnchorPoint = Vector2.new(0.5, 0.5)
-		playIcon.Position = UDim2.fromScale(0.5, 0.42)
-		playIcon.BackgroundTransparency = 1
-		playIcon.Font = FONT
-		playIcon.TextSize = 48
-		playIcon.TextColor3 = accent
-		playIcon.Text = "▶"
-		playIcon.Parent = placeholder
+		local playBtn = Instance.new("TextButton")
+		playBtn.Size = UDim2.fromOffset(64, 64)
+		playBtn.AnchorPoint = Vector2.new(0.5, 0.5)
+		playBtn.Position = UDim2.fromScale(0.5, 0.40)
+		playBtn.BackgroundColor3 = Color3.fromRGB(30, 22, 24)
+		playBtn.Font = FONT
+		playBtn.TextSize = 32
+		playBtn.TextColor3 = accent
+		playBtn.Text = "▶"
+		playBtn.Parent = placeholder
+		UITheme.AddCorner(playBtn, 32)
+		UITheme.AddStroke(playBtn, accent, 1.5, 0.2)
 
 		local msg = Instance.new("TextLabel")
 		msg.Size = UDim2.new(1, -40, 0, 24)
@@ -246,9 +279,9 @@ function AbilityPreview.Show(name: string, tag: string, videoId: string, accentC
 		msg.Position = UDim2.fromScale(0.5, 0.58)
 		msg.BackgroundTransparency = 1
 		msg.Font = FONT
-		msg.TextSize = 16
+		msg.TextSize = 18
 		msg.TextColor3 = M.Parchment
-		msg.Text = "Ability Video Preview"
+		msg.Text = name .. " · Preview"
 		msg.Parent = placeholder
 
 		local subMsg = Instance.new("TextLabel")
@@ -259,24 +292,57 @@ function AbilityPreview.Show(name: string, tag: string, videoId: string, accentC
 		subMsg.Font = Enum.Font.GothamMedium
 		subMsg.TextSize = 12
 		subMsg.TextColor3 = M.ParchmentMuted
-		subMsg.Text = if videoId and videoId ~= "" then `Asset: {videoId}` else "Upload video asset to ReplicatedStorage to preview"
+		subMsg.Text = if videoId and videoId ~= "" then `Asset: {videoId}` else "Ability video preview available in-game"
 		subMsg.Parent = placeholder
 	end
 
-	-- Bottom Description
-	local descLabel = Instance.new("TextLabel")
-	descLabel.Name = "Description"
-	descLabel.Size = UDim2.new(1, -48, 0, 70)
-	descLabel.Position = UDim2.new(0, 24, 0, 422)
-	descLabel.BackgroundTransparency = 1
-	descLabel.Font = FONT
-	descLabel.TextSize = 14
-	descLabel.TextColor3 = M.Parchment
-	descLabel.TextWrapped = true
-	descLabel.TextXAlignment = Enum.TextXAlignment.Left
-	descLabel.TextYAlignment = Enum.TextYAlignment.Top
-	descLabel.Text = description or ""
-	descLabel.Parent = modal
+	-- Bottom Description Section: Quick Summary & Mechanics
+	local descContainer = Instance.new("Frame")
+	descContainer.Name = "DescContainer"
+	descContainer.Size = UDim2.new(1, -48, 0, 95)
+	descContainer.Position = UDim2.new(0, 24, 0, 420)
+	descContainer.BackgroundTransparency = 1
+	descContainer.Parent = modal
+
+	if summary and summary ~= "" then
+		local summaryBadge = Instance.new("TextLabel")
+		summaryBadge.Name = "SummaryBadge"
+		summaryBadge.Size = UDim2.new(1, 0, 0, 22)
+		summaryBadge.BackgroundTransparency = 1
+		summaryBadge.Font = FONT
+		summaryBadge.TextSize = 13
+		summaryBadge.TextColor3 = accent
+		summaryBadge.TextXAlignment = Enum.TextXAlignment.Left
+		summaryBadge.Text = "QUICK SUMMARY: " .. summary
+		summaryBadge.Parent = descContainer
+
+		local descLabel = Instance.new("TextLabel")
+		descLabel.Name = "Description"
+		descLabel.Size = UDim2.new(1, 0, 0, 68)
+		descLabel.Position = UDim2.new(0, 0, 0, 24)
+		descLabel.BackgroundTransparency = 1
+		descLabel.Font = FONT
+		descLabel.TextSize = 12
+		descLabel.TextColor3 = M.ParchmentMuted
+		descLabel.TextWrapped = true
+		descLabel.TextXAlignment = Enum.TextXAlignment.Left
+		descLabel.TextYAlignment = Enum.TextYAlignment.Top
+		descLabel.Text = description or ""
+		descLabel.Parent = descContainer
+	else
+		local descLabel = Instance.new("TextLabel")
+		descLabel.Name = "Description"
+		descLabel.Size = UDim2.new(1, 0, 1, 0)
+		descLabel.BackgroundTransparency = 1
+		descLabel.Font = FONT
+		descLabel.TextSize = 13
+		descLabel.TextColor3 = M.Parchment
+		descLabel.TextWrapped = true
+		descLabel.TextXAlignment = Enum.TextXAlignment.Left
+		descLabel.TextYAlignment = Enum.TextYAlignment.Top
+		descLabel.Text = description or ""
+		descLabel.Parent = descContainer
+	end
 
 	-- Open Transition
 	if gui then gui.Enabled = true end
