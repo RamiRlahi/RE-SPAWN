@@ -141,6 +141,28 @@ function AtmosphereManager.ApplyDungeonLighting(mapId: string?)
 	atmosphere.Decay = cfg.Atmosphere.Decay
 	atmosphere.Haze = cfg.Atmosphere.Haze
 	atmosphere.Glare = cfg.Atmosphere.Glare
+	-- Bloom: the map's own, or what the place had (remembered the first time).
+	for _, b in ipairs(Lighting:GetChildren()) do
+		if b:IsA("BloomEffect") and b.Name ~= "AscentBloom" then
+			if b:GetAttribute("BaseIntensity") == nil then
+				b:SetAttribute("BaseIntensity", b.Intensity)
+				b:SetAttribute("BaseSize", b.Size)
+				b:SetAttribute("BaseThreshold", b.Threshold)
+			end
+			local mb = ml and ml.bloom
+			b.Intensity = if mb then mb.intensity else b:GetAttribute("BaseIntensity")
+			b.Size = if mb then mb.size else b:GetAttribute("BaseSize")
+			b.Threshold = if mb then mb.threshold else b:GetAttribute("BaseThreshold")
+		end
+	end
+	local fog = ml and ml.fog
+	if fog then
+		atmosphere.Color = fog.color
+		atmosphere.Decay = fog.decay
+		atmosphere.Density = fog.density
+		atmosphere.Haze = fog.haze
+		atmosphere.Glare = 0
+	end
 
 	print("[AtmosphereManager] Dungeon lighting applied (bright).")
 end

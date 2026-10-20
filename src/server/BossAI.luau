@@ -1740,7 +1740,9 @@ end
 -- The arena it fights in (its room's flat bounds), or a square round home.
 local function arena(b: Boss): { minX: number, maxX: number, minZ: number, maxZ: number, floorY: number }
 	local room = deps.roomAt(b.home) or deps.roomAt(b.root.Position)
-	if room then return room end
+	if room then
+		return { minX = room.minX, maxX = room.maxX, minZ = room.minZ, maxZ = room.maxZ, floorY = b.floorY }
+	end
 	return { minX = b.home.X - 66, maxX = b.home.X + 66, minZ = b.home.Z - 66, maxZ = b.home.Z + 66, floorY = b.floorY }
 end
 

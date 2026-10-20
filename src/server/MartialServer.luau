@@ -78,11 +78,12 @@ local FOCUS = { full = 1.1, empFull = 0.55, hold = 2.4, hit = 0.08, reach = 7, f
 	maxMult = 3.5, splash = 8, arc = math.cos(math.rad(55)) }
 local FOCUS_EMP = { damage = 1.3, splash = 1.4 }
 
--- Electric Uppercut (matches the client): a crouch dash in (up to `dash`
--- studs), the uppercut landing `hit` in, back on his feet at `total`;
+-- Electric Uppercut (matches the client): a long crouch dash in (up to `dash`
+-- studs, stopping short at the first enemy in its path: that one takes the
+-- uppercut), the uppercut landing `hit` in, back on his feet at `total`;
 -- everything struck is launched and shocked for `stun`; chained lightning
 -- jumps up to `chain` studs.
-local UPPER = { hit = 0.27, total = 0.62, dash = 7, arc = math.cos(math.rad(70)), launch = 55, liftHold = 0.16, stun = 1.3, chain = 16,
+local UPPER = { hit = 0.27, total = 0.62, dash = 24, lane = 3.5, stopShort = 2.5, arc = math.cos(math.rad(70)), launch = 55, liftHold = 0.16, stun = 1.3, chain = 16,
 	empChains = 4, chainStun = 0.6 }
 
 -- Ground Slam (matches the client's flight: up, a beat, the dive)
@@ -461,12 +462,35 @@ local function uppercut(player: Player, char: Model, root: BasePart, dir: Vector
 	local damage = config.damage or 65
 	local origin = root.Position
 	local dash = clearDistance(char, origin, dir, UPPER.dash)
+	-- the first enemy in the dash's lane stops it, just short of them
+	local first: Target? = nil
+	local firstAlong = math.huge
+	for _, t in ipairs(H.getPotentialTargets(char)) do
+		if t.humanoid.Health <= 0 then continue end
+		local rel = Vector3.new(t.rootPart.Position.X - origin.X, 0, t.rootPart.Position.Z - origin.Z)
+		local along = rel:Dot(dir)
+		local across = (rel - dir * along).Magnitude
+		if along > 0 and along <= dash + UPPER.stopShort and across <= UPPER.lane + H.lineReach(t, 0) * 0.5
+			and math.abs(t.rootPart.Position.Y - origin.Y) < 7 and along < firstAlong then
+			first, firstAlong = t, along
+		end
+	end
+	if first then dash = math.clamp(firstAlong - UPPER.stopShort, 0, dash) end
 	fx({ kind = "uppercut", attacker = player, pos = origin, dir = dir, dash = dash, empowered = empowered, reach = reach })
 	task.delay(UPPER.hit, function()
 		if not char.Parent then return end
 		local at = origin + dir * dash
 		local struck: { Target } = {}
-		for _, t in ipairs(inFront(char, at, dir, reach, UPPER.arc)) do
+		local targets = inFront(char, at, dir, reach, UPPER.arc)
+		-- (the one it stopped on always takes it, even if it moved a little)
+		if first and first.humanoid.Health > 0 then
+			local has = false
+			for _, t in ipairs(targets) do
+				if t.character == first.character then has = true end
+			end
+			if not has then table.insert(targets, 1, first) end
+		end
+		for _, t in ipairs(targets) do
 			if hit(player, t, damage, "ELECTRIC UPPERCUT") then
 				table.insert(struck, t)
 				shock(t, UPPER.stun)

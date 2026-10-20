@@ -65,7 +65,10 @@ local FOCUS = { full = 1.1, empFull = 0.55, hold = 2.4, hit = 0.08, lunge = 1.5,
 -- crouch dash in (`reach` studs), then, planted, the fist swung up from the
 -- knee (`swing`: it lands `hit` in), carried on up (`rise`), a beat held,
 -- back to guard. His feet stay on the floor throughout.
-local UPPER = { crouch = 0.05, dash = 0.14, swing = 0.08, rise = 0.08, hang = 0.12, fall = 0.15, hit = 0.27, total = 0.62, reach = 7 }
+-- (`range`: the dash's longest; it stops `stopShort` before the first enemy
+-- in a lane `lane` wide, like the server's)
+local UPPER = { crouch = 0.05, dash = 0.14, swing = 0.08, rise = 0.08, hang = 0.12, fall = 0.15, hit = 0.27, total = 0.62, reach = 7,
+	range = 24, lane = 3.5, stopShort = 2.5 }
 -- Ground Slam: a leap straight up (rise), a beat hanging at the top
 -- (dash), then a dive in a straight line down onto the spot (fall).
 local ASCENT = { rise = 0.3, dash = 0.08, fall = 0.22 }
@@ -2045,11 +2048,27 @@ local function uppercutFly(char: Model, root: BasePart, dir: Vector3): number
 	local U = UPPER
 	local mv = holdBody(char, root)
 	if not mv then return 0 end
-	local reach = math.min(SafeMove.ClampDash(root, dir, U.reach + 0.5), SafeMove.ClampToFloor(root, dir, U.reach + 0.5))
-	local dash = math.min(reach, U.reach)
+	local reach = math.min(SafeMove.ClampDash(root, dir, U.range + 0.5), SafeMove.ClampToFloor(root, dir, U.range + 0.5))
+	local dash = math.min(reach, U.range)
 	local o = root.Position
+	-- the first enemy in the lane stops it, just short of them
+	local mobs = Workspace:FindFirstChild("Mobs")
+	if mobs then
+		for _, m in ipairs(mobs:GetChildren()) do
+			local hum = m:FindFirstChildOfClass("Humanoid")
+			local r = m:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if hum and r and hum.Health > 0 then
+				local rel = Vector3.new(r.Position.X - o.X, 0, r.Position.Z - o.Z)
+				local along = rel:Dot(dir)
+				if along > 0 and along <= dash + U.stopShort and (rel - dir * along).Magnitude <= U.lane + r.Size.X * 0.5
+					and math.abs(r.Position.Y - o.Y) < 7 then
+					dash = math.clamp(along - U.stopShort, 0, dash)
+				end
+			end
+		end
+	end
 	local dashEnd = o + dir * dash
-	local stepEnd = o + dir * reach
+	local stepEnd = o + dir * math.min(reach, dash + 0.5)
 	mv.face(dir)
 	local t0 = os.clock()
 	local a1 = U.crouch
@@ -2080,8 +2099,112 @@ local function voltColor(): Color3
 	return if r < 0.25 then CRIMSON elseif r < 0.45 then ARC else VOLT
 end
 
+-- "kaz electric": the effect the user made for the uppercut (in the place,
+-- not in code: found by name in ReplicatedStorage, or the VFX showcase in
+-- Workspace, once). A copy rides on him through the dash and the rise,
+-- every emitter and beam in it lit, then dies away.
+local kazTemplate: Instance? = nil
+local kazSearched = false
+local function findKaz(): Instance?
+	if kazTemplate and kazTemplate.Parent then return kazTemplate end
+	if kazSearched then return nil end
+	kazSearched = true
+	local function named(inst: Instance): boolean
+		local n = string.lower(inst.Name)
+		return string.find(n, "kaz", 1, true) ~= nil and (inst:IsA("BasePart") or inst:IsA("Model") or inst:IsA("Attachment") or inst:IsA("Folder"))
+	end
+	for _, d in ipairs(ReplicatedStorage:GetDescendants()) do
+		if named(d) then kazTemplate = d return d end
+	end
+	-- (the showcase in the sky: only two levels down, never the whole Workspace)
+	for _, c in ipairs(Workspace:GetChildren()) do
+		if named(c) then kazTemplate = c return c end
+		if c:IsA("Folder") or c:IsA("Model") then
+			for _, cc in ipairs(c:GetChildren()) do
+				if named(cc) then kazTemplate = cc return cc end
+			end
+		end
+	end
+	warn("[MartialController] no 'kaz electric' effect found in ReplicatedStorage or Workspace")
+	return nil
+end
+
+local function kazFx(char: Model, seconds: number)
+	local t = findKaz()
+	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not (t and root) then return end
+	local holder = Instance.new("Part")
+	holder.Name = "KazElectric"
+	holder.Size = Vector3.one * 0.2
+	holder.Transparency = 1
+	holder.CanCollide, holder.CanQuery, holder.CanTouch, holder.CastShadow, holder.Massless = false, false, false, false, true
+	holder.CFrame = root.CFrame
+	local c = t:Clone()
+	local emitters: { ParticleEmitter } = {}
+	local longest = 0
+	local function take(d: Instance)
+		if d:IsA("ParticleEmitter") then
+			table.insert(emitters, d)
+			longest = math.max(longest, d.Lifetime.Max)
+		elseif d:IsA("Beam") or d:IsA("Trail") then
+			(d :: any).Enabled = true
+		elseif d:IsA("Light") then
+			d:Destroy()
+		elseif d:IsA("BasePart") then
+			d.Anchored = false
+			d.Transparency = 1
+			d.CanCollide, d.CanQuery, d.CanTouch, d.CastShadow, d.Massless = false, false, false, false, true
+		end
+	end
+	if c:IsA("BasePart") then
+		take(c)
+		for _, d in ipairs(c:GetDescendants()) do take(d) end
+		c.CFrame = root.CFrame
+		local w = Instance.new("WeldConstraint")
+		w.Part0, w.Part1 = holder, c
+		w.Parent = c
+		c.Parent = holder
+	elseif c:IsA("Model") then
+		for _, d in ipairs(c:GetDescendants()) do take(d) end
+		c:PivotTo(root.CFrame)
+		for _, d in ipairs(c:GetDescendants()) do
+			if d:IsA("BasePart") then
+				local w = Instance.new("WeldConstraint")
+				w.Part0, w.Part1 = holder, d
+				w.Parent = d
+			end
+		end
+		c.Parent = holder
+	else
+		-- an attachment or a folder of them: hung on the holder as they are
+		for _, d in ipairs(c:GetDescendants()) do take(d) end
+		take(c)
+		c.Parent = holder
+		if c:IsA("Attachment") then c.CFrame = CFrame.identity end
+	end
+	local weld = Instance.new("WeldConstraint")
+	weld.Part0, weld.Part1 = root, holder
+	weld.Parent = holder
+	holder.Parent = char
+	for _, e in ipairs(emitters) do
+		e.Enabled = true
+		local n = tonumber(e:GetAttribute("EmitCount"))
+		if n and n > 0 then e:Emit(n) end
+	end
+	task.delay(seconds, function()
+		for _, e in ipairs(emitters) do
+			if e.Parent then e.Enabled = false end
+		end
+		for _, d in ipairs(holder:GetDescendants()) do
+			if d:IsA("Beam") or d:IsA("Trail") then (d :: any).Enabled = false end
+		end
+		Debris:AddItem(holder, longest + 0.2)
+	end)
+end
+
 local function uppercutFx(char: Model?, pos: Vector3, dir: Vector3, dash: number, mine: boolean)
 	local U = UPPER
+	if char then kazFx(char, U.crouch + U.dash + U.swing + U.rise + U.hang + 0.15) end
 	local g0 = onGround(pos)
 	local g = onGround(pos + dir * dash)
 	local hitAt = g + dir * 1.2 + Vector3.new(0, 4.5, 0)

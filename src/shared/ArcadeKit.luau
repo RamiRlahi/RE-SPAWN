@@ -40,13 +40,15 @@ ArcadeKit.TEX = {
 }
 local TEX = ArcadeKit.TEX
 
-local BASE_DARK = Color3.fromRGB(16, 14, 38)
-local BASE = Color3.fromRGB(30, 27, 66)
-local METAL = Color3.fromRGB(38, 42, 72)
-local CYAN = Color3.fromRGB(60, 220, 255)
-local MAGENTA = Color3.fromRGB(255, 60, 210)
-local PURPLE = Color3.fromRGB(160, 80, 255)
-local ORANGE = Color3.fromRGB(255, 150, 60)
+-- (the Abyssal Neon palette: midnight blue, electric violet, restrained ice
+-- cyan, warm amber kept for rewards and accents)
+local BASE_DARK = Color3.fromRGB(8, 13, 27)  -- midnight
+local BASE = Color3.fromRGB(48, 36, 91)      -- violet
+local METAL = Color3.fromRGB(58, 48, 104)
+local CYAN = Color3.fromRGB(66, 221, 245)    -- ice cyan
+local MAGENTA = Color3.fromRGB(120, 87, 255) -- arcane
+local PURPLE = Color3.fromRGB(88, 64, 190)
+local ORANGE = Color3.fromRGB(255, 198, 109) -- amber
 local HOLO = Color3.fromRGB(150, 225, 255)
 local SMOOTH = Enum.Material.SmoothPlastic
 local NEON = Enum.Material.Neon

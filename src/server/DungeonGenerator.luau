@@ -27,6 +27,7 @@ local AtmosphereManager = require(ReplicatedStorage:WaitForChild("Shared"):WaitF
 local MapData           = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("MapData"))
 local RunScope          = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RunScope"))
 local Network           = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Network"))
+local ArcadeKit         = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArcadeKit"))
 
 local DungeonGenerator = {}
 
@@ -2179,6 +2180,344 @@ end
 -- corners burn violet)
 local arcadeTheme = false
 
+-- ── The arcade's rooms: no walls, an endless void, a barrier of light ──────
+-- Each room is a floating platform in the dark: a lit lip round its edge
+-- with a skirt hanging down under it, a low rail of light along the edge
+-- and a faint shimmering sheet over it, with an invisible wall in it that
+-- stops you leaving. Out in the violet fog round it float islands of voxel
+-- stone pouring light, under a vast vortex (arcadeBackdrop): it reads
+-- endless, and still a room.
+local ARCADE_EDGE = {
+	-- (Abyssal Neon: midnight, violet, arcane, ice cyan; amber for the way on)
+	base = Color3.fromRGB(14, 20, 40),
+	metal = Color3.fromRGB(48, 36, 91),
+	cyan = Color3.fromRGB(66, 221, 245),
+	purple = Color3.fromRGB(88, 64, 190),
+	pink = Color3.fromRGB(120, 87, 255),
+	amber = Color3.fromRGB(255, 198, 109),
+	tower = Color3.fromRGB(10, 16, 32),
+}
+
+local function edgePart(parent: Instance, size: Vector3, cf: CFrame, color: Color3, material: Enum.Material?, collide: boolean?): BasePart
+	local p = Instance.new("Part")
+	p.Size = size
+	p.CFrame = cf
+	p.Color = color
+	p.Material = material or Enum.Material.SmoothPlastic
+	p.Anchored = true
+	p.CanCollide = collide == true
+	p.CanTouch = false
+	p.CanQuery = collide == true
+	p.CastShadow = false
+	p.TopSurface, p.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
+	p.Parent = parent
+	return p
+end
+
+local function arcadeEdges(room: RoomData, parent: Instance)
+	local minX = room.gx * FLOOR_SIZE - FLOOR_SIZE / 2
+	local maxX = (room.gx + room.w - 1) * FLOOR_SIZE + FLOOR_SIZE / 2
+	local minZ = room.gz * FLOOR_SIZE - FLOOR_SIZE / 2
+	local maxZ = (room.gz + room.d - 1) * FLOOR_SIZE + FLOOR_SIZE / 2
+	local top = room.floorY + 0.5
+	local NEON = Enum.Material.Neon
+	-- each side: its middle, its length, which way is out
+	local sides = {
+		{ mid = Vector3.new((minX + maxX) / 2, 0, minZ), len = maxX - minX, out = -Vector3.zAxis },
+		{ mid = Vector3.new((minX + maxX) / 2, 0, maxZ), len = maxX - minX, out = Vector3.zAxis },
+		{ mid = Vector3.new(minX, 0, (minZ + maxZ) / 2), len = maxZ - minZ, out = -Vector3.xAxis },
+		{ mid = Vector3.new(maxX, 0, (minZ + maxZ) / 2), len = maxZ - minZ, out = Vector3.xAxis },
+	}
+	for _, s in ipairs(sides) do
+		local at = Vector3.new(s.mid.X, top, s.mid.Z)
+		-- (+Z of this frame points out of the room; X runs along the side)
+		local cf = CFrame.lookAt(at, at - s.out)
+		local L = s.len + 1.6
+		-- the lip and the skirt hanging under it
+		edgePart(parent, Vector3.new(L, 4, 0.8), cf * CFrame.new(0, -2, 0.4), ARCADE_EDGE.base)
+		edgePart(parent, Vector3.new(L, 0.3, 0.9), cf * CFrame.new(0, 0.15, 0.45), ARCADE_EDGE.metal)
+		edgePart(parent, Vector3.new(L, 0.12, 0.14), cf * CFrame.new(0, 0.34, 0.85), ARCADE_EDGE.cyan, NEON)
+		edgePart(parent, Vector3.new(L, 0.1, 0.1), cf * CFrame.new(0, -3.9, 0.82), ARCADE_EDGE.purple, NEON)
+		-- the barrier: a low rail of light, a faint sheet over it, and the wall
+		-- you can't see in it
+		edgePart(parent, Vector3.new(L, 0.18, 0.18), cf * CFrame.new(0, 1.2, 0.5), ARCADE_EDGE.pink, NEON)
+		edgePart(parent, Vector3.new(L, 0.1, 0.1), cf * CFrame.new(0, 0.7, 0.5), ARCADE_EDGE.purple, NEON)
+		local sheet = edgePart(parent, Vector3.new(L, 5, 0.1), cf * CFrame.new(0, 3.6, 0.5), ARCADE_EDGE.purple, Enum.Material.ForceField)
+		sheet.Transparency = 0.4
+		local wall = edgePart(parent, Vector3.new(L, 30, 1), cf * CFrame.new(0, 15, 0.6), ARCADE_EDGE.base, nil, true)
+		wall.Transparency = 1
+		wall.Name = "ArcadeBarrier"
+		-- posts along it, every two tiles
+		local n = math.max(1, math.floor(s.len / (FLOOR_SIZE * 2)))
+		for k = 0, n do
+			local x = -s.len / 2 + k * s.len / n
+			edgePart(parent, Vector3.new(0.4, 1.6, 0.4), cf * CFrame.new(x, 0.8, 0.5), ARCADE_EDGE.metal)
+			edgePart(parent, Vector3.new(0.5, 0.3, 0.5), cf * CFrame.new(x, 1.7, 0.5), ARCADE_EDGE.cyan, NEON)
+		end
+	end
+end
+
+-- The void round a room, after the art: floating islands of dark voxel stone
+-- (a lit rim on top, jagged blocks hanging under them), waterfalls of blue
+-- light pouring off their edges into the fog, bridges between some, arcade
+-- cabinets and a "GAME OVER?" sign standing on them, and high over it all a
+-- vast swirling vortex ringed with drifting blocks. (Nothing here collides
+-- or casts a shadow; the fog is the map's, MapData.)
+local VOID_STONE = Color3.fromRGB(16, 14, 34)
+local VOID_STONE_DARK = Color3.fromRGB(10, 9, 24)
+local FALL_BLUE = Color3.fromRGB(70, 150, 255)
+
+-- An island: a slab, its rim of light, voxel blocks hanging under it.
+local function voidIsland(parent: Instance, cf: CFrame, w: number, d: number, rng: Random)
+	local NEON = Enum.Material.Neon
+	edgePart(parent, Vector3.new(w, 3, d), cf * CFrame.new(0, -1.5, 0), VOID_STONE)
+	-- the rim: a line of light along two or more edges
+	for _, e in ipairs({ { 0, -d / 2, w, 0 }, { 0, d / 2, w, 0 }, { -w / 2, 0, d, 90 }, { w / 2, 0, d, 90 } }) do
+		if rng:NextNumber() < 0.75 then
+			edgePart(parent, Vector3.new(e[3], 0.15, 0.2), cf * CFrame.new(e[1], 0.05, e[2]) * CFrame.Angles(0, math.rad(e[4]), 0),
+				if rng:NextNumber() < 0.6 then ARCADE_EDGE.pink else ARCADE_EDGE.cyan, NEON)
+		end
+	end
+	-- the underside: blocks, each smaller and lower, ragged like stalactites
+	local layers = rng:NextInteger(3, 5)
+	for l = 1, layers do
+		local shrink = 1 - l / (layers + 1.5)
+		for _ = 1, rng:NextInteger(3, 6) do
+			local bw = w * shrink * rng:NextNumber(0.25, 0.55)
+			local bd = d * shrink * rng:NextNumber(0.25, 0.55)
+			local bh = rng:NextNumber(3, 7)
+			local x = rng:NextNumber(-1, 1) * (w * shrink - bw) / 2
+			local z = rng:NextNumber(-1, 1) * (d * shrink - bd) / 2
+			edgePart(parent, Vector3.new(bw, bh, bd), cf * CFrame.new(x, -3 - (l - 1) * 4 - bh / 2, z), if l % 2 == 0 then VOID_STONE_DARK else VOID_STONE)
+		end
+	end
+	-- a few blocks stepped on top, for the voxel look
+	for _ = 1, rng:NextInteger(1, 3) do
+		local s = rng:NextNumber(2, 5)
+		edgePart(parent, Vector3.new(s, s * 0.6, s), cf * CFrame.new(rng:NextNumber(-0.35, 0.35) * w, s * 0.3, rng:NextNumber(-0.35, 0.35) * d), VOID_STONE)
+	end
+end
+
+-- A waterfall of light pouring off `at` down into the fog.
+local function lightFall(parent: Instance, at: Vector3, height: number)
+	local NEON = Enum.Material.Neon
+	local core = edgePart(parent, Vector3.new(1.2, height, 1.2), CFrame.new(at - Vector3.new(0, height / 2, 0)), FALL_BLUE, NEON)
+	core.Transparency = 0.25
+	local veil = edgePart(parent, Vector3.new(2.4, height, 2.4), CFrame.new(at - Vector3.new(0, height / 2, 0)), FALL_BLUE, NEON)
+	veil.Transparency = 0.75
+	local spray = Instance.new("ParticleEmitter")
+	spray.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	spray.Color = ColorSequence.new(Color3.fromRGB(180, 220, 255), FALL_BLUE)
+	spray.LightEmission = 1
+	spray.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0) })
+	spray.Lifetime = NumberRange.new(1, 2)
+	spray.Speed = NumberRange.new(10, 16)
+	spray.EmissionDirection = Enum.NormalId.Bottom
+	spray.SpreadAngle = Vector2.new(8, 8)
+	spray.Rate = 3
+	local top = edgePart(parent, Vector3.new(1.2, 0.2, 1.2), CFrame.new(at), FALL_BLUE, NEON)
+	spray.Parent = top
+end
+
+-- The vortex: a vast swirl (it turns: PortalSpin) in the sky, its face to
+-- the room, rings of dark blocks drifting round it.
+local function vortex(parent: Instance, at: Vector3, face: Vector3, size: number, rng: Random)
+	local cf = CFrame.lookAt(at, face)
+	local disc = edgePart(parent, Vector3.new(size, size, 0.2), cf, Color3.fromRGB(40, 20, 90))
+	disc.Transparency = 1
+	for _, spec in ipairs({ { size, 40, Color3.fromRGB(170, 120, 255), 0.1 }, { size * 0.55, -70, Color3.fromRGB(220, 190, 255), 0.35 } }) do
+		local sg = Instance.new("SurfaceGui")
+		sg.Face = Enum.NormalId.Front
+		sg.LightInfluence = 0
+		sg.Brightness = 1.6
+		sg.CanvasSize = Vector2.new(512, 512)
+		sg.MaxDistance = 1000
+		local img = Instance.new("ImageLabel")
+		img.BackgroundTransparency = 1
+		img.AnchorPoint = Vector2.new(0.5, 0.5)
+		img.Position = UDim2.fromScale(0.5, 0.5)
+		img.Size = UDim2.fromScale(spec[1] / size, spec[1] / size)
+		img.Image = ArcadeKit.TEX.swirl
+		img.ImageColor3 = spec[3]
+		img.ImageTransparency = spec[4]
+		img:SetAttribute("Spin", spec[2])
+		img:AddTag("PortalSwirl")
+		img.Parent = sg
+		sg.Parent = disc
+	end
+	-- drifting rings of blocks round its rim
+	for ringN = 1, 3 do
+		local r = size * (0.42 + ringN * 0.07)
+		local n = 18 + ringN * 6
+		for k = 0, n - 1 do
+			if rng:NextNumber() < 0.7 then
+				local a = k / n * math.pi * 2 + rng:NextNumber(-0.05, 0.05)
+				local s = rng:NextNumber(2, 6)
+				local p = cf * CFrame.new(math.cos(a) * r, math.sin(a) * r, rng:NextNumber(-4, 4))
+				edgePart(parent, Vector3.new(s, s * rng:NextNumber(0.6, 1.4), s), p * CFrame.Angles(rng:NextNumber(0, 1), rng:NextNumber(0, 1), a),
+					if k % 5 == 0 then Color3.fromRGB(60, 40, 140) else VOID_STONE)
+			end
+		end
+	end
+end
+
+-- A big neon sign standing on an island: "GAME OVER?" in pink pixels.
+local function gameOverSign(parent: Instance, cf: CFrame)
+	local board = edgePart(parent, Vector3.new(14, 9, 0.6), cf * CFrame.new(0, 7, 0), VOID_STONE_DARK)
+	edgePart(parent, Vector3.new(14.4, 0.25, 0.3), cf * CFrame.new(0, 11.6, -0.3), ARCADE_EDGE.pink, Enum.Material.Neon)
+	edgePart(parent, Vector3.new(14.4, 0.25, 0.3), cf * CFrame.new(0, 2.4, -0.3), ARCADE_EDGE.pink, Enum.Material.Neon)
+	for _, x in ipairs({ -7.1, 7.1 }) do
+		edgePart(parent, Vector3.new(0.25, 9.4, 0.3), cf * CFrame.new(x, 7, -0.3), ARCADE_EDGE.pink, Enum.Material.Neon)
+		edgePart(parent, Vector3.new(0.6, 3, 0.6), cf * CFrame.new(x * 0.6, 1.5, 0), VOID_STONE)
+	end
+	local sg = Instance.new("SurfaceGui")
+	sg.Face = Enum.NormalId.Front
+	sg.LightInfluence = 0
+	sg.Brightness = 2.2
+	sg.CanvasSize = Vector2.new(560, 360)
+	sg.MaxDistance = 600
+	local text = Instance.new("TextLabel")
+	text.BackgroundTransparency = 1
+	text.Size = UDim2.fromScale(1, 1)
+	text.Font = Enum.Font.Arcade
+	text.Text = "GAME\nOVER?"
+	text.TextScaled = true
+	text.TextColor3 = Color3.fromRGB(255, 110, 220)
+	text.Parent = sg
+	sg.Parent = board
+end
+
+local function arcadeBackdrop(room: RoomData, parent: Instance, rng: Random)
+	local cx = (room.gx + (room.w - 1) / 2) * FLOOR_SIZE
+	local cz = (room.gz + (room.d - 1) / 2) * FLOOR_SIZE
+	local half = room.w * FLOOR_SIZE / 2
+	local y0 = room.floorY
+	local center = Vector3.new(cx, y0, cz)
+	-- the islands, in a loose ring round the room (none behind the portals'
+	-- wall too close: the vortex hangs there)
+	local count = 9
+	local spots: { CFrame } = {}
+	for k = 0, count - 1 do
+		local a = (k + rng:NextNumber(-0.3, 0.3)) / count * math.pi * 2
+		local dist = half + rng:NextNumber(30, 70)
+		local at = Vector3.new(cx + math.cos(a) * dist, y0 + rng:NextNumber(-14, 10), cz + math.sin(a) * dist)
+		local cf = CFrame.lookAt(at, Vector3.new(cx, at.Y, cz))
+		local w, d = rng:NextNumber(16, 30), rng:NextNumber(14, 26)
+		voidIsland(parent, cf, w, d, rng)
+		table.insert(spots, cf)
+		-- a waterfall or two off its edge
+		for _ = 1, rng:NextInteger(1, 2) do
+			local edge = cf * CFrame.new(rng:NextNumber(-0.4, 0.4) * w, -1, (if rng:NextNumber() < 0.5 then -1 else 1) * (d / 2 + 0.6))
+			lightFall(parent, edge.Position, rng:NextNumber(50, 80))
+		end
+		-- what stands on it: a cabinet or two facing the room, or the sign
+		if k == 2 then
+			gameOverSign(parent, cf)
+		elseif rng:NextNumber() < 0.6 then
+			local cab = ArcadeKit.Build("Arcade_Cabinet")
+			if cab then
+				for _, p in ipairs(cab:GetDescendants()) do
+					if p:IsA("BasePart") then p.CanCollide, p.CanTouch, p.CanQuery, p.CastShadow, p.Anchored = false, false, false, false, true end
+				end
+				cab:PivotTo(cf * CFrame.new(rng:NextNumber(-4, 4), 0, -d * 0.2))
+				cab:ScaleTo(1.6)
+				cab.Parent = parent
+			end
+		end
+	end
+	-- bridges between neighbouring islands, now and then
+	for k = 1, #spots do
+		local a, b = spots[k].Position, spots[k % #spots + 1].Position
+		if rng:NextNumber() < 0.35 and math.abs(a.Y - b.Y) < 8 then
+			local mid = (a + b) / 2
+			local len = (b - a).Magnitude
+			edgePart(parent, Vector3.new(4, 1, len), CFrame.lookAt(mid, b) * CFrame.new(0, -0.5, 0), VOID_STONE)
+			edgePart(parent, Vector3.new(0.15, 0.15, len), CFrame.lookAt(mid, b) * CFrame.new(1.9, 0.05, 0), ARCADE_EDGE.pink, Enum.Material.Neon)
+		end
+	end
+	-- the vortex, high and far, off to one side behind the way in
+	local vat = Vector3.new(cx - half - 90, y0 + 55, cz + (if rng:NextNumber() < 0.5 then -1 else 1) * half * 0.8)
+	vortex(parent, vat, center + Vector3.new(0, 20, 0), 120, rng)
+end
+
+-- The arcade's floor: one platform per room, not a scatter of tiles, kept
+-- quiet so the fight reads: a dark field, dim seams, and bright lines only
+-- for boundaries (the arena's ring, the edge band, the way to the portals). (Its top is the tiles' height,
+-- floorY + 0.5, so the portals and props stand on it as before.)
+local function arcadeFloor(room: RoomData, parent: Instance)
+	local cx = (room.gx + (room.w - 1) / 2) * FLOOR_SIZE
+	local cz = (room.gz + (room.d - 1) / 2) * FLOOR_SIZE
+	local W, D = room.w * FLOOR_SIZE, room.d * FLOOR_SIZE
+	local top = room.floorY + 0.5
+	local NEON = Enum.Material.Neon
+	local slab = edgePart(parent, Vector3.new(W, 1, D), CFrame.new(cx, top - 0.5, cz), ARCADE_EDGE.base, nil, true)
+	slab.Name = "ArcadeFloor"
+	slab.CanQuery = true
+	local y = top + 0.02
+	local function line(a: Vector3, b: Vector3, width: number, color: Color3, transparency: number)
+		local mid = (a + b) / 2
+		local len = (b - a).Magnitude
+		if len < 0.1 then return end
+		local p = edgePart(parent, Vector3.new(width, 0.04, len), CFrame.lookAt(Vector3.new(mid.X, y, mid.Z), Vector3.new(b.X, y, b.Z)), color, NEON)
+		p.Transparency = transparency
+	end
+	-- Quiet underfoot: the fight is what should read. A dark field where you
+	-- fight (darker than the rim, so bodies stand out against it), the grid
+	-- barely there, and the only strong lines are boundaries: a thin ring
+	-- marking the arena and a band round the edge. Lines are plastic, not
+	-- neon (crisp, no bloom), but for the few that mark a boundary.
+	local PLAIN = Enum.Material.SmoothPlastic
+	local function flat(a: Vector3, b: Vector3, width: number, color: Color3, transparency: number, glow: boolean?)
+		local mid = (a + b) / 2
+		local len = (b - a).Magnitude
+		if len < 0.1 then return end
+		local p = edgePart(parent, Vector3.new(width, 0.04, len), CFrame.lookAt(Vector3.new(mid.X, y, mid.Z), Vector3.new(b.X, y, b.Z)),
+			color, if glow then NEON else PLAIN)
+		p.Transparency = transparency
+	end
+	local _ = line
+	local c = Vector3.new(cx, 0, cz)
+	local R = math.min(W, D) * 0.42
+	-- the dark field: the combat area, a shade under the rest
+	local field = edgePart(parent, Vector3.new(W - 14, 0.03, D - 14), CFrame.new(cx, top + 0.005, cz), Color3.fromRGB(8, 13, 27), PLAIN)
+	field.Transparency = 0
+	-- the grid: dim seams only
+	local seam = Color3.fromRGB(48, 36, 91)
+	for i = 1, room.w - 1 do
+		local x = cx - W / 2 + i * FLOOR_SIZE
+		flat(Vector3.new(x, 0, cz - D / 2), Vector3.new(x, 0, cz + D / 2), 0.1, seam, 0.35)
+	end
+	for j = 1, room.d - 1 do
+		local z = cz - D / 2 + j * FLOOR_SIZE
+		flat(Vector3.new(cx - W / 2, 0, z), Vector3.new(cx + W / 2, 0, z), 0.1, seam, 0.35)
+	end
+	-- the arena's boundary: one thin ring, softly lit
+	local N = 40
+	for k = 0, N - 1 do
+		local a1, a2 = k / N * math.pi * 2, (k + 1) / N * math.pi * 2
+		flat(c + Vector3.new(math.cos(a1), 0, math.sin(a1)) * R, c + Vector3.new(math.cos(a2), 0, math.sin(a2)) * R, 0.16, ARCADE_EDGE.pink, 0.55, true)
+	end
+	-- the edge band, just inside the barrier
+	local inset = 3
+	for _, s in ipairs({
+		{ Vector3.new(cx - W / 2 + inset, 0, cz - D / 2 + inset), Vector3.new(cx + W / 2 - inset, 0, cz - D / 2 + inset) },
+		{ Vector3.new(cx - W / 2 + inset, 0, cz + D / 2 - inset), Vector3.new(cx + W / 2 - inset, 0, cz + D / 2 - inset) },
+		{ Vector3.new(cx - W / 2 + inset, 0, cz - D / 2 + inset), Vector3.new(cx - W / 2 + inset, 0, cz + D / 2 - inset) },
+		{ Vector3.new(cx + W / 2 - inset, 0, cz - D / 2 + inset), Vector3.new(cx + W / 2 - inset, 0, cz + D / 2 - inset) },
+	}) do
+		flat(s[1], s[2], 0.2, ARCADE_EDGE.cyan, 0.5, true)
+	end
+	-- the path to the portals: faint chevrons down the middle toward +X
+	for k = 1, 3 do
+		local x = cx + R + 4 + k * 3.5
+		if x < cx + W / 2 - inset - 1 then
+			flat(Vector3.new(x - 1.4, 0, cz - 2), Vector3.new(x, 0, cz), 0.25, ARCADE_EDGE.amber, 0.35)
+			flat(Vector3.new(x - 1.4, 0, cz + 2), Vector3.new(x, 0, cz), 0.25, ARCADE_EDGE.amber, 0.35)
+		end
+	end
+end
+
+
 -- The arcade's props, laid out the same way in every room, mirrored side to
 -- side (you come in on the -X wall and leave by the portals on the +X wall):
 -- a row of cabinets facing in along each side wall, hologram spectators
@@ -2218,6 +2557,252 @@ local function arcadeProps(room: RoomData, propsFolder: Folder)
 	put("Score_Board", x0 + inset, zc, -90)
 end
 
+-- ── The Prison of Souls' dressing (MapData.prison) ─────────────────────────
+-- Built from parts, so it needs nothing in the place: on the walls (only
+-- where there is wall: never across a doorway) barred cell fronts with a
+-- prisoner's bones slumped behind them, shackles hanging on chains, and
+-- lanterns burning a sickly green; in the room an iron cage hanging from out
+-- of sight, floor grates breathing green mist, crates and barrels stacked in
+-- the corners, bones scattered about. (No lights: the green is neon.)
+local prisonTheme = false
+local PRISON = {
+	iron = Color3.fromRGB(46, 50, 52),
+	rust = Color3.fromRGB(88, 62, 46),
+	wood = Color3.fromRGB(92, 66, 44),
+	woodDark = Color3.fromRGB(60, 42, 30),
+	bone = Color3.fromRGB(214, 206, 180),
+	soul = Color3.fromRGB(110, 255, 170),
+	glass = Color3.fromRGB(150, 255, 190),
+}
+
+local function prisonPart(parent: Instance, size: Vector3, cf: CFrame, color: Color3, material: Enum.Material?, shape: Enum.PartType?, collide: boolean?): BasePart
+	local p = Instance.new("Part")
+	if shape then p.Shape = shape end
+	p.Size = size
+	p.CFrame = cf
+	p.Color = color
+	p.Material = material or Enum.Material.Metal
+	p.Anchored = true
+	p.CanCollide = collide == true
+	p.CanTouch = false
+	p.CanQuery = collide == true
+	p.CastShadow = false
+	p.TopSurface, p.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
+	p.Parent = parent
+	return p
+end
+
+local UPRIGHT = CFrame.Angles(0, 0, math.rad(90)) -- (a cylinder standing up)
+
+-- A heap of bones on the floor at `cf` (a skull, a ribcage, long bones).
+local function bones(parent: Instance, cf: CFrame, rng: Random)
+	prisonPart(parent, Vector3.one * 0.9, cf * CFrame.new(0, 0.45, 0) * CFrame.Angles(0, rng:NextNumber(0, 6), math.rad(15)), PRISON.bone, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	prisonPart(parent, Vector3.new(0.5, 0.4, 0.3), cf * CFrame.new(0, 0.25, -0.4), PRISON.bone, Enum.Material.SmoothPlastic)
+	for k = 1, 3 do
+		prisonPart(parent, Vector3.new(0.18, 0.18, 1.6), cf * CFrame.new(rng:NextNumber(-1, 1), 0.1, rng:NextNumber(-0.3, 1)) * CFrame.Angles(0, rng:NextNumber(0, 6), 0),
+			PRISON.bone, Enum.Material.SmoothPlastic)
+	end
+	for k = 1, 3 do
+		prisonPart(parent, Vector3.new(1.2, 0.12, 0.12), cf * CFrame.new(0.9, 0.5 + k * 0.22, 0.6) * CFrame.Angles(0, math.rad(30), math.rad(10)), PRISON.bone, Enum.Material.SmoothPlastic)
+	end
+end
+
+-- A barred cell front standing out from the wall (`cf` on the floor at the
+-- wall's face, -Z into the room), the bones of who's left in it.
+local function cellFront(parent: Instance, cf: CFrame, rng: Random)
+	local w, h, depth = 8, 9, 2.6
+	local front = cf * CFrame.new(0, 0, -depth)
+	prisonPart(parent, Vector3.new(w, 0.4, 0.4), front * CFrame.new(0, h, 0), PRISON.iron)
+	prisonPart(parent, Vector3.new(w, 0.3, 0.3), front * CFrame.new(0, 0.2, 0), PRISON.iron)
+	prisonPart(parent, Vector3.new(w, 0.25, 0.25), front * CFrame.new(0, h * 0.55, 0), PRISON.rust)
+	for k = 0, 8 do
+		local x = -w / 2 + 0.3 + k * (w - 0.6) / 8
+		prisonPart(parent, Vector3.new(h, 0.22, 0.22), front * CFrame.new(x, h / 2, 0) * UPRIGHT, PRISON.iron, nil, Enum.PartType.Cylinder)
+	end
+	-- the sides back to the wall, and the bars' collision (you can't walk in)
+	for _, side in ipairs({ -1, 1 }) do
+		prisonPart(parent, Vector3.new(0.5, h, depth), cf * CFrame.new(side * w / 2, h / 2, -depth / 2), PRISON.iron)
+	end
+	local block = prisonPart(parent, Vector3.new(w, h, 0.4), front * CFrame.new(0, h / 2, 0), PRISON.iron, nil, nil, true)
+	block.Transparency = 1
+	bones(parent, cf * CFrame.new(rng:NextNumber(-2, 2), 0, -depth * 0.45), rng)
+end
+
+-- Shackles hanging on two chains from a ring in the wall.
+local function shackles(parent: Instance, cf: CFrame)
+	prisonPart(parent, Vector3.new(1.6, 0.3, 0.4), cf * CFrame.new(0, 7, -0.2), PRISON.iron)
+	for _, side in ipairs({ -1, 1 }) do
+		for k = 0, 4 do
+			prisonPart(parent, Vector3.new(0.18, 0.5, 0.32), cf * CFrame.new(side * 0.6, 6.6 - k * 0.48, -0.3) * CFrame.Angles(0, if k % 2 == 0 then 0 else math.rad(90), 0), PRISON.iron)
+		end
+		prisonPart(parent, Vector3.new(0.18, 0.7, 0.7), cf * CFrame.new(side * 0.6, 4.0, -0.3) * CFrame.Angles(0, math.rad(90), 0), PRISON.rust, nil, Enum.PartType.Cylinder)
+	end
+end
+
+-- A wall lantern: a bracket, an iron cage round green glass.
+local function lantern(parent: Instance, cf: CFrame)
+	local at = cf * CFrame.new(0, 8, -0.9)
+	prisonPart(parent, Vector3.new(0.3, 0.3, 1.2), cf * CFrame.new(0, 8.9, -0.5), PRISON.iron)
+	prisonPart(parent, Vector3.new(0.9, 1.2, 0.9), at, PRISON.glass, Enum.Material.Neon).Transparency = 0.15
+	prisonPart(parent, Vector3.new(1.1, 0.2, 1.1), at * CFrame.new(0, 0.7, 0), PRISON.iron)
+	prisonPart(parent, Vector3.new(1.1, 0.2, 1.1), at * CFrame.new(0, -0.7, 0), PRISON.iron)
+	for _, x in ipairs({ -0.5, 0.5 }) do
+		for _, z in ipairs({ -0.5, 0.5 }) do
+			prisonPart(parent, Vector3.new(0.1, 1.3, 0.1), at * CFrame.new(x, 0, z), PRISON.iron)
+		end
+	end
+	-- a glow on the wall behind it
+	local halo = prisonPart(parent, Vector3.new(0.05, 3.5, 3.5), cf * CFrame.new(0, 8, -0.05) * CFrame.Angles(0, math.rad(90), 0), PRISON.soul, Enum.Material.Neon, Enum.PartType.Cylinder)
+	halo.Transparency = 0.82
+end
+
+-- An iron cage hanging on a chain from out of sight.
+local function hangingCage(parent: Instance, at: Vector3, rng: Random)
+	local base = CFrame.new(at) * CFrame.Angles(0, rng:NextNumber(0, 6), 0)
+	local h, r = 5, 2
+	prisonPart(parent, Vector3.new(0.3, r * 2 + 0.4, r * 2 + 0.4), base * UPRIGHT, PRISON.iron, nil, Enum.PartType.Cylinder)
+	prisonPart(parent, Vector3.new(0.3, r * 2 + 0.4, r * 2 + 0.4), base * CFrame.new(0, h, 0) * UPRIGHT, PRISON.iron, nil, Enum.PartType.Cylinder)
+	for k = 0, 9 do
+		local a = k / 10 * math.pi * 2
+		prisonPart(parent, Vector3.new(0.16, h, 0.16), base * CFrame.new(math.cos(a) * r, h / 2, math.sin(a) * r), PRISON.iron)
+	end
+	prisonPart(parent, Vector3.new(0.25, 40, 0.25), base * CFrame.new(0, h + 20, 0), PRISON.iron)
+	-- someone's still in it
+	prisonPart(parent, Vector3.one * 0.8, base * CFrame.new(0.4, 1.2, 0), PRISON.bone, Enum.Material.SmoothPlastic, Enum.PartType.Ball)
+	prisonPart(parent, Vector3.new(1, 0.15, 0.15), base * CFrame.new(-0.3, 0.5, 0.3) * CFrame.Angles(0, 0.6, 0), PRISON.bone, Enum.Material.SmoothPlastic)
+end
+
+-- A floor grate, green mist breathing up out of it.
+local function grate(parent: Instance, at: Vector3)
+	local cf = CFrame.new(at)
+	prisonPart(parent, Vector3.new(5, 0.1, 5), cf * CFrame.new(0, 0.02, 0), Color3.fromRGB(6, 20, 14), Enum.Material.SmoothPlastic)
+	prisonPart(parent, Vector3.new(4.4, 0.08, 4.4), cf * CFrame.new(0, 0.05, 0), PRISON.soul, Enum.Material.Neon).Transparency = 0.7
+	for k = -2, 2 do
+		prisonPart(parent, Vector3.new(5, 0.2, 0.25), cf * CFrame.new(0, 0.12, k), PRISON.iron)
+		prisonPart(parent, Vector3.new(0.25, 0.2, 5), cf * CFrame.new(k, 0.12, 0), PRISON.iron)
+	end
+	local holder = prisonPart(parent, Vector3.new(4, 0.1, 4), cf * CFrame.new(0, 0.2, 0), PRISON.soul)
+	holder.Transparency = 1
+	local mist = Instance.new("ParticleEmitter")
+	mist.Name = "GrateMist"
+	mist.Texture = "rbxasset://textures/particles/smoke_main.dds"
+	mist.Color = ColorSequence.new(Color3.fromRGB(120, 255, 180), Color3.fromRGB(40, 120, 90))
+	mist.LightEmission = 0.4
+	mist.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.3, 0.75), NumberSequenceKeypoint.new(1, 1) })
+	mist.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 2), NumberSequenceKeypoint.new(1, 5) })
+	mist.Lifetime = NumberRange.new(2.5, 4)
+	mist.Speed = NumberRange.new(0.6, 1.4)
+	mist.EmissionDirection = Enum.NormalId.Top
+	mist.Shape = Enum.ParticleEmitterShape.Box
+	mist.Rate = 2
+	mist.Parent = holder
+end
+
+-- Crates and a barrel or two, stacked in a corner (they're solid).
+local function stores(parent: Instance, cf: CFrame, rng: Random)
+	for k = 0, rng:NextInteger(1, 3) do
+		local s = rng:NextNumber(2.6, 3.4)
+		local at = cf * CFrame.new(rng:NextNumber(-2.5, 2.5), s / 2, rng:NextNumber(-2.5, 2.5)) * CFrame.Angles(0, rng:NextNumber(-0.4, 0.4), 0)
+		if k == 3 then at = cf * CFrame.new(0, 3.2 + s / 2, 0) end
+		prisonPart(parent, Vector3.one * s, at, PRISON.wood, Enum.Material.WoodPlanks, nil, true)
+		prisonPart(parent, Vector3.new(s + 0.08, 0.3, s + 0.08), at * CFrame.new(0, s * 0.3, 0), PRISON.woodDark, Enum.Material.Wood)
+		prisonPart(parent, Vector3.new(s + 0.08, 0.3, s + 0.08), at * CFrame.new(0, -s * 0.3, 0), PRISON.woodDark, Enum.Material.Wood)
+	end
+	local b = cf * CFrame.new(rng:NextNumber(-3, 3), 1.6, rng:NextNumber(-3, 3))
+	prisonPart(parent, Vector3.new(3.2, 2.4, 2.4), b * UPRIGHT, PRISON.woodDark, Enum.Material.Wood, Enum.PartType.Cylinder, true)
+	for _, y in ipairs({ -1, 1 }) do
+		prisonPart(parent, Vector3.new(0.2, 2.5, 2.5), b * CFrame.new(0, y * 1.0, 0) * UPRIGHT, PRISON.iron, nil, Enum.PartType.Cylinder)
+	end
+end
+
+local function prisonDecor(room: RoomData, propsFolder: Folder, rng: Random)
+	if room.w < 3 or room.d < 3 then return end
+	local folder = Instance.new("Folder")
+	folder.Name = "PrisonDecor"
+	folder.Parent = propsFolder
+	local minX = room.gx * FLOOR_SIZE - FLOOR_SIZE / 2
+	local maxX = (room.gx + room.w - 1) * FLOOR_SIZE + FLOOR_SIZE / 2
+	local minZ = room.gz * FLOOR_SIZE - FLOOR_SIZE / 2
+	local maxZ = (room.gz + room.d - 1) * FLOOR_SIZE + FLOOR_SIZE / 2
+	local cx, cz = (minX + maxX) / 2, (minZ + maxZ) / 2
+	local fy = room.floorY + 0.5
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = { propsFolder }
+
+	-- A spot on a wall: from inside the room, out toward side `out` at `t`
+	-- (0..1 along it); the wall's face as a frame (-Z into the room), or nil
+	-- where there's no wall (a doorway).
+	local function wallAt(out: Vector3, t: number): CFrame?
+		local along = Vector3.new(out.Z, 0, -out.X)
+		local span = if out.X ~= 0 then maxZ - minZ else maxX - minX
+		local halfOut = if out.X ~= 0 then (maxX - minX) / 2 else (maxZ - minZ) / 2
+		local from = Vector3.new(cx, fy + 4, cz) + along * (t - 0.5) * (span - 10) + out * (halfOut - 8)
+		local hit = Workspace:Raycast(from, out * 14, params)
+		if not hit or hit.Normal:Dot(-out) < 0.8 then return nil end
+		-- (and wall a little to either side too: not the edge of a doorway)
+		for _, s in ipairs({ -4.5, 4.5 }) do
+			local h2 = Workspace:Raycast(from + along * s, out * 14, params)
+			if not h2 or math.abs(h2.Distance - hit.Distance) > 1 then return nil end
+		end
+		local face = Vector3.new(hit.Position.X, fy, hit.Position.Z)
+		return CFrame.lookAt(face, face - out)
+	end
+	local sides = { Vector3.xAxis, -Vector3.xAxis, Vector3.zAxis, -Vector3.zAxis }
+	-- cell fronts on two walls, shackles and lanterns spread round them
+	local used: { [string]: boolean } = {}
+	local function place(kind: string, count: number, slots: { number })
+		local placed = 0
+		for _ = 1, 12 do
+			if placed >= count then break end
+			local si = rng:NextInteger(1, 4)
+			local t = slots[rng:NextInteger(1, #slots)]
+			local key = si .. ":" .. t
+			if used[key] then continue end
+			local cf = wallAt(sides[si], t)
+			if cf then
+				used[key] = true
+				placed += 1
+				if kind == "cell" then cellFront(folder, cf, rng)
+				elseif kind == "shackles" then shackles(folder, cf)
+				else lantern(folder, cf) end
+			end
+		end
+	end
+	local busy = room.roomType == "Combat" or room.roomType == "Elite" or room.roomType == "Start"
+	place("cell", if busy then 2 else 1, { 0.25, 0.75 })
+	place("lantern", 4, { 0.1, 0.5, 0.9 })
+	place("shackles", 2, { 0.1, 0.4, 0.6, 0.9 })
+
+	-- in the room: a cage over one side, a grate or two, stores in corners,
+	-- bones about (clear of the middle, where the reward floats)
+	if busy and room.w >= 6 and room.d >= 6 then
+		local side = if rng:NextNumber() < 0.5 then -1 else 1
+		hangingCage(folder, Vector3.new(cx + side * (maxX - minX) * 0.28, fy + 11, cz + rng:NextNumber(-1, 1) * (maxZ - minZ) * 0.2), rng)
+	end
+	for _ = 1, rng:NextInteger(1, 2) do
+		local gx = cx + (if rng:NextNumber() < 0.5 then -1 else 1) * rng:NextNumber(0.2, 0.35) * (maxX - minX)
+		local gz = cz + (if rng:NextNumber() < 0.5 then -1 else 1) * rng:NextNumber(0.2, 0.35) * (maxZ - minZ)
+		grate(folder, Vector3.new(gx, fy, gz))
+	end
+	local corners = {
+		Vector3.new(minX + 7, fy, minZ + 7), Vector3.new(maxX - 7, fy, minZ + 7),
+		Vector3.new(minX + 7, fy, maxZ - 7), Vector3.new(maxX - 7, fy, maxZ - 7),
+	}
+	for k = 1, 2 do
+		local c = table.remove(corners, rng:NextInteger(1, #corners)) :: Vector3
+		-- only on open floor
+		local hit = Workspace:Raycast(c + Vector3.new(0, 12, 0), Vector3.new(0, -16, 0), params)
+		if hit and math.abs(hit.Position.Y - fy) < 1.5 then
+			if k == 1 then stores(folder, CFrame.new(hit.Position), rng) else bones(folder, CFrame.new(hit.Position), rng) end
+		end
+	end
+	for _ = 1, 2 do
+		local at = Vector3.new(cx + rng:NextNumber(-0.4, 0.4) * (maxX - minX), fy, cz + rng:NextNumber(-0.4, 0.4) * (maxZ - minZ))
+		if (at - Vector3.new(cx, fy, cz)).Magnitude > 12 then bones(folder, CFrame.new(at), rng) end
+	end
+end
+
 local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Random)
 	local violet: Instance? = nil
 	if arcadeTheme then
@@ -2230,6 +2815,7 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 		local minZ, maxZ = room.gz, room.gz + room.d - 1
 
 		buildSpecialRoom(room, propsFolder, rng)
+		if prisonTheme then prisonDecor(room, propsFolder, rng) end
 
 		-- Hazards: the boss arena gets lava, flame vents and cover pillars;
 		-- about a third of the combat rooms get spike traps.
@@ -2445,6 +3031,7 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 		wallPieceLen = own.wallLen
 	end
 	arcadeTheme = map ~= nil and map.arcade == true
+	prisonTheme = map ~= nil and map.prison == true
 
 	-- Clean this run's previous level
 	DungeonGenerator.Clear(runId)
@@ -2567,7 +3154,11 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 		end
 	end
 
+	if arcadeTheme then
+		for _, room in ipairs(rooms) do arcadeFloor(room, floorsFolder) end
+	end
 	for key, cellData in pairs(floorGrid) do
+		if arcadeTheme then break end
 		local coords = string.split(key, "_")
 		local gx = tonumber(coords[1]) :: number
 		local gz = tonumber(coords[2]) :: number
@@ -2630,7 +3221,14 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 	end
 
 	-- 3. Continuous Perimeter Wall, Pure Gate & Corner Pillar Construction
-	constructPerimeterWallsAndPillars(rooms, floorGrid, doorwayList, stairList, wallsFolder, rng)
+	if arcadeTheme then
+		for _, room in ipairs(rooms) do
+			arcadeEdges(room, wallsFolder)
+			arcadeBackdrop(room, wallsFolder, rng)
+		end
+	else
+		constructPerimeterWallsAndPillars(rooms, floorGrid, doorwayList, stairList, wallsFolder, rng)
+	end
 
 	-- 4. Between rooms on different heights (each corridor's gap): a lift
 	-- (the Prison of Souls), or stairs

@@ -306,6 +306,24 @@ function MobManager.IsMobsFrozen(model: Instance?): boolean
 	return mobsAreFrozen(model)
 end
 
+-- The floor's actual surface at `pos` (a room's floor height, or the top of
+-- what's laid on it there, up to a stud and a half higher): what a mob's
+-- telegraphs sit on, so they show over the floor, not inside it.
+local function surfaceY(pos: Vector3): number
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local ignore: { Instance } = {}
+	local mobs = Workspace:FindFirstChild("Mobs")
+	if mobs then table.insert(ignore, mobs) end
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr.Character then table.insert(ignore, plr.Character) end
+	end
+	params.FilterDescendantsInstances = ignore
+	local hit = Workspace:Raycast(Vector3.new(pos.X, pos.Y + 2, pos.Z), Vector3.new(0, -4, 0), params)
+	if hit and hit.Position.Y >= pos.Y - 0.1 and hit.Position.Y <= pos.Y + 1.5 then return hit.Position.Y end
+	return pos.Y
+end
+
 -- Whether a mob's run is paused (someone in it choosing a tome).
 local function runPaused(model: Instance?): boolean
 	return RunScope.Paused(model)
@@ -1610,7 +1628,7 @@ local function activateMob(record: MobRecord)
 	local rid = if record.group then record.group.runId else record.runId
 	if rid then model:SetAttribute("RunId", rid) end
 	model:SetAttribute("IsElite", record.isElite == true)
-	model:SetAttribute("FloorY", record.spawnCFrame.Position.Y)
+	model:SetAttribute("FloorY", surfaceY(record.spawnCFrame.Position))
 	-- Its kind: the look, stats and moves (MobKinds).
 	if record.kind and record.template then
 		MobKinds.Prepare(model, record.kind, if record.isElite then record.affix else nil)
@@ -1851,7 +1869,7 @@ function MobManager.SpawnMinion(pos: Vector3): Model?
 	model:SetAttribute("IsBoss", false)
 	model:SetAttribute("IsElite", false)
 	model:SetAttribute("XPMult", (model:GetAttribute("XPMult") or 1) * 0.4)
-	model:SetAttribute("FloorY", pos.Y)
+	model:SetAttribute("FloorY", surfaceY(pos))
 	local rid = runAt(pos)
 	if rid then model:SetAttribute("RunId", rid) end
 	model.Parent = activeMobsFolder

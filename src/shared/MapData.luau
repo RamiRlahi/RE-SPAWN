@@ -22,6 +22,12 @@ export type Lighting = {
 	outdoorAmbient: Color3?,
 	brightness: number?,
 	exposure: number?,
+	-- its own fog (the Atmosphere): its colour, the colour it deepens to far
+	-- off, how thick, how hazy
+	fog: { color: Color3, decay: Color3, density: number, haze: number }?,
+	-- its own bloom (every BloomEffect in Lighting): a neon map wants less,
+	-- tighter, so each line keeps a crisp core
+	bloom: { intensity: number, size: number, threshold: number }?,
 }
 
 export type Map = {
@@ -64,9 +70,20 @@ MapData.Maps = {
 		assets = "map:crypt assets",
 		prison = true,
 		transit = "lift",
+		-- a dank green gloom: teal-green fog, a cold green cast, dim light
 		lighting = {
-			tint = Color3.fromRGB(226, 242, 238),
-			saturation = 0.1,
+			tint = Color3.fromRGB(200, 236, 220),
+			saturation = 0.05,
+			ambient = Color3.fromRGB(58, 92, 84),
+			outdoorAmbient = Color3.fromRGB(46, 84, 76),
+			brightness = 1.4,
+			exposure = -0.15,
+			fog = {
+				color = Color3.fromRGB(70, 160, 135),
+				decay = Color3.fromRGB(24, 70, 62),
+				density = 0.42,
+				haze = 2.6,
+			},
 		},
 	},
 	{
@@ -113,13 +130,21 @@ MapData.Maps = {
 		arcade = true,
 		transit = "portal",
 		lighting = {
-			tint = Color3.fromRGB(236, 226, 255),
-			saturation = 0.3,
+			tint = Color3.fromRGB(222, 228, 255),
+			saturation = 0.15,
 			clockTime = 0,
-			ambient = Color3.fromRGB(96, 86, 150),
-			outdoorAmbient = Color3.fromRGB(78, 66, 130),
+			ambient = Color3.fromRGB(58, 62, 120),
+			outdoorAmbient = Color3.fromRGB(40, 48, 96),
 			brightness = 1,
-			exposure = 0.2,
+			exposure = 0.1,
+			bloom = { intensity = 0.35, size = 12, threshold = 1.6 },
+			-- a violet haze the void fades into (the islands loom out of it)
+			fog = {
+				color = Color3.fromRGB(70, 46, 170),
+				decay = Color3.fromRGB(22, 14, 64),
+				density = 0.32,
+				haze = 1.6,
+			},
 		},
 	},
 	{
