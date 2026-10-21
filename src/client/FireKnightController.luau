@@ -54,7 +54,7 @@ local EXECUTION_WINDUP = 0.32
 -- Fire Tornado: the wind-up, then the spin (Overheated: longer).
 local TORNADO = { windup = 0.14, dur = 2.6, empDur = 3.4 }
 local QUAKE_WINDUP = 0.55
-local AWAKEN = 1.6
+local AWAKEN = 2.2 -- (the charge, the pillar of light, the camera pulling out)
 local PHOENIX_RISE = 0.55
 local PHOENIX_AIM = 2.2
 local PHOENIX_DIVE = 0.3
@@ -1384,6 +1384,11 @@ function FireKnightController.PlayUltCutscene(char: Model, dir: Vector3)
 		focusHeight = 1.4,
 		fovStart = 42,
 		fovEnd = 37,
+		-- (the pillar: the camera pulls out wide to take it in)
+		pullAt = AWAKEN - 0.7,
+		pullOffset = { 22, 22, 13 },
+		pullFocus = 11,
+		pullFov = 62,
 		roll = 7,
 	})
 end
@@ -1974,6 +1979,158 @@ local function bladeBlaze(char: Model, seconds: number)
 	end)
 end
 
+-- The sword become light (the reference's end): out of the blazing blade a
+-- vast blade of light shoots up, the sword's own shape (flat and broad,
+-- facing the same way, a point at the top): white-hot down its middle,
+-- golden toward its edges, a soft glow round it, golden ribbons curling up
+-- round it and sparks streaming off. Held by its hilt. On the swing
+-- (onExcalibur) it tips over forward, down the line, and goes out as the
+-- wave runs.
+type Pillar = { parts: { BasePart }, ribbons: { Trail }, tilt: number, dir: Vector3?, fade: number, conn: RBXScriptConnection? }
+local swordPillars: { [Model]: Pillar } = {}
+local PILLAR_HEIGHT = 70
+local function raisePillar(char: Model, life: number)
+	local tool = char:FindFirstChild("Greatsword")
+	local handle = tool and tool:FindFirstChild("Handle") :: BasePart?
+	if not (tool and handle) then return end
+	local blade: BasePart? = nil
+	for _, d in ipairs(tool:GetDescendants()) do
+		if d:IsA("BasePart") and d ~= handle and (not blade or d.Size.Magnitude > blade.Size.Magnitude) then blade = d end
+	end
+	-- the blade's broad axis (its mesh's Z) and how broad it is
+	local broadW = if blade then math.min(blade.Size.Z, blade.Size.X * 4) else 2.2
+	broadW = math.max(broadW, 1.6)
+	local function slab(w: number, thick: number, color: Color3, tr: number, class: string?): BasePart
+		local p = Instance.new(class or "Part") :: BasePart
+		p.Material = Enum.Material.Neon
+		p.Color = color
+		p.Transparency = tr
+		p.Size = Vector3.new(w, 0.1, thick)
+		p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
+		p.Parent = ClassFX.Folder()
+		return p
+	end
+	-- glow, gold body, white-hot core; and the point (two wedges) on each
+	local glow = slab(broadW * 1.9, 0.9, Color3.fromRGB(255, 170, 50), 0.6)
+	local body = slab(broadW * 1.15, 0.35, Color3.fromRGB(255, 205, 90), 0.1)
+	local core = slab(broadW * 0.45, 0.4, WHITE, 0)
+	local tips: { BasePart } = {}
+	for _, spec in ipairs({ { broadW * 1.15, 0.35, Color3.fromRGB(255, 205, 90), 0.1 }, { broadW * 0.45, 0.4, WHITE, 0 } }) do
+		for side = -1, 1, 2 do
+			local w = slab(spec[1] / 2, spec[2], spec[3], spec[4], "WedgePart")
+			w:SetAttribute("Side", side)
+			table.insert(tips, w)
+		end
+	end
+	-- ribbons of golden light curling up round it, sparks streaming off
+	local ribbons: { Trail } = {}
+	local carriers: { BasePart } = {}
+	for i = 1, 3 do
+		local c = Instance.new("Part")
+		c.Size = Vector3.one * 0.1
+		c.Transparency = 1
+		c.Anchored, c.CanCollide, c.CanQuery, c.CanTouch, c.CastShadow = true, false, false, false, false
+		local a0 = Instance.new("Attachment")
+		a0.Position = Vector3.new(0, 0.25, 0)
+		a0.Parent = c
+		local a1 = Instance.new("Attachment")
+		a1.Position = Vector3.new(0, -0.25, 0)
+		a1.Parent = c
+		local tr = Instance.new("Trail")
+		tr.Attachment0, tr.Attachment1 = a0, a1
+		tr.Color = ColorSequence.new(Color3.fromRGB(255, 230, 150), Color3.fromRGB(255, 150, 40))
+		tr.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) })
+		tr.WidthScale = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0.15) })
+		tr.Lifetime = 0.35
+		tr.LightEmission = 1
+		tr.LightInfluence = 0
+		tr.FaceCamera = true
+		tr.Parent = c
+		c.Parent = ClassFX.Folder()
+		table.insert(ribbons, tr)
+		table.insert(carriers, c)
+	end
+	local sparks = Instance.new("ParticleEmitter")
+	sparks.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	sparks.Color = ColorSequence.new(HOT, EMBER)
+	sparks.LightEmission = 1
+	sparks.LightInfluence = 0
+	sparks.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0) })
+	sparks.Lifetime = NumberRange.new(0.6, 1.1)
+	sparks.Speed = NumberRange.new(2, 6)
+	sparks.SpreadAngle = Vector2.new(180, 180)
+	sparks.Shape = Enum.ParticleEmitterShape.Box
+	sparks.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+	sparks.Rate = 60
+	sparks.Parent = glow
+
+	local P: Pillar = { parts = { glow, body, core, table.unpack(tips) }, ribbons = ribbons, tilt = 0, fade = 0 }
+	for _, c in ipairs(carriers) do table.insert(P.parts, c) end
+	local old = swordPillars[char]
+	if old then for _, q in ipairs(old.parts) do q:Destroy() end end
+	swordPillars[char] = P
+	FireFX.Explosion((handle.CFrame * CFrame.new(0, 3, 0)).Position, 4, true)
+	ClassFX.Sound("boom", handle.Position, 0.8, 1.2)
+	-- (which way its flat faces: the sword's own, as it stood when it lit)
+	local broadAxis = if blade then blade.CFrame.ZVector else handle.CFrame.RightVector
+	local t0 = os.clock()
+	P.conn = RunService.RenderStepped:Connect(function()
+		local t = os.clock() - t0
+		if t > life or not handle.Parent then
+			if P.conn then P.conn:Disconnect() end
+			for _, r in ipairs(P.ribbons) do r.Enabled = false end
+			sparks.Rate = 0
+			for _, q in ipairs(P.parts) do
+				if q.Parent then
+					TweenService:Create(q, TweenInfo.new(0.2), { Transparency = 1 }):Play()
+					Debris:AddItem(q, 0.6)
+				end
+			end
+			if swordPillars[char] == P then swordPillars[char] = nil end
+			return
+		end
+		-- it shoots up in a quarter second
+		local h = PILLAR_HEIGHT * (1 - (1 - math.min(t / 0.25, 1)) ^ 3)
+		local hilt = handle.Position + Vector3.new(0, 1, 0)
+		local up = Vector3.yAxis
+		if P.dir then up = (Vector3.yAxis * math.cos(P.tilt) + P.dir * math.sin(P.tilt)).Unit end
+		local right = broadAxis - up * broadAxis:Dot(up)
+		right = if right.Magnitude > 0.05 then right.Unit else up:Cross(Vector3.zAxis).Unit
+		local back = right:Cross(up)
+		local function frame(at: number): CFrame
+			return CFrame.fromMatrix(hilt + up * at, right, up, back)
+		end
+		local shaft = h * 0.9
+		local tipLen = h * 0.1
+		local pulse = 0.5 + 0.5 * math.sin(t * 16)
+		local trs = { 0.6 - 0.15 * pulse, 0.1, 0 }
+		for i, q in ipairs({ glow, body, core }) do
+			q.Size = Vector3.new(q.Size.X, math.max(shaft, 0.1), q.Size.Z)
+			q.CFrame = frame(shaft / 2)
+			q.Transparency = trs[i] + (1 - trs[i]) * P.fade
+		end
+		sparks.Rate = 60 * (1 - P.fade)
+		-- the point: two wedges meeting at the top
+		for _, w in ipairs(tips) do
+			local side = w:GetAttribute("Side") :: number
+			local ww = w.Size.X
+			w.Size = Vector3.new(ww, math.max(tipLen, 0.1), w.Size.Z)
+			-- (a wedge slopes down toward its -Z: turned so it slopes in to the middle)
+			w.CFrame = frame(shaft + tipLen / 2) * CFrame.new(side * ww / 2, 0, 0) * CFrame.Angles(0, math.rad(side * 90), 0)
+			local base = if ww > broadW * 0.4 then 0.1 else 0
+			w.Transparency = base + (1 - base) * P.fade
+		end
+		-- the ribbons wind up round it, again and again
+		for i, c in ipairs(carriers) do
+			local u = (t * 0.9 + (i - 1) / 3) % 1
+			if u < 0.02 then ribbons[i]:Clear() end
+			local a = t * 7 + i * 2.1 + u * 9
+			local r = broadW * (0.9 + 0.3 * math.sin(u * 6))
+			c.CFrame = frame(u * shaft) * CFrame.new(math.cos(a) * r, 0, math.sin(a) * r * 0.6)
+		end
+	end)
+end
+
 local function onAwaken(msg: any)
 	local char = charOf(msg.attacker)
 	local root = rootOf(char)
@@ -1983,6 +2140,11 @@ local function onAwaken(msg: any)
 	-- and the blade fills with light...
 	holdUpright(char, awaken)
 	bladeBlaze(char, awaken)
+	-- ...until it breaks into a pillar of light reaching the sky (held through
+	-- the swing, then it comes down as the wave)
+	task.delay(math.max(awaken - 0.7, 0), function()
+		if char.Parent then raisePillar(char, 0.7 + 0.45) end
+	end)
 	if near(root.Position, 110) then darken(awaken + (msg.inferno or 6) + 1) end
 	for _, L in pairs(looks) do
 		if L.char == char then
@@ -2170,6 +2332,20 @@ local function onExcalibur(msg: any)
 	if char then
 		if root and msg.attacker == player then root.CFrame = CFrame.lookAt(root.Position, root.Position + dir) end
 		raisePose(char, swing)
+		local P = swordPillars[char]
+		if P then
+			P.dir = dir
+			local t0 = os.clock()
+			local conn: RBXScriptConnection? = nil
+			conn = RunService.RenderStepped:Connect(function()
+				local k = math.min((os.clock() - t0) / swing, 1)
+				P.tilt = math.rad(90) * k * k -- (falling: slow, then fast)
+				if k >= 1 then
+					P.fade = 1
+					if conn then conn:Disconnect() end
+				end
+			end)
+		end
 		task.delay(swing, function()
 			if char.Parent then
 				slamPose(char)
