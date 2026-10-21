@@ -265,6 +265,38 @@ local function sinkAndFade(hub: BasePart, height: number, t: number)
 	fadeOut(hub, t)
 end
 
+-- ─── Ice Spikes' shards ─────────────────────────────────────────────────────
+-- Matte, faceted ice in a handful of blues (no glass, no glowing core). A
+-- shard is a true spike: four corner wedges (a corner wedge's tip is its top
+-- +X -Z corner), each turned a quarter round, their tips meeting in one point
+-- over the middle; each quarter a little wider or narrower than the next, so
+-- no two spikes are alike and every facet catches the light differently.
+local SHARD_TONES = {
+	Color3.fromRGB(92, 138, 196), Color3.fromRGB(112, 158, 214),
+	Color3.fromRGB(76, 120, 178), Color3.fromRGB(132, 176, 224),
+}
+local function makeShard(parent: Instance, cf: CFrame, width: number, height: number): BasePart
+	local hub = newPart(parent, { Name = "Crystal", Size = Vector3.new(0.1, 0.1, 0.1), Transparency = 1, CFrame = cf })
+	local tone = SHARD_TONES[math.random(1, #SHARD_TONES)]
+	for k = 0, 3 do
+		local ax = width * 0.5 * (0.7 + math.random() * 0.6)
+		local az = width * 0.5 * (0.7 + math.random() * 0.6)
+		local piece = newPart(hub, {
+			ClassName = "CornerWedgePart",
+			Size = Vector3.new(ax, height, az),
+			CFrame = cf * CFrame.Angles(0, k * math.pi / 2, 0) * CFrame.new(-ax / 2, height / 2, az / 2),
+			Color = tone:Lerp(Color3.new(1, 1, 1), (k % 2) * 0.1),
+			Material = Enum.Material.SmoothPlastic,
+			Anchored = false,
+			Massless = true,
+		})
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0, weld.Part1 = hub, piece
+		weld.Parent = piece
+	end
+	return hub
+end
+
 -- Flat decal-like disc on the floor.
 local function groundDisc(parent: Instance, center: Vector3, diameter: number, color: Color3, material: Enum.Material, transparency: number): BasePart
 	return newPart(parent, {
@@ -571,23 +603,32 @@ function IceMageVFX.playIceSpikes(char: Model, origin: Vector3, lookDir: Vector3
 
 		task.delay(delayT, function()
 			if not folder.Parent then return end
-			local h = (4.2 + t * 3.4) * scale * (0.85 + math.random() * 0.3)
-			local w = (1.5 + t * 0.6) * scale
-			local lean = CFrame.Angles(math.rad(-12 - math.random() * 14), 0, math.rad((math.random() - 0.5) * 18))
-			local lateral = right * ((math.random() - 0.5) * 0.9)
-			local baseCF = CFrame.lookAt(g + lateral, g + lateral + dir) * lean * CFrame.Angles(0, math.random() * 6.28, 0)
-			local main = makeCrystal(folder, baseCF, w, h, true)
-			eruptCrystal(main, baseCF, h, 0.12)
-
-			-- Two smaller flanking shards splaying outward.
-			local sides = {}
-			for side = -1, 1, 2 do
-				local sp = g + right * side * (w * 0.8) - dir * 0.4
-				local sh = h * (0.4 + math.random() * 0.2)
-				local scf = CFrame.lookAt(sp, sp + dir) * CFrame.Angles(0, 0, math.rad(-side * (25 + math.random() * 15))) * CFrame.Angles(math.rad(-10), math.random() * 6.28, 0)
-				local c = makeCrystal(folder, scf, w * 0.55, sh, false, ICE_CYAN)
-				eruptCrystal(c, scf, sh, 0.1)
-				table.insert(sides, { c, sh })
+			-- A disorderly crowd of ice spikes (the reference): one big spike
+			-- leaning any which way, smaller ones jutting out round it at wild
+			-- angles (some nearly flat, poking sideways), all of them points;
+			-- bigger the further out the line goes. Same size as ever: the main
+			-- spike 4-8 studs tall, all within the line's width.
+			local h = (4.2 + t * 3.4) * scale * (0.8 + math.random() * 0.4)
+			local w = (2.2 + t * 1.3) * scale -- (chunky: broad at the base, like the reference)
+			local shards: { { any } } = {}
+			local function shard(at: Vector3, sw: number, sh: number, pitch: number, roll: number, delayT: number)
+				local cf = CFrame.lookAt(at, at + dir) * CFrame.Angles(0, math.random() * 6.28, 0)
+					* CFrame.Angles(math.rad(pitch), 0, math.rad(roll))
+				local c = makeShard(folder, cf, sw, sh)
+				c.CFrame = cf * CFrame.new(0, -sh * 1.05, 0)
+				task.delay(delayT, function()
+					if c.Parent then eruptCrystal(c, cf, sh, 0.11) end
+				end)
+				table.insert(shards, { c, sh })
+			end
+			-- the big one
+			shard(g + right * ((math.random() - 0.5) * 1.2), w, h, -10 - math.random() * 35, (math.random() - 0.5) * 50, 0)
+			-- shards round it, splayed out
+			for k = 1, math.random(2, 4) do
+				local side = if k % 2 == 0 then 1 else -1
+				local at = g + right * side * (0.6 + math.random() * 1.4) * scale + dir * ((math.random() - 0.5) * 2.2)
+				local sh = h * (0.3 + math.random() * 0.45)
+				shard(at, w * (0.45 + math.random() * 0.35), sh, -15 - math.random() * 55, -side * (15 + math.random() * 55), 0.02 + math.random() * 0.06)
 			end
 
 			-- Ground frost patch + cracks.
@@ -630,8 +671,7 @@ function IceMageVFX.playIceSpikes(char: Model, origin: Vector3, lookDir: Vector3
 
 			-- Hold, then crumble.
 			task.delay(0.75, function()
-				sinkAndFade(main, h, 0.35)
-				for _, s in ipairs(sides) do sinkAndFade(s[1], s[2], 0.3) end
+				for _, s in ipairs(shards) do sinkAndFade(s[1], s[2], 0.3 + math.random() * 0.1) end
 				TweenService:Create(patch, TweenInfo.new(0.6), { Transparency = 1 }):Play()
 				snowBurst(g + Vector3.new(0, h * 0.4, 0), 5, 10, 0.4)
 			end)
@@ -1491,8 +1531,11 @@ end
 -- everything breaks apart at `duration` as the storm is released.
 -- Silhouette + eyes play for everyone; the environment/grade only for the caster.
 -- ═════════════════════════════════════════════════════════════════════════════
-local SILHOUETTE = Color3.fromRGB(5, 7, 13)
-local PALE_HANDS = Color3.fromRGB(96, 116, 146)
+-- (the body's own colour carries the dark: lit by the cold backlight it reads
+-- as near-black slate, the form still there)
+local SILHOUETTE = Color3.fromRGB(5, 7, 12)
+local PALE_HANDS = Color3.fromRGB(10, 13, 22) -- (an R6 arm is one part: the coat sleeve, a shade lighter)
+local STREAK_DARK = Color3.fromRGB(18, 23, 38)
 local EYE_BLUE = Color3.fromRGB(70, 175, 255)
 local EYE_CORE = Color3.fromRGB(200, 235, 255)
 local RIM = Color3.fromRGB(170, 215, 255)
@@ -1505,6 +1548,13 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 	refreshGroundFilter()
 	local ground = groundAt(root.Position)
 	local look = flatUnit(root.CFrame.LookVector)
+	-- (the caster's shot is already framed: build the wasteland behind the mage
+	-- as the camera sees it, never between the two, whichever way they face)
+	local cam = Workspace.CurrentCamera
+	if isLocal and cam then
+		local toCam = Vector3.new(cam.CFrame.Position.X - root.Position.X, 0, cam.CFrame.Position.Z - root.Position.Z)
+		if toCam.Magnitude > 1 then look = toCam.Unit end
+	end
 	local right = look:Cross(Vector3.yAxis).Unit
 
 	-- ── Silhouette: the body becomes a dark shape with a faint frost rim ──
@@ -1516,7 +1566,9 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 	hl.OutlineTransparency = 1
 	hl.DepthMode = Enum.HighlightDepthMode.Occluded
 	hl.Parent = folder
-	TweenService:Create(hl, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { FillTransparency = 0.04, OutlineTransparency = 0.55 }):Play()
+	-- (the rim only: a Highlight's fill is drawn over everything inside the
+	-- figure's outline, the glowing eyes too, and greys them)
+	TweenService:Create(hl, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { OutlineTransparency = 0.3 }):Play()
 
 	-- Don't rely on the Highlight alone (the per-part outlines can exhaust
 	-- Roblox's highlight budget): darken the body itself on this client, hide
@@ -1530,7 +1582,7 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 			local n = string.lower(d.Name)
 			local isArm = (string.find(n, "arm") ~= nil or string.find(n, "hand") ~= nil) and d.Parent == char
 			d.Color = if isArm then PALE_HANDS else SILHOUETTE
-			d.Material = Enum.Material.SmoothPlastic
+			d.Material = Enum.Material.Fabric -- (a grain like the reference's fur)
 			if d:IsA("MeshPart") then d.TextureID = "" end
 		elseif d:IsA("Decal") or d:IsA("Texture") then
 			darkened[d] = { Transparency = d.Transparency }
@@ -1576,7 +1628,9 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 	local emitters = 0
 	for _, d in ipairs(char:GetDescendants()) do
 		if emitters >= 30 then break end
-		if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" and d.Transparency < 1 and d.Size.Magnitude > 0.6 then
+		-- (nothing off the head, the hair or the hat: the smoke would bury the eyes)
+		if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" and d.Transparency < 1 and d.Size.Magnitude > 0.6
+			and d.Position.Y < head.Position.Y - 0.7 then
 			emitters += 1
 			local size = math.clamp(d.Size.Magnitude * 0.9, 1.2, 4.5)
 			local a = Instance.new("Attachment")
@@ -1602,18 +1656,19 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 	-- The shroud: big, dense dark energy boiling out of the core.
 	local shroudAtt = Instance.new("Attachment")
 	shroudAtt.Name = "ShadowShroud"
-	shroudAtt.Position = Vector3.new(0, 0.6, 0)
+	-- (low round the body and legs: it boils up the coat but never over the face)
+	shroudAtt.Position = Vector3.new(0, -0.8, 0)
 	shroudAtt.Parent = root
 	local shroud = newEmitter(shroudAtt, {
 		Texture = TEX_SMOKE,
 		Color = DARK,
 		LightEmission = 0,
-		Size = seq(0, 3.5, 0.5, 5.5, 1, 7.5),
+		Size = seq(0, 2.5, 0.5, 4, 1, 5.5),
 		Transparency = seq(0, 1, 0.12, 0.08, 0.75, 0.4, 1, 1),
-		Lifetime = NumberRange.new(0.8, 1.2),
-		Speed = NumberRange.new(0.5, 2.5),
+		Lifetime = NumberRange.new(0.7, 1.0),
+		Speed = NumberRange.new(0.5, 1.5),
 		SpreadAngle = Vector2.new(180, 180),
-		Acceleration = Vector3.new(0, 3, 0) + right * 1.5,
+		Acceleration = Vector3.new(0, 1, 0) + right * 1.5,
 		Rotation = NumberRange.new(0, 360),
 		RotSpeed = NumberRange.new(-40, 40),
 		Rate = 55,
@@ -1624,7 +1679,7 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 	-- reference's jagged brush energy), plus brushy black shards flickering
 	-- along the outline, re-scribbled several times a second.
 	local INK = colors(Color3.new(0, 0, 0), Color3.fromRGB(10, 12, 20))
-	for _, name in ipairs({ "Torso", "UpperTorso", "Head", "Left Arm", "Right Arm", "LeftUpperArm", "RightUpperArm" }) do
+	for _, name in ipairs({ "Torso", "UpperTorso", "Left Arm", "Right Arm", "LeftUpperArm", "RightUpperArm" }) do
 		local limb = char:FindFirstChild(name)
 		if limb and limb:IsA("BasePart") then
 			for _, dirFace in ipairs({ Enum.NormalId.Left, Enum.NormalId.Right, Enum.NormalId.Top }) do
@@ -1650,94 +1705,94 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 			end
 		end
 	end
-	local scribble = {}
-	for i = 1, 26 do
-		scribble[i] = newPart(folder, { Name = "InkShard", Size = Vector3.new(0.08, 0.14, 1), Color = Color3.new(0, 0, 0),
+	-- Wind-torn streaks (the reference's strokes): thin dark lines ripped off
+	-- the edges of the figure and carried away downwind, each growing out of
+	-- the outline, drifting off and fading in a moment; a steady stream of
+	-- them, mostly off the shoulders and the coat.
+	local wind = (-right + Vector3.new(0, -0.12, 0)).Unit
+	type Streak = { p: BasePart, born: number, life: number, from: Vector3, dir: Vector3, len: number, w: number }
+	local live: { Streak } = {}
+	local pool: { BasePart } = {}
+	for i = 1, 34 do
+		pool[i] = newPart(folder, { Name = "WindStreak", Size = Vector3.new(0.05, 0.05, 1), Color = STREAK_DARK,
 			Material = Enum.Material.SmoothPlastic, Transparency = 1 })
 	end
 	task.spawn(function()
 		local t0 = os.clock()
+		local nextSpawn = 0
+		local idx = 0
 		while folder.Parent and os.clock() - t0 < duration do
-			local cf = root.CFrame
-			for _, sh in ipairs(scribble) do
-				-- A random point on the upper-body outline, flicking outward/sideways.
-				local side = math.random() < 0.5 and -1 or 1
-				local y = -0.6 + math.random() * 3.4
-				local x = side * (0.9 + math.random() * 0.8) * (1 - math.max(0, y - 1.8) * 0.35)
-				local p = (cf * CFrame.new(x, y, (math.random() - 0.5) * 0.6)).Position
-				local outward = (cf.RightVector * side + Vector3.new(0, (math.random() - 0.3) * 0.8, 0)).Unit
-				local len = 0.6 + math.random() * 1.8
-				sh.Size = Vector3.new(0.06 + math.random() * 0.08, 0.1, len)
-				sh.CFrame = CFrame.lookAt(p + outward * len * 0.4, p + outward * len)
-				sh.Transparency = math.random() < 0.25 and 1 or 0
+			local now = os.clock()
+			if now >= nextSpawn then
+				nextSpawn = now + 0.018
+				idx = idx % #pool + 1
+				for i = #live, 1, -1 do
+					if live[i].p == pool[idx] then table.remove(live, i) end
+				end
+				local cf = root.CFrame
+				local side = if math.random() < 0.5 then -1 else 1
+				-- a point on the outline: shoulders and coat mostly, narrower up at the head
+				local y = -1.4 + math.random() ^ 0.8 * 4.4
+				local width = if y > 1.7 then 0.75 else 1.15 + math.max(0, 0.6 - math.abs(y - 1.1)) * 0.3
+				local from = (cf * CFrame.new(side * width * (0.9 + math.random() * 0.25), y, (math.random() - 0.5) * 0.5)).Position
+				local dir = (wind + Vector3.new(0, (math.random() - 0.5) * 0.35, 0) + cf.RightVector * side * 0.25).Unit
+				table.insert(live, { p = pool[idx], born = now, life = 0.2 + math.random() * 0.18, from = from, dir = dir,
+					len = 2.0 + math.random() * 3.0, w = 0.05 + math.random() * 0.05 })
 			end
-			task.wait(0.07)
+			for _, s in ipairs(live) do
+				local a = math.clamp((now - s.born) / s.life, 0, 1)
+				local len = s.len * math.min(a / 0.35, 1)
+				local start = s.from + s.dir * (a * 2.2)
+				s.p.Size = Vector3.new(s.w * (1 - a * 0.6), s.w * (1 - a * 0.6), math.max(len, 0.05))
+				s.p.CFrame = CFrame.lookAt(start + s.dir * (len / 2), start + s.dir * len)
+				s.p.Transparency = 0.1 + 0.9 * a
+			end
+			RunService.Heartbeat:Wait()
 		end
-		for _, sh in ipairs(scribble) do sh.Transparency = 1 end
+		for _, p in ipairs(pool) do p.Transparency = 1 end
 	end)
 
-	-- ── Eyes: two icy-blue points on the face, dim at first ──
+	-- ── Eyes: one small white circle each, set just in front of the face (a
+	-- fringe of hair can't hide them: the reference's eyes are the brightest
+	-- thing in the frame), dim at first ──
 	local eyes = {}
 	for side = -1, 1, 2 do
 		-- R6 head parts are 2 studs wide but the visible head mesh is ~1.2, so
 		-- place the eyes by face size, not the part's bounding box.
 		local faceDepth = if head:FindFirstChildOfClass("SpecialMesh") then 0.6 else head.Size.Z * 0.5
-		local offs = CFrame.new(side * 0.2, 0.12, -faceDepth - 0.02)
-		local eye = newPart(folder, {
-			Name = "Eye",
-			Shape = Enum.PartType.Ball,
-			Size = Vector3.new(0.16, 0.16, 0.16),
-			Color = EYE_CORE,
-			Material = Enum.Material.Neon,
-			Transparency = 0.6,
-			Anchored = false,
-			Massless = true,
-			CFrame = head.CFrame * offs,
-		})
-		local w = Instance.new("WeldConstraint")
-		w.Part0, w.Part1 = head, eye
-		w.Parent = eye
-		-- Horizontal glint streak across each eye.
-		local glint = newPart(folder, {
-			Name = "EyeGlint",
-			Size = Vector3.new(0.9, 0.03, 0.03),
-			Color = EYE_BLUE,
-			Material = Enum.Material.Neon,
-			Transparency = 1,
-			Anchored = false,
-			Massless = true,
-			CFrame = eye.CFrame,
-		})
-		local gw = Instance.new("WeldConstraint")
-		gw.Part0, gw.Part1 = eye, glint
-		gw.Parent = glint
+		local offs = CFrame.new(side * 0.21, 0.1, -faceDepth - 0.42)
+		local function bit(name: string, size: number, color: Color3, transparency: number, forward: number): BasePart
+			local b = newPart(folder, {
+				Name = name,
+				Shape = Enum.PartType.Ball,
+				Size = Vector3.one * size,
+				Color = color,
+				Material = Enum.Material.Neon,
+				Transparency = transparency,
+				Anchored = false,
+				Massless = true,
+				CFrame = head.CFrame * offs * CFrame.new(0, 0, -forward),
+			})
+			local w = Instance.new("WeldConstraint")
+			w.Part0, w.Part1 = head, b
+			w.Parent = b
+			return b
+		end
+		-- (one small white circle each: nothing round it)
+		local eye = bit("Eye", 0.1, Color3.new(1, 1, 1), 0.4, 0)
 		local l = Instance.new("PointLight")
 		l.Color, l.Brightness, l.Range, l.Shadows = EYE_BLUE, 0.5, 4, false
 		l.Parent = eye
-		local glow = newEmitter(eye, {
-			Texture = TEX_SPARKLE,
-			Color = colors(Color3.new(1, 1, 1), EYE_BLUE),
-			Size = seq(0, 0.65, 1, 0.35),
-			Transparency = seq(0, 0.3, 1, 1),
-			Lifetime = NumberRange.new(0.08, 0.12),
-			Speed = NumberRange.new(0),
-			Rate = 40,
-			LockedToPart = true,
-		})
-		table.insert(eyes, { eye = eye, glint = glint, light = l, glow = glow })
+		table.insert(eyes, { eye = eye, light = l })
 	end
 
 	task.delay(eyeFlareAt, function()
 		if not folder.Parent then return end
 		for _, e in ipairs(eyes) do
-			e.eye.Transparency = 0
-			e.eye.Size = Vector3.new(0.2, 0.2, 0.2)
-			e.light.Brightness, e.light.Range = 4, 10
-			e.glow.Size = seq(0, 1.2, 1, 0.6)
-			-- Glint flashes wide, then settles.
-			e.glint.Transparency = 0
-			e.glint.Size = Vector3.new(2.4, 0.05, 0.05)
-			TweenService:Create(e.glint, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Size = Vector3.new(0.8, 0.03, 0.03), Transparency = 0.3 }):Play()
+			-- they blaze white
+			TweenService:Create(e.eye, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+				{ Size = Vector3.one * 0.13, Transparency = 0 }):Play()
+			e.light.Brightness, e.light.Range = 1.5, 2.2 -- (it sits in front of the face: only the face catches it, not the dark body)
 		end
 		if isLocal then shake(0.25, 0.2) end
 	end)
@@ -1824,7 +1879,6 @@ function IceMageVFX.playBlizzardReveal(char: Model, duration: number, eyeFlareAt
 		if not folder.Parent then return end
 		for _, e in ipairs(eyes) do
 			flashLight(e.eye.Position, EYE_BLUE, 6, 16, 0.4)
-			e.glow.Enabled = false
 		end
 		snowBurst(root.Position, 26, 30, 0.9)
 		restoreBody()

@@ -57,7 +57,7 @@ local ClassData: { [string]: ClassInfo } = {
 		abilities = {
 			{ name = "Flowing Fists", tag = "M1/Primary", summary = "Rapid 7-hit martial combo erupting into an explosive ground shockwave.", icon = "rbxassetid://81505553763631", description = "A fast 7-hit chain of Qi-charged strikes: jab, cross, a high kick that pops them up, a spinning strike that hits all around you, an elbow, a palm that bursts with Qi, and a flying knee that makes the ground erupt. Then a breath to recover.", videoId = "" },
 			{ name = "Qi Charge", tag = "Passive", summary = "Attacks build Qi Charge; at 100 Charge, your next ability is Empowered.", icon = "rbxassetid://135519619953111", description = "Build Qi Charge with your abilities and strikes. At 100 Charge your next ability becomes Empowered.", videoId = "" },
-			{ name = "Focus Strike", tag = "Skill 1 (E)", summary = "Charge a devastating ink punch that explodes with heavy impact damage.", icon = "rbxassetid://74728376681187", description = "Hold to charge (walking slowly), release to punch. Black ink strokes gather round your arm with red energy glowing at the centre; a fully charged strike lands in a dramatic ink splash. Empowered: charges twice as fast, hits harder, a bigger splash.", videoId = "" },
+			{ name = "Hundred Fists", tag = "Skill 1 (E)", summary = "A storm of blows from both fists, then a power punch that craters the ground in a cone.", icon = "rbxassetid://74728376681187", description = "Both fists hammer out a barrage, afterimages of fists flying, hitting everything in front again and again; then an enhanced power punch blasts a cone ahead, tearing a crater into the floor and throwing enemies back. Empowered: harder, and a longer cone.", videoId = "" },
 			{ name = "Electric Uppercut", tag = "Skill 2 (F)", summary = "3-charge lightning uppercut that launches foes skyward and shocks nearby targets.", icon = "rbxassetid://90742192763242", description = "Three charges. Dash in low from a crouch and rise into an uppercut wrapped in crackling lightning: a sharp impact flash, and everything hit is launched into the air and shocked. Empowered: the lightning chains on to more enemies.", videoId = "" },
 			{ name = "Ground Slam", tag = "Skill 3 (Q)", summary = "Leap high on a surge of Qi and dive down in an explosive, fiery ground impact.", icon = "rbxassetid://81505553763631", description = "Leap high on a surge of Qi and dive onto the spot, striking enemies on the way down, landing with an explosive hit and leaving a burning trail. Empowered: three strikes along the path, more hits, a wider area.", videoId = "" },
 			{ name = "Crimson Hadouken", tag = "Ultimate (R)", summary = "Hurl a colossal piercing crimson sphere that obliterates foes and detonates.", icon = "rbxassetid://130269422401080", description = "Charge a sphere of red energy in your hand, thrust forward and fire one huge sphere through every enemy in its path; it bursts where it ends. Grows with Size.", videoId = "" },
@@ -70,7 +70,7 @@ local ClassData: { [string]: ClassInfo } = {
 			stats = {
 				["Max Health"] = "140 HP",
 				["Qi Charge"] = "100 to Empower",
-				["Focus Strike"] = "up to 3.5x",
+				["Hundred Fists"] = "2.4x punch",
 				["Combo"] = "7 hits",
 			},
 		},
@@ -98,7 +98,7 @@ local ClassData: { [string]: ClassInfo } = {
 			{ name = "Fire Tornado", tag = "Skill 1 (E)", summary = "Spin inside a mobile flame vortex that pulls in, burns, and launches enemies.", icon = "rbxassetid://132155579159537", description = "Spin inside a tornado of fire that follows you: it burns and drags in everyone inside, then bursts and throws them out. Overheated: bigger, longer, and the ground burns in your wake.", videoId = "" },
 			{ name = "Phoenix Slam", tag = "Skill 2 (F)", summary = "Transform into a fiery phoenix and dive bomb target ground location.", icon = "rbxassetid://91314905448390", description = "Soar into the air as a phoenix of fire, pick your landing spot with the marker, and crash down in an explosion that leaves the ground burning.", videoId = "" },
 			{ name = "Infernal Earthshaker", tag = "Skill 3 (Q)", summary = "Drive your greatsword into the ground, triggering expanding fiery shockwaves.", icon = "rbxassetid://131134579080569", description = "Drive the sword into the ground: a huge explosion, aftershocks rippling out and patches of fire. Overheated: three expanding rings of fire.", videoId = "" },
-			{ name = "Heart of the Inferno", tag = "Ultimate (R)", summary = "Awaken with explosive attacks, culminating in a colossal flame eruption.", icon = "rbxassetid://73181276426858", description = "Plant the sword and become the fire: every attack explodes for several seconds, then every flame is drawn into the sword for one enormous flame wave. At 100 Heat it consumes Overheat and becomes the Primordial Inferno.", videoId = "" },
+			{ name = "Excalibur", tag = "Ultimate (R)", summary = "Charge the sword with golden fire and unleash a colossal wave down a line.", icon = "rbxassetid://73181276426858", description = "Raise the sword before you as it fills with golden fire, then bring it down: a vast wave of golden fire tears down a long line, hitting everything in it and leaving burning ground. Wider and stronger at 75 Heat; at Overheat it consumes it for the biggest wave.", videoId = "" },
 		},
 		equipment = {
 			name = "Emberblade Greatsword",

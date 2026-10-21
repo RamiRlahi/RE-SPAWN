@@ -4211,6 +4211,11 @@ function SkillController.UseSkill(skillIndex: number)
 	-- (thrown off a mount: nothing till back on their feet)
 	if char:GetAttribute("Tumbling") == true then return end
 
+	-- Casting a skill cancels any active emote immediately
+	if char:GetAttribute("IsEmoting") == true then
+		char:SetAttribute("IsEmoting", false)
+	end
+
 	-- Block casting any spells while using the 1st ability (Spin Attack)
 	if char:GetAttribute("IsSkill1Active") == true or char:GetAttribute("IsSpinAttackActive") == true then
 		print("[SkillController] Cannot cast other spells while using the 1st ability!")
@@ -4524,11 +4529,11 @@ function SkillController.UseSkill(skillIndex: number)
 			-- Wind-up close-up, framed as a low, frontal "frozen one" reveal that
 			-- slowly pushes in on the silhouette and its glowing eyes.
 			UltimateCameraChoreography.PlayCloseUp(char, aimDir, revealDur, nil, nil, {
-				startOffset = { 9, 0, 0.6 },
-				endOffset = { 6.2, 0, 1.0 },
-				focusHeight = 1.8,
-				fovStart = 48,
-				fovEnd = 40,
+				startOffset = { 14, 0, 0.3 },
+				endOffset = { 11, 0, 0.5 },
+				focusHeight = 0.9,
+				fovStart = 38,
+				fovEnd = 34,
 			})
 			IceMageVFX.playBlizzardReveal(char, revealDur, CastPoses.ICE_BLIZZARD_EYES, true)
 			local castOrigin = rootPart.Position
@@ -4720,6 +4725,11 @@ local function performBasicAttack()
 	if not char then return end
 	-- (thrown off a mount: nothing till back on their feet)
 	if char:GetAttribute("Tumbling") == true then return end
+
+	-- Attacking cancels any active emote immediately
+	if char:GetAttribute("IsEmoting") == true then
+		char:SetAttribute("IsEmoting", false)
+	end
 	-- The revolver has its own ammo, fire rate and prediction.
 	if player:GetAttribute("SelectedClass") == "gunslinger" then
 		if char:GetAttribute("IsSkillCasting") ~= true then GunslingerController.Shoot(false) end
@@ -5145,11 +5155,11 @@ function SkillController.Init()
 			DivineAscentCutscene.Play(cfg.duration or 2, direction, char)
 		elseif classId == "ice_mage" then
 			UltimateCameraChoreography.PlayCloseUp(char, direction, cfg.castDelay or 1.5, nil, nil, {
-				startOffset = { 9, 0, 0.6 },
-				endOffset = { 6.2, 0, 1.0 },
-				focusHeight = 1.8,
-				fovStart = 48,
-				fovEnd = 40,
+				startOffset = { 14, 0, 0.3 },
+				endOffset = { 11, 0, 0.5 },
+				focusHeight = 0.9,
+				fovStart = 38,
+				fovEnd = 34,
 			})
 		else
 			UltimateCameraChoreography.PlayCloseUp(char, direction, 1.0)

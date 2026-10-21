@@ -29,12 +29,12 @@ local IsometricCamera = {}
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Isometric Camera Settings (Hades Style)
 -- ─────────────────────────────────────────────────────────────────────────────
-local CAMERA_OFFSET     = Vector3.new(-26, 36, 26) -- Hades 3/4 top-down angle
-local CAMERA_FOV        = 45                        -- Flat, authentic isometric feel
+local CAMERA_OFFSET     = Vector3.new(-24, 52, 24)  -- Hades 3/4 top-down angle (zoomed out for full arena view)
+local CAMERA_FOV        = 42                        -- slightly wider: more arena visible, still flat
 local SMOOTHNESS        = 14                        -- Lerp speed for butter-smooth tracking
 local TARGET_HEIGHT     = 2.5                       -- Focus height relative to root part
 local MOUSE_LEAD_FACTOR = 0.20                      -- Strength of mouse drag on camera (20%)
-local MAX_MOUSE_LEAD    = 8.0                       -- Max camera drag distance in studs
+local MAX_MOUSE_LEAD    = 10.0                      -- Max camera drag distance in studs (wider to match zoom)
 local AIM_SMOOTHNESS    = 20                        -- Head rotation smoothness
 local MAX_HEAD_YAW      = math.rad(90)              -- Maximum 90° turn left and right
 local HEAD_AIM_ENABLED  = false                     -- Head follows the cursor (off: characters face forward)

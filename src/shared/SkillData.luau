@@ -99,12 +99,12 @@ local SkillData: { [string]: ClassSkills } = {
 			description = "Raise the sword and drive it into the ground: a giant explosion, aftershocks traveling outward, and patches of fire left behind. Overheated: three expanding rings of fire.",
 		},
 		[4] = {
-			name = "Heart of the Inferno",
+			name = "Excalibur",
 			slot = 4,
 			keybind = "R",
 			cooldown = 40.0,
 			damage = 150,
-			description = "Ultimate: plant the sword and awaken. For several seconds every attack explodes; then every flame is drawn into the sword for one enormous flame wave that erupts. At 100 Heat: the Primordial Inferno.",
+			description = "Ultimate: raise the sword before you as it fills with golden fire, then bring it down: a vast wave of golden fire runs out down a long line, hitting everything in its path and leaving burning ground. Wider and stronger at 75 Heat; at Overheat it consumes it for the biggest wave.",
 		},
 	},
 }
@@ -421,13 +421,13 @@ SkillData.mage = {
 
 SkillData.martial_artist = {
 	[1] = {
-		name = "Focus Strike",
+		name = "Hundred Fists",
 		slot = 1,
 		keybind = "E",
-		cooldown = 6.0,
-		damage = 70, -- a tap; fully charged it hits for 3.5x (the ink splash round it for 60% of that)
-		range = 7,
-		description = "Hold to charge (you can walk slowly meanwhile), release to punch. Black ink gathers round your arm with red energy burning at its heart; the longer you hold, the further you lunge and the harder it lands. Fully charged, the strike bursts in a dramatic ink splash. Empowered: charges twice as fast, hits harder, a bigger splash.",
+		cooldown = 7.0,
+		damage = 70, -- each barrage blow 0.2x (about 11 of them), the power punch 2.4x
+		range = 9,
+		description = "Unleash a barrage: both fists hammer out a storm of blows, afterimages of fists flying, hitting everything in front of you again and again and holding it there. Then one enhanced power punch blasts a cone out ahead, tearing a crater into the floor and throwing everything in it back. Empowered: harder, and a longer cone.",
 	},
 	[2] = {
 		name = "Electric Uppercut",

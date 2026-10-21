@@ -46,6 +46,7 @@ require(script:WaitForChild("Corruption")).Init()
 require(script:WaitForChild("Horde")).Init()
 require(script:WaitForChild("Leaderboard")).Init()
 require(script:WaitForChild("DevHooks")).Init() -- (Studio only)
+require(script:WaitForChild("EmoteManager")).Init() -- emote relay for dungeon runs
 
 -- Sent into the dungeon (the campfire's portal, ClassManager.Enter): into
 -- their run's dungeon (RunManager: every party's run is its own), weapon in

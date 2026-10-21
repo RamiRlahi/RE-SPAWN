@@ -501,9 +501,11 @@ local function awaken(player: Player, char: Model, st: State, root: BasePart, di
 			hum.JumpPower = jump.power * BEAST_JUMP
 		end
 		char:SetAttribute("SpeedMult", BEAST_SPEED)
-		player:SetAttribute("BR_BeastUntil", Workspace:GetServerTimeNow() + BEAST_TIME)
+		-- (longer with Ability Duration: the Duration Tome, Wolf Unbound)
+		local beastTime = BEAST_TIME * math.max(tonumber(PlayerStats.GetStat(player, "abilityDuration")) or 1, 0.1)
+		player:SetAttribute("BR_BeastUntil", Workspace:GetServerTimeNow() + beastTime)
 		fx({ kind = "change", attacker = player })
-		task.delay(BEAST_TIME, function()
+		task.delay(beastTime, function()
 			if st.beastToken == token then revert(player, st) end
 		end)
 	end)

@@ -26,6 +26,8 @@
 	                             "DevMove" on the boss model to call a move)
 	  tower|userId|radius        an immunity tower (ImmunityTower) on the floor
 	                             16 studs in front of the player
+	  ready|userId               every skill off cooldown, the class meters
+	                             full (Rage, Qi Charge, ...): ults on demand
 --]]
 
 local Players = game:GetService("Players")
@@ -129,7 +131,9 @@ function DevHooks.Init()
 			local p = plr(a)
 			if not p then return "no player" end
 			local ClassManager = require(script.Parent:WaitForChild("ClassManager")) :: any
-			ClassManager.Enter(p, b or p:GetAttribute("SelectedClass") or "swordsman")
+			local classId = b or p:GetAttribute("SelectedClass") or "swordsman"
+			ClassManager.SetClass(p, classId) -- (recorded first, as picking it on the screen would)
+			ClassManager.Enter(p, classId)
 			return true
 		elseif cmd == "boss" then
 			local p = plr(a)
@@ -150,6 +154,16 @@ function DevHooks.Init()
 			-- (off the arena's cross, where its flame vents are)
 			if root then root.CFrame = CFrame.new(mid + Vector3.new(30, 5, 16)) end
 			return mid
+		elseif cmd == "ready" then
+			local p = plr(a)
+			if not p then return "no player" end
+			local SkillManager = require(script.Parent:WaitForChild("SkillManager")) :: any
+			SkillManager.DevResetCooldowns(p)
+			-- (the meters some ults wait on)
+			for _, name in ipairs({ "BR_Rage", "MA_Charge", "FK_Heat", "UltCharge" }) do
+				if p:GetAttribute(name) ~= nil then p:SetAttribute(name, 100) end
+			end
+			return true
 		elseif cmd == "tower" then
 			local p = plr(a)
 			local char = p and p.Character

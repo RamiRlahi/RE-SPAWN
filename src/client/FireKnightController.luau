@@ -363,15 +363,20 @@ end
 type GripState = { tool: Tool, base: CFrame, k: number, from: number, target: number, t0: number, dur: number }
 local grips: { [Tool]: GripState } = {}
 
-local function gripTo(char: Model, target: number, dur: number)
+local function gripOf(char: Model): GripState?
 	local tool = char:FindFirstChild("Greatsword")
-	if not (tool and tool:IsA("Tool")) then return end
+	if not (tool and tool:IsA("Tool")) then return nil end
 	local s = grips[tool]
 	if not s then
 		s = { tool = tool, base = tool.Grip, k = 0, from = 0, target = 0, t0 = 0, dur = 0 }
 		grips[tool] = s
 	end
-	local g = s :: GripState
+	return s
+end
+
+local function gripTo(char: Model, target: number, dur: number)
+	local g = gripOf(char)
+	if not g then return end
 	g.from, g.target, g.t0, g.dur = g.k, target, os.clock(), math.max(dur, 0.01)
 end
 
@@ -1370,11 +1375,16 @@ end
 -- The Awakening close-up (for the caster and everyone watching).
 function FireKnightController.PlayUltCutscene(char: Model, dir: Vector3)
 	UltimateCameraChoreography.PlayCloseUp(char, dir, AWAKEN, nil, nil, {
-		startOffset = { 8, 1.5, 1.4 },
-		endOffset = { 5.5, 1.1, 0.9 },
+		-- (front three-quarter at face height, tilted, pushing slowly in: his
+		-- head, his chest and the whole blade in frame, like the reference)
+		-- (the reference GIF's angle: 45° round to his right, above him and
+		-- looking down on him, tilted, pushing slowly in)
+		startOffset = { 7.4, 7.4, 6.0 },
+		endOffset = { 6.6, 6.6, 5.4 },
 		focusHeight = 1.4,
-		fovStart = 50,
-		fovEnd = 40,
+		fovStart = 42,
+		fovEnd = 37,
+		roll = 7,
 	})
 end
 
@@ -1706,13 +1716,273 @@ local function bladeMid(char: Model): Vector3?
 	return (handle.CFrame * CFrame.new(0, 3.5, 0)).Position
 end
 
+-- The Awakening (after the reference): the sword raised upright before him in
+-- both hands, the hilt at his chest, the blade rising past his face; his
+-- head bowed, still, breathing slow while the blade fills with light.
+-- (both hands on the hilt in front of the chest: the right brought in to just
+-- right of the middle, the left crossing over to close round the grip under
+-- it. Measured on the rig: a - sideways turn brings the right hand in, a +
+-- the left)
+local HOLD_UPRIGHT = pose(-4, -8, 6, 6, 74, 0, 74, 0, { RS = { 90, 0, -36, 0, 0, -0.8 }, LS = { 90, 0, 36, 0, 0, -0.8 }, N = { -14, 8, 0 } }, 8)
+local function holdUpright(char: Model, seconds: number)
+	gripTo(char, 0, 0.2)
+	CastPoses.play(char, {
+		{ dur = 0.3, style = SINE, pose = HOLD_UPRIGHT },
+		{ dur = math.max(seconds - 0.3, 0.05), pose = HOLD_UPRIGHT, wobble = function(t)
+			local b = math.sin(t * 2.2) * 1.2
+			return { N = { b * 0.6, 0, 0 }, W = { b * 0.5, 0, 0 } }
+		end },
+	}, 0.3, true)
+	-- The sword itself held exactly, whatever the arms are doing: straight up
+	-- along his body, the broad flat of the blade turned to whoever's
+	-- watching (never its edge), the hilt still in his hand. The grip is set
+	-- each frame from where it has to end up; eased in over the raise.
+	local tool = char:FindFirstChild("Greatsword")
+	local handle = tool and tool:FindFirstChild("Handle") :: BasePart?
+	local arm = char:FindFirstChild("Right Arm") :: BasePart?
+	local weld = arm and arm:FindFirstChild("RightGrip") :: Weld?
+	local torso = char:FindFirstChild("Torso") :: BasePart?
+	local leftArm = char:FindFirstChild("Left Arm") :: BasePart?
+	if not (tool and tool:IsA("Tool") and handle and arm and weld and torso) then return end
+	local blade: BasePart? = nil
+	for _, d in ipairs(tool:GetDescendants()) do
+		if d:IsA("BasePart") and d ~= handle and (not blade or d.Size.Magnitude > blade.Size.Magnitude) then blade = d end
+	end
+	-- The blade runs up the handle's +Y; its thickness is the blade mesh's X
+	-- (whichever way the mesh itself is turned): that, toward the camera,
+	-- shows the flat. Both in the handle's frame.
+	local thick = if blade then handle.CFrame:VectorToObjectSpace(blade.CFrame.XVector) else Vector3.xAxis
+	thick = Vector3.new(thick.X, 0, thick.Z)
+	thick = if thick.Magnitude > 0.01 then thick.Unit else Vector3.xAxis
+	local localBasis = CFrame.fromMatrix(Vector3.zero, thick, Vector3.yAxis, thick:Cross(Vector3.yAxis))
+	local g = gripOf(char)
+	local base = if g then g.base else tool.Grip
+	local t0 = os.clock()
+	local conn: RBXScriptConnection? = nil
+	conn = RunService.RenderStepped:Connect(function()
+		local t = os.clock() - t0
+		if t > seconds or not (tool.Parent and handle.Parent and weld.Parent) then
+			if conn then conn:Disconnect() end
+			if tool.Parent then tool.Grip = base end
+			return
+		end
+		local hand = arm.CFrame * weld.C0
+		local up = torso.CFrame.UpVector
+		local cam = Workspace.CurrentCamera
+		local toCam = if cam then cam.CFrame.Position - hand.Position else -torso.CFrame.LookVector
+		toCam -= up * toCam:Dot(up)
+		if toCam.Magnitude < 0.01 then return end
+		-- (its flat to his front: the crossguard runs left to right across his
+		-- body, as in the reference)
+		local front = torso.CFrame.LookVector
+		front -= up * front:Dot(up)
+		local x = front.Unit
+		local handleRot = CFrame.fromMatrix(Vector3.zero, x, up, x:Cross(up)) * localBasis:Inverse()
+		-- (the hilt between his two hands, side by side on it)
+		local mid = hand.Position
+		if leftArm then
+			local l = (leftArm.CFrame * CFrame.new(0, -leftArm.Size.Y / 2 + 0.3, 0)).Position
+			mid = (hand.Position + l) / 2
+		end
+		local want = CFrame.new(mid) * handleRot * CFrame.new(-base.Position)
+		local w = math.clamp(t / 0.3, 0, 1)
+		local now = handle.CFrame:Lerp(want, w)
+		tool.Grip = now:Inverse() * hand
+	end)
+end
+
+-- The blade filling with light (the reference): a white-gold core drawn up it
+-- from the hilt, a sheath of fire-gold round it, ribbons of golden fire
+-- curling up round it, gold sparks drifting up off it, and a warm light on
+-- his face. For `seconds`, then it all dies down.
+local GOLD = Color3.fromRGB(255, 196, 70)
+local function bladeBlaze(char: Model, seconds: number)
+	local tool = char:FindFirstChild("Greatsword")
+	local handle = tool and tool:FindFirstChild("Handle") :: BasePart?
+	if not (tool and handle) then return end
+	-- the blade: the sword's biggest part (the whole sword is often one mesh)
+	local blade: BasePart? = nil
+	for _, d in ipairs(tool:GetDescendants()) do
+		if d:IsA("BasePart") and d ~= handle and (not blade or d.Size.Magnitude > blade.Size.Magnitude) then blade = d end
+	end
+	if not blade then return end
+	local bladePart = blade :: BasePart
+	-- where it runs along the handle's +Y, and how broad it is
+	local rel = handle.CFrame:ToObjectSpace(bladePart.CFrame)
+	local longest = math.max(bladePart.Size.X, bladePart.Size.Y, bladePart.Size.Z)
+	local midY = rel.Position.Y
+	local base, tip = midY - longest * 0.32, midY + longest * 0.5
+	local len = tip - base
+	local folder = ClassFX.Folder()
+	local made: { Instance } = {}
+
+	-- the blade itself catching light: a copy of its own shape in white-gold
+	-- light laid over it, a bigger, fainter copy round it for the glow
+	local function overlay(scale: number, color: Color3): BasePart
+		local c = bladePart:Clone()
+		for _, k in ipairs(c:GetChildren()) do
+			if not (k:IsA("SpecialMesh")) then k:Destroy() end
+		end
+		if c:IsA("MeshPart") then c.TextureID = "" end
+		local mesh = c:FindFirstChildOfClass("SpecialMesh")
+		if mesh then mesh.TextureId = "" end
+		c.Size = bladePart.Size * scale
+		c.Color = color
+		c.Material = Enum.Material.Neon
+		c.Transparency = 1
+		c.Anchored = false
+		c.CanCollide, c.CanQuery, c.CanTouch, c.CastShadow, c.Massless = false, false, false, false, true
+		c.CFrame = bladePart.CFrame
+		local w = Instance.new("WeldConstraint")
+		w.Part0, w.Part1 = bladePart, c
+		w.Parent = c
+		c.Parent = folder
+		table.insert(made, c)
+		return c
+	end
+	-- (saturated gold: near-white light reads pink under a dusk sky)
+	local core = overlay(1.02, Color3.fromRGB(255, 200, 80))
+	local halo = overlay(1.14, Color3.fromRGB(255, 140, 30))
+	-- the band of light drawn up the blade from the hilt as it fills
+	local band = Instance.new("Part")
+	band.Size = Vector3.new(bladePart.Size.X * 1.25, 0.18, bladePart.Size.Z * 1.25)
+	band.Color = WHITE
+	band.Material = Enum.Material.Neon
+	band.Transparency = 1
+	band.Anchored = true
+	band.CanCollide, band.CanQuery, band.CanTouch, band.CastShadow = false, false, false, false
+	band.Parent = folder
+	table.insert(made, band)
+	local fill = 0.55
+
+	-- the ribbons: little carriers wound up round the blade, a trail behind each
+	type Ribbon = { p: BasePart, trail: Trail, phase: number, lastU: number }
+	local ribbons: { Ribbon } = {}
+	local rx, rz = bladePart.Size.X * 0.9, bladePart.Size.Z * 0.62
+	for i = 1, 3 do
+		local p = Instance.new("Part")
+		p.Size = Vector3.one * 0.1
+		p.Transparency = 1
+		p.Anchored = true
+		p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = false, false, false, false
+		local a0 = Instance.new("Attachment")
+		a0.Position = Vector3.new(0, 0.06, 0)
+		a0.Parent = p
+		local a1 = Instance.new("Attachment")
+		a1.Position = Vector3.new(0, -0.06, 0)
+		a1.Parent = p
+		local tr = Instance.new("Trail")
+		tr.Attachment0, tr.Attachment1 = a0, a1
+		tr.Color = ColorSequence.new(GOLD, FIRE)
+		tr.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1) })
+		tr.WidthScale = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1.4), NumberSequenceKeypoint.new(1, 0.1) })
+		tr.Lifetime = 0.22
+		tr.LightEmission = 1
+		tr.LightInfluence = 0
+		tr.FaceCamera = true
+		tr.Enabled = false
+		tr.Parent = p
+		p.Parent = folder
+		table.insert(made, p)
+		table.insert(ribbons, { p = p, trail = tr, phase = (i - 1) / 3, lastU = 0 })
+	end
+	-- the sparks: drifting up off the whole blade
+	local sparkHolder = Instance.new("Part")
+	sparkHolder.Size = Vector3.new(bladePart.Size.X * 1.3, len, bladePart.Size.Z * 1.2)
+	sparkHolder.Transparency = 1
+	sparkHolder.CanCollide, sparkHolder.CanQuery, sparkHolder.CanTouch, sparkHolder.CastShadow, sparkHolder.Massless = false, false, false, false, true
+	sparkHolder.CFrame = handle.CFrame * CFrame.new(0, base + len / 2, 0)
+	local sw = Instance.new("WeldConstraint")
+	sw.Part0, sw.Part1 = handle, sparkHolder
+	sw.Parent = sparkHolder
+	sparkHolder.Parent = folder
+	table.insert(made, sparkHolder)
+	local sparks = Instance.new("ParticleEmitter")
+	sparks.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	sparks.Color = ColorSequence.new(HOT, EMBER)
+	sparks.LightEmission = 1
+	sparks.LightInfluence = 0
+	sparks.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.25), NumberSequenceKeypoint.new(1, 0) })
+	sparks.Lifetime = NumberRange.new(0.8, 1.4)
+	sparks.Speed = NumberRange.new(0.6, 2)
+	sparks.Acceleration = Vector3.new(0, 3, 0)
+	sparks.SpreadAngle = Vector2.new(180, 180)
+	sparks.Shape = Enum.ParticleEmitterShape.Box
+	sparks.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+	sparks.Rate = 0
+	sparks.Parent = sparkHolder
+	-- and real fire licking up it (the Fire Knight's own flames)
+	local flames = FireFX.Emitter("flame", sparkHolder, 1.7)
+	flames.Shape = Enum.ParticleEmitterShape.Box
+	flames.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+	flames.EmissionDirection = Enum.NormalId.Top
+	flames.Rate = 0
+	-- the warm light on his face (counted against the effect-light budget)
+	local glow: PointLight? = nil
+	if FxBudget.Light() then
+		local l = Instance.new("PointLight")
+		l.Color = Color3.fromRGB(255, 200, 120)
+		l.Brightness = 0
+		l.Range = 9
+		l.Shadows = false
+		l.Parent = sparkHolder
+		FxBudget.TrackLight(l)
+		glow = l
+	end
+
+	local t0 = os.clock()
+	local conn: RBXScriptConnection? = nil
+	conn = RunService.RenderStepped:Connect(function()
+		local t = os.clock() - t0
+		if t > seconds or not handle.Parent then
+			if conn then conn:Disconnect() end
+			for _, r in ipairs(ribbons) do r.trail.Enabled = false end
+			sparks.Rate = 0
+			flames.Rate = 0
+			for _, p in ipairs({ core, halo, band }) do
+				TweenService:Create(p, TweenInfo.new(0.3), { Transparency = 1 }):Play()
+			end
+			if glow then TweenService:Create(glow, TweenInfo.new(0.3), { Brightness = 0 }):Play() end
+			for _, p in ipairs(made) do Debris:AddItem(p, 1.6) end
+			return
+		end
+		-- the light fills the blade from the hilt up (once the hands are up)
+		local k = math.clamp((t - 0.25) / fill, 0, 1)
+		local eased = 1 - (1 - k) ^ 3
+		local pulse = 0.5 + 0.5 * math.sin(t * 6)
+		core.Transparency = 1 - 0.8 * eased
+		halo.Transparency = 1 - (0.38 + 0.1 * pulse) * eased
+		if k < 1 then
+			band.Transparency = 0.1
+			band.CFrame = handle.CFrame * CFrame.new(0, base + len * eased, 0)
+		else
+			band.Transparency = 1
+		end
+		sparks.Rate = 30 * k
+		flames.Rate = 30 * k
+		if glow then glow.Brightness = 2.2 * k + 0.4 * pulse * k end
+		-- the ribbons wind up round it, over and over, once it's lit
+		for _, r in ipairs(ribbons) do
+			local u = (t * 1.5 + r.phase) % 1
+			if u < r.lastU then r.trail:Clear() end -- (back to the hilt: no line drawn across)
+			r.lastU = u
+			r.trail.Enabled = k > 0.3
+			local a = t * 9 + r.phase * 6.28 + u * 6
+			local shrink = 1 - u * 0.5
+			r.p.CFrame = handle.CFrame * CFrame.new(math.cos(a) * rx * shrink, base + u * len * math.max(eased, 0.2), math.sin(a) * rz * shrink)
+		end
+	end)
+end
+
 local function onAwaken(msg: any)
 	local char = charOf(msg.attacker)
 	local root = rootOf(char)
 	if not char or not root then return end
 	local awaken = msg.awaken :: number
-	-- He plants the sword; the flames go out; silence...
-	plantSword(char, awaken)
+	-- He raises the sword upright before him, head bowed; its flames go out,
+	-- and the blade fills with light...
+	holdUpright(char, awaken)
+	bladeBlaze(char, awaken)
 	if near(root.Position, 110) then darken(awaken + (msg.inferno or 6) + 1) end
 	for _, L in pairs(looks) do
 		if L.char == char then
@@ -1720,8 +1990,8 @@ local function onAwaken(msg: any)
 			task.delay(awaken, function() for _, e in ipairs(L.flames) do e.Enabled = true end end)
 			-- His hair catches fire as the armor starts to glow (and stays lit
 			-- until the Inferno it's heralding is over).
-			task.delay(awaken * 0.55, function()
-				L.hairHold = os.clock() + awaken * 0.45 + 1
+			task.delay(awaken * 0.95, function()
+				L.hairHold = os.clock() + awaken * 0.05 + 1
 				setHair(L, true)
 			end)
 		end
@@ -1754,7 +2024,8 @@ local function onAwaken(msg: any)
 		hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 		hl.Adornee = char
 		hl.Parent = ClassFX.Folder()
-		TweenService:Create(hl, TweenInfo.new(awaken * 0.6), { FillTransparency = 0.4, OutlineTransparency = 0 }):Play()
+		-- (a warm rim only: a fill floods the whole figure orange and hides him)
+		TweenService:Create(hl, TweenInfo.new(awaken * 0.6), { OutlineTransparency = 0.45 }):Play()
 		Debris:AddItem(hl, awaken * 0.65 + 0.3)
 		cracks(root.Position, 9 + tier, awaken * 0.5, 0.4)
 		ClassFX.Sound("charge", root, 0.8, 0.7)
@@ -1883,6 +2154,125 @@ local function onExecution(msg: any)
 	if msg.attacker == player then deps.fovPunch(12, 0.4) end
 end
 
+-- Excalibur: the blazing sword lifted overhead, then brought down, and a vast
+-- wave of golden fire runs out down the line: a blade of light racing along
+-- the floor ahead of a wall of flame, the floor splitting under it, a column
+-- of light where it ends.
+local EXCAL_GOLD = Color3.fromRGB(255, 200, 80)
+local function onExcalibur(msg: any)
+	local char = charOf(msg.attacker)
+	local pos = msg.pos :: Vector3
+	local dir = msg.dir :: Vector3
+	local length, width = msg.length :: number, msg.width :: number
+	local swing = tonumber(msg.swing) or 0.28
+	local tier = tonumber(msg.tier) or 1
+	local root = char and rootOf(char)
+	if char then
+		if root and msg.attacker == player then root.CFrame = CFrame.lookAt(root.Position, root.Position + dir) end
+		raisePose(char, swing)
+		task.delay(swing, function()
+			if char.Parent then
+				slamPose(char)
+				trail(char, 0.4)
+			end
+		end)
+	end
+	-- the light gathering at the raised blade
+	task.delay(swing * 0.4, function()
+		local mid = char and bladeMid(char)
+		if mid then FireFX.Explosion(mid, 3, false) end
+	end)
+	task.delay(swing, function()
+		local g = onGround(pos)
+		-- (stopped short by walls, like the server's wave)
+		local reach = length
+		local rp = RaycastParams.new()
+		rp.FilterType = Enum.RaycastFilterType.Exclude
+		local ignore: { Instance } = { ClassFX.Folder() }
+		if char then table.insert(ignore, char) end
+		local mobs = Workspace:FindFirstChild("Mobs")
+		if mobs then table.insert(ignore, mobs) end
+		rp.FilterDescendantsInstances = ignore
+		local wall = Workspace:Raycast(g + Vector3.new(0, 2, 0), dir * length, rp)
+		if wall then reach = math.max(8, wall.Distance) end
+		-- the slash
+		local base = CFrame.lookAt(g + Vector3.new(0, 1.5, 0), g + Vector3.new(0, 1.5, 0) + dir)
+		crescent(base * CFrame.Angles(0, 0, math.rad(90)), 9, 170, 3, 0.35, 1, HOT)
+		explosion(g + dir * 4 + Vector3.new(0, 1, 0), 7, true)
+		-- the blade of light racing out along the floor
+		local beam = Instance.new("Part")
+		beam.Shape = Enum.PartType.Cylinder -- (round: a beam of light, not a slab)
+		beam.Anchored, beam.CanCollide, beam.CanQuery, beam.CanTouch, beam.CastShadow = true, false, false, false, false
+		beam.Material = Enum.Material.Neon
+		beam.Color = EXCAL_GOLD
+		beam.Transparency = 0.15
+		beam.Parent = ClassFX.Folder()
+		local core = beam:Clone()
+		core.Color = WHITE
+		core.Transparency = 0.05
+		core.Parent = ClassFX.Folder()
+		local h = 5 + tier
+		-- the bright head racing in front
+		local head = Instance.new("Part")
+		head.Shape = Enum.PartType.Ball
+		head.Size = Vector3.one * width * 1.8
+		head.Material = Enum.Material.Neon
+		head.Color = Color3.fromRGB(255, 240, 200)
+		head.Anchored, head.CanCollide, head.CanQuery, head.CanTouch, head.CastShadow = true, false, false, false, false
+		head.Parent = ClassFX.Folder()
+		local t0 = os.clock()
+		local travel = reach / 220
+		local conn: RBXScriptConnection? = nil
+		conn = RunService.RenderStepped:Connect(function()
+			local t = os.clock() - t0
+			local grow = math.min(t / travel, 1)
+			local fade = math.clamp((t - travel) / 0.55, 0, 1)
+			local len = math.max(reach * grow, 0.5)
+			-- (a cylinder runs along its X: turned to lie down the line)
+			local cf = CFrame.lookAt(g, g + dir) * CFrame.new(0, h * 0.45, -len / 2) * CFrame.Angles(0, math.rad(90), 0)
+			local d = width * 1.3 * (1 - fade * 0.6)
+			beam.Size = Vector3.new(len, d, d)
+			beam.CFrame = cf
+			beam.Transparency = 0.25 + 0.75 * fade
+			core.Size = Vector3.new(len, d * 0.35, d * 0.35)
+			core.CFrame = cf
+			if head.Parent then
+				head.CFrame = CFrame.new(g + dir * len + Vector3.new(0, h * 0.45, 0))
+				head.Transparency = 0.1 + 0.9 * fade
+			end
+			core.Transparency = 0.05 + 0.95 * fade
+			if fade >= 1 then
+				if conn then conn:Disconnect() end
+				beam:Destroy()
+				core:Destroy()
+				head:Destroy()
+			end
+		end)
+		-- the wall of fire behind it, the floor splitting
+		local steps = math.floor(reach / 3)
+		for i = 1, steps do
+			task.delay(i * 3 / 220, function()
+				local p = g + dir * (i * 3)
+				eruption(p, 22 + tier * 3 + rng:NextNumber(0, 8), width * 0.75)
+				FireFX.Flames(p + Vector3.new(0, 1, 0), 3.5 + tier * 0.5, 2, width * 0.5)
+				if i % 2 == 0 then FireFX.Cracks(p, width * 0.8, 2.6, false) end
+			end)
+		end
+		-- a column of light where it ends
+		task.delay(travel, function()
+			local endAt = g + dir * reach
+			FireFX.LightPillar(endAt, 40, width * 0.9, 0.8)
+			explosion(endAt + Vector3.new(0, 1, 0), 6 + tier, true)
+		end)
+		ClassFX.Sound("swordHit", g, 1, 0.6)
+		ClassFX.Sound("fireWhoosh", g, 1, 0.6)
+		ClassFX.Sound("boom", g, 0.9, 0.8)
+		if near(g, 120) then deps.shake(if msg.attacker == player then 1.6 else 0.8, 0.45) end
+		if msg.attacker == player then deps.fovPunch(12, 0.4) end
+		if char and tier >= 3 then popWord(char, "EXCALIBUR", HOT, 28) end
+	end)
+end
+
 local function onErupt(msg: any)
 	-- BOOOOOM: everything inside the wave erupts.
 	local origin = msg.origin :: Vector3
@@ -1919,6 +2309,7 @@ local HANDLERS: { [string]: (any) -> () } = {
 	pillar = onPillar,
 	gather = onGather,
 	execution = onExecution,
+	excalibur = onExcalibur,
 	erupt = onErupt,
 }
 

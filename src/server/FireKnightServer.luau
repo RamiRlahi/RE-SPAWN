@@ -29,13 +29,13 @@
 	  Q   INFERNAL EARTHSHAKER  wind up, drive the sword into the ground: a big
 	                         explosion, aftershocks rippling out, fire patches.
 	                         Empowered: three expanding rings of fire.
-	  R   HEART OF THE INFERNO  plant the sword and awaken; a pillar of fire,
-	                         then several seconds of Inferno (every attack
-	                         explodes, faster, Scorching aura) and THE FINAL BLOW:
-	                         every flame in the arena is drawn into the sword for
-	                         one enormous flame wave that then erupts. Stronger
-	                         at 75 Heat; at Overheat it consumes it and becomes
-	                         the PRIMORDIAL INFERNO.
+	  R   EXCALIBUR          the sword raised upright before him fills with
+	                         golden fire (mobs held, he can't be hurt); he lifts
+	                         it overhead and brings it down: a vast wave of
+	                         golden fire runs out down a long line, hitting
+	                         everything in it, burning ground left behind.
+	                         Wider and stronger at 75 Heat; at Overheat it
+	                         consumes it for the biggest wave.
 --]]
 
 local Players = game:GetService("Players")
@@ -722,6 +722,59 @@ local function finalBlow(player: Player, char: Model, st: State, config: any)
 	end)
 end
 
+-- Excalibur: the charge (AWAKEN, the cinematic), the swing (EXCAL_SWING),
+-- then the wave down the line.
+local EXCAL_SWING = 0.28
+local function excalibur(player: Player, char: Model, st: State, dir: Vector3, config: any)
+	local root = rootOf(char)
+	if not root then return end
+	local tier = if overheated(st) then 3 elseif st.heat >= 75 then 2 else 1
+	if tier == 3 then endOverheat(player, st, true) end
+	local power = ({ 1.0, 1.25, 1.6 })[tier]
+	local widen = ({ 1.0, 1.15, 1.35 })[tier]
+	st.busyUntil = os.clock() + AWAKEN + EXCAL_SWING + 0.6
+	char:SetAttribute("InvulnerableUntil", os.clock() + AWAKEN + EXCAL_SWING + 0.3)
+	fx({ kind = "awaken", attacker = player, dir = dir, awaken = AWAKEN, tier = tier, inferno = 0 })
+	task.delay(AWAKEN, function()
+		if not char.Parent or not root.Parent then return end
+		local area = config.areaMultiplier or 1
+		local length = 80 * area
+		local width = 7 * area * widen
+		fx({ kind = "excalibur", attacker = player, pos = root.Position, dir = dir, length = length, width = width,
+			swing = EXCAL_SWING, tier = tier })
+		task.delay(EXCAL_SWING, function()
+			if not char.Parent or not root.Parent then return end
+			local origin = root.Position
+			-- (stopped by walls: the wave runs as far as it can)
+			local reach = length
+			local hitWall = Workspace:Raycast(origin + Vector3.new(0, 2, 0), dir * length, (function()
+				local rp = RaycastParams.new()
+				rp.FilterType = Enum.RaycastFilterType.Exclude
+				local ignore: { Instance } = { char }
+				local mobs = Workspace:FindFirstChild("Mobs")
+				if mobs then table.insert(ignore, mobs) end
+				for _, pl in ipairs(Players:GetPlayers()) do
+					if pl.Character then table.insert(ignore, pl.Character) end
+				end
+				rp.FilterDescendantsInstances = ignore
+				return rp
+			end)())
+			if hitWall then reach = math.max(8, hitWall.Distance) end
+			local damage = (config.damage or 150) * 2.4 * power
+			for _, t in ipairs(onLine(char, origin, dir, reach, width)) do
+				H.dealDamage(player, t, damage, "EXCALIBUR")
+				applyScorch(player, t, 2 + tier)
+			end
+			-- burning ground left down the line
+			local n = math.floor(reach / 10)
+			for i = 1, n do
+				addPatch(player, origin + dir * (i * 10), 3.5 * area * widen, 4)
+			end
+			gainHeat(player, st, 10)
+		end)
+	end)
+end
+
 local function heartOfTheInferno(player: Player, char: Model, st: State, dir: Vector3, config: any)
 	local root = rootOf(char)
 	if not root then return end
@@ -782,7 +835,7 @@ function FireKnightServer.OnSkill(player: Player, char: Model, skillIndex: numbe
 	elseif skillIndex == 3 then
 		earthshaker(player, char, st, config, empowered)
 	elseif skillIndex == 4 then
-		heartOfTheInferno(player, char, st, dir, config)
+		excalibur(player, char, st, dir, config)
 	end
 end
 

@@ -2012,4 +2012,14 @@ function SkillManager.Init()
 	print("[SkillManager] Server SkillManager initialized.")
 end
 
+-- (Studio tests, DevHooks "ready": every skill ready again)
+function SkillManager.DevResetCooldowns(player: Player)
+	playerCooldowns[player] = nil
+	if chargesFullAt[player] then table.clear(chargesFullAt[player]) end
+	local remote = Network.GetRemoteEvent(Network.Remotes.SkillCooldownUpdate)
+	for i = 1, 4 do
+		remote:FireClient(player, { skillIndex = i, cooldown = 0.01, elapsed = 1 })
+	end
+end
+
 return SkillManager

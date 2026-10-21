@@ -16,13 +16,15 @@
 	                       Slam +20, Crimson Hadouken +30) and so do landed
 	                       strikes (+2). At 100 the next ability is Empowered
 	                       and uses it up.
-	  E Focus Strike       hold to charge, let go to punch (MartialInput
-	                       "release"; it goes off on its own after FOCUS.hold):
-	                       a lunge in behind the fist, everything in front of
-	                       it hit. The longer the charge, the further the
-	                       lunge, the reach and the damage; fully charged, an
-	                       ink splash bursts round where it lands. Empowered:
-	                       charges twice as fast, hits harder, a bigger splash.
+	  E Hundred Fists      a barrage: both fists hammering out a storm of
+	                       blows (afterimages of fists flying), everything in
+	                       front of him hit again and again and held there;
+	                       then one enhanced power punch that blasts a cone
+	                       out in front, a crater torn into the floor along it,
+	                       everything in it hit hard and thrown back.
+	                       Empowered: harder, and a longer cone.
+	                       (The old Focus Strike's hold-and-release is below,
+	                       no longer cast.)
 	  F Electric Uppercut  a crouch dash in and a rising uppercut (the Wind
 	                       God Fist): everything in front of him is hit,
 	                       launched into the air and shocked for a moment. Empowered (and each extra
@@ -77,6 +79,14 @@ local CHARGE_PER_HIT = 2               -- per strike that lands (once per swing)
 local FOCUS = { full = 1.1, empFull = 0.55, hold = 2.4, hit = 0.08, reach = 7, fullReach = 11, lunge = 1.5, fullLunge = 6,
 	maxMult = 3.5, splash = 8, arc = math.cos(math.rad(55)) }
 local FOCUS_EMP = { damage = 1.3, splash = 1.4 }
+
+-- Hundred Fists (matches the client): the barrage for `duration`, a hit to
+-- everything in front every `every` seconds (`tick` × the damage each); the
+-- power punch lands at `punchAt` (`punch` × the damage), its cone `cone`
+-- studs long and `half` wide either side; back to guard at `total`.
+local BARRAGE = { duration = 1.1, every = 0.1, reach = 9, arc = math.cos(math.rad(45)), tick = 0.2,
+	punchAt = 1.32, total = 1.65, cone = 18, half = math.rad(36), punch = 2.4 }
+local BARRAGE_EMP = { damage = 1.3, cone = 1.3 }
 
 -- Electric Uppercut (matches the client): a long crouch dash in (up to `dash`
 -- studs, stopping short at the first enemy in its path: that one takes the
@@ -452,6 +462,47 @@ local function focusStart(player: Player, config: any, empowered: boolean)
 	end)
 end
 
+-- ── E: Hundred Fists ────────────────────────────────────────────────────────
+local function barrage(player: Player, char: Model, root: BasePart, dir: Vector3, config: any, empowered: boolean)
+	local st = getState(player)
+	local now = os.clock()
+	st.busyUntil = math.max(st.busyUntil, now + BARRAGE.total)
+	local area = config.areaMultiplier or 1
+	local damage = (config.damage or 70) * (if empowered then BARRAGE_EMP.damage else 1)
+	local cone = BARRAGE.cone * area * (if empowered then BARRAGE_EMP.cone else 1)
+	fx({ kind = "barrage", attacker = player, pos = root.Position, dir = dir, cone = cone, half = BARRAGE.half, empowered = empowered })
+	task.spawn(function()
+		local t0 = os.clock()
+		-- the barrage: blow after blow, everything in front held in it
+		while char.Parent and root.Parent and os.clock() - t0 < BARRAGE.duration do
+			for _, t in ipairs(inFront(char, root.Position, dir, BARRAGE.reach * area, BARRAGE.arc)) do
+				if hit(player, t, damage * BARRAGE.tick, "BARRAGE") then hold(t, 0.3) end
+			end
+			task.wait(BARRAGE.every)
+		end
+		local left = BARRAGE.punchAt - (os.clock() - t0)
+		if left > 0 then task.wait(left) end
+		if not (char.Parent and root.Parent) then return end
+		-- the power punch: everything in the cone hit hard and thrown back
+		local at = root.Position
+		local struck: { Target } = {}
+		for _, t in ipairs(H.getPotentialTargets(char)) do
+			local rel = Vector3.new(t.rootPart.Position.X - at.X, 0, t.rootPart.Position.Z - at.Z)
+			local d = rel.Magnitude
+			if d <= cone + H.lineReach(t, 0) * 0.5 and math.abs(t.rootPart.Position.Y - at.Y) < 8
+				and (d < 3 or math.acos(math.clamp(rel.Unit:Dot(dir), -1, 1)) <= BARRAGE.half + math.rad(4)) then
+				if hit(player, t, damage * BARRAGE.punch, "POWER PUNCH") then
+					table.insert(struck, t)
+					hold(t, 0.4)
+					if not isBoss(t) then shove(t, dir, 60, 0.35) end
+				end
+			end
+		end
+		if #struck > 0 then pcall(H.ricochet, player, char, struck[1], damage * BARRAGE.punch, "POWER PUNCH") end
+		fx({ kind = "barragePunch", attacker = player, pos = at, dir = dir, cone = cone, half = BARRAGE.half, hits = positions(struck) })
+	end)
+end
+
 -- ── F: Electric Uppercut ────────────────────────────────────────────────────
 local function uppercut(player: Player, char: Model, root: BasePart, dir: Vector3, config: any, empowered: boolean)
 	local st = getState(player)
@@ -641,7 +692,7 @@ function MartialServer.OnSkill(player: Player, char: Model, skillIndex: number, 
 	local empowered = consume(player, st)
 	if empowered then fx({ kind = "empowered", attacker = player, skill = skillIndex }) end
 	if skillIndex == 1 then
-		focusStart(player, config, empowered)
+		barrage(player, char, root, dir, config, empowered)
 	elseif skillIndex == 2 then
 		uppercut(player, char, root, dir, config, empowered)
 	elseif skillIndex == 3 then

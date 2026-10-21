@@ -290,6 +290,20 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	container.Visible = false
 	container.Parent = parent
 	currentScreenContainer = container
+	-- Leaving the screen: if the preview had to fall back to your own
+	-- character (no menu hero yet), take the preview off it again: the
+	-- display weapon, armor and cape, the pose, the effects. (Otherwise the
+	-- display sword went into the dungeon beside the real one.)
+	container:GetPropertyChangedSignal("Visible"):Connect(function()
+		if container.Visible then return end
+		local char = player.Character
+		if not char then return end
+		pcall(ClassLook.Clear, char)
+		pcall(UltPreviewFX.Stop)
+		pcall(CastPoses.stop, char)
+		pcall(setSilhouette, char, false)
+		pcall(tintKnightHair, char, "")
+	end)
 
 	-- Subtle Dark Vignette Border (Keep center open to see the 3D character clearly)
 	local vignette = Instance.new("Frame")

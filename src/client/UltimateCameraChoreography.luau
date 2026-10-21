@@ -41,6 +41,14 @@ export type Framing = {
 	focusHeight: number,
 	fovStart: number,
 	fovEnd: number,
+	roll: number?, -- (degrees: a tilted, Dutch-angle frame)
+	-- a pull-out at the end: from `pullAt` seconds in, the camera eases out to
+	-- `pullOffset`, looking at `pullFocus` (height over the character), FOV
+	-- easing to `pullFov`
+	pullAt: number?,
+	pullOffset: { number }?,
+	pullFocus: number?,
+	pullFov: number?,
 }
 
 local DEFAULT_FRAMING: Framing = {
@@ -113,7 +121,8 @@ function UltimateCameraChoreography.PlayCloseUp(
 		-- Subtle drift over the shot (by default: creeps slightly closer and lower)
 		local shotEnd = offset(frame.endOffset)
 		local focusUp = Vector3.new(0, frame.focusHeight, 0)
-		camera.CFrame = CFrame.lookAt(shotStart, charPos + focusUp)
+		local tilt = CFrame.Angles(0, 0, math.rad(frame.roll or 0))
+		camera.CFrame = CFrame.lookAt(shotStart, charPos + focusUp) * tilt
 		camera.FieldOfView = frame.fovStart
 
 		local t0 = os.clock()
@@ -123,10 +132,26 @@ function UltimateCameraChoreography.PlayCloseUp(
 				if conn then conn:Disconnect() end
 				return
 			end
-			local alpha = math.clamp((os.clock() - t0) / shotDur, 0, 1)
+			local el = os.clock() - t0
+			local pullAt = frame.pullAt
+			local pullOffset = frame.pullOffset
+			if pullAt and pullOffset and el >= pullAt then
+				-- the pull-out: from where the push-in got to, out wide
+				local k = math.clamp((el - pullAt) / math.max(shotDur - pullAt, 0.01), 0, 1)
+				local e = 1 - (1 - k) ^ 3
+				local fromA = math.clamp(pullAt / shotDur, 0, 1)
+				local from = shotStart:Lerp(shotEnd, 1 - (1 - fromA) ^ 2)
+				local fromFov = frame.fovStart + (frame.fovEnd - frame.fovStart) * (1 - (1 - fromA) ^ 2)
+				local to = offset(pullOffset)
+				local focus = rootPart.Position + focusUp:Lerp(Vector3.new(0, frame.pullFocus or frame.focusHeight, 0), e)
+				camera.CFrame = CFrame.lookAt(from:Lerp(to, e), focus) * tilt
+				camera.FieldOfView = fromFov + ((frame.pullFov or fromFov) - fromFov) * e
+				return
+			end
+			local alpha = math.clamp(el / shotDur, 0, 1)
 			local smooth = 1 - math.pow(1 - alpha, 2)
 			-- Track the character's head/chest area as focus point
-			camera.CFrame = CFrame.lookAt(shotStart:Lerp(shotEnd, smooth), rootPart.Position + focusUp)
+			camera.CFrame = CFrame.lookAt(shotStart:Lerp(shotEnd, smooth), rootPart.Position + focusUp) * tilt
 			camera.FieldOfView = frame.fovStart + (frame.fovEnd - frame.fovStart) * smooth
 		end)
 

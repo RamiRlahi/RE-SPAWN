@@ -520,6 +520,11 @@ local function performAttack()
 	if character:GetAttribute("Tumbling") == true then return end
 	if RunScope.Mine("TomesPaused") == true then return end
 
+	-- Attacking cancels any active emote immediately
+	if character:GetAttribute("IsEmoting") == true then
+		character:SetAttribute("IsEmoting", false)
+	end
+
 	-- Block attacks while using the 1st ability (Spin Attack) or casting skills
 	if character:GetAttribute("IsSkill1Active") == true
 		or character:GetAttribute("IsSpinAttackActive") == true
@@ -563,6 +568,7 @@ local function performAttack()
 	isAttacking = true
 	attackBuffered = false
 	currentAttackTrack = trackToPlay
+	character:SetAttribute("IsAttacking", true)
 
 	-- Stop movement during attack & activate weapon slash trail
 	humanoid.WalkSpeed = 0
@@ -626,6 +632,7 @@ local function performAttack()
 		if currentAttackTrack == trackToPlay then
 			setWeaponTrailEnabled(false)
 			isAttacking = false
+			character:SetAttribute("IsAttacking", false)
 			currentAttackTrack = nil
 			lastAttackEndTime = os.clock()
 
@@ -773,6 +780,21 @@ function UpdateMovement()
 		if RunTrack and RunTrack.IsPlaying then RunTrack:Stop(0.2) end
 		if IdleTrack and not IdleTrack.IsPlaying then IdleTrack:Play(0.2) end
 		return
+	end
+
+	-- Emoting: character stands still and plays emote; moving cancels it immediately
+	if character:GetAttribute("IsEmoting") == true then
+		if humanoid.MoveDirection.Magnitude > 0.05 then
+			-- Moving cancels the emote immediately
+			character:SetAttribute("IsEmoting", false)
+		else
+			-- Suppress locomotion tracks so the emote plays cleanly without overlapping
+			if WalkTrack and WalkTrack.IsPlaying then WalkTrack:Stop(0.2) end
+			if RunTrack and RunTrack.IsPlaying then RunTrack:Stop(0.2) end
+			if IdleTrack and IdleTrack.IsPlaying then IdleTrack:Stop(0.2) end
+			stopSpeedSprintVFX()
+			return
+		end
 	end
 
 	-- During attack swing or skill cast, keep character stationary (unless skill manages velocity).

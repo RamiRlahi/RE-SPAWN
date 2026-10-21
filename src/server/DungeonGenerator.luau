@@ -2189,7 +2189,7 @@ local arcadeTheme = false
 -- endless, and still a room.
 local ARCADE_EDGE = {
 	-- (Abyssal Neon: midnight, violet, arcane, ice cyan; amber for the way on)
-	base = Color3.fromRGB(14, 20, 40),
+	base = Color3.fromRGB(42, 46, 82),
 	metal = Color3.fromRGB(48, 36, 91),
 	cyan = Color3.fromRGB(66, 221, 245),
 	purple = Color3.fromRGB(88, 64, 190),
@@ -2479,10 +2479,10 @@ local function arcadeFloor(room: RoomData, parent: Instance)
 	local c = Vector3.new(cx, 0, cz)
 	local R = math.min(W, D) * 0.42
 	-- the dark field: the combat area, a shade under the rest
-	local field = edgePart(parent, Vector3.new(W - 14, 0.03, D - 14), CFrame.new(cx, top + 0.005, cz), Color3.fromRGB(8, 13, 27), PLAIN)
+	local field = edgePart(parent, Vector3.new(W - 14, 0.03, D - 14), CFrame.new(cx, top + 0.005, cz), Color3.fromRGB(30, 34, 64), PLAIN)
 	field.Transparency = 0
 	-- the grid: dim seams only
-	local seam = Color3.fromRGB(48, 36, 91)
+	local seam = Color3.fromRGB(70, 58, 128)
 	for i = 1, room.w - 1 do
 		local x = cx - W / 2 + i * FLOOR_SIZE
 		flat(Vector3.new(x, 0, cz - D / 2), Vector3.new(x, 0, cz + D / 2), 0.1, seam, 0.35)

@@ -79,6 +79,7 @@ Network.Remotes = {
 	ClaimReward         = "ClaimReward",     -- client → server: the room reward Model you left-clicked near     -- client → server: "respawn" | "menu"
 	DiscardTome         = "DiscardTome",      -- client → server: { tomeId, roomId } sacrifice one tome
 	DiscardTomeOffer    = "DiscardTomeOffer", -- server → client: { roomId, tomes } prompt player to choose a tome to discard
+	EmotePlay           = "EmotePlay",        -- client → server: emoteId; server → all clients: { player, emoteId } or { player, emoteId = "__cancel" }
 }
 
 local function getFolder(): Folder

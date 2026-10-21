@@ -89,7 +89,7 @@ local SKILL_ICONS_BY_CLASS: { [string]: { [any]: string } } = {
 		[1] = "rbxassetid://132155579159537",  -- Fire Tornado (E)
 		[2] = "rbxassetid://91314905448390",   -- Phoenix Slam (F)
 		[3] = "rbxassetid://131134579080569",  -- Infernal Earthshaker (Q)
-		[4] = "rbxassetid://73181276426858",   -- Heart of the Inferno (R)
+		[4] = "rbxassetid://73181276426858",   -- Excalibur (R)
 		passive = "rbxassetid://79763025422259", -- Heat of War
 	},
 	martial_artist = {

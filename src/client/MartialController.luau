@@ -1768,6 +1768,275 @@ local function onFocusRelease(msg: any)
 end
 
 -- Ours: charged while the key is down.
+-- ── E: Hundred Fists ────────────────────────────────────────────────────────
+-- (matches MartialServer's BARRAGE) The barrage for `duration`, the power
+-- punch landing at `punchAt`, back to guard at `total`.
+local BARRAGE = { duration = 1.1, punchAt = 1.32, total = 1.65, cone = 18, half = math.rad(36),
+	walk = 6 } -- (his walk through the barrage; normal is 16)
+
+-- 1 · the barrage: a low wide stance, both fists hammering out in turn
+-- faster than the eye (the arms blur between forward and drawn back), the
+-- body rocking with it; 2 · the wind-up: the right fist pulled right back,
+-- the body turned away; 3 · the power punch: driven straight out with
+-- everything behind it, held.
+local function barragePose(char: Model)
+	local ready = { RS = { 80, 0, -4 }, LS = { 80, 0, 4 }, W = { -6, 0, 0 }, N = { 0, 0, 0 }, Root = { 0, 0, 0, 0, -0.5, 0 },
+		LH = { 28, 0, -14 }, RH = { -20, 0, 14 } }
+	local windup = { RS = { -30, 0, 20 }, LS = { 70, 0, -10 }, W = { 4, -42, 0 }, N = { 0, 34, 0 }, Root = { 0, 0, 0, 0, -0.7, 0.2 },
+		LH = { 32, 0, -16 }, RH = { -24, 0, 18 } }
+	local punch = { RS = { 98, 0, -6 }, LS = { -18, 0, -26 }, W = { -14, 38, 0 }, N = { 0, -26, 0 }, Root = { 0, 0, 0, 0, -0.55, -0.8 },
+		LH = { 42, 0, -10 }, RH = { -42, 0, 12 } }
+	local wind = BARRAGE.punchAt - BARRAGE.duration - 0.08
+	CastPoses.play(char, {
+		{ dur = 0.08, pose = ready },
+		{ dur = BARRAGE.duration, pose = ready, wobble = function(t: number)
+			local s = math.sin(t * 48)
+			return {
+				RS = { -55 * (0.5 + 0.5 * s), (math.random() - 0.5) * 16, 0 },
+				LS = { -55 * (0.5 - 0.5 * s), (math.random() - 0.5) * 16, 0 },
+				W = { 0, s * 8, 0 },
+				Root = { 0, 0, 0, 0, math.abs(s) * 0.05, 0 },
+			}
+		end },
+		{ dur = math.max(wind, 0.05), style = Enum.EasingStyle.Quad, pose = windup },
+		{ dur = 0.08, style = Enum.EasingStyle.Quart, pose = punch },
+		{ dur = BARRAGE.total - BARRAGE.punchAt, pose = punch },
+	}, 0.25)
+end
+
+-- A copy of his own arm (the arm's part as it is: its colour, its mesh, any
+-- glove welded to it isn't carried) thrust out from the shoulder at `from`
+-- along `dir`, `len` studs over `life`, fading; a white swish of air curling
+-- round its fist. `scale` grows it (the power punch's great arm).
+local function armCopy(arm: BasePart): BasePart
+	local c = Instance.new("Part")
+	c.Size = arm.Size
+	c.Color = arm.Color
+	c.Material = arm.Material
+	c.Anchored, c.CanCollide, c.CanQuery, c.CanTouch, c.CastShadow = true, false, false, false, false
+	for _, d in ipairs(arm:GetChildren()) do
+		if d:IsA("SpecialMesh") or d:IsA("Decal") or d:IsA("Texture") then d:Clone().Parent = c end
+	end
+	c.Parent = ClassFX.Folder()
+	return c
+end
+
+local function ghostArm(arm: BasePart?, from: Vector3, dir: Vector3, len: number, life: number, scale: number)
+	if not arm then return end
+	local c = armCopy(arm)
+	c.Size = arm.Size * scale
+	local mesh = c:FindFirstChildOfClass("SpecialMesh")
+	if mesh then mesh.Scale *= scale end
+	-- (an arm's hand is its -Y end: turned so it points along `dir`)
+	local turn = CFrame.Angles(math.rad(90), 0, 0)
+	local half = c.Size.Y / 2
+	-- the swish: a thin white ring round the fist, opening as it flies
+	local swish = part({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.08, 1.2 * scale, 1.2 * scale), Color = WHITE, Transparency = 0.3 })
+	animate(life, function(a)
+		local d = len * easeOut(a)
+		local base = CFrame.lookAt(from + dir * d, from + dir * (d + 1))
+		c.CFrame = base * CFrame.new(0, 0, -half) * turn
+		c.Transparency = 0.15 + 0.85 * a ^ 1.5
+		local s = (1.2 + a * 1.6) * scale
+		swish.Size = Vector3.new(0.08, s, s)
+		swish.CFrame = base * CFrame.new(0, 0, -half * 2) * CFrame.Angles(0, math.rad(90), 0)
+		swish.Transparency = 0.3 + 0.7 * a
+		if a >= 1 then
+			c:Destroy()
+			swish:Destroy()
+		end
+		return nil
+	end)
+end
+
+-- The ground under `pos`: where it is, its colour and material (the crater's
+-- slabs are broken out of it).
+local function groundUnder(pos: Vector3): (Vector3, Color3, Enum.Material)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local ignore: { Instance } = { ClassFX.Folder() }
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.Character then table.insert(ignore, p.Character) end
+	end
+	local mobs = Workspace:FindFirstChild("Mobs")
+	if mobs then table.insert(ignore, mobs) end
+	params.FilterDescendantsInstances = ignore
+	local hit = Workspace:Raycast(pos + Vector3.new(0, 4, 0), Vector3.new(0, -14, 0), params)
+	if hit then
+		local col = hit.Instance.Color
+		local mat = hit.Material
+		if mat == Enum.Material.Neon or mat == Enum.Material.ForceField or mat == Enum.Material.Glass then mat = Enum.Material.Slate end
+		-- (a glowing floor gives grey stone, not glowing slabs; and a dark
+		-- floor gives pale stone, or the slabs vanish into it)
+		if hit.Instance.Material == Enum.Material.Neon then col = ROCK end
+		local lum = 0.3 * col.R + 0.59 * col.G + 0.11 * col.B
+		if lum < 0.3 then col = Color3.fromRGB(138, 132, 156) end
+		return hit.Position, col, mat
+	end
+	return onGround(pos), ROCK, Enum.Material.Slate
+end
+
+-- The crater: slabs of the floor wrenched up out of it in two ragged ridges
+-- along the cone's edges, a V opening out from his fist, more broken out
+-- along its middle; they burst up in a wave running outward, stand a while,
+-- then sink back.
+local function craterCone(at: Vector3, dir: Vector3, cone: number, half: number, mine: boolean)
+	local g0, color, material = groundUnder(at)
+	local right = Vector3.new(-dir.Z, 0, dir.X)
+	local slabs: { BasePart } = {}
+	local function slab(p: Vector3, outward: Vector3, size: Vector3, delay: number)
+		local g = groundUnder(p)
+		local tilt = math.rad(25 + math.random() * 30)
+		local yaw = math.atan2(-outward.X, -outward.Z) + (math.random() - 0.5) * 0.6
+		local rest = CFrame.new(g) * CFrame.Angles(0, yaw, 0) * CFrame.Angles(-tilt, 0, (math.random() - 0.5) * 0.5)
+			* CFrame.new(0, size.Y * 0.25, 0)
+		local shade = 0.8 + math.random() * 0.25
+		local s = part({ Size = size, CFrame = rest * CFrame.new(0, -size.Y, 0),
+			Color = Color3.new(math.min(color.R * shade, 1), math.min(color.G * shade, 1), math.min(color.B * shade, 1)),
+			Material = material })
+		table.insert(slabs, s)
+		task.delay(delay, function()
+			if s.Parent then
+				TweenService:Create(s, TweenInfo.new(0.12, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { CFrame = rest }):Play()
+			end
+		end)
+	end
+	local speed = 70 -- studs a second the wave runs out
+	-- the two ridges, along the edges of the cone
+	for _, side in ipairs({ -1, 1 }) do
+		local d = 2.5
+		while d < cone do
+			local w = math.tan(half) * d
+			local out = (right * side + dir * 0.3).Unit
+			local p = g0 + dir * d + right * side * (w + (math.random() - 0.5) * 1.2)
+			local big = 2.6 + (d / cone) * 2.6
+			slab(p, out, Vector3.new(big * (0.8 + math.random() * 0.5), big * (0.5 + math.random() * 0.3), big * (0.7 + math.random() * 0.5)), d / speed)
+			d += 1.6 + math.random() * 1.0
+		end
+	end
+	-- broken up along the middle too, fewer and lower
+	local d = 4
+	while d < cone * 0.95 do
+		local w = math.tan(half) * d * 0.5
+		local p = g0 + dir * d + right * (math.random() * 2 - 1) * w
+		local s = 1.6 + math.random() * 1.6
+		slab(p, (dir + right * (math.random() - 0.5)).Unit, Vector3.new(s * 1.2, s * 0.45, s), d / speed)
+		d += 2.4 + math.random() * 1.6
+	end
+	-- dust and stone chips kicked up along it as the wave runs
+	for k = 1, 5 do
+		local p = g0 + dir * (cone * k / 5.5)
+		task.delay(cone * k / 5.5 / speed, function()
+			if mine or FxBudget.Allow("maCraterDust", 6) then
+				ClassFX.Burst(p + Vector3.new(0, 1, 0), Color3.fromRGB(150, 140, 130), 8, 14, ClassFX.TEX_SPARK, 0.5, 0.6)
+			end
+		end)
+	end
+	-- they stand a while, then sink back into the floor
+	task.delay(4, function()
+		for _, s in ipairs(slabs) do
+			if s.Parent then
+				TweenService:Create(s, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+					{ CFrame = s.CFrame * CFrame.new(0, -s.Size.Y * 1.2, 0), Transparency = 1 }):Play()
+				Debris:AddItem(s, 0.85)
+			end
+		end
+	end)
+	-- the blow itself: the flash at the fist, a ring of air
+	local fistAt = g0 + dir * 2.2 + Vector3.new(0, 3, 0)
+	flare(fistAt, 6, 0.16, HOT)
+	punchRing(fistAt, dir, 2.2, 0.25, WHITE)
+	if FxBudget.Allow("maCraterPack", 3) then
+		PackFX.Burst("Anime/Smoke-01", CFrame.new(g0 + dir * cone * 0.5 + Vector3.new(0, 1, 0)), { color = Color3.fromRGB(140, 132, 124), scale = 1.1 })
+	end
+	ClassFX.Sound("punch", fistAt, 0.9, 0.7)
+	ClassFX.Sound("thunder", fistAt, 0.4, 0.6)
+	if mine and deps then
+		deps.shake(0.6, 0.3)
+		deps.fovPunch(7, 0.25)
+	end
+end
+
+-- Everything you see of it (yours, or someone else's from the server).
+local function barrageFx(char: Model?, dir: Vector3, cone: number, half: number, mine: boolean)
+	if not char then return end
+	local root = rootOf(char)
+	if not root then return end
+	local armR = char:FindFirstChild("Right Arm") :: BasePart?
+	local armL = char:FindFirstChild("Left Arm") :: BasePart?
+	ClassFX.Sound("whoosh", root.Position, 0.5, 1.6)
+	-- his real arms (and whatever's fixed to them) vanish: only the blur of
+	-- copies is seen, till he's back on guard
+	local hidden: { BasePart } = {}
+	for _, arm in ipairs({ armR, armL }) do
+		if arm then
+			table.insert(hidden, arm)
+			for _, j in ipairs(arm:GetJoints()) do
+				local other = if j:IsA("JointInstance") then (if j.Part0 == arm then j.Part1 else j.Part0)
+					elseif j:IsA("WeldConstraint") then (if j.Part0 == arm then j.Part1 else j.Part0) else nil
+				if other and other:IsA("BasePart") and other.Name ~= "Torso" and other.Name ~= "HumanoidRootPart" then
+					table.insert(hidden, other)
+				end
+			end
+		end
+	end
+	for _, p in ipairs(hidden) do p.LocalTransparencyModifier = 1 end
+	task.delay(BARRAGE.total, function()
+		for _, p in ipairs(hidden) do
+			if p.Parent then p.LocalTransparencyModifier = 0 end
+		end
+	end)
+	local t0 = os.clock()
+	local nextArm, nextThud = 0, 0
+	local right = Vector3.new(-dir.Z, 0, dir.X)
+	animate(BARRAGE.duration, function()
+		local t = os.clock() - t0
+		local r = rootOf(char)
+		if not r then return true end
+		-- copies of his arms thrust out from each shoulder in turn, a storm of them
+		-- (both arms every beat, each copy lingering: a dozen or so in the air
+		-- at once)
+		if t >= nextArm then
+			nextArm = t + 0.02
+			for _, side in ipairs({ -1, 1 }) do
+				if mine or FxBudget.Allow("maBarrageArm", 100) then
+					local shoulder = r.Position + right * side * 1.5 + Vector3.new(0, 0.5, 0)
+					local from = shoulder + right * (math.random() - 0.5) * 1.6 + Vector3.new(0, (math.random() - 0.5) * 1.8, 0)
+					local spread = CFrame.fromAxisAngle(Vector3.yAxis, (math.random() - 0.5) * 0.5):VectorToWorldSpace(dir)
+					spread = (spread + Vector3.new(0, (math.random() - 0.5) * 0.25, 0)).Unit
+					ghostArm(if side > 0 then armR else armL, from, spread, 2.5 + math.random() * 2.5, 0.16, 1)
+				end
+			end
+		end
+		if t >= nextThud then
+			nextThud = t + 0.12
+			local at = r.Position + dir * (4 + math.random() * 2) + Vector3.new(0, 0.5 + math.random(), 0)
+			if mine or FxBudget.Allow("maBarrageSpark", 10) then sparks(at, 6, 18, WHITE) end
+			ClassFX.Sound("punch", at, 0.25, 1.4 + math.random() * 0.3)
+		end
+		return nil
+	end)
+	-- the power punch: one great copy of his arm driven out along the cone
+	task.delay(BARRAGE.punchAt - 0.04, function()
+		local r = rootOf(char)
+		if not r then return end
+		ghostArm(armR, r.Position + right * 1.5 + Vector3.new(0, 0.5, 0), dir, cone * 0.6, 0.24, 2.6)
+	end)
+end
+
+local function onBarrage(msg: any)
+	local owner = msg.attacker :: Player
+	if owner == player then return end
+	local char = charOf(owner)
+	if char then barragePose(char) end
+	barrageFx(char, flat(msg.dir :: Vector3), tonumber(msg.cone) or BARRAGE.cone, tonumber(msg.half) or BARRAGE.half, false)
+end
+
+local function onBarragePunch(msg: any)
+	local mine = msg.attacker == player
+	craterCone(msg.pos :: Vector3, flat(msg.dir :: Vector3), tonumber(msg.cone) or BARRAGE.cone, tonumber(msg.half) or BARRAGE.half, mine)
+end
+
 type Focusing = { t0: number, full: number, char: Model, root: BasePart, fx: Handle, token: {} }
 local focusing: Focusing? = nil
 
@@ -2762,6 +3031,8 @@ local HANDLERS: { [string]: (any) -> () } = {
 	strikeLanded = function(msg)
 		if FxBudget.Allow("maLanded", 14) then strikeLanded(msg) end
 	end,
+	barrage = onBarrage,
+	barragePunch = onBarragePunch,
 	focusCharge = onFocusCharge,
 	focusRelease = onFocusRelease,
 	focusLanded = onFocusLanded,
@@ -3018,10 +3289,31 @@ function MartialController.OnCast(skillIndex: number, char: Model, root: BasePar
 	-- (a full Charge: the server spends it on this one)
 	local empowered = (tonumber(player:GetAttribute("MA_Charge")) or 0) >= CHARGE_MAX
 	if skillIndex == 1 then
-		-- (held: it charges till the key comes up, MartialController.Release;
-		-- he can walk slowly meanwhile)
+		-- Hundred Fists: planted for the barrage and the punch (the crater
+		-- comes with the server's word that it landed)
+		busyUntil = os.clock() + BARRAGE.total
+		releaseAfter(char, BARRAGE.total)
+		-- he can creep along at a slow walk through the barrage, still facing
+		-- where it was aimed (the server hits along that); planted for the
+		-- power punch
 		char:SetAttribute("AllowSkillMovement", true)
-		startFocus(char, root, empowered)
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		if hum then hum.AutoRotate = false end
+		animate(BARRAGE.duration, function(a)
+			if hum then hum.WalkSpeed = BARRAGE.walk end
+			if root.Parent then root.CFrame = CFrame.lookAt(root.Position, root.Position + dir) end
+			if a >= 1 and char.Parent then
+				char:SetAttribute("AllowSkillMovement", false)
+				plant(char, BARRAGE.total - BARRAGE.duration)
+			end
+			return nil
+		end)
+		task.delay(BARRAGE.total, function()
+			if hum and hum.Parent and not hum.PlatformStand then hum.AutoRotate = true end
+		end)
+		barragePose(char)
+		local size = tonumber(player:GetAttribute("Stat_size")) or 1
+		barrageFx(char, dir, BARRAGE.cone * size * (if empowered then 1.3 else 1), BARRAGE.half, true)
 		return nil
 	elseif skillIndex == 2 then
 		char:SetAttribute("AllowSkillMovement", false)

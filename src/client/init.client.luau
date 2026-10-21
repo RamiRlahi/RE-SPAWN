@@ -113,6 +113,16 @@ if successTorch and TorchLightController then
 	end)
 end
 
+-- Classic ARPG blob shadow under every player character
+pcall(function()
+	require(script:WaitForChild("PlayerShadow")).Init()
+end)
+
+-- Radial emote wheel for dungeon runs and lobby (T key)
+pcall(function()
+	require(script:WaitForChild("EmoteController")).Init()
+end)
+
 -- Safely require SkillController
 local successSkill, SkillController = pcall(function()
 	return require(script:WaitForChild("SkillController"))
