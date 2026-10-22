@@ -78,7 +78,7 @@ local PHOENIX_DIVE = 0.3
 local PHOENIX_RANGE = 40      -- how far from the take-off it can land
 local PHOENIX_RADIUS = 11
 
-local AWAKEN = 1.6            -- ult wind-up (mobs frozen, cutscene)
+local AWAKEN = 2.2            -- ult wind-up: the charge, the pillar of light (mobs frozen, cutscene)
 local INFERNO_TIME = 6
 local FINAL_DELAY = 1.6       -- flames drawn into the raised sword
 local INFERNO_SPEED = 1.25

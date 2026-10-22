@@ -418,6 +418,125 @@ local function tremble(amount: number)
 	end
 end
 
+-- ── Two hands on the hilt (the chops and the Excalibur raise / slam) ────────
+-- After the pose: the grip goes as far out from him as BOTH short R6 arms
+-- reach (on the ring where the right hand's reach meets the left's, toward
+-- where the pose put the right hand), the right arm re-aims there and the
+-- left hand closes on the hilt just behind it, toward the pommel. Switched on
+-- by twoHands(char, seconds); eased in and out so the arms don't pop.
+local REACH_SLACK = 0.97
+local LEFT_BEHIND = 0.6 -- studs from the right hand toward the pommel
+local twoHandUntil: { [Model]: number } = setmetatable({}, { __mode = "k" }) :: any
+local twoHandW: { [Model]: number } = setmetatable({}, { __mode = "k" }) :: any
+
+local function twoHands(char: Model, seconds: number)
+	twoHandUntil[char] = math.max(twoHandUntil[char] or 0, os.clock() + seconds)
+end
+
+local function insideSphere(p: Vector3, c: Vector3, r: number): Vector3
+	local d = p - c
+	return if d.Magnitude > r then c + d.Unit * r else p
+end
+
+-- Re-aim an arm (torso-space CFrame `a`) about its shoulder pivot so the point
+-- `handLocal` (arm space) lands as close as it can to `target`.
+local function aimArm(m: Motor6D, a: CFrame, handLocal: Vector3, target: Vector3): CFrame
+	local pivot = m.C0.Position
+	local from = a * handLocal - pivot
+	local to = target - pivot
+	if from.Magnitude < 1e-3 or to.Magnitude < 1e-3 then return a end
+	local axis = from.Unit:Cross(to.Unit)
+	if axis.Magnitude < 1e-5 then return a end
+	local r = CFrame.fromAxisAngle(axis.Unit, math.acos(math.clamp(from.Unit:Dot(to.Unit), -1, 1)))
+	return CFrame.new(pivot) * r * CFrame.new(-pivot) * a
+end
+
+-- Whether a grip point (torso space: X right, Y up, -Z forward) is clear of
+-- his body: outside the torso and head, with room for the hands and hilt.
+local CLEAR = 0.65
+local function clearOfBody(p: Vector3): boolean
+	local inTorso = math.abs(p.X) < 1 + CLEAR and math.abs(p.Y) < 1 + CLEAR and p.Z > -(0.5 + CLEAR)
+	local inHead = math.abs(p.X) < 0.6 + CLEAR and p.Y >= 1 and p.Y < 2.2 + CLEAR and p.Z > -(0.6 + CLEAR)
+	return not (inTorso or inHead)
+end
+
+local function twoHandStep(dt: number)
+	local now = os.clock()
+	for _, pl in ipairs(Players:GetPlayers()) do
+		local char = pl.Character
+		if not char then continue end
+		local want = (twoHandUntil[char] or 0) > now and not char:GetAttribute("Tumbling")
+		local w = twoHandW[char] or 0
+		w = if want then math.min(1, w + dt * 16) else math.max(0, w - dt * 8)
+		twoHandW[char] = w
+		if w <= 0 then continue end
+		local tool = char:FindFirstChild("Greatsword")
+		local torso = char:FindFirstChild("Torso")
+		local rArm = char:FindFirstChild("Right Arm")
+		if not (tool and tool:IsA("Tool") and torso and rArm) then continue end
+		local rs, ls = torso:FindFirstChild("Right Shoulder"), torso:FindFirstChild("Left Shoulder")
+		local grip = rArm:FindFirstChild("RightGrip")
+		if not (rs and ls and grip and rs:IsA("Motor6D") and ls:IsA("Motor6D") and grip:IsA("JointInstance")) then continue end
+
+		local handR = grip.C0.Position
+		local handL = Vector3.new(0, -1, 0)
+		local reachR = (handR - rs.C1.Position).Magnitude * REACH_SLACK
+		local reachL = (handL - ls.C1.Position).Magnitude * REACH_SLACK
+		local pR, pL = rs.C0.Position, ls.C0.Position
+		local aR0 = rs.C0 * rs.Transform * rs.C1:Inverse()
+		local aL0 = ls.C0 * ls.Transform * ls.C1:Inverse()
+		local free = aR0 * handR
+		-- (the blade runs up the handle's +Y)
+		local blade0 = (aR0 * grip.C0 * grip.C1:Inverse()):VectorToWorldSpace(Vector3.yAxis)
+		local pL2 = pL + blade0 * LEFT_BEHIND
+		local held = free
+		local across = pL2 - pR
+		local d = across.Magnitude
+		if d > 1e-3 and d < reachR + reachL and d > math.abs(reachR - reachL) then
+			local n = across / d
+			local a = (d * d + reachR * reachR - reachL * reachL) / (2 * d)
+			local ring = math.sqrt(math.max(reachR * reachR - a * a, 0))
+			local c = pR + n * a
+			local off = free - c
+			off -= n * off:Dot(n)
+			if off.Magnitude < 1e-3 then
+				local fwd = Vector3.new(0, -0.5, -1)
+				off = fwd - n * fwd:Dot(n)
+			end
+			held = c + off.Unit * ring
+			-- (never through him: slide round the ring, the shorter way, to the
+			-- nearest point clear of his body)
+			if not clearOfBody(held) then
+				local u = off.Unit
+				local v = n:Cross(u)
+				for k = 1, 18 do
+					local a2 = math.rad(k * 10)
+					local p1 = c + (u * math.cos(a2) + v * math.sin(a2)) * ring
+					local p2 = c + (u * math.cos(a2) - v * math.sin(a2)) * ring
+					if clearOfBody(p1) then held = p1 break end
+					if clearOfBody(p2) then held = p2 break end
+				end
+			end
+		else
+			for _ = 1, 4 do
+				held = insideSphere(held, pL2, reachL)
+				held = insideSphere(held, pR, reachR)
+			end
+			-- (out of reach of each other: at least keep it in front of him)
+			if not clearOfBody(held) then
+				held = insideSphere(Vector3.new(held.X * 0.5, held.Y, -(0.5 + CLEAR) - 0.2), pR, reachR)
+			end
+		end
+		local aR = aimArm(rs, aR0, handR, held)
+		local handleCF = aR * grip.C0 * grip.C1:Inverse()
+		local blade = handleCF:VectorToWorldSpace(Vector3.yAxis)
+		local gl = insideSphere(held - blade * LEFT_BEHIND, pL, reachL)
+		local aL = aimArm(ls, aL0, handL, gl)
+		rs.Transform = rs.C0:Inverse() * aR0:Lerp(aR, w) * rs.C1
+		ls.Transform = ls.C0:Inverse() * aL0:Lerp(aL, w) * ls.C1
+	end
+end
+
 -- Seconds from the start of each combo swing to its hit (FireKnightServer
 -- lands the damage on the same beat).
 local COMBO_HIT = { 0.12, 0.11, 0.14, EXECUTION_WINDUP }
@@ -445,8 +564,9 @@ local function swingPose(char: Model, step: number)
 	elseif step == 3 then
 		-- Furnace Breaker: the blade turned to run along the arms and lifted
 		-- straight overhead (arching back), then chopped down into the ground
-		-- ahead with the whole body.
+		-- ahead with the whole body. Both hands on the hilt.
 		gripTo(char, 1, 0.12)
+		twoHands(char, 0.62)
 		CastPoses.play(char, {
 			{ dur = 0.14, style = QUAD, pose = pose(8, 0, 14, 14, 172, 0, 170, 0, { N = { 12, 0, 0 } }) },
 			{ dur = 0.07, style = QUART, pose = pose(-26, 0, 30, 30, 38, 0, 40, 0, { N = { 16, 0, 0 } }) },
@@ -457,8 +577,9 @@ local function swingPose(char: Model, step: number)
 	else
 		-- Infernal Execution: the sword hauled back over the shoulder until the
 		-- blade hangs behind him, held trembling... then the SLAM, the whole
-		-- body following it down into a deep lunge.
+		-- body following it down into a deep lunge. Both hands on the hilt.
 		gripTo(char, 1, 0.14)
+		twoHands(char, EXECUTION_WINDUP + 0.75)
 		CastPoses.play(char, {
 			{ dur = 0.18, style = QUAD, pose = pose(14, 28, 18, 18, 200, 18, 195, 12, { N = { 14, -12, 0 } }) },
 			{ dur = EXECUTION_WINDUP - 0.18, style = Enum.EasingStyle.Linear,
@@ -521,6 +642,7 @@ end
 local function raisePose(char: Model, seconds: number)
 	-- The sword raised to the sky in both hands, blade straight up.
 	gripTo(char, 1, 0.2)
+	twoHands(char, seconds + 0.1)
 	local p = pose(8, 0, 12, 12, 172, 0, 170, 0, { N = { 18, 0, 0 } }, 8)
 	CastPoses.play(char, {
 		{ dur = 0.22, style = QUAD, pose = p },
@@ -529,8 +651,10 @@ local function raisePose(char: Model, seconds: number)
 end
 
 local function slamPose(char: Model)
-	-- The Final Blow: one enormous downward slash into a deep lunge.
+	-- The Final Blow: one enormous downward slash into a deep lunge, both
+	-- hands on the hilt.
 	gripTo(char, 1, 0.05)
+	twoHands(char, 0.85)
 	CastPoses.play(char, {
 		{ dur = 0.08, style = QUART, pose = pose(-40, 0, 40, 40, 40, 0, 42, 0, { N = { 22, 0, 0 } }) },
 		{ dur = 0.45, pose = pose(-38, 0, 40, 40, 36, 0, 38, 0, { N = { 20, 0, 0 } }) },
@@ -2010,125 +2134,239 @@ local function raisePillar(char: Model, life: number)
 		p.Parent = ClassFX.Folder()
 		return p
 	end
-	-- glow, gold body, white-hot core; and the point (two wedges) on each
-	local glow = slab(broadW * 1.9, 0.9, Color3.fromRGB(255, 170, 50), 0.6)
-	local body = slab(broadW * 1.15, 0.35, Color3.fromRGB(255, 205, 90), 0.1)
-	local core = slab(broadW * 0.45, 0.4, WHITE, 0)
-	local tips: { BasePart } = {}
-	for _, spec in ipairs({ { broadW * 1.15, 0.35, Color3.fromRGB(255, 205, 90), 0.1 }, { broadW * 0.45, 0.4, WHITE, 0 } }) do
-		for side = -1, 1, 2 do
-			local w = slab(spec[1] / 2, spec[2], spec[3], spec[4], "WedgePart")
-			w:SetAttribute("Side", side)
-			table.insert(tips, w)
-		end
+	-- A pillar of fire streaming up out of the blade: rolling flame, a white-
+	-- hot core, embers flying off, a flare at the top (no neon light).
+	local function holder(): BasePart
+		local q = Instance.new("Part")
+		q.Anchored, q.CanCollide, q.CanQuery, q.CanTouch, q.CastShadow = true, false, false, false, false
+		q.Transparency = 1
+		q.Size = Vector3.one
+		q.Parent = ClassFX.Folder()
+		return q
 	end
-	-- ribbons of golden light curling up round it, sparks streaming off
-	local ribbons: { Trail } = {}
-	local carriers: { BasePart } = {}
-	for i = 1, 3 do
-		local c = Instance.new("Part")
-		c.Size = Vector3.one * 0.1
-		c.Transparency = 1
-		c.Anchored, c.CanCollide, c.CanQuery, c.CanTouch, c.CastShadow = true, false, false, false, false
-		local a0 = Instance.new("Attachment")
-		a0.Position = Vector3.new(0, 0.25, 0)
-		a0.Parent = c
-		local a1 = Instance.new("Attachment")
-		a1.Position = Vector3.new(0, -0.25, 0)
-		a1.Parent = c
-		local tr = Instance.new("Trail")
-		tr.Attachment0, tr.Attachment1 = a0, a1
-		tr.Color = ColorSequence.new(Color3.fromRGB(255, 230, 150), Color3.fromRGB(255, 150, 40))
-		tr.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) })
-		tr.WidthScale = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0.15) })
-		tr.Lifetime = 0.35
-		tr.LightEmission = 1
-		tr.LightInfluence = 0
-		tr.FaceCamera = true
-		tr.Parent = c
-		c.Parent = ClassFX.Folder()
-		table.insert(ribbons, tr)
-		table.insert(carriers, c)
+	local function stream(e: ParticleEmitter, life: number, speed: number)
+		e.Shape = Enum.ParticleEmitterShape.Box
+		e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+		e.EmissionDirection = Enum.NormalId.Front
+		e.SpreadAngle = Vector2.new(5, 5)
+		e.Speed = NumberRange.new(speed * 0.7, speed)
+		e.Acceleration = Vector3.zero
+		e.Drag = 2
+		e.Lifetime = NumberRange.new(life * 0.8, life)
+		e.Enabled = true
 	end
-	local sparks = Instance.new("ParticleEmitter")
-	sparks.Texture = "rbxasset://textures/particles/sparkles_main.dds"
-	sparks.Color = ColorSequence.new(HOT, EMBER)
-	sparks.LightEmission = 1
-	sparks.LightInfluence = 0
-	sparks.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.4), NumberSequenceKeypoint.new(1, 0) })
-	sparks.Lifetime = NumberRange.new(0.6, 1.1)
-	sparks.Speed = NumberRange.new(2, 6)
-	sparks.SpreadAngle = Vector2.new(180, 180)
-	sparks.Shape = Enum.ParticleEmitterShape.Box
-	sparks.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
-	sparks.Rate = 60
-	sparks.Parent = glow
+	-- (as broad as the colossal blade it comes down as)
+	local bw = math.max(broadW * 5, 10)
+	local shaftBox = holder()
+	local coreBox = holder()
+	local topBox = holder()
+	topBox.Size = Vector3.one * bw
+	-- (several of each: an emitter tops out at 400 a second, far too thin
+	-- for a pillar this size)
+	local shaftFires: { ParticleEmitter } = {}
+	for _ = 1, 3 do
+		local roll = FireFX.Emitter("roll", shaftBox, bw * 0.6)
+		stream(roll, 0.35, 26)
+		table.insert(shaftFires, roll)
+	end
+	for _ = 1, 2 do
+		local flame = FireFX.Emitter("flame", shaftBox, bw * 0.45)
+		stream(flame, 0.3, 34)
+		table.insert(shaftFires, flame)
+	end
+	local coreFire = FireFX.Emitter("flame", coreBox, bw * 0.3)
+	stream(coreFire, 0.22, 44)
+	coreFire.Color = FireFX.Colors(true)
+	coreFire.Brightness = 8
+	local sparks = FireFX.Emitter("embers", shaftBox, 0.35)
+	stream(sparks, 0.9, 20)
+	sparks.SpreadAngle = Vector2.new(40, 40)
+	local flare = FireFX.Emitter("roll", topBox, bw * 1.4)
+	flare.SpreadAngle = Vector2.new(180, 180)
+	flare.Speed = NumberRange.new(3, 8)
+	flare.Lifetime = NumberRange.new(0.25, 0.35)
+	flare.Enabled = true
+	local fires = { coreFire, sparks, flare }
+	for _, e in ipairs(shaftFires) do table.insert(fires, e) end
 
-	local P: Pillar = { parts = { glow, body, core, table.unpack(tips) }, ribbons = ribbons, tilt = 0, fade = 0 }
-	for _, c in ipairs(carriers) do table.insert(P.parts, c) end
+	local P: Pillar = { parts = { shaftBox, coreBox, topBox }, ribbons = {}, tilt = 0, fade = 0 }
 	local old = swordPillars[char]
 	if old then for _, q in ipairs(old.parts) do q:Destroy() end end
 	swordPillars[char] = P
 	FireFX.Explosion((handle.CFrame * CFrame.new(0, 3, 0)).Position, 4, true)
 	ClassFX.Sound("boom", handle.Position, 0.8, 1.2)
-	-- (which way its flat faces: the sword's own, as it stood when it lit)
-	local broadAxis = if blade then blade.CFrame.ZVector else handle.CFrame.RightVector
 	local t0 = os.clock()
 	P.conn = RunService.RenderStepped:Connect(function()
 		local t = os.clock() - t0
 		if t > life or not handle.Parent then
 			if P.conn then P.conn:Disconnect() end
-			for _, r in ipairs(P.ribbons) do r.Enabled = false end
-			sparks.Rate = 0
-			for _, q in ipairs(P.parts) do
-				if q.Parent then
-					TweenService:Create(q, TweenInfo.new(0.2), { Transparency = 1 }):Play()
-					Debris:AddItem(q, 0.6)
-				end
-			end
+			for _, e in ipairs(fires) do e.Enabled = false end
+			for _, q in ipairs(P.parts) do Debris:AddItem(q, 1) end
 			if swordPillars[char] == P then swordPillars[char] = nil end
 			return
 		end
 		-- it shoots up in a quarter second
 		local h = PILLAR_HEIGHT * (1 - (1 - math.min(t / 0.25, 1)) ^ 3)
-		local hilt = handle.Position + Vector3.new(0, 1, 0)
-		local up = Vector3.yAxis
-		if P.dir then up = (Vector3.yAxis * math.cos(P.tilt) + P.dir * math.sin(P.tilt)).Unit end
-		local right = broadAxis - up * broadAxis:Dot(up)
-		right = if right.Magnitude > 0.05 then right.Unit else up:Cross(Vector3.zAxis).Unit
-		local back = right:Cross(up)
-		local function frame(at: number): CFrame
-			return CFrame.fromMatrix(hilt + up * at, right, up, back)
+		-- (out of the blade, along it: it follows the sword through the raise
+		-- and the swing, and comes down with it as the slam)
+		local up = handle.CFrame.UpVector
+		local hilt = handle.Position + up * 1
+		local shaft = math.max(h, 0.5)
+		-- (a box's -Z runs up the pillar: the flames stream along it)
+		local side = if math.abs(up.Y) > 0.99 then Vector3.xAxis else Vector3.yAxis
+		local cf = CFrame.lookAt(hilt + up * (shaft / 2), hilt + up * shaft, side)
+		local k = 1 - P.fade
+		shaftBox.Size = Vector3.new(bw * 0.7, bw * 0.7, shaft)
+		shaftBox.CFrame = cf
+		coreBox.Size = Vector3.new(bw * 0.25, bw * 0.25, shaft)
+		coreBox.CFrame = cf
+		topBox.CFrame = CFrame.new(hilt + up * shaft)
+		for _, e in ipairs(shaftFires) do e.Rate = math.min(shaft * 7, 400) * k end
+		coreFire.Rate = math.min(shaft * 6, 400) * k
+		sparks.Rate = shaft * 2 * k
+		flare.Rate = 50 * k
+	end)
+end
+
+-- ── Air ─────────────────────────────────────────────────────────────────────
+-- A streak of wind: a thin pale line flying from `a` to `b` (curving round
+-- `bend`) and thinning out.
+local function windStreak(a: Vector3, b: Vector3, bend: Vector3, life: number, thick: number)
+	local q = Instance.new("Part")
+	q.Anchored, q.CanCollide, q.CanQuery, q.CanTouch, q.CastShadow = true, false, false, false, false
+	q.Material = Enum.Material.Neon
+	q.Color = Color3.fromRGB(255, 244, 228)
+	q.Transparency = 0.55
+	q.Size = Vector3.new(thick, thick, 0.1)
+	q.Parent = ClassFX.Folder()
+	local t0 = os.clock()
+	local conn: RBXScriptConnection? = nil
+	conn = RunService.RenderStepped:Connect(function()
+		local k = math.clamp((os.clock() - t0) / life, 0, 1)
+		local function at(u: number): Vector3
+			local m = a:Lerp(bend, u)
+			return m:Lerp(bend:Lerp(b, u), u)
 		end
-		local shaft = h * 0.9
-		local tipLen = h * 0.1
-		local pulse = 0.5 + 0.5 * math.sin(t * 16)
-		local trs = { 0.6 - 0.15 * pulse, 0.1, 0 }
-		for i, q in ipairs({ glow, body, core }) do
-			q.Size = Vector3.new(q.Size.X, math.max(shaft, 0.1), q.Size.Z)
-			q.CFrame = frame(shaft / 2)
-			q.Transparency = trs[i] + (1 - trs[i]) * P.fade
+		local head = at(math.min(k * 1.15, 1))
+		local tail = at(math.max(k * 1.15 - 0.35, 0))
+		local len = (head - tail).Magnitude
+		if len > 0.05 then
+			q.Size = Vector3.new(thick * (1 - k * 0.6), thick * (1 - k * 0.6), len)
+			q.CFrame = CFrame.lookAt((head + tail) / 2, head)
 		end
-		sparks.Rate = 60 * (1 - P.fade)
-		-- the point: two wedges meeting at the top
-		for _, w in ipairs(tips) do
-			local side = w:GetAttribute("Side") :: number
-			local ww = w.Size.X
-			w.Size = Vector3.new(ww, math.max(tipLen, 0.1), w.Size.Z)
-			-- (a wedge slopes down toward its -Z: turned so it slopes in to the middle)
-			w.CFrame = frame(shaft + tipLen / 2) * CFrame.new(side * ww / 2, 0, 0) * CFrame.Angles(0, math.rad(side * 90), 0)
-			local base = if ww > broadW * 0.4 then 0.1 else 0
-			w.Transparency = base + (1 - base) * P.fade
-		end
-		-- the ribbons wind up round it, again and again
-		for i, c in ipairs(carriers) do
-			local u = (t * 0.9 + (i - 1) / 3) % 1
-			if u < 0.02 then ribbons[i]:Clear() end
-			local a = t * 7 + i * 2.1 + u * 9
-			local r = broadW * (0.9 + 0.3 * math.sin(u * 6))
-			c.CFrame = frame(u * shaft) * CFrame.new(math.cos(a) * r, 0, math.sin(a) * r * 0.6)
+		q.Transparency = 0.55 + 0.45 * k * k
+		if k >= 1 then
+			if conn then conn:Disconnect() end
+			q:Destroy()
 		end
 	end)
+end
+
+-- A ring of air (a flat pale band) growing from `r0` to `r1`, facing `normal`.
+local function airRing(c: Vector3, normal: Vector3, r0: number, r1: number, life: number, width: number)
+	local ring = CFrame.lookAt(c, c + normal) * CFrame.Angles(math.rad(90), 0, 0)
+	SwordFX.Arc({ cf = ring, radius = r0, arc = 359, width = width, color = Color3.fromRGB(255, 246, 232),
+		draw = 0.001, life = life, grow = r1 / r0 - 1 })
+end
+
+-- The wind-up: air drawn in round him for `seconds` — streaks of wind
+-- spiralling in from all round and up into the blade, rings of air closing
+-- in at his feet.
+local function airWindup(char: Model, seconds: number)
+	local root = rootOf(char)
+	if not root then return end
+	local t0 = os.clock()
+	task.spawn(function()
+		local i = 0
+		while os.clock() - t0 < seconds and root.Parent do
+			i += 1
+			local feet = onGround(root.Position)
+			local blade = bladeMid(char) or (root.Position + Vector3.new(0, 4, 0))
+			for _ = 1, 3 do
+				local ang = rng:NextNumber(0, math.pi * 2)
+				local r = rng:NextNumber(12, 20)
+				local from = feet + Vector3.new(math.cos(ang) * r, rng:NextNumber(0.5, 6), math.sin(ang) * r)
+				-- (curving round as it comes in: a spiral)
+				local swirl = ang + rng:NextNumber(0.8, 1.3)
+				local bend = feet + Vector3.new(math.cos(swirl) * r * 0.5, rng:NextNumber(2, 7), math.sin(swirl) * r * 0.5)
+				windStreak(from, blade, bend, rng:NextNumber(0.35, 0.5), rng:NextNumber(0.08, 0.16))
+			end
+			if i % 4 == 0 then
+				airRing(feet + Vector3.new(0, 0.3, 0), Vector3.yAxis, 14, 4, 0.35, 0.5)
+			end
+			task.wait(0.07)
+		end
+	end)
+end
+
+-- The impact: the air blasted out from it — pressure rings racing out flat
+-- at a few heights, gusts shooting outward, an upright ring punched out
+-- down the line.
+local function airImpact(g: Vector3, dir: Vector3, size: number)
+	for i, h in ipairs({ 0.4, 2.5, 5 }) do
+		task.delay((i - 1) * 0.04, airRing, g + Vector3.new(0, h, 0), Vector3.yAxis, size * 0.6, size * (3.2 - i * 0.4),
+			0.4 + i * 0.05, 1.2 - i * 0.25)
+	end
+	for _ = 1, 22 do
+		local ang = rng:NextNumber(0, math.pi * 2)
+		local out = Vector3.new(math.cos(ang), rng:NextNumber(0.05, 0.4), math.sin(ang)).Unit
+		local from = g + Vector3.new(0, rng:NextNumber(0.5, 4), 0) + out * size * 0.4
+		local to = from + out * rng:NextNumber(size * 2.5, size * 4)
+		windStreak(from, to, from:Lerp(to, 0.5) + Vector3.new(0, rng:NextNumber(-1, 2), 0), rng:NextNumber(0.25, 0.4),
+			rng:NextNumber(0.12, 0.25))
+	end
+	local up = g + Vector3.new(0, size * 0.6, 0)
+	airRing(up + dir * 3, dir, size * 0.5, size * 1.8, 0.35, 0.8)
+	task.delay(0.06, airRing, up + dir * 8, dir, size * 0.5, size * 2.2, 0.35, 0.5)
+end
+
+-- Stars of fire hanging in the dark round `center` (radius `r`), twinkling
+-- and drifting up, for `seconds`.
+local function emberStars(center: Vector3, r: number, seconds: number)
+	local a = Instance.new("Part")
+	a.Anchored, a.CanCollide, a.CanQuery, a.CanTouch, a.CastShadow = true, false, false, false, false
+	a.Transparency = 1
+	a.Size = Vector3.new(r * 2, 14, r * 2)
+	a.CFrame = CFrame.new(center + Vector3.new(0, 6, 0))
+	a.Parent = ClassFX.Folder()
+	local e = Instance.new("ParticleEmitter")
+	e.Texture = TEX_SPARK
+	e.Shape = Enum.ParticleEmitterShape.Box
+	e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+	e.Color = ColorSequence.new(HOT, FIRE)
+	e.LightEmission = 1
+	e.LightInfluence = 0
+	e.Brightness = 3
+	-- (a star blinks in, twinkles twice, and goes)
+	e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.15, 2),
+		NumberSequenceKeypoint.new(0.35, 0.8), NumberSequenceKeypoint.new(0.55, 2.3), NumberSequenceKeypoint.new(0.8, 0.9),
+		NumberSequenceKeypoint.new(1, 0) })
+	e.Lifetime = NumberRange.new(1.2, 2)
+	e.Speed = NumberRange.new(0.3, 1.2)
+	e.EmissionDirection = Enum.NormalId.Top
+	e.Rotation = NumberRange.new(0, 0)
+	e.Rate = 110
+	e.Parent = a
+	task.delay(seconds, function() e.Enabled = false end)
+	Debris:AddItem(a, seconds + 2.2)
+end
+
+-- A flash over the whole screen (only for players near enough to see it).
+local function screenFlash(pos: Vector3, color: Color3, peak: number, fade: number)
+	if not near(pos, 140) then return end
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "ExcaliburFlash"
+	gui.IgnoreGuiInset = true
+	gui.DisplayOrder = 90
+	local f = Instance.new("Frame")
+	f.Size = UDim2.fromScale(1, 1)
+	f.BorderSizePixel = 0
+	f.BackgroundColor3 = color
+	f.BackgroundTransparency = 1 - peak
+	f.Parent = gui
+	gui.Parent = player:WaitForChild("PlayerGui")
+	TweenService:Create(f, TweenInfo.new(fade, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { BackgroundTransparency = 1 }):Play()
+	Debris:AddItem(gui, fade + 0.1)
 end
 
 local function onAwaken(msg: any)
@@ -2146,6 +2384,11 @@ local function onAwaken(msg: any)
 		if char.Parent then raisePillar(char, 0.7 + 0.45) end
 	end)
 	if near(root.Position, 110) then darken(awaken + (msg.inferno or 6) + 1) end
+	-- (Excalibur, not the Inferno: stars of fire hanging all round him)
+	if msg.inferno == 0 then
+		emberStars(onGround(root.Position), 22, awaken + 0.3)
+		airWindup(char, awaken)
+	end
 	for _, L in pairs(looks) do
 		if L.char == char then
 			for _, e in ipairs(L.flames) do e.Enabled = false end
@@ -2316,11 +2559,329 @@ local function onExecution(msg: any)
 	if msg.attacker == player then deps.fovPunch(12, 0.4) end
 end
 
+-- A beam's shape, made of fire (Excalibur's wave): a long box of rolling
+-- flame racing out from `g` along `dir` to `reach`, `height` up. The flames
+-- hang where they're born, so the column keeps its beam shape and burns away
+-- from the back as it fades; a white-hot core of flame runs down its middle,
+-- embers fly off it, and a roaring fireball leads it. `travel`: seconds to
+-- reach the end; `hold`: seconds it burns at full length before it fades.
+local function fireBeam(g: Vector3, dir: Vector3, reach: number, width: number, height: number, travel: number, hold: number?)
+	local d = width * 1.3
+	local function holder(): BasePart
+		local p = Instance.new("Part")
+		p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
+		p.Transparency = 1
+		p.Size = Vector3.one
+		p.Parent = ClassFX.Folder()
+		return p
+	end
+	-- (spawned through the whole box and streaming forward down the line,
+	-- not rising, short-lived so the column keeps a beam's straight edges)
+	local function stream(e: ParticleEmitter, life: number, speed: number)
+		e.Shape = Enum.ParticleEmitterShape.Box
+		e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+		e.EmissionDirection = Enum.NormalId.Front
+		e.SpreadAngle = Vector2.new(6, 6)
+		e.Speed = NumberRange.new(speed * 0.7, speed)
+		e.Acceleration = Vector3.zero
+		e.Drag = 2
+		e.Lifetime = NumberRange.new(life * 0.8, life)
+		e.Enabled = true
+	end
+	local body = holder()
+	local roll = FireFX.Emitter("roll", body, d * 0.6)
+	stream(roll, 0.35, 22)
+	local flame = FireFX.Emitter("flame", body, d * 0.5)
+	stream(flame, 0.3, 30)
+	local coreHolder = holder()
+	local core = FireFX.Emitter("flame", coreHolder, d * 0.3)
+	stream(core, 0.22, 40)
+	core.Color = FireFX.Colors(true)
+	core.Brightness = 8
+	local embers = FireFX.Emitter("embers", body, 0.35)
+	stream(embers, 0.8, 26)
+	embers.SpreadAngle = Vector2.new(30, 30)
+	-- the fireball at the head
+	local head = holder()
+	head.Size = Vector3.one * width
+	local headFire = FireFX.Emitter("roll", head, width * 2.4)
+	headFire.Lifetime = NumberRange.new(0.25, 0.35)
+	headFire.Speed = NumberRange.new(2, 6)
+	headFire.SpreadAngle = Vector2.new(180, 180)
+	headFire.Enabled = true
+	local headCore = FireFX.Emitter("flame", head, width * 1.4)
+	headCore.Color = FireFX.Colors(true)
+	headCore.Lifetime = NumberRange.new(0.2, 0.28)
+	headCore.Enabled = true
+	local emitters = { roll, flame, core, embers, headFire, headCore }
+
+	local t0 = os.clock()
+	local conn: RBXScriptConnection? = nil
+	conn = RunService.RenderStepped:Connect(function()
+		local t = os.clock() - t0
+		local grow = math.min(t / travel, 1)
+		local fade = math.clamp((t - travel - (hold or 0)) / 0.55, 0, 1)
+		local len = math.max(reach * grow, 0.5)
+		local cf = CFrame.lookAt(g, g + dir) * CFrame.new(0, height, -len / 2)
+		local k = 1 - fade -- (the fire thins out as it fades)
+		body.Size = Vector3.new(d * 0.8, d * 0.8, len)
+		body.CFrame = cf
+		coreHolder.Size = Vector3.new(d * 0.3, d * 0.3, len)
+		coreHolder.CFrame = cf
+		roll.Rate = len * 14 * k
+		flame.Rate = len * 12 * k
+		core.Rate = len * 12 * k
+		embers.Rate = len * 1.5 * k
+		head.CFrame = CFrame.new(g + dir * len + Vector3.new(0, height, 0))
+		headFire.Rate = 60 * k
+		headCore.Rate = 50 * k
+		if fade >= 1 then
+			if conn then conn:Disconnect() end
+			for _, e in ipairs(emitters) do e.Enabled = false end
+			Debris:AddItem(body, 1.3)
+			Debris:AddItem(coreHolder, 1.3)
+			Debris:AddItem(head, 1.3)
+		end
+	end)
+end
+
+-- The wave as a cone of fire: from `g` along `dir`, widening from `width`
+-- at the blade to `spread` × `width` at `reach`, in segments racing out over
+-- `travel`. The flames fly on forward and fan outward as they burn (they
+-- don't hang where they were born), then the whole cone burns out.
+local function fireCone(g: Vector3, dir: Vector3, reach: number, width: number, spread: number, height: number, travel: number)
+	local N = 8
+	local segs = {}
+	local function holder(): BasePart
+		local q = Instance.new("Part")
+		q.Anchored, q.CanCollide, q.CanQuery, q.CanTouch, q.CastShadow = true, false, false, false, false
+		q.Transparency = 1
+		q.Parent = ClassFX.Folder()
+		return q
+	end
+	local look = CFrame.lookAt(g, g + dir)
+	for i = 0, N - 1 do
+		local f = (i + 0.5) / N
+		local w = width * (0.6 + (spread - 0.6) * f)
+		local segLen = reach / N
+		local q = holder()
+		q.Size = Vector3.new(w, w * 0.55, segLen)
+		q.CFrame = look * CFrame.new(0, height * (0.7 + 0.5 * f), -(i + 0.5) * segLen)
+		local roll = FireFX.Emitter("roll", q, w * 0.55)
+		local flame = FireFX.Emitter("flame", q, w * 0.4)
+		local embers = FireFX.Emitter("embers", q, 0.4)
+		for _, e in ipairs({ roll, flame, embers }) do
+			e.Shape = Enum.ParticleEmitterShape.Box
+			e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+			e.EmissionDirection = Enum.NormalId.Front
+			-- (wider out at the mouth of the cone: the fire fans out more)
+			e.SpreadAngle = Vector2.new(14 + 22 * f, 8 + 10 * f)
+			e.Speed = NumberRange.new(16, 30)
+			e.Drag = 1.2
+			e.Acceleration = Vector3.new(0, 2, 0)
+			e.Enabled = false
+		end
+		roll.Lifetime = NumberRange.new(0.5, 0.7)
+		flame.Lifetime = NumberRange.new(0.4, 0.55)
+		embers.Lifetime = NumberRange.new(0.8, 1.2)
+		embers.SpreadAngle = Vector2.new(50, 30)
+		segs[i + 1] = { at = (i / N) * travel, emitters = { roll, flame, embers }, rates = { segLen * w * 1.6, segLen * w * 1.2, segLen * 0.6 } }
+		Debris:AddItem(q, travel + 0.55 + 1.4)
+	end
+	-- the fireball leading it
+	local head = holder()
+	head.Size = Vector3.one * width
+	local headFire = FireFX.Emitter("roll", head, width * 2.4)
+	headFire.Lifetime = NumberRange.new(0.25, 0.35)
+	headFire.Speed = NumberRange.new(2, 6)
+	headFire.SpreadAngle = Vector2.new(180, 180)
+	headFire.Rate = 60
+	headFire.Enabled = true
+	Debris:AddItem(head, travel + 1)
+	local t0 = os.clock()
+	local conn: RBXScriptConnection? = nil
+	conn = RunService.RenderStepped:Connect(function()
+		local t = os.clock() - t0
+		local grow = math.min(t / travel, 1)
+		head.CFrame = CFrame.new(g + dir * reach * grow + Vector3.new(0, height * 1.2, 0))
+		if t >= travel then headFire.Enabled = false end
+		local fade = math.clamp((t - travel) / 0.55, 0, 1)
+		for _, sg in ipairs(segs) do
+			if t >= sg.at then
+				for j, e in ipairs(sg.emitters) do
+					e.Enabled = fade < 1
+					e.Rate = sg.rates[j] * (1 - fade)
+				end
+			end
+		end
+		if fade >= 1 and conn then conn:Disconnect() end
+	end)
+end
+
+-- ── Excalibur's picture (after the reference: Saber's Excalibur, in fire) ──
+-- Hanging four-point stars of fire all round him while the blade fills, a
+-- flash and a burst of shards on the swing, a colossal blade of fire crashing
+-- down at a slant onto the line, the beam of fire racing out, and where it
+-- ends a giant X in a ring, a white-out, then a towering column of fire with
+-- a ring whirling at its top.
+
+-- The swing: shards of flame bursting off the blade and arcs of wind.
+local function swingBurst(at: Vector3, dir: Vector3)
+	FireFX.Puff("lick", CFrame.lookAt(at, at + dir), 4, 22)
+	ClassFX.Burst(at, HOT, 30, 40, TEX_SPARK, 0.5, 0.45)
+	for i = 1, 3 do
+		local roll = rng:NextNumber(-60, 60)
+		crescent(CFrame.lookAt(at, at + dir) * CFrame.Angles(0, 0, math.rad(roll)), 6 + i * 2.5, 150, 1.2, 0.3, if i % 2 == 0 then 1 else -1, EMBER)
+	end
+end
+
+-- The colossal blade of fire crashing down at a slant onto `g`, from high up
+-- behind the line (`dir`).
+local function fallingBlade(g: Vector3, dir: Vector3, width: number)
+	local from = g - dir * 14 + Vector3.new(0, 46, 0)
+	local to = g + dir * 10
+	local along = to - from
+	fireBeam(from, along.Unit, along.Magnitude, width * 1.6, 0, 0.12)
+	task.delay(0.12, function()
+		FireFX.Explosion(to + Vector3.new(0, 1, 0), width, true)
+		FireFX.Shockwave(to, width * 2.4)
+	end)
+end
+
+-- The giant X in a ring where the wave ends: two streaks of fire crossing in
+-- the upright plane facing back down the line, a ring of fire round them.
+local function fireX(c: Vector3, dir: Vector3, size: number)
+	local side = Vector3.new(-dir.Z, 0, dir.X)
+	for _, s2 in ipairs({ 1, -1 }) do
+		local d = (Vector3.yAxis + side * s2).Unit
+		fireBeam(c - d * size, d, size * 2, size * 0.28, 0, 0.08)
+		-- (a crisp white-hot edge under the flames, so the X reads clean)
+		SwordFX.Blade(c, d, size * 2.3, size * 0.16, HOT, 0.25)
+	end
+	local ring = CFrame.lookAt(c, c + dir) * CFrame.Angles(math.rad(90), 0, 0)
+	SwordFX.Arc({ cf = ring, radius = size * 0.8, arc = 359, width = size * 0.3, color = FIRE, draw = 0.12, life = 0.5, grow = 0.25 })
+	SwordFX.Arc({ cf = ring, radius = size * 0.8, arc = 359, width = size * 0.14, color = HOT, draw = 0.12, life = 0.45, grow = 0.25 })
+	SwordFX.Arc({ cf = ring, radius = size * 1.05, arc = 359, width = size * 0.08, color = EMBER, draw = 0.16, life = 0.4, grow = 0.3 })
+end
+
+-- The towering column of fire at the end, pulsing for `seconds`, a ring
+-- whirling round its top.
+local function fireColumn(at: Vector3, width: number, seconds: number)
+	local g = onGround(at)
+	fireBeam(g, Vector3.yAxis, 70, width * 1.4, 0, 0.15, seconds)
+	FireFX.Column(g, 40, width * 1.3)
+	FireFX.FlameRing(g, width * 1.2, 4)
+	local top = g + Vector3.new(0, 34, 0)
+	SwordFX.Spiral(function() return top end, width * 1.6, seconds, FIRE)
+end
+
+-- The slam's crater (the Martial Artist's, made bigger): slabs of the floor
+-- wrenched up in a ring round the impact and in two ragged ridges along the
+-- edges of the cone running out from it, bursting up in a wave, glowing
+-- cracks between them, rock thrown up; they stand a while, then sink back.
+local CRATER_ROCK = Color3.fromRGB(120, 112, 108)
+local function groundUnder(pos: Vector3): (Vector3, Color3, Enum.Material)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	local ignore: { Instance } = { ClassFX.Folder() }
+	for _, pl in ipairs(Players:GetPlayers()) do
+		if pl.Character then table.insert(ignore, pl.Character) end
+	end
+	local mobs = Workspace:FindFirstChild("Mobs")
+	if mobs then table.insert(ignore, mobs) end
+	params.FilterDescendantsInstances = ignore
+	local hit = Workspace:Raycast(pos + Vector3.new(0, 4, 0), Vector3.new(0, -14, 0), params)
+	if hit then
+		local col = hit.Instance.Color
+		local mat = hit.Material
+		if mat == Enum.Material.Neon or mat == Enum.Material.ForceField or mat == Enum.Material.Glass then
+			mat, col = Enum.Material.Slate, CRATER_ROCK
+		end
+		-- (a dark floor gives paler stone, or the slabs vanish into it)
+		if 0.3 * col.R + 0.59 * col.G + 0.11 * col.B < 0.3 then col = Color3.fromRGB(138, 128, 122) end
+		return hit.Position, col, mat
+	end
+	return onGround(pos), CRATER_ROCK, Enum.Material.Slate
+end
+
+local function craterSlam(at: Vector3, dir: Vector3, cone: number, size: number)
+	local g0, color, material = groundUnder(at)
+	local right = Vector3.new(-dir.Z, 0, dir.X)
+	local slabs: { BasePart } = {}
+	local speed = 80 -- studs a second the wave runs out
+	local function slab(p: Vector3, outward: Vector3, sz: Vector3, delay: number)
+		local g = groundUnder(p)
+		local tilt = math.rad(25 + rng:NextNumber(0, 35))
+		local yaw = math.atan2(-outward.X, -outward.Z) + rng:NextNumber(-0.3, 0.3)
+		local rest = CFrame.new(g) * CFrame.Angles(0, yaw, 0) * CFrame.Angles(-tilt, 0, rng:NextNumber(-0.25, 0.25))
+			* CFrame.new(0, sz.Y * 0.25, 0)
+		local shade = 0.75 + rng:NextNumber(0, 0.3)
+		local q = Instance.new("Part")
+		q.Anchored, q.CanCollide, q.CanQuery, q.CanTouch, q.CastShadow = true, false, false, false, true
+		q.Size = sz
+		q.CFrame = rest * CFrame.new(0, -sz.Y, 0)
+		q.Color = Color3.new(math.min(color.R * shade, 1), math.min(color.G * shade, 1), math.min(color.B * shade, 1))
+		q.Material = material
+		q.Parent = ClassFX.Folder()
+		table.insert(slabs, q)
+		task.delay(delay, function()
+			if q.Parent then
+				TweenService:Create(q, TweenInfo.new(0.14, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { CFrame = rest }):Play()
+			end
+		end)
+	end
+	-- the ring round the impact
+	local n = 16
+	for i = 1, n do
+		local a = (i + rng:NextNumber(-0.3, 0.3)) / n * math.pi * 2
+		local out = Vector3.new(math.cos(a), 0, math.sin(a))
+		local r = size * (0.85 + rng:NextNumber(0, 0.3))
+		local big = size * 0.42 * (0.8 + rng:NextNumber(0, 0.5))
+		slab(g0 + out * r, out, Vector3.new(big, big * 0.6, big * 0.85), r / speed)
+	end
+	-- a second, broken ring inside it
+	for i = 1, 8 do
+		local a = (i + rng:NextNumber(-0.4, 0.4)) / 8 * math.pi * 2
+		local out = Vector3.new(math.cos(a), 0, math.sin(a))
+		local r = size * 0.45
+		local big = size * 0.28 * (0.8 + rng:NextNumber(0, 0.4))
+		slab(g0 + out * r, out, Vector3.new(big, big * 0.5, big * 0.8), r / speed)
+	end
+	-- the two ridges along the cone's edges (it opens to 3× at `cone`)
+	for _, side in ipairs({ -1, 1 }) do
+		local d = size
+		while d < cone do
+			local w = size * 0.5 + (d / cone) * size * 1.4
+			local out = (right * side + dir * 0.3).Unit
+			local p = g0 + dir * d + right * side * (w + rng:NextNumber(-1, 1))
+			local big = size * 0.3 + (1 - d / cone) * size * 0.25
+			slab(p, out, Vector3.new(big * (0.8 + rng:NextNumber(0, 0.5)), big * (0.5 + rng:NextNumber(0, 0.3)), big), d / speed)
+			d += 2.2 + rng:NextNumber(0, 1.4)
+		end
+	end
+	-- glowing cracks, fire and rock thrown up
+	FireFX.Cracks(g0, size * 1.4, 4, true)
+	FireFX.Fissures(g0, size * 1.6, 4)
+	FireFX.Rocks(g0 + Vector3.new(0, 1, 0), 18, 1.4)
+	FireFX.Shockwave(g0, size * 2.6)
+	ClassFX.Burst(g0 + Vector3.new(0, 1, 0), Color3.fromRGB(150, 135, 125), 24, 26, TEX_SPARK, 0.6, 0.7)
+	ClassFX.Sound("rockHit", g0, 1, 0.6)
+	-- they stand a while, then sink back into the floor
+	task.delay(4.5, function()
+		for _, q in ipairs(slabs) do
+			if q.Parent then
+				TweenService:Create(q, TweenInfo.new(0.9, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+					{ CFrame = q.CFrame * CFrame.new(0, -q.Size.Y * 1.2, 0), Transparency = 1 }):Play()
+				Debris:AddItem(q, 0.95)
+			end
+		end
+	end)
+end
+
 -- Excalibur: the blazing sword lifted overhead, then brought down, and a vast
--- wave of golden fire runs out down the line: a blade of light racing along
--- the floor ahead of a wall of flame, the floor splitting under it, a column
--- of light where it ends.
-local EXCAL_GOLD = Color3.fromRGB(255, 200, 80)
+-- wave of fire runs out down the line: a beam of fire racing along the floor
+-- ahead of a wall of flame, the floor splitting under it, a column of light
+-- where it ends.
 local function onExcalibur(msg: any)
 	local char = charOf(msg.attacker)
 	local pos = msg.pos :: Vector3
@@ -2371,59 +2932,20 @@ local function onExcalibur(msg: any)
 		rp.FilterDescendantsInstances = ignore
 		local wall = Workspace:Raycast(g + Vector3.new(0, 2, 0), dir * length, rp)
 		if wall then reach = math.max(8, wall.Distance) end
+		-- the swing: a flash over everything, shards bursting off the blade,
+		-- and the colossal blade of fire crashing down onto the line
+		screenFlash(g, Color3.fromRGB(255, 225, 180), 0.85, 0.35)
+		swingBurst(g + dir * 3 + Vector3.new(0, 3, 0), dir)
+		craterSlam(g + dir * 6, dir, math.min(reach, 40), 7 + tier)
+		airImpact(g + dir * 6, dir, 7 + tier)
 		-- the slash
 		local base = CFrame.lookAt(g + Vector3.new(0, 1.5, 0), g + Vector3.new(0, 1.5, 0) + dir)
 		crescent(base * CFrame.Angles(0, 0, math.rad(90)), 9, 170, 3, 0.35, 1, HOT)
 		explosion(g + dir * 4 + Vector3.new(0, 1, 0), 7, true)
-		-- the blade of light racing out along the floor
-		local beam = Instance.new("Part")
-		beam.Shape = Enum.PartType.Cylinder -- (round: a beam of light, not a slab)
-		beam.Anchored, beam.CanCollide, beam.CanQuery, beam.CanTouch, beam.CastShadow = true, false, false, false, false
-		beam.Material = Enum.Material.Neon
-		beam.Color = EXCAL_GOLD
-		beam.Transparency = 0.15
-		beam.Parent = ClassFX.Folder()
-		local core = beam:Clone()
-		core.Color = WHITE
-		core.Transparency = 0.05
-		core.Parent = ClassFX.Folder()
+		-- a beam of fire racing out along the floor
 		local h = 5 + tier
-		-- the bright head racing in front
-		local head = Instance.new("Part")
-		head.Shape = Enum.PartType.Ball
-		head.Size = Vector3.one * width * 1.8
-		head.Material = Enum.Material.Neon
-		head.Color = Color3.fromRGB(255, 240, 200)
-		head.Anchored, head.CanCollide, head.CanQuery, head.CanTouch, head.CastShadow = true, false, false, false, false
-		head.Parent = ClassFX.Folder()
-		local t0 = os.clock()
 		local travel = reach / 220
-		local conn: RBXScriptConnection? = nil
-		conn = RunService.RenderStepped:Connect(function()
-			local t = os.clock() - t0
-			local grow = math.min(t / travel, 1)
-			local fade = math.clamp((t - travel) / 0.55, 0, 1)
-			local len = math.max(reach * grow, 0.5)
-			-- (a cylinder runs along its X: turned to lie down the line)
-			local cf = CFrame.lookAt(g, g + dir) * CFrame.new(0, h * 0.45, -len / 2) * CFrame.Angles(0, math.rad(90), 0)
-			local d = width * 1.3 * (1 - fade * 0.6)
-			beam.Size = Vector3.new(len, d, d)
-			beam.CFrame = cf
-			beam.Transparency = 0.25 + 0.75 * fade
-			core.Size = Vector3.new(len, d * 0.35, d * 0.35)
-			core.CFrame = cf
-			if head.Parent then
-				head.CFrame = CFrame.new(g + dir * len + Vector3.new(0, h * 0.45, 0))
-				head.Transparency = 0.1 + 0.9 * fade
-			end
-			core.Transparency = 0.05 + 0.95 * fade
-			if fade >= 1 then
-				if conn then conn:Disconnect() end
-				beam:Destroy()
-				core:Destroy()
-				head:Destroy()
-			end
-		end)
+		fireCone(g, dir, reach, width, 3, h * 0.45, travel)
 		-- the wall of fire behind it, the floor splitting
 		local steps = math.floor(reach / 3)
 		for i = 1, steps do
@@ -2434,11 +2956,17 @@ local function onExcalibur(msg: any)
 				if i % 2 == 0 then FireFX.Cracks(p, width * 0.8, 2.6, false) end
 			end)
 		end
-		-- a column of light where it ends
+		-- where it ends: the giant X in its ring, a white-out, then the
+		-- towering column of fire with a ring whirling at its top
 		task.delay(travel, function()
 			local endAt = g + dir * reach
-			FireFX.LightPillar(endAt, 40, width * 0.9, 0.8)
+			fireX(endAt + Vector3.new(0, 7, 0), dir, 9 + tier)
 			explosion(endAt + Vector3.new(0, 1, 0), 6 + tier, true)
+			task.delay(0.22, function()
+				screenFlash(endAt, Color3.fromRGB(255, 240, 215), 0.9, 0.5)
+				FireFX.Explosion(endAt + Vector3.new(0, 1, 0), 9 + tier, true)
+				fireColumn(endAt, width, 1.4)
+			end)
 		end)
 		ClassFX.Sound("swordHit", g, 1, 0.6)
 		ClassFX.Sound("fireWhoosh", g, 1, 0.6)
@@ -2491,6 +3019,7 @@ local HANDLERS: { [string]: (any) -> () } = {
 
 function FireKnightController.Init(d: Deps)
 	deps = d
+	CastPoses.addPostHook(twoHandStep)
 	buildHud()
 	player.CharacterAdded:Connect(function()
 		busyUntil = 0
@@ -2539,5 +3068,9 @@ FireKnightController.Poses = {
 	raise = raisePose,
 	slam = slamPose,
 }
+
+-- Effects, for previews and tests.
+FireKnightController.FX = { fireBeam = fireBeam, fireCone = fireCone, raisePillar = raisePillar, craterSlam = craterSlam, airWindup = airWindup, airImpact = airImpact, emberStars = emberStars, screenFlash = screenFlash,
+	swingBurst = swingBurst, fallingBlade = fallingBlade, fireX = fireX, fireColumn = fireColumn }
 
 return FireKnightController
