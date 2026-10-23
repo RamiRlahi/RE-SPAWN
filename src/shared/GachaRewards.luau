@@ -86,6 +86,16 @@ local R: { Reward } = {
 		name = "Winter Cape", description = "Ice Mage armor: the flowing frost cape." },
 	{ id = "armor_gunslinger", type = "armor", classId = "gunslinger", rarity = "Epic", glyph = "OH",
 		name = "Outlaw's Hat", description = "Gunslinger outfit: cowboy hat and spurred boots." },
+	{ id = "armor_swordsman", type = "armor", classId = "swordsman", rarity = "Epic", glyph = "SC",
+		name = "Sword Master's Cape", description = "Swordsman outfit: the long fur-collared cloth cape." },
+	{ id = "armor_rogue", type = "armor", classId = "rogue", rarity = "Epic", glyph = "SS",
+		name = "Shadow Scarf", description = "Rogue outfit: the long scarf over the mouth, its tails streaming in the wind." },
+	{ id = "armor_mage", type = "armor", classId = "mage", rarity = "Epic", glyph = "AR",
+		name = "Arcanist's Robes", description = "Mage outfit: the gold-trimmed hooded robe with glowing eyes, and the long cloak." },
+	{ id = "armor_martial_artist", type = "armor", classId = "martial_artist", rarity = "Epic", glyph = "FG",
+		name = "Fighter's Gi", description = "Martial Artist outfit: the gi, the sash and the headband." },
+	{ id = "armor_berserker", type = "armor", classId = "berserker", rarity = "Epic", glyph = "RV",
+		name = "Ravager's Cape", description = "Berserker outfit: the ragged crimson feather cape." },
 
 
 	-- ── Wings (cosmetic, worn everywhere; WingsMounts builds and animates them) ──
@@ -176,10 +186,9 @@ local R: { Reward } = {
 local byId: { [string]: Reward } = {}
 for _, r in ipairs(R) do byId[r.id] = r end
 
--- Exclusive characters always wear their outfit; their armor is never a
--- summon reward. (The Sword Master's outfit is his fur-collared cloth cape,
--- which every client simulates locally: ClothCape / ClassCapes.)
-local BUILT_IN_ARMOR: { [string]: boolean } = { ice_mage = true, gunslinger = true, swordsman = true }
+-- Classes that always wear their outfit, its armor never a summon reward.
+-- (None now: every class's outfit is an armor reward, worn from the Wardrobe.)
+local BUILT_IN_ARMOR: { [string]: boolean } = {}
 
 -- Pools: which rewards a banner draws from.
 local Pools: { [string]: { string } } = {

@@ -174,8 +174,8 @@ local function tick(runId: string)
 	if #party == 0 then return end
 	local root = party[1].Character and party[1].Character:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not root then return end
-	if bossNear(runId, root.Position) or RunScope.Get(runId, "CollapseAt") ~= nil then
-		st.at = elapsed + 20 -- (later: not over a boss fight, not while it's coming down)
+	if bossNear(runId, root.Position) then
+		st.at = elapsed + 20 -- (later: not over a boss fight)
 		return
 	end
 	st.done = true

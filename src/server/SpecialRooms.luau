@@ -110,7 +110,7 @@ local function sparkles(parent: Instance, color: Color3, rate: number, speed: nu
 end
 
 -- Title + status billboard above an object.
-local function billboard(parent: Instance, adornee: BasePart, title: string, color: Color3, offsetY: number): (TextLabel, TextLabel)
+local function billboard(_parent: Instance, adornee: BasePart, title: string, color: Color3, offsetY: number): (TextLabel, TextLabel)
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "RoomLabel"
 	gui.Adornee = adornee
@@ -119,7 +119,10 @@ local function billboard(parent: Instance, adornee: BasePart, title: string, col
 	gui.AlwaysOnTop = true
 	gui.MaxDistance = 80
 	gui.LightInfluence = 0
-	gui.Parent = parent
+	-- (on the part itself, not its model: with streaming, a model whose parts
+	-- haven't reached a client yet sits at the world's origin, and a label
+	-- left on it was drawn there, over whatever room is at the origin)
+	gui.Parent = adornee
 	local t = Instance.new("TextLabel")
 	t.Size = UDim2.new(1, 0, 0.55, 0)
 	t.BackgroundTransparency = 1

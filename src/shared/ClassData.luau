@@ -281,7 +281,7 @@ local ClassData: { [string]: ClassInfo } = {
 			{ name = "Verdant Slash", tag = "Skill 1 (E)", summary = "Dash forward piercing enemies with a lingering nature slash.", icon = "rbxassetid://71390904975203", description = "Instantly dash through enemies, leaving a piercing nature energy slash that cuts all foes in your path.", videoId = "" },
 			{ name = "Entangling Arrow", tag = "Skill 2 (F)", summary = "Shoot a root-charged arrow that erupts into grasping vines to pin foes.", icon = "rbxassetid://116665007054306", description = "Launch a root-charged arrow that bursts into vines and holds enemies in place.", videoId = "" },
 			{ name = "Toxic Cloud", tag = "Skill 3 (Q)", summary = "Throw spore pods that form a lingering toxic poison cloud.", icon = "rbxassetid://94605725583145", description = "Throw a spore pod that leaves a lingering poison cloud on the ground.", videoId = "" },
-			{ name = "Rain of Arrows", tag = "Ultimate (R)", summary = "Call down a relentless storm of piercing arrows over a large area.", icon = "rbxassetid://123385594261124", description = "Mark a large zone from above and flood it with repeated arrow impacts.", videoId = "" },
+			{ name = "Rain of Arrows", tag = "Ultimate (R)", summary = "A colossal plant behind you: it fires the arrow storm, sprays venom and whips enemies away.", icon = "rbxassetid://123385594261124", description = "Slam the bow down to awaken the wilds: a colossal plant bursts up behind you and spits a great arrow into the sky that shatters into a rain of arrows. The plant draws enemies to it, sprays them with venom and whips back any that come close.", videoId = "" },
 		},
 		equipment = {
 			name = "Elderthorn Bow & Venomseed Quiver",

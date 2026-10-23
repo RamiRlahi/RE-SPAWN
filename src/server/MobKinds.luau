@@ -2247,7 +2247,6 @@ local function addTraitLook(m: Mob, affixId: string)
 		e.Speed = NumberRange.new(3, 7)
 		e.SpreadAngle = Vector2.new(180, 180)
 		e.Rate = 14
-		TweenService:Create(light, TweenInfo.new(0.45, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true), { Brightness = 3.5 }):Play()
 	elseif affixId == "blazing" then
 		local fire = Instance.new("Fire")
 		fire.Color = affix.color

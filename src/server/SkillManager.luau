@@ -38,28 +38,6 @@ local PhysicsService = game:GetService("PhysicsService")
 local SkillManager = {}
 local basicAttackTimes: { [Player]: number } = {}
 
--- Collision groups so a ranger can walk out of his own Rain of Arrows cage.
-local ULT_BARRIER_GROUP = "RangerUltBarrier"
-local ULT_CASTER_GROUP = "RangerUltCaster"
-local ultGroupsReady = false
-local function ensureUltCollisionGroups()
-	if ultGroupsReady then return end
-	ultGroupsReady = true
-	pcall(function() PhysicsService:RegisterCollisionGroup(ULT_BARRIER_GROUP) end)
-	pcall(function() PhysicsService:RegisterCollisionGroup(ULT_CASTER_GROUP) end)
-	-- The caster's character passes through the barrier; everyone else is still blocked.
-	pcall(function() PhysicsService:CollisionGroupSetCollidable(ULT_CASTER_GROUP, ULT_BARRIER_GROUP, false) end)
-end
-
-local function setCharacterCollisionGroup(char: Model, group: string)
-	if not char then return end
-	for _, d in ipairs(char:GetDescendants()) do
-		if d:IsA("BasePart") then
-			pcall(function() d.CollisionGroup = group end)
-		end
-	end
-end
-
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Helper: Find VFX asset in ReplicatedStorage (server can read ReplicatedStorage)
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -256,6 +234,8 @@ local IMPACT_PROFILES: { [string]: ImpactProfile } = {
 	["VENOM ARROWS"]     = { kb = 0,  lift = 0,  stagger = 0.15, style = "arrow" },
 	["SEEKER BARRAGE"]   = { kb = 0,  lift = 0,  stagger = 0.15, style = "arrow" },
 	["RAIN OF ARROWS"]   = { kb = 0,  lift = 0,  stagger = 0.2,  style = "arrow" },
+	["PLANT WHIP"]       = { kb = 0,  lift = 0,  stagger = 0.6,  style = "nature", heavy = true }, -- (thrown back by the plant itself)
+	["VENOM"]            = { kb = 0,  lift = 0,  stagger = 0.15, style = "nature" },
 	["VERDANT SLASH"]    = { kb = 0,  lift = 0,  stagger = 0.4,  style = "nature", heavy = true },
 	["ENTANGLING ARROW"] = { kb = 0,  lift = 0,  stagger = 0.2,  style = "nature" },
 	-- Cleric
@@ -871,22 +851,6 @@ local function spawnVineBarrier(center: Vector3, radius: number, duration: numbe
 	Debris:AddItem(folder, duration + 0.5)
 end
 
-local function spawnUltBarrier(center: Vector3, radius: number, duration: number, casterChar: Model?)
-	ensureUltCollisionGroups()
-	-- Invisible; height matches the vine cage visual (14 studs)
-	local folder = buildBarrierRing(center, radius, 14, Color3.fromRGB(70, 200, 90), 1, "RainOfArrowsBarrier", ULT_BARRIER_GROUP)
-	-- Put the caster in a group that does not collide with the barrier so he can leave the AoE.
-	if casterChar then
-		setCharacterCollisionGroup(casterChar, ULT_CASTER_GROUP)
-		task.delay(duration + 0.6, function()
-			if casterChar and casterChar.Parent then
-				setCharacterCollisionGroup(casterChar, "Default")
-			end
-		end)
-	end
-	Debris:AddItem(folder, duration + 0.6)
-end
-
 local function rootTarget(target: { character: Model, humanoid: Humanoid, rootPart: BasePart }, duration: number)
 	local root = target.rootPart
 	local oldWalkSpeed = target.humanoid.WalkSpeed
@@ -1057,43 +1021,140 @@ function SkillManager.HandleMissileAttack(player: Player, casterChar: Model)
 	end
 end
 
+-- The plant's body for the mobs: an unkillable decoy (MobManager taunts every
+-- mob within `taunt` onto it; their hits do nothing).
+local function spawnPlantDecoy(at: Vector3, taunt: number, life: number): Model
+	local m = Instance.new("Model")
+	m.Name = "RangerPlant"
+	local root = Instance.new("Part")
+	root.Name = "HumanoidRootPart"
+	root.Size = Vector3.new(6, 16, 6)
+	root.CFrame = CFrame.new(at + Vector3.new(0, 8, 0))
+	root.Anchored = true
+	root.CanCollide = false
+	root.CanTouch = false
+	root.Transparency = 1
+	root.Parent = m
+	m.PrimaryPart = root
+	local hum = Instance.new("Humanoid")
+	hum.MaxHealth = 1e6
+	hum.Health = 1e6
+	hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	hum.HealthChanged:Connect(function() if hum.Health < 1e6 then hum.Health = 1e6 end end)
+	hum.Parent = m
+	m:SetAttribute("IsDecoy", true)
+	local folder = Workspace:FindFirstChild("RangerPlants")
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = "RangerPlants"
+		folder.Parent = Workspace
+	end
+	m.Parent = folder
+	MobManager.RegisterDecoy(m, taunt)
+	Debris:AddItem(m, life)
+	return m
+end
+
 local function executeRangerRainOfArrows(player: Player, casterChar: Model, origin: Vector3, lookDir: Vector3, targetPosition: any, config: any)
 	local center = getRangerCursorTarget(origin, lookDir, targetPosition, config.range or 42)
 	local radius = 18 * (config.areaMultiplier or 1)
 	local damage = config.damage or 24
 	local duration = config.duration or 4.0
+	local vfx = Network.GetRemoteEvent(Network.Remotes.SkillVFX)
+	local function tellAll(payload: { [string]: any })
+		payload.player = player
+		for _, pl in ipairs(Players:GetPlayers()) do vfx:FireClient(pl, payload) end
+	end
+	-- the plant: behind the caster (away from where the storm falls; short of
+	-- a wall), on the floor
+	local toZone = Vector3.new(center.X - origin.X, 0, center.Z - origin.Z)
+	local flat = if toZone.Magnitude > 1 then toZone else Vector3.new(lookDir.X, 0, lookDir.Z)
+	flat = if flat.Magnitude > 0.01 then flat.Unit else Vector3.new(0, 0, -1)
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	rp.FilterDescendantsInstances = { casterChar }
+	local back = 9
+	local wall = Workspace:Raycast(origin, -flat * back, rp)
+	if wall then back = math.max(3, wall.Distance - 3) end
+	local plantAt = origin - flat * back
+	local floor = Workspace:Raycast(plantAt + Vector3.new(0, 3, 0), Vector3.new(0, -20, 0), rp)
+	if floor then plantAt = floor.Position end
+	local WHIP_REACH = 14 * (config.areaMultiplier or 1)
+	local TAUNT = 40
+	local VENOM_RANGE = 30 * (config.areaMultiplier or 1)
+	local VENOM_CONE = math.cos(math.rad(22))
 
+	-- The plant bursts up behind him at the slam (RangerFlair.SLAM_AT), spits
+	-- the great arrow into the sky (it shatters into the rain), then for the
+	-- storm draws the mobs to it, sprays venom at them and lashes any close.
+	task.delay(0.36, function()
+		tellAll({ rangerPlant = true, center = plantAt, zone = center, duration = duration + 1.24 })
+	end)
 	task.spawn(function()
-		task.wait(1.05)
-		-- Physical ult cage so targets cannot leave the Rain of Arrows zone
-		spawnUltBarrier(center, radius, duration + 0.2, casterChar)
+		task.wait(1.6) -- (the wind-up: RangerFlair.WITHER_AT)
+		spawnPlantDecoy(plantAt, TAUNT, duration + 0.3)
 		local startTime = os.clock()
+		local nextVolley = 0.2
+		local nextRain = 0.4 -- (the rain: once the great arrow has shattered)
+		local lastWhip: { [Model]: number } = {}
+		local nextAimTell = 0
 		while os.clock() - startTime < duration do
 			if not casterChar or not casterChar.Parent then break end
-			for _, target in ipairs(getPotentialTargets(casterChar)) do
-				local targetPos = target.rootPart.Position
-				local offset = targetPos - center
-				local flatOffset = Vector3.new(offset.X, 0, offset.Z)
-				local dist = flatOffset.Magnitude
-
-				if dist <= radius then
-					-- Deal damage to all targets inside the zone
-					dealDamage(player, target, damage, "RAIN OF ARROWS")
-					local push = Vector3.new(0, 1, 0)
-					target.rootPart:ApplyImpulse(push * (target.rootPart.AssemblyMass * 8))
-
-					-- Root every target inside the cage so they can't walk out
-					rootTarget(target, 0.6)
-
-					-- If target is near the perimeter, pull them back inward
-					if dist > radius - 3.5 and dist > 0.5 then
-						local pullDir = -flatOffset.Unit
-						local pullStrength = target.rootPart.AssemblyMass * 22
-						target.rootPart:ApplyImpulse(pullDir * pullStrength + Vector3.new(0, target.rootPart.AssemblyMass * 3, 0))
+			local el = os.clock() - startTime
+			if el >= nextRain then
+				nextRain = el + 0.45
+				for _, target in ipairs(getPotentialTargets(casterChar)) do
+					local offset = target.rootPart.Position - center
+					if Vector3.new(offset.X, 0, offset.Z).Magnitude <= radius then
+						dealDamage(player, target, damage, "RAIN OF ARROWS")
 					end
 				end
 			end
-			task.wait(0.45)
+			-- the whips: anything that comes within reach is lashed and thrown back
+			for _, target in ipairs(getPotentialTargets(casterChar)) do
+				local off = target.rootPart.Position - plantAt
+				local d = Vector3.new(off.X, 0, off.Z).Magnitude
+				local c = target.character
+				if d <= WHIP_REACH and math.abs(off.Y) < 12 and os.clock() - (lastWhip[c] or 0) > 0.8 then
+					lastWhip[c] = os.clock()
+					local away = if d > 0.1 then Vector3.new(off.X, 0, off.Z).Unit else flat
+					tellAll({ rangerWhip = true, center = plantAt, to = target.rootPart.Position })
+					task.delay(0.12, function()
+						if target.humanoid.Health <= 0 then return end
+						dealDamage(player, target, damage * 1.2, "PLANT WHIP")
+						if target.character:GetAttribute("IsBoss") ~= true then knock(target, away * 70, 18, 0.3) end
+					end)
+				end
+			end
+			-- the venom: a stream of goo sprayed like a flamethrower at the
+			-- nearest enemy in range; everything in the cone burns
+			if el >= nextVolley then
+				nextVolley = el + 0.2
+				local mouth = plantAt + Vector3.new(0, 16, 0)
+				local nearest, nd = nil, VENOM_RANGE
+				for _, target in ipairs(getPotentialTargets(casterChar)) do
+					local d = (target.rootPart.Position - plantAt).Magnitude
+					if d <= nd and target.humanoid.Health > 0 then nearest, nd = target, d end
+				end
+				if nearest then
+					local aim = nearest.rootPart.Position
+					if el >= nextAimTell then
+						nextAimTell = el + 0.5
+						tellAll({ rangerVenom = true, center = plantAt, to = aim, dur = 0.6 })
+					end
+					local dir = Vector3.new(aim.X - plantAt.X, 0, aim.Z - plantAt.Z)
+					dir = if dir.Magnitude > 0.1 then dir.Unit else flat
+					for _, target in ipairs(getPotentialTargets(casterChar)) do
+						local off = Vector3.new(target.rootPart.Position.X - plantAt.X, 0, target.rootPart.Position.Z - plantAt.Z)
+						local d = off.Magnitude
+						if d <= VENOM_RANGE + 3 and (d < 4 or off.Unit:Dot(dir) >= VENOM_CONE) then
+							dealDamage(player, target, damage * 0.35, "VENOM")
+						end
+					end
+					local _ = mouth
+				end
+			end
+			task.wait(0.05)
 		end
 	end)
 end
@@ -1784,7 +1845,7 @@ ultCutscene = function(classId: string, config: any): number
 	if classId == "martial_artist" then return MartialServer.ULT_WINDUP end -- the Dragon Soul's summoning
 	if classId == "berserker" then return BerserkerServer.GATHER_TIME end -- the Beast Awakening
 	if classId == "heavy_knight" then return FireKnightServer.AWAKEN end
-	return 1.0 -- Ranger close-up
+	return 1.6 -- Ranger: the summon and the release (RangerFlair)
 end
 
 function SkillManager.HandleBasicAttack(player: Player, payload: any)

@@ -4,8 +4,8 @@
 	equipped mount (the "Mount" attribute, GachaManager): the rider is lifted
 	onto its back (HipHeight) and goes faster than running (RideData.Speed,
 	the client's AnimationController). Pressing it again sends it away; so
-	does attacking or casting (SkillManager calls Dismount), dying, or going
-	back to the menus. Every client draws the mount under the rider
+	does attacking or casting (SkillManager calls Dismount), dying, or leaving
+	the lobby plaza (mounts are for the lobby only: none in a run). Every client draws the mount under the rider
 	(WingsMounts) from the character's "Riding" attribute.
 
 	Thrown: taking a hit while riding throws the rider off. The mount
@@ -39,10 +39,10 @@ local function mountOf(player: Player): any?
 	return if reward and reward.type == "mount" then reward else nil
 end
 
--- In the lobby plaza or in a run (not the menus), alive, on their feet.
+-- In the lobby plaza only (not a run, not the menus), alive, on their feet.
 local function canRide(player: Player, char: Model, hum: Humanoid): boolean
 	if hum.Health <= 0 then return false end
-	if not (player:GetAttribute("InHub") == true or player:GetAttribute("InLobby") == false) then return false end
+	if player:GetAttribute("InHub") ~= true then return false end
 	if player:GetAttribute("IsDead") or player:GetAttribute("Spectating") then return false end
 	if char:GetAttribute("Tumbling") then return false end
 	return true

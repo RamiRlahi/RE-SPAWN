@@ -31,6 +31,7 @@ pcall(function() SummonScreen = require(script.Parent:WaitForChild("SummonScreen
 local LobbySocial = require(script.Parent:WaitForChild("LobbySocial"))
 local BuildCodex = require(script.Parent:WaitForChild("BuildCodex"))
 local Armory = require(script.Parent:WaitForChild("Armory"))
+local WardrobeScreen = require(script.Parent:WaitForChild("WardrobeScreen"))
 
 local LobbyHUD = {}
 
@@ -166,6 +167,14 @@ local function build()
 	arm.BackgroundColor3 = Color3.fromRGB(86, 58, 24)
 	arm.Parent = panel
 	arm.MouseButton1Click:Connect(function() Armory.Open() end)
+	-- The Wardrobe (every class's outfit, wings, mounts: worn for all to see).
+	local wrd = inv:Clone()
+	wrd.Name = "Wardrobe"
+	wrd.LayoutOrder = 5
+	wrd.Text = "WARDROBE"
+	wrd.BackgroundColor3 = Color3.fromRGB(60, 36, 74)
+	wrd.Parent = panel
+	wrd.MouseButton1Click:Connect(function() WardrobeScreen.OpenLobby("armor") end)
 	label(panel, "Walk up to a player and press E to meet them.\n1-5: emotes (wave, cheer, point, laugh, dance).\n/ to chat.\nAt the DUNGEON gate (or the QUESTS board) press F\nto choose where to go (the leader chooses).\nAt the GACHA tent: summon.\nCtrl: shift lock on / off (off to click INVITE FRIENDS).\nM: settings.", 14, PARCH,
 		{ Size = UDim2.new(1, 0, 0, 156), LayoutOrder = 7, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, TextTransparency = 0.15 })
 
@@ -276,19 +285,18 @@ local function openPicker()
 			card.MouseLeave:Connect(function()
 				TweenService:Create(st, TweenInfo.new(0.12), { Transparency = 0.3, Thickness = 2 }):Play()
 			end)
-			-- (the Endless Abyss: locked until you've been deep enough)
+			-- (a map locked until you've been deep enough)
 			if map.unlockFloor then
 				local lock = label(card, "", 15, Color3.fromRGB(255, 120, 120), { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -62),
 					Size = UDim2.new(1, -24, 0, 34), TextXAlignment = Enum.TextXAlignment.Center, TextWrapped = true })
 				local function upd()
 					local best = player:GetAttribute("BestFloor") or 0
 					local open = best >= map.unlockFloor
-					lock.Text = if open then `Your deepest: floor {player:GetAttribute("BestEndless") or 0}` else `LOCKED · Reach floor {map.unlockFloor} to open (best: {best})`
+					lock.Text = if open then "" else `LOCKED · Reach floor {map.unlockFloor} to open (best: {best})`
 					lock.TextColor3 = if open then Color3.fromRGB(210, 170, 255) else Color3.fromRGB(255, 120, 120)
 				end
 				upd()
 				player:GetAttributeChangedSignal("BestFloor"):Connect(upd)
-				player:GetAttributeChangedSignal("BestEndless"):Connect(upd)
 			end
 			card.MouseButton1Click:Connect(function()
 				closePicker()
@@ -309,6 +317,30 @@ local function openPicker()
 		xc.CornerRadius = UDim.new(0, 6)
 		xc.Parent = close
 		close.MouseButton1Click:Connect(closePicker)
+		-- The tutorial (MapData.Tutorial, Tutorial.luau): just you, every kind
+		-- of room in turn with a card explaining each.
+		local tut = Instance.new("TextButton")
+		tut.AnchorPoint = Vector2.new(1, 0)
+		tut.Position = UDim2.new(0.5, -110, 0.56, 230)
+		tut.Size = UDim2.fromOffset(220, 40)
+		tut.BackgroundColor3 = Color3.fromRGB(28, 44, 60)
+		tut.Font = FONT
+		tut.TextSize = 20
+		tut.TextColor3 = Color3.fromRGB(170, 225, 255)
+		tut.Text = "TUTORIAL (solo)"
+		tut.Parent = g
+		local tc = Instance.new("UICorner")
+		tc.CornerRadius = UDim.new(0, 6)
+		tc.Parent = tut
+		local ts = Instance.new("UIStroke")
+		ts.Color = Color3.fromRGB(150, 220, 255)
+		ts.Thickness = 1.5
+		ts.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+		ts.Parent = tut
+		tut.MouseButton1Click:Connect(function()
+			closePicker()
+			Network.GetRemoteEvent(Network.Remotes.LobbyAction):FireServer({ kind = "tutorial" })
+		end)
 	end
 	(picker :: ScreenGui).Enabled = true
 end

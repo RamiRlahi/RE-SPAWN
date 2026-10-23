@@ -32,8 +32,11 @@ local function wanted(): boolean
 	return player:GetAttribute("PerfMode") == true or player:GetAttribute("Setting_lowDetailVFX") == true
 end
 
--- Scenery effects: everything that glows, burns or drifts in a dungeon.
+-- Scenery effects: everything that glows, burns or drifts in a dungeon. (Not
+-- the traps' own effects, tagged "Gameplay": the flames and sparks are how a
+-- player sees the danger.)
 local function isScenery(inst: Instance): boolean
+	if inst:GetAttribute("Gameplay") == true then return false end
 	return inst:IsA("ParticleEmitter") or inst:IsA("Fire") or inst:IsA("Beam") or inst:IsA("Smoke") or inst:IsA("Sparkles")
 end
 

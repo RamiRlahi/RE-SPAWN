@@ -13,7 +13,9 @@
 	hangs on a Motor6D (GrimoireMotor) from the torso; the client bobs it and
 	swings it up in front of him when he casts (MageController).
 
-	  Dress(char)     put it all on (safe to call again)
+	  Dress(char, withRobes?)  put it all on (safe to call again); false:
+	                  the grimoire alone (the robes are the "Arcanist's
+	                  Robes" armor reward, worn from the Wardrobe)
 	  Undress(char)   take it off, giving back the face and hair it hid
 --]]
 
@@ -251,7 +253,7 @@ local function grimoire(model: Model, torso: BasePart)
 end
 
 -- ── Public ──────────────────────────────────────────────────────────────────
-function MageLook.Dress(char: Model)
+function MageLook.Dress(char: Model, withRobes: boolean?)
 	MageLook.Undress(char)
 	local head = char:FindFirstChild("Head") :: BasePart?
 	local torso = char:FindFirstChild("Torso") :: BasePart?
@@ -259,6 +261,11 @@ function MageLook.Dress(char: Model)
 	local model = Instance.new("Model")
 	model.Name = "MageRobes"
 	model:SetAttribute(ATTR, true)
+	if withRobes == false then
+		grimoire(model, torso)
+		model.Parent = char
+		return
+	end
 	-- The face is lost in the hood; hair and hats go under it.
 	local face = head:FindFirstChildOfClass("Decal")
 	if face then hide(face) end

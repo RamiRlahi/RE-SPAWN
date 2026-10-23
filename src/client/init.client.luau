@@ -51,6 +51,39 @@ end
 pcall(function()
 	require(script:WaitForChild("SummonAnnouncer")).Init() -- others' Legendary wishes: a banner + a beam on them
 end)
+pcall(function()
+	require(script:WaitForChild("LavaController")).Init() -- stuck in lava: the quick-time keys, a friend's E
+end)
+pcall(function()
+	require(script:WaitForChild("HazardFX")).Init() -- the traps' motion, drawn here, not sent from the server
+end)
+do
+	local ok, err = pcall(function()
+		require(script:WaitForChild("TutorialController")).Init() -- the tutorial's popups (Tutorial.luau)
+	end)
+	if not ok then warn("[Client] TutorialController failed:", err) end
+end
+
+-- A new level: the server holds you still ("Arriving") until the floor under
+-- you has streamed in here; tell it when it has (DungeonGenerator.NextLevel).
+player:GetAttributeChangedSignal("Arriving"):Connect(function()
+	if player:GetAttribute("Arriving") ~= true then return end
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	while player:GetAttribute("Arriving") == true do
+		local char = player.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if root and char then
+			params.FilterDescendantsInstances = { char }
+			local hit = workspace:Raycast(root.Position, Vector3.new(0, -12, 0), params)
+			if hit and hit.Instance.CanCollide then
+				Network.GetRemoteEvent(Network.Remotes.FloorReady):FireServer()
+				return
+			end
+		end
+		task.wait(0.1)
+	end
+end)
 
 -- Disable default Roblox Backpack UI
 task.spawn(function()
@@ -212,7 +245,7 @@ pcall(function()
 	require(script:WaitForChild("UI"):WaitForChild("HordeHUD")).Init()
 end)
 
--- Corruption: the meter, the collapse.
+-- Corruption: the meter.
 pcall(function()
 	require(script:WaitForChild("UI"):WaitForChild("CorruptionHUD")).Init()
 end)

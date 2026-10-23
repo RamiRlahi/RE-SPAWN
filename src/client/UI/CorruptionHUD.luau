@@ -8,11 +8,8 @@
 	  • then a purple meter under the run timer: CORRUPTION and its level,
 	    with what it's doing (enemies stronger, loot richer), pulsing as it
 	    climbs
-	  • at 10: THE DUNGEON IS COLLAPSING, a red countdown, the screen
-	    trembling and edged in red, "Get to the escape portal where the floor
-	    began"
 
-	Reads the run's attributes (RunScope): Corruption, CorruptionActive, CollapseAt.
+	Reads the run's attributes (RunScope): Corruption, CorruptionActive.
 --]]
 
 local Players = game:GetService("Players")
@@ -99,29 +96,12 @@ function CorruptionHUD.Init()
 	local name = label(meter, "", 13, Color3.new(1, 1, 1), { FontFace = BOLD, Size = UDim2.fromScale(1, 1) })
 	local effect = label(meter, "", 11, PARCH, { Position = UDim2.new(0, 0, 1, 2), Size = UDim2.new(1, 0, 0, 14), TextTransparency = 0.2 })
 
-	-- the collapse
-	local collapse = label(g, "", 30, RED, { Font = Enum.Font.Antique, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 300),
-		Size = UDim2.fromOffset(800, 36), Visible = false, TextStrokeColor3 = Color3.new(0, 0, 0), TextStrokeTransparency = 0.2 })
-	local collapseSub = label(g, "Get everyone into the escape portal where this floor began!", 15, PARCH,
-		{ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 336), Size = UDim2.fromOffset(800, 20), Visible = false })
-	-- (the screen's edge burning red while it comes down)
-	local edge = Instance.new("UIStroke")
-	edge.Color = RED
-	edge.Thickness = 0
-	edge.Transparency = 0.3
-	local edgeFrame = Instance.new("Frame")
-	edgeFrame.Size = UDim2.fromScale(1, 1)
-	edgeFrame.BackgroundTransparency = 1
-	edgeFrame.Parent = g
-	edge.Parent = edgeFrame
-
 	local WeeklyModifiers = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("WeeklyModifiers"))
 	local omen = label(g, "", 13, PARCH, { FontFace = BOLD, AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 126),
 		Size = UDim2.fromOffset(500, 16), Visible = false })
 
 	local lastLevel = -1
 	local wasActive = false
-	local announcedCollapse = false
 	RunService.RenderStepped:Connect(function()
 		local inRun = player:GetAttribute("InLobby") == false
 		omen.Visible = inRun
@@ -133,7 +113,7 @@ function CorruptionHUD.Init()
 		local active = inRun and RunScope.Mine("CorruptionActive") == true
 		local level = if active then (RunScope.Mine("Corruption") or 0) else 0
 		if active and not wasActive then
-			bigBanner(g, "THE DUNGEON STIRS", "You chose greed. Every floor and every minute it grows stronger, and its treasure richer. At 10 it comes down.", VIOLET)
+			bigBanner(g, "THE DUNGEON STIRS", "You chose greed. Every floor and every minute it grows stronger, and its treasure richer.", VIOLET)
 		end
 		wasActive = active
 		meter.Visible = active
@@ -149,31 +129,6 @@ function CorruptionHUD.Init()
 			end
 		else
 			lastLevel = -1
-		end
-		local at = if inRun then RunScope.Mine("CollapseAt") else nil
-		local collapsing = typeof(at) == "number"
-		collapse.Visible = collapsing
-		collapseSub.Visible = collapsing
-		if collapsing then
-			local left = math.max(0, (at :: number) - Workspace:GetServerTimeNow())
-			collapse.Text = string.format("THE DUNGEON IS COLLAPSING   %d:%02d", left // 60, math.floor(left % 60))
-			if not announcedCollapse then
-				announcedCollapse = true
-				bigBanner(g, "THE DUNGEON IS COLLAPSING", "Run! Back to where this floor began: the escape portal. Everyone still inside when it falls is lost.", RED)
-			end
-			-- the screen trembles and burns at the edges, harder as time runs out
-			local urgency = 1 - math.clamp(left / 120, 0, 1)
-			local pulse = (math.sin(os.clock() * (4 + urgency * 8)) + 1) / 2
-			edge.Thickness = 6 + pulse * 10 * (0.4 + urgency)
-			edge.Transparency = 0.5 - 0.3 * urgency
-			local cam = Workspace.CurrentCamera
-			if cam and left > 0 then
-				local k = 0.04 + 0.12 * urgency
-				cam.CFrame *= CFrame.Angles((math.noise(os.clock() * 9, 1) * k) * 0.1, (math.noise(os.clock() * 9, 2) * k) * 0.1, 0)
-			end
-		else
-			announcedCollapse = false
-			edge.Thickness = 0
 		end
 	end)
 end

@@ -114,20 +114,22 @@ function ClassLook.Apply(character: Model, classId: string, opts: Options?)
 	ClassLook.Clear(character)
 	if not ClassData.IsPlayable(classId) then return end
 	local o = opts or {}
-	-- The Rogue's hood and wind-blown scarf (on players they come from
-	-- RogueServer / RogueScarf already).
-	if classId == "rogue" and not Players:GetPlayerFromCharacter(character) then
+	-- Every class's outfit is its armor (`armor`: owned and worn). On players
+	-- these come from the server / ClassCapes / RogueScarf already.
+	local copy = not Players:GetPlayerFromCharacter(character)
+	-- The Rogue's wind-blown scarf.
+	if classId == "rogue" and copy and o.armor then
 		RogueLook.Dress(character)
 		RogueScarf.Track(character, true)
 	end
-	-- The Mage's hooded robes and floating grimoire, and his long cloth cloak
-	-- (on players they come from MageServer / ClassCapes already).
-	if classId == "mage" and not Players:GetPlayerFromCharacter(character) then
-		MageLook.Dress(character)
-		ClothCape.Attach(character, TAG, ClothCape.MAGE)
+	-- The Mage's floating grimoire (always), his hooded robes and long cloth
+	-- cloak (the armor).
+	if classId == "mage" and copy then
+		MageLook.Dress(character, o.armor == true)
+		if o.armor then ClothCape.Attach(character, TAG, ClothCape.MAGE) end
 	end
-	-- The Martial Artist's gi, sash and headband (on players: MartialServer).
-	if classId == "martial_artist" and not Players:GetPlayerFromCharacter(character) then
+	-- The Martial Artist's gi, sash and headband.
+	if classId == "martial_artist" and copy and o.armor then
 		MartialLook.Dress(character)
 	end
 	local backWeld: Weld? = nil -- a slung weapon, eased out past the armor once it's on
@@ -261,8 +263,8 @@ function ClassLook.Apply(character: Model, classId: string, opts: Options?)
 		tool:Destroy()
 	end
 
-	-- The Swordsman's long cloth cape (part of his look, not the armor).
-	if classId == "swordsman" then
+	-- The Swordsman's long cloth cape (his armor).
+	if classId == "swordsman" and o.armor then
 		local cape = ClothCape.Attach(character, TAG)
 		if cape then cape:SetAttribute(TAG, true) end
 	end
@@ -280,9 +282,9 @@ function ClassLook.Apply(character: Model, classId: string, opts: Options?)
 		end
 	end
 
-	-- The Berserker's ragged feather cape (part of his look, like in game),
-	-- over his armour's flat plate cape.
-	if classId == "berserker" then
+	-- The Berserker's ragged feather cape (his armor), over his armour's flat
+	-- plate cape.
+	if classId == "berserker" and o.armor then
 		local cape = ClothCape.Attach(character, TAG, ClothCape.BERSERKER)
 		if cape then cape:SetAttribute(TAG, true) end
 		for _, d in ipairs(character:GetChildren()) do

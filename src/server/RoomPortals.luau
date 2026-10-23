@@ -19,6 +19,7 @@
 
 	  RoomPortals.Build(rooms, runId, parent)   DungeonGenerator, as it builds
 	      the floor (`rooms`: its RoomData; `connections`, the next layer's ids)
+	  RoomPortals.Here(runId) → roomId?, roomType?   the room the party is in
 
 	Watched a few times a second (no touch events: the dungeon's parts listen
 	for none). A floor's portals go when the floor is cleared away.
@@ -296,7 +297,8 @@ local function step(dt: number)
 			local minX, maxX = (here.gx - 0.5) * FLOOR - 6, (here.gx + here.w - 0.5) * FLOOR + 6
 			local minZ, maxZ = (here.gz - 0.5) * FLOOR - 6, (here.gz + here.d - 0.5) * FLOOR + 6
 			for _, plr in ipairs(party(f)) do
-				if (grace[plr] or 0) > now then continue end
+				-- (still arriving on a new level: DungeonGenerator.NextLevel places them)
+				if (grace[plr] or 0) > now or plr:GetAttribute("Arriving") == true then continue end
 				local root = (plr.Character :: Model):FindFirstChild("HumanoidRootPart") :: BasePart?
 				if not root then continue end
 				local p = root.Position
@@ -317,6 +319,19 @@ local function step(dt: number)
 		stepping:Disconnect()
 		stepping = nil
 	end
+end
+
+-- The room `runId`'s party is in now (its id and kind), nil if its floor
+-- isn't taken room by room.
+function RoomPortals.Here(runId: string): (number?, string?)
+	for i = #floors, 1, -1 do
+		local f = floors[i]
+		if f.runId == runId and f.folder.Parent then
+			local room = f.rooms[f.here]
+			return f.here, if room then room.roomType else nil
+		end
+	end
+	return nil, nil
 end
 
 function RoomPortals.Build(rooms: { Room }, runId: string, parent: Instance)

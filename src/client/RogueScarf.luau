@@ -48,7 +48,9 @@ local function isRogueChar(char: Model): boolean
 	if tracked[char] then return true end
 	if char:GetAttribute("Class") == "rogue" then return true end
 	local p = Players:GetPlayerFromCharacter(char)
+	-- (the scarf is armor: the "Shadow Scarf" reward, worn from the Wardrobe)
 	return p ~= nil and p:GetAttribute("SelectedClass") == "rogue" and p:GetAttribute("InLobby") == false
+		and p:GetAttribute("Armor_rogue") == true
 end
 
 local function strip(parent: Instance, color: Color3): BasePart

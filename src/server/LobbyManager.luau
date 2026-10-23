@@ -18,7 +18,8 @@
 	  • BACK at the campfire returns you to the lobby.
 
 	Remotes: LobbyState (server → client: { mode = "hub" | "campfire", mapId,
-	notice }), LobbyAction (client → server: { kind = "toHub" }).
+	notice }), LobbyAction (client → server: { kind = "toHub" | "pick" |
+	"tutorial" }: the map picker's TUTORIAL button, Tutorial.luau).
 --]]
 
 local Players = game:GetService("Players")
@@ -35,6 +36,7 @@ local ClassManager = require(script.Parent:WaitForChild("ClassManager"))
 local PartyManager = require(script.Parent:WaitForChild("PartyManager"))
 local CampfireManager = require(script.Parent:WaitForChild("CampfireManager"))
 local WeaponManager = require(script.Parent:WaitForChild("WeaponManager"))
+local Tutorial = require(script.Parent:WaitForChild("Tutorial"))
 
 local LobbyManager = {}
 
@@ -156,12 +158,19 @@ end
 function LobbyManager.Init()
 	local function inHub(plr: Player): boolean return plr:GetAttribute("InHub") == true end
 	local built, sp = LobbyBuilder.Build(Workspace, HUB, MapData.Maps, {
-		dungeon = function(plr) if inHub(plr) then state(plr, { mode = "pick" }) end end,
+		-- (not done the tutorial yet: the gate takes you into it: Tutorial.luau)
+		dungeon = function(plr)
+			if not inHub(plr) then return end
+			if plr:GetAttribute("TutorialDone") ~= true then Tutorial.Begin(plr) else state(plr, { mode = "pick" }) end
+		end,
 		quests = function(plr) if inHub(plr) then state(plr, { mode = "pick" }) end end,
 		gacha = function(plr) if inHub(plr) then state(plr, { mode = "gacha" }) end end,
 	})
 	hub = built
 	spawnCF = sp
+	-- (the gate's portal: walked into by someone who hasn't done the tutorial)
+	local portal = built:FindFirstChild("Portal", true)
+	if portal and portal:IsA("BasePart") then Tutorial.SetPortal(portal.CFrame, portal.Size + Vector3.new(0, 0, 6)) end
 	buildHold()
 	-- Confirming a class sends you into the lobby (not straight to a fire).
 	ClassManager.SetGate(function(player: Player, classId: string): boolean
@@ -176,6 +185,8 @@ function LobbyManager.Init()
 			LobbyManager.ToHub(player)
 		elseif payload.kind == "pick" and typeof(payload.mapId) == "string" then
 			onGate(player, payload.mapId)
+		elseif payload.kind == "tutorial" and player:GetAttribute("InHub") == true then
+			Tutorial.Begin(player)
 		end
 	end)
 	-- A respawn while in the lobby: back on the plaza (not frozen at the church).

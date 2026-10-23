@@ -41,6 +41,7 @@ function DifficultyManager.GetElapsed(runId: string?): number
 end
 
 function DifficultyManager.GetTier(runId: string?): number
+	if runId and RunScope.Get(runId, "Tutorial") == true then return 0 end
 	local c = clockOf(runId)
 	return if c then c.tier else 0
 end
@@ -52,6 +53,10 @@ function DifficultyManager.GetMobScale(runId: string?): { health: number, damage
 	local corruption = (runId and RunScope.Get(runId, "Corruption")) or 0
 	local c = 1 + 0.1 * corruption
 	local moon = if WeeklyModifiers.Is("blood_moon") then 1.5 else 1
+	-- (the tutorial: no Threat, no omen, everything half as tough)
+	if runId and RunScope.Get(runId, "Tutorial") == true then
+		return { health = 0.5, damage = BASE_DAMAGE * 0.5, speed = 1, tier = 0 }
+	end
 	return {
 		health = (1 + tier * HEALTH_PER_TIER) * c * moon,
 		damage = (BASE_DAMAGE + tier * DAMAGE_PER_TIER) * c,

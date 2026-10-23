@@ -4,16 +4,15 @@
 	Cloth capes (ClothCape, a client-side cloth simulation) on every character
 	that wears one, hung by every client and taken off again when the class
 	changes or the character goes away:
-	  • the Sword Master (Class "swordsman") always wears his white
-	    fur-collared cape;
-	  • the Berserker (Class "berserker") always wears his ragged cape of
-	    black feathers bleeding to crimson (his armour's flat plate cape is
-	    hidden under it);
-	  • the Mage (Class "mage") always wears his long navy cloak lined in
-	    violet and hemmed in gold;
-	  • the Fire Knight (Class "heavy_knight") wears his crimson cape with a
-	    black fur mantle when his player owns and wears his outfit (the
-	    "Knight's Mantle" summon reward: Armor_heavy_knight).
+	  • the Sword Master (Class "swordsman"): his white fur-collared cape;
+	  • the Berserker (Class "berserker"): his ragged cape of black feathers
+	    bleeding to crimson (his armour's flat plate cape hidden under it);
+	  • the Mage (Class "mage"): his long navy cloak lined in violet;
+	  • the Fire Knight (Class "heavy_knight"): his crimson cape with a black
+	    fur mantle;
+	  • the Gunslinger: his duster.
+	Each is part of its class's outfit, a summon reward: a player wears it
+	only while that armor is equipped (Armor_<class>, from the Wardrobe).
 --]]
 
 local Players = game:GetService("Players")
@@ -22,21 +21,21 @@ local ClothCape = require(script.Parent:WaitForChild("ClothCape"))
 
 local ClassCapes = {}
 
+-- Every cape is part of a class's outfit (armor, worn from the Wardrobe):
+-- a player's character wears it only while that armor is equipped.
+local CAPES: { [string]: ClothCape.Style } = {
+	swordsman = ClothCape.SWORD_MASTER, berserker = ClothCape.BERSERKER, mage = ClothCape.MAGE,
+	gunslinger = ClothCape.GUNSLINGER, heavy_knight = ClothCape.FIRE_KNIGHT,
+}
+
 -- The cape style a character should wear now, if any.
 local function styleFor(character: Model): ClothCape.Style?
 	local class = character:GetAttribute("Class")
-	if class == "swordsman" then return ClothCape.SWORD_MASTER end
-	if class == "berserker" then return ClothCape.BERSERKER end
-	if class == "mage" then return ClothCape.MAGE end
-	if class == "gunslinger" then
-		local owner = Players:GetPlayerFromCharacter(character)
-		if owner and owner:GetAttribute("Armor_gunslinger") == true then return ClothCape.GUNSLINGER end
-	end
-	if class == "heavy_knight" then
-		local owner = Players:GetPlayerFromCharacter(character)
-		if owner and owner:GetAttribute("Armor_heavy_knight") == true then return ClothCape.FIRE_KNIGHT end
-	end
-	return nil
+	local style = if typeof(class) == "string" then CAPES[class] else nil
+	if not style then return nil end
+	local owner = Players:GetPlayerFromCharacter(character)
+	if owner and owner:GetAttribute(`Armor_{class}`) ~= true then return nil end
+	return style
 end
 
 local worn: { [Model]: ClothCape.Style } = {}
@@ -86,7 +85,8 @@ end
 local function watchPlayer(player: Player)
 	player.CharacterAdded:Connect(watchCharacter)
 	-- (the outfit put on / taken off)
-	for _, a in ipairs({ "Armor_heavy_knight", "Armor_gunslinger" }) do
+	for class in pairs(CAPES) do
+		local a = `Armor_{class}`
 		player:GetAttributeChangedSignal(a):Connect(function()
 			if player.Character then refresh(player.Character) end
 		end)

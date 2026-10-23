@@ -10,6 +10,7 @@
 	everyone hears and sees them. Called from SkillController:
 	  ClassFX.Cast(char, classId, skillIndex, origin, dir, targetPos?, config)
 	  ClassFX.Basic(char, classId, dir)
+	  ClassFX.HitSound(classId, at, crit, source)   your hit landing
 
 	All sounds are from Roblox's licensed ProSoundEffects library (free to use
 	in any experience). Swap an id in SFX to change it everywhere.
@@ -18,6 +19,8 @@
 local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
 local Debris = game:GetService("Debris")
+
+local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
 
 local ClassFX = {}
 
@@ -468,6 +471,28 @@ function ClassFX.Basic(char: Model, classId: string, _dir: Vector3?)
 	elseif classId == "ice_mage" then
 		play(SFX.iceCrack, root, 0.4, 1.4)
 	end
+end
+
+-- A hit of yours landing (DamageDealt, SkillController): its sound, for the
+-- classes whose controllers don't already sound their hits (the Martial
+-- Artist, Berserker, Fire Knight and Gunslinger do). Damage over time ticks
+-- stay quiet. Budgeted: a stack of projectile tomes lands dozens a second.
+local HIT_SOUND: { [string]: { any } } = {
+	swordsman = { "swordHit", 0.55, 1.1 },
+	rogue = { "swordHit", 0.5, 1.4 },
+	mage = { "magicBurst", 0.35, 1.5 },
+	ice_mage = { "iceCrack", 0.55, 1.2 },
+	cleric = { "chime", 0.5, 1.1 },
+	ranger = { "arrowHit", 0.55, 1.05 },
+}
+local QUIET_SOURCES = { BLEED = true, BURN = true, BURNING = true, POISON = true, VENOM = true, THORNS = true, ["FIRE LINE"] = true, BLIZZARD = true }
+function ClassFX.HitSound(classId: string, at: Vector3, crit: boolean, source: string?)
+	local spec = HIT_SOUND[classId]
+	if not spec or (source and QUIET_SOURCES[source]) then return end
+	if not FxBudget.Allow(if crit then "hitSoundCrit" else "hitSound", if crit then 6 else 10) then return end
+	play(SFX[spec[1]], at, spec[2] * (if crit then 1.5 else 1), spec[3] * (if crit then 0.85 else 1))
+	-- (a crit rings out over it)
+	if crit then play(SFX.ding, at, 0.35, 1.3) end
 end
 
 -- Building blocks shared with class controllers (e.g. SwordsmanController).

@@ -20,7 +20,8 @@
 	and drops the ones far from the camera.
 
 	  WingsMounts.Init()
-	  WingsMounts.Build(rewardId) → rig      (for the selection screens)
+	  WingsMounts.Build(rewardId, closeUp?) → rig  (closeUp: the selection
+	                                         screens, studs on the bricks)
 	  WingsMounts.Pose(rig, cframe, t, move) (rig.world: the WorldRoot it lives in)
 	  WingsMounts.Attach(rig, basePart, offset) + Animate(rig, t, move)
 --]]
@@ -35,6 +36,7 @@ local GachaRewards = require(Shared:WaitForChild("GachaRewards"))
 local BrickModels = require(script.Parent:WaitForChild("BrickModels"))
 local RideData = require(Shared:WaitForChild("RideData"))
 local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
+local WingModels = require(script.Parent:WaitForChild("WingModels"))
 
 local Kit = BrickModels.Kit
 local WingsMounts = {}
@@ -388,7 +390,7 @@ end
 
 -- Two wings on `rig` hinged at `at` (studs, rig space), angled back, flapping.
 -- Returns each wing's piece, side and wingtip (in the piece's space).
-type WingInfo = { piece: Piece, side: number, tip: Vector3, mid: Vector3 }
+type WingInfo = { piece: Piece, side: number, tip: Vector3, mid: Vector3, main: Piece?, mainSize: Vector3? }
 local function addWings(rig: Rig, spec: WingSpec, scale: number, at: Vector3, spread: number, speed: number, amp: number, palette0: { [string]: Paint }?): { WingInfo }
 	local palette = palette0 or ({ A = spec.A, B = spec.B, G = spec.G } :: { [string]: Paint })
 	local right = wingGroup(spec, palette)
@@ -414,10 +416,263 @@ local function addWings(rig: Rig, spec: WingSpec, scale: number, at: Vector3, sp
 	return out
 end
 
-local function buildWings(look: string): Rig
+-- ─── Modelled wings (WingModels) ───────────────────────────────────────────
+-- A wing set from its voxel model: each bone's bricks are one piece, placed
+-- every frame by the model's own flap (faster as you move). The model's flap
+-- is already swept back far enough never to pass through the body.
+local STUD_D, STUD_H = 0.62, 0.3 -- a stud's width and height, in bricks
+
+-- Every bone's frames as CFrames (once per model, shared by every rig), and
+-- the bones in an order where each comes after its parent.
+local prepared: { [any]: { cfs: { [number]: { CFrame } }, rest: { CFrame }, order: { number } } } = setmetatable({}, { __mode = "k" }) :: any
+local function prepare(data: any)
+	local p = prepared[data]
+	if p then return p end
+	local cfs, rest, order = {}, {}, {}
+	for i, nd in ipairs(data.nodes) do rest[i] = CFrame.new(nd[2], nd[3], nd[4]) end
+	for i, a in pairs(data.anim) do
+		local list = table.create(data.frames)
+		for f = 0, data.frames - 1 do
+			local b = f * 12
+			list[f + 1] = CFrame.new(a[b + 1], a[b + 2], a[b + 3], a[b + 4], a[b + 5], a[b + 6], a[b + 7], a[b + 8], a[b + 9], a[b + 10], a[b + 11], a[b + 12])
+		end
+		cfs[i] = list
+	end
+	local placed = {}
+	local function place(i: number)
+		if placed[i] then return end
+		local parent = data.nodes[i][1]
+		if parent > 0 then place(parent) end
+		placed[i] = true
+		table.insert(order, i)
+	end
+	for i = 1, #data.nodes do place(i) end
+	p = { cfs = cfs, rest = rest, order = order }
+	prepared[data] = p
+	return p
+end
+
+type RestBox = (prefix: string) -> (Vector3?, Vector3?)
+local function modelWings(rig: Rig, data: any, studs: boolean): ({ WingInfo }, RestBox)
+	local prep = prepare(data)
+	local nodes, frames, length = data.nodes, data.frames, data.length
+	local world: { CFrame } = table.create(#nodes, CFrame.identity)
+	local clock = runner(0.7, 0.6)
+	local solvedAt: number? = nil
+	-- (every piece asks each frame; the bones are solved once)
+	local function solve(t: number, move: number)
+		if solvedAt == t then return end
+		solvedAt = t
+		local f = (clock(t, move) % length) / length * (frames - 1)
+		local f0 = math.floor(f)
+		local k = f - f0
+		for _, i in ipairs(prep.order) do
+			local list = prep.cfs[i]
+			local l = if list then list[f0 + 1]:Lerp(list[math.min(f0 + 2, frames)], k) else prep.rest[i]
+			local parent = nodes[i][1]
+			world[i] = if parent > 0 then world[parent] * l else l
+		end
+	end
+	local pieceOf: { [number]: Piece } = {}
+	for bone, b in pairs(data.bones) do
+		local r = b.rot
+		local piece: Piece = { parts = {}, offsets = {}, home = CFrame.identity, anim = function(t: number, move: number): CFrame
+			solve(t, move)
+			return world[bone]
+		end }
+		local function brick(cf: CFrame, size: Vector3, m: { any }, shape: Enum.PartType?)
+			local p = Instance.new("Part")
+			p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
+			p.TopSurface, p.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
+			if shape then p.Shape = shape end
+			p.Size = size
+			p.Color = Color3.fromRGB(m[1], m[2], m[3])
+			p.Material = if m[4] then Enum.Material.Neon else Enum.Material.SmoothPlastic
+			p.Transparency = m[5]
+			p.Parent = rig.model
+			table.insert(piece.parts, p)
+			table.insert(piece.offsets, cf)
+		end
+		local bx = b.boxes
+		local unit = 0
+		for i = 1, #bx, 7 do
+			brick(CFrame.new(bx[i], bx[i + 1], bx[i + 2], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9]),
+				Vector3.new(bx[i + 3], bx[i + 4], bx[i + 5]), data.mats[bx[i + 6]])
+			unit = bx[i + 5]
+		end
+		-- (a stud on each brick's open back: up close only, they're specks in play)
+		if studs and unit > 0 then
+			local xAxis, yAxis, zAxis = Vector3.new(r[1], r[4], r[7]), Vector3.new(r[2], r[5], r[8]), Vector3.new(r[3], r[6], r[9])
+			local st = b.studs
+			for i = 1, #st, 5 do
+				if st[i + 3] == 1 then
+					local at = Vector3.new(st[i], st[i + 1], st[i + 2]) + zAxis * (unit * STUD_H / 2)
+					brick(CFrame.fromMatrix(at, zAxis, yAxis, -xAxis), Vector3.new(unit * STUD_H, unit * STUD_D, unit * STUD_D),
+						data.mats[st[i + 4]], Enum.PartType.Cylinder)
+				end
+			end
+		end
+		table.insert(rig.pieces, piece)
+		for _, p in ipairs(piece.parts) do table.insert(rig.allParts, p) end
+		pieceOf[bone] = piece
+	end
+	local out = {}
+	for _, s in ipairs(data.sides) do
+		local tipPiece, mainPiece = pieceOf[s.tip[1]], pieceOf[s.main[1]]
+		if tipPiece and mainPiece then
+			table.insert(out, { piece = tipPiece, side = s.side, tip = Vector3.new(s.tip[2], s.tip[3], s.tip[4]),
+				mid = Vector3.new(s.main[2], s.main[3], s.main[4]), main = mainPiece,
+				mainSize = Vector3.new(s.main[5], s.main[6], s.main[7]) })
+		end
+	end
+	-- Where the bones named `prefix` (Rift, Halo, Galaxy ... both sides) sit
+	-- at rest, rig space: their bricks' centre and size.
+	local function restBox(prefix: string): (Vector3?, Vector3?)
+		solve(0, 0)
+		local lo, hi = Vector3.one * math.huge, -Vector3.one * math.huge
+		for bone, b in pairs(data.bones) do
+			local name = nodes[bone][5]
+			if typeof(name) == "string" and string.sub(name, 1, #prefix) == prefix then
+				local bx = b.boxes
+				for i = 1, #bx, 7 do
+					local c = world[bone] * Vector3.new(bx[i], bx[i + 1], bx[i + 2])
+					lo, hi = lo:Min(c), hi:Max(c)
+				end
+			end
+		end
+		solvedAt = nil
+		if lo.X == math.huge then return nil, nil end
+		return (lo + hi) / 2, hi - lo
+	end
+	return out, restBox
+end
+
+-- The place's particle pack (Workspace or ReplicatedStorage "Particle
+-- effects": Category/Effect, each a part holding its emitters). A wing set's
+-- effect is cloned from it onto the wing, scaled so its biggest particle fits
+-- the spot it's on, at a fraction of its showcase rate.
+local PACK = "Particle effects"
+local function packEffect(path: string): Instance?
+	local cat, item = string.match(path, "^(.-)/(.+)$")
+	for _, root in ipairs({ ReplicatedStorage :: Instance, Workspace :: Instance }) do
+		local f = root:FindFirstChild(PACK)
+		local c = f and cat and f:FindFirstChild(cat)
+		local it = c and item and c:FindFirstChild(item)
+		if it then return it end
+	end
+	return nil
+end
+
+local function scaled(ns: NumberSequence, k: number): NumberSequence
+	local pts = {}
+	for _, kp in ipairs(ns.Keypoints) do table.insert(pts, NumberSequenceKeypoint.new(kp.Time, kp.Value * k, kp.Envelope * k)) end
+	return NumberSequence.new(pts)
+end
+
+-- `fit`: the spot's size (studs) the effect's biggest particle grows to.
+local function packFx(anchor: BasePart, path: string, fit: number, rate: number, tint: Color3?): boolean
+	local src = packEffect(path)
+	if not src then return false end
+	local biggest = 0
+	for _, d in ipairs(src:GetDescendants()) do
+		if d:IsA("ParticleEmitter") then
+			for _, kp in ipairs(d.Size.Keypoints) do biggest = math.max(biggest, kp.Value) end
+		end
+	end
+	local k = if biggest > 0 then fit / biggest else 1
+	local att: Attachment? = nil
+	for _, d in ipairs(src:GetDescendants()) do
+		if d:IsA("ParticleEmitter") then
+			local e = d:Clone()
+			e.Size = scaled(e.Size, k)
+			e.Speed = NumberRange.new(e.Speed.Min * k, e.Speed.Max * k)
+			e.Acceleration *= k
+			e.Rate = math.max(1, e.Rate * rate)
+			e.Enabled = true
+			if tint then e.Color = ColorSequence.new(tint) end
+			-- (from a point when the pack's was on an attachment, else over the spot)
+			if d.Parent and d.Parent:IsA("Attachment") then
+				if not att then
+					att = Instance.new("Attachment")
+					att.Parent = anchor
+				end
+				e.Parent = att
+			else
+				e.Parent = anchor
+			end
+		end
+	end
+	return true
+end
+
+-- Each modelled wing set's effects from the pack: `at` "wings" (over each
+-- wing's biggest bone), "tips" (each wingtip) or the name of its bones
+-- (Rift, Halo, Galaxy ...). Missing from the place, the old particles show.
+type WingFx = { at: string, fx: string, fit: number, rate: number, tint: Color3? }
+local WING_FX: { [string]: { WingFx } } = {
+	frost = { { at = "wings", fx = "Other/C - SHINY", fit = 0.5, rate = 0.4, tint = Color3.fromRGB(190, 235, 255) } },
+	storm = { { at = "wings", fx = "Lightning/D - ELECTRICITY 04", fit = 1.6, rate = 0.25 } },
+	moon = { { at = "Moon", fx = "Other/C - SHINY", fit = 1.4, rate = 0.5, tint = Color3.fromRGB(235, 240, 255) } },
+	venom = { { at = "wings", fx = "Other/H - VENOM", fit = 0.45, rate = 0.05 } },
+	void = { { at = "Rift", fx = "BlackHoles/03 - BLACK HOLE [A]", fit = 1, rate = 0.35 } },
+	celestial = {
+		{ at = "Halo", fx = "Other/K - HOLINESS", fit = 1, rate = 0.6 },
+		{ at = "wings", fx = "Other/C - SHINY", fit = 0.45, rate = 0.35, tint = Color3.fromRGB(255, 225, 140) },
+	},
+	dragon = { { at = "tips", fx = "Fire/B - FLAMES", fit = 0.9, rate = 0.25 } },
+	eclipse = { { at = "Crescent", fx = "Other/L - POWER", fit = 1, rate = 0.5 } },
+	cosmic = {
+		{ at = "Galaxy", fx = "Portals/07 - PORTAL [A]", fit = 1, rate = 0.5 },
+		{ at = "wings", fx = "Other/C - SHINY", fit = 0.4, rate = 0.35, tint = Color3.new(1, 1, 1) },
+	},
+}
+
+local function buildWings(look: string, closeUp: boolean?): Rig
 	local spec = WINGS[look] or WINGS.raven
 	local rig = newRig("Wings_" .. look, "wings")
 	local tier = tierOf("wings", look)
+	local data = WingModels.Get(look)
+	if data then
+		local col = spec.fxColor or (spec.B and spec.B.color) or (spec.G and spec.G.color) or Color3.new(1, 1, 1)
+		local wings, restBox = modelWings(rig, data, closeUp == true)
+		if tier >= 3 and wings[1] then
+			addLight(rig, wings[1].main :: Piece, wings[1].mid, col, 6, 0.4)
+		end
+		local fromPack = false
+		for _, e in ipairs(WING_FX[look] or {}) do
+			if e.at == "wings" or e.at == "tips" then
+				for _, wi in ipairs(wings) do
+					local anchor = if e.at == "tips" then addEmitterAnchor(rig, wi.piece, wi.tip, Vector3.one * 0.4)
+						else addEmitterAnchor(rig, wi.main :: Piece, wi.mid, (wi.mainSize :: Vector3) * Vector3.new(0.8, 0.6, 0.5))
+					local size = if e.at == "tips" then 1 else math.max((wi.mainSize :: Vector3).X, (wi.mainSize :: Vector3).Y)
+					fromPack = packFx(anchor, e.fx, e.fit * size, e.rate, e.tint) or fromPack
+				end
+			else
+				local centre, size = restBox(e.at)
+				if centre and size then
+					local piece = addAnchorPiece(rig, CFrame.new(centre))
+					local anchor = addEmitterAnchor(rig, piece, Vector3.zero, size)
+					fromPack = packFx(anchor, e.fx, e.fit * math.max(size.X, size.Y), e.rate, e.tint) or fromPack
+				end
+			end
+		end
+		if not fromPack then
+			-- (the pack isn't in this place: the game's own particles)
+			for _, wi in ipairs(wings) do
+				if spec.fx then
+					fx(addEmitterAnchor(rig, wi.main :: Piece, wi.mid, (wi.mainSize :: Vector3) * Vector3.new(0.8, 0.6, 0.5)), spec.fx, col)
+				end
+				if look == "dragon" then
+					fx(addEmitterAnchor(rig, wi.piece, wi.tip, Vector3.one * 0.4), "fire", Color3.fromRGB(255, 110, 30))
+				end
+			end
+		end
+		if look == "venom" and wings[1] then
+			-- toxic spores circling
+			orbit(rig, CFrame.new(0, 0.2, 0.6), 4, 2.4, 1.4, VOX_WING, function() return ball(1, glow(150, 255, 60)) end, 0.2, 0.25)
+		end
+		return rig
+	end
 	local grand = if tier >= 5 then 1.6 elseif tier == 4 then 1.5 elseif tier == 3 then 1.3 else 1
 	local s = VOX_WING * (spec.size or 1) * grand
 	local col = spec.fxColor or (spec.B and spec.B.color) or (spec.G and spec.G.color) or Color3.new(1, 1, 1)
@@ -1246,10 +1501,10 @@ local MOUNTS: { [string]: () -> Rig } = {
 }
 
 -- ─── Public ────────────────────────────────────────────────────────────────
-function WingsMounts.Build(rewardId: string): Rig?
+function WingsMounts.Build(rewardId: string, closeUp: boolean?): Rig?
 	local r = GachaRewards.Get(rewardId)
 	if not r or not r.look then return nil end
-	if r.type == "wings" then return buildWings(r.look) end
+	if r.type == "wings" then return buildWings(r.look, closeUp) end
 	if r.type == "mount" and MOUNTS[r.look] then return MOUNTS[r.look]() end
 	return nil
 end

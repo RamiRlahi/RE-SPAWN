@@ -10,6 +10,8 @@ export type SkillConfig = {
 	cooldown: number,
 	damage: number,
 	description: string,
+	hint: string?, -- one sentence, for the skill bar's hover tip (TIPS below)
+	tomes: { string }?, -- tome ids that work well with it (TIPS below)
 	animationId: string?,
 	slashAnimationId: string?,
 	range: number?,
@@ -67,7 +69,7 @@ local SkillData: { [string]: ClassSkills } = {
 			damage = 24,
 			range = 42,
 			duration = 4.0,
-			description = "Fire an arrow skyward to mark a large zone, then call down a repeated storm of arrows.",
+			description = "Slam your bow down: a colossal plant bursts up behind you and spits a great arrow into the sky that shatters into a rain of arrows over a large zone. The plant taunts nearby enemies, sprays them with venom like a flamethrower and lashes any that come close with its tendrils, knocking them back.",
 		},
 	},
 	-- The Fire Knight (class id kept as heavy_knight; FireKnightServer).
@@ -460,6 +462,85 @@ SkillData.martial_artist = {
 		description = "Ultimate: charge a sphere of crimson energy in your hand, thrust it forward and fire it through every enemy in its path; it bursts where it ends. Grows with Size.",
 	},
 }
+
+-- The skill bar's hover tip: one sentence on what the skill does, and the
+-- tomes that make it better (only ones its code actually reads: Size for its
+-- area, Duration for how long it lasts, Quantity for extra projectiles or
+-- echoes, Ricochet for skills whose hits bounce, and so on).
+local TIPS: { [string]: { { any } } } = {
+	ranger = {
+		{ "Dash forward, cutting through every enemy in your path.", { "size", "cooldown", "damage" } },
+		{ "Root a group of enemies in place with bursting vines.", { "duration", "size", "cooldown" } },
+		{ "For 8 seconds every attack also fires homing missiles.", { "duration", "quantity", "attack_speed" } },
+		{ "Summon a giant plant that taunts and whips enemies while arrows rain down.", { "size", "duration", "knockback" } },
+	},
+	heavy_knight = {
+		{ "Spin inside a tornado of fire that drags enemies along and burns them.", { "size", "knockback", "damage" } },
+		{ "Fly up as a phoenix and dive onto the spot you choose.", { "size", "damage", "cooldown" } },
+		{ "Drive the sword down for a huge explosion and rolling aftershocks.", { "size", "damage", "cooldown" } },
+		{ "Bring down a sword of golden fire that sends a vast wave down a line.", { "size", "damage", "cooldown" } },
+	},
+	berserker = {
+		{ "Leap to the cursor and crash down, knocking enemies into the air.", { "size", "knockback", "cooldown" } },
+		{ "Carve crimson crescents in front of you while taking half damage.", { "size", "bloody", "armor" } },
+		{ "Charge through enemies untouchable and Empower your next skill.", { "size", "knockback", "cooldown" } },
+		{ "At full Rage, become a beast whose skills hit harder and recharge faster.", { "duration", "size", "bloody" } },
+	},
+	cleric = {
+		{ "Send a homing bolt of green fire that heals the most wounded ally.", { "cooldown", "regen" } },
+		{ "Fire a beam of holy light that hits everything in a line.", { "quantity", "size", "duration" } },
+		{ "Bless an area that heals and cleanses allies standing in it.", { "size", "duration", "cooldown" } },
+		{ "Revive fallen teammates, heal the party and smite enemies nearby.", { "size", "cooldown" } },
+	},
+	ice_mage = {
+		{ "Send a line of spikes that pierces and briefly freezes enemies.", { "quantity", "size", "cooldown" } },
+		{ "Channel a freezing beam into the first enemy it touches.", { "quantity", "duration", "size" } },
+		{ "Summon a clone that taunts enemies and bursts into frost when broken.", { "size", "cooldown" } },
+		{ "Call down a blizzard that freezes and batters every enemy inside.", { "size", "duration", "cooldown" } },
+	},
+	gunslinger = {
+		{ "Empty the revolver in one fast, short-range burst.", { "quantity", "ricochet", "size" } },
+		{ "Roll away untouchable, drop a stunning flashbang and fire a shot.", { "quantity", "size", "cooldown" } },
+		{ "Toss a coin and shoot it to split your bullet across the room.", { "quantity", "ricochet", "duration" } },
+		{ "Slow time, mark every enemy and gun them down one by one.", { "quantity", "size", "precision" } },
+	},
+	swordsman = {
+		{ "Dash through enemies with two quick strikes.", { "size", "cooldown", "damage" } },
+		{ "Block an attack, stun the attacker and counter with a huge slash.", { "duration", "size", "cooldown" } },
+		{ "Lunge forward with a long thrust that pierces a whole line.", { "quantity", "size", "cooldown" } },
+		{ "Slow the world and flash between every enemy in a chain of cuts.", { "size", "damage", "precision" } },
+	},
+	rogue = {
+		{ "Throw a dagger that marks an enemy, then step into the shadows behind it.", { "duration", "size", "projectile_speed" } },
+		{ "Dash through enemies, slashing and marking them as you go.", { "size", "cooldown", "precision" } },
+		{ "Vanish and move faster while enemies lose track of you.", { "duration", "agility", "cooldown" } },
+		{ "Vanish in smoke as afterimages strike everything, then detonate every mark.", { "size", "precision", "damage" } },
+	},
+	mage = {
+		{ "Fire an arcane bolt that explodes and pulls enemies together.", { "quantity", "size", "projectile_speed" } },
+		{ "Trap enemies in a circle that charges up and explodes.", { "size", "duration", "cooldown" } },
+		{ "Teleport to a spot, leaving a shockwave and an echo of your next spell.", { "size", "cooldown" } },
+		{ "Mark every enemy nearby, rain arcane bolts on them, then detonate the marks.", { "size", "damage", "cooldown" } },
+	},
+	martial_artist = {
+		{ "Hammer out a barrage of punches, then finish with a punch that craters a cone.", { "size", "knockback", "ricochet" } },
+		{ "Dash in and launch enemies with an uppercut of chaining lightning.", { "quantity", "ricochet", "size" } },
+		{ "Leap up and dive onto the spot in an explosive impact.", { "size", "damage", "cooldown" } },
+		{ "Fire a sphere of crimson energy that tears through everything in its path.", { "size", "damage", "cooldown" } },
+	},
+}
+for classId, list in pairs(TIPS) do
+	local skills = SkillData[classId]
+	if skills then
+		for i, tip in ipairs(list) do
+			local config = skills[i]
+			if config then
+				config.hint = tip[1]
+				config.tomes = tip[2]
+			end
+		end
+	end
+end
 
 local SkillModule = {}
 

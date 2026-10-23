@@ -41,11 +41,16 @@ export type Map = {
 	packs: { number },      -- MobKinds PACKS indices its rooms draw from
 	bosses: { string },     -- BossAI kinds for the other boss rooms
 	lighting: Lighting,
-	endless: boolean?,      -- the Endless Abyss: no collapse, its leaderboard (Leaderboard.luau)
 	unlockFloor: number?,   -- your deepest floor must reach this to enter
 	assets: string?,        -- its own dungeon pieces: a folder in ReplicatedStorage (DungeonGenerator)
 	prison: boolean?,       -- the prison: spotlights hunt you, three sightings raise the alarm (Prison.luau)
 	arcade: boolean?,       -- the arcade: neon rooms (no torches, candles or rubble) and immunity towers (ImmunityTower)
+	keep: boolean?,         -- the Infernal Keep: KeepKit's fortress, lava pits, the lava sea and spires (DungeonGenerator keepDecor)
+	-- The tutorial (MapData.Tutorial, never on the map picker): its rooms in
+	-- this order, one after another (DungeonGenerator), weaker mobs and boss,
+	-- popups in every room (Tutorial.luau, TutorialController).
+	tutorial: boolean?,
+	plan: { string }?,
 	-- How its rooms are joined (DungeonGenerator): "stairs" (the default:
 	-- corridors, stairs where they change height), "lift" (corridors, a lift
 	-- at each change of height) or "portal" (no corridors, no map: the floor
@@ -96,9 +101,25 @@ MapData.Maps = {
 		stone = Color3.fromRGB(230, 200, 190),
 		packs = { 2, 5, 3, 7 },
 		bosses = { "warlord", "fallen_angel" },
+		assets = "map:keep assets",
+		keep = true,
+		-- dusk in hell: a blood-red sky and haze, light glowing up off the
+		-- lava, deep purple shadows
 		lighting = {
-			tint = Color3.fromRGB(255, 238, 228),
-			saturation = 0.35,
+			tint = Color3.fromRGB(255, 236, 222),
+			saturation = 0.12,
+			clockTime = 15.5,
+			ambient = Color3.fromRGB(105, 82, 92),
+			outdoorAmbient = Color3.fromRGB(135, 98, 92),
+			brightness = 3,
+			exposure = 0.35,
+			bloom = { intensity = 0.5, size = 18, threshold = 1.35 },
+			fog = {
+				color = Color3.fromRGB(175, 62, 40),
+				decay = Color3.fromRGB(60, 16, 20),
+				density = 0.22,
+				haze = 1.3,
+			},
 		},
 	},
 	{
@@ -147,24 +168,29 @@ MapData.Maps = {
 			},
 		},
 	},
-	{
-		id = "endless",
-		name = "The Endless Abyss",
-		subtitle = "How deep can you go?",
-		rank = "∞",
-		description = "Every horror of every dungeon, floor after floor, the Corruption rising from the first step. It never collapses. Extract every 5th floor, or keep going for the Hall of the Deep.",
-		color = Color3.fromRGB(180, 90, 255),
-		stone = Color3.fromRGB(190, 180, 215),
-		packs = { 1, 2, 3, 4, 5, 7 },
-		bosses = { "colossus", "witch", "warlord", "fallen_angel" },
-		endless = true,
-		unlockFloor = 6,
-		lighting = {
-			tint = Color3.fromRGB(240, 228, 255),
-			saturation = 0.25,
-		},
-	},
 } :: { Map }
+
+-- The tutorial: every kind of room in turn, taken one at a time through
+-- portals, with a popup in each explaining it. Not on the map picker (its
+-- own button there, and new players are sent in once: Tutorial.luau).
+MapData.Tutorial = {
+	id = "tutorial",
+	name = "The Proving Grounds",
+	subtitle = "Learn the ropes",
+	rank = "-",
+	description = "A short guided dungeon: every kind of room, one after another, and a weakened boss.",
+	color = Color3.fromRGB(150, 220, 255),
+	stone = Color3.fromRGB(215, 215, 225),
+	packs = { 1 },
+	bosses = { "warlord" },
+	transit = "portal",
+	tutorial = true,
+	plan = { "Start", "Combat", "Treasure", "Elite", "Shop", "Gamble", "Rest", "Cursed", "Purge", "Boss" },
+	lighting = {
+		tint = Color3.fromRGB(250, 246, 240),
+		saturation = 0.2,
+	},
+} :: Map
 
 MapData.DEFAULT = "keep"
 
@@ -173,6 +199,7 @@ MapData.LOBBY_CENTER = Vector3.new(-4200, 300, 0)
 
 local byId: { [string]: Map } = {}
 for _, m in ipairs(MapData.Maps) do byId[m.id] = m end
+byId[MapData.Tutorial.id] = MapData.Tutorial
 
 function MapData.Get(id: any): Map?
 	return if typeof(id) == "string" then byId[id] else nil

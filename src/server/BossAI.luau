@@ -53,6 +53,7 @@ end
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local RunScope = require(Shared:WaitForChild("RunScope"))
 local DifficultyManager = require(script.Parent:WaitForChild("DifficultyManager"))
 local Hazards = require(script.Parent:WaitForChild("Hazards"))
 
@@ -2306,7 +2307,9 @@ function BossAI.Attach(model: Model, kindId: string)
 	local b: Boss = {
 		model = model, hum = hum, root = root, kind = kind,
 		floorY = model:GetAttribute("FloorY") or (root.Position.Y - 3),
-		damage = kind.damage * DifficultyManager.GetMobScale(runId).damage,
+		-- (the tutorial's boss hits softly: it's there to teach dodging)
+		damage = kind.damage * DifficultyManager.GetMobScale(runId).damage
+			* (if runId and RunScope.Get(runId, "Tutorial") == true then 0.5 else 1),
 		enraged = false, minions = {},
 		home = root.Position, runId = runId,
 	}

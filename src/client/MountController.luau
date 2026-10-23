@@ -36,8 +36,8 @@ local function toggle()
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	if not char or not hum or hum.Health <= 0 or char:GetAttribute("Tumbling") then return end
-	-- (only in the lobby plaza or a run, never the menus)
-	if not (player:GetAttribute("InHub") == true or player:GetAttribute("InLobby") == false) then return end
+	-- (only in the lobby plaza: never in a run or the menus)
+	if player:GetAttribute("InHub") ~= true then return end
 	local riding = char:GetAttribute("Riding") ~= nil
 	if not riding and typeof(player:GetAttribute("Mount")) ~= "string" then return end
 	Network.GetRemoteEvent(Network.Remotes.MountToggle):FireServer(not riding)

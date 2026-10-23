@@ -286,6 +286,7 @@ end
 -- Animated Mob Support (rigged Zombies / Skeletons with walk & attack anims)
 -- ─────────────────────────────────────────────────────────────────────────────
 local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
 
 -- The mob freeze used by ultimates: while it holds, every mob AI loop of
 -- that run halts (other parties' runs carry on).
@@ -1450,21 +1451,10 @@ local function createEmblem(group: RoomMobGroup)
 	end)
 	e.group = group
 
-	-- Gentle bob; the core pulses faster as it charges.
-	local t0 = os.clock()
-	local conn: RBXScriptConnection? = nil
-	conn = RunService.Heartbeat:Connect(function()
-		if not model.Parent or e.claimed then
-			if conn then conn:Disconnect() end
-			return
-		end
-		local t = os.clock() - t0
-		local cf = CFrame.new(pos + Vector3.new(0, ORB_Y + math.sin(t * 2) * 0.3, 0))
-		orb.CFrame = cf
-		local pulse = 1 + math.sin(t * (3 + e.charge * 6)) * 0.08 * (0.3 + e.charge)
-		core.Size = Vector3.one * 1.8 * pulse
-		core.CFrame = cf
-	end)
+	-- Gentle bob; the core pulses faster once it's charged: on each client
+	-- (HazardFX), not moved from here every frame
+	model:SetAttribute("Center", pos + Vector3.new(0, ORB_Y, 0))
+	CollectionService:AddTag(model, "HazardFX")
 end
 
 local function roomProgress(group: RoomMobGroup): (number, number)
@@ -1752,16 +1742,30 @@ local function planRoom(group: RoomMobGroup)
 		remaining = math.max(2, math.floor(remaining / 2)) -- the boss is the fight
 	end
 
-	for _, r in ipairs(group.mobs) do r.group = group end -- the boss
-	-- (Corruption brings out more elites; the Endless Abyss, more of everything each floor)
-	local eliteChance = eliteChanceFor(tier) + 0.04 * (RunScope.Get(group.runId, "Corruption") or 0)
-	if map and map.endless then
-		remaining += math.min(12, level)
-		eliteChance += 0.02 * level
+	-- (the tutorial: a few weak mobs a room, and the boss alone)
+	if RunScope.Get(group.runId, "Tutorial") == true then
+		remaining = if room.roomType == "Boss" then 0 elseif room.roomType == "Elite" then 3 else 4
 	end
+	for _, r in ipairs(group.mobs) do r.group = group end -- the boss
+	-- (Corruption brings out more elites)
+	local eliteChance = eliteChanceFor(tier) + 0.04 * (RunScope.Get(group.runId, "Corruption") or 0)
 	if WeeklyModifiers.Is("elite_invasion") then eliteChance *= 3 end
 	-- A themed pack for the room (MobKinds): ghouls and wraiths in a crypt,
 	-- magma and bloat slimes in a slime pit, and so on.
+	-- (the Infernal Keep's lava pits: no mob is put down in one)
+	local blocked = (require(script.Parent:WaitForChild("DungeonGenerator")) :: any).Blocked(group.runId)
+	local function spawnSpot(): CFrame
+		local x, z = 0, 0
+		for _ = 1, 12 do
+			x, z = math.random(math.floor(minX), math.floor(maxX)), math.random(math.floor(minZ), math.floor(maxZ))
+			local inPit = false
+			for _, b in ipairs(blocked) do
+				if x >= b[1] and x <= b[2] and z >= b[3] and z <= b[4] then inPit = true break end
+			end
+			if not inPit then break end
+		end
+		return CFrame.new(x, room.floorY, z) * CFrame.Angles(0, math.rad(math.random(0, 360)), 0)
+	end
 	for _, kindId in ipairs(MobKinds.PlanRoom(remaining, level, if map then map.packs else nil, (RunScope.Get(group.runId, "RunElapsed") or 0) / 60)) do
 		local template = MobKinds.Template(kindId)
 		if not template and #normalTemplates > 0 then template = normalTemplates[math.random(1, #normalTemplates)] end
@@ -1770,7 +1774,7 @@ local function planRoom(group: RoomMobGroup)
 			template = template,
 			kind = kindId,
 			affix = if elite then MobKinds.RollAffix(tier) else nil,
-			spawnCFrame = CFrame.new(math.random(math.floor(minX), math.floor(maxX)), room.floorY, math.random(math.floor(minZ), math.floor(maxZ))) * CFrame.Angles(0, math.rad(math.random(0, 360)), 0),
+			spawnCFrame = spawnSpot(),
 			isBoss = false,
 			isElite = elite,
 			group = group,

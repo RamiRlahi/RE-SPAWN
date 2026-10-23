@@ -80,6 +80,11 @@ Network.Remotes = {
 	DiscardTome         = "DiscardTome",      -- client → server: { tomeId, roomId } sacrifice one tome
 	DiscardTomeOffer    = "DiscardTomeOffer", -- server → client: { roomId, tomes } prompt player to choose a tome to discard
 	EmotePlay           = "EmotePlay",        -- client → server: emoteId; server → all clients: { player, emoteId } or { player, emoteId = "__cancel" }
+	Dash                = "Dash",             -- client → server: the dash (right click) went off: brief dodge i-frames
+	TutorialStep        = "TutorialStep",     -- server → client: { step, room, of } a tutorial popup to show
+	LavaEscape          = "LavaEscape",       -- client → server: the lava quick-time sequence beaten (Hazards)
+	LavaHelp            = "LavaHelp",         -- client → server: userId of the stuck teammate you pulled out (E)
+	FloorReady          = "FloorReady",       -- client → server: the new level's floor has arrived under you (DungeonGenerator.NextLevel)
 }
 
 local function getFolder(): Folder

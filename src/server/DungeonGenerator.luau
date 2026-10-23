@@ -28,6 +28,7 @@ local MapData           = require(ReplicatedStorage:WaitForChild("Shared"):WaitF
 local RunScope          = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RunScope"))
 local Network           = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Network"))
 local ArcadeKit         = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ArcadeKit"))
+local KeepKit           = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("KeepKit"))
 
 local DungeonGenerator = {}
 
@@ -292,7 +293,16 @@ end
 
 local function mapAssetSet(folderName: string): AssetSet?
 	if mapSets[folderName] then return mapSets[folderName] end
-	local root = ReplicatedStorage:FindFirstChild(folderName)
+	local root: Instance? = ReplicatedStorage:FindFirstChild(folderName)
+	-- (the Infernal Keep's pieces are built in code: KeepKit)
+	if not root and folderName == "map:keep assets" then
+		local f = Instance.new("Folder")
+		f.Name = folderName
+		for _, piece in ipairs(KeepKit.PIECES) do
+			if piece.kind ~= "set" then piece.build().Parent = f end
+		end
+		root = f
+	end
 	if not root then
 		warn(`[DungeonGenerator] map assets '{folderName}' not found: the default set is used`)
 		return nil
@@ -835,7 +845,10 @@ end
 -- next layer: RoomPortals puts a portal for each on its far wall, labelled
 -- with what's through it, opening when the room is cleared.
 local LAYERS_GAP = 30 -- tiles between layers (along +X) and between a layer's rooms (along Z)
-local function buildLayeredGraph(rng: Random, config: DungeonConfig): ({ RoomData }, { [string]: CellData })
+-- The tutorial (MapData `plan`): one room a layer, in the plan's order, laid
+-- out in rows of TUTORIAL_ROW (back and forth) so the floor fits its slot.
+local TUTORIAL_ROW = 5
+local function buildLayeredGraph(rng: Random, config: DungeonConfig, plan0: { string }?): ({ RoomData }, { [string]: CellData })
 	local rooms: { RoomData } = {}
 	local floorGrid: { [string]: CellData } = {}
 	local function pick(list: { string }): string return list[rng:NextInteger(1, #list)] end
@@ -846,13 +859,17 @@ local function buildLayeredGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 		end
 		return t
 	end
-	local plan = {
+	local plan: { { string } } = {
 		{ "Start" },
 		shuffle({ "Combat", pick({ "Combat", "Elite", "Treasure" }) }),
 		shuffle({ "Combat", pick({ "Combat", "Elite" }), pick({ "Shop", "Rest", "Gamble", "Treasure", "Event", "Cursed" }) }),
 		shuffle({ pick({ "Combat", "Elite" }), pick({ "Rest", "Shop", "Event", "Purge" }) }),
 		{ "Boss" },
 	}
+	if plan0 then
+		plan = {}
+		for _, rtype in ipairs(plan0) do table.insert(plan, { rtype }) end
+	end
 	local id = 0
 	local prev: { RoomData } = {}
 	for layer, types in ipairs(plan) do
@@ -865,6 +882,13 @@ local function buildLayeredGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 			local d = w
 			local gx = (layer - 1) * LAYERS_GAP - math.floor(w / 2)
 			local gz = math.floor((k - (#types + 1) / 2) * LAYERS_GAP) - math.floor(d / 2)
+			if plan0 then
+				local row = (layer - 1) // TUTORIAL_ROW
+				local col = (layer - 1) % TUTORIAL_ROW
+				if row % 2 == 1 then col = TUTORIAL_ROW - 1 - col end
+				gx = col * LAYERS_GAP - math.floor(w / 2)
+				gz = row * LAYERS_GAP - math.floor(d / 2)
+			end
 			local room: RoomData = {
 				id = id,
 				roomType = rtype :: RoomType,
@@ -1336,8 +1360,7 @@ end
 -- same one (the dead come back on the next floor). A count hangs over each
 -- portal, and each player's screen shows it too (FloorPortal).
 --   Descending past an extraction floor wakes the dungeon's Corruption
---   (Corruption.luau); when it collapses, an escape portal opens where the
---   floor began.
+--   (Corruption.luau).
 local GO_AFTER = 1.2      -- everyone in the same portal this long, then go (step out and it's off)
 local EXTRACT_EVERY = 3   -- floors 3, 6, 9… offer extraction
 DungeonGenerator.EXTRACT_EVERY = EXTRACT_EVERY
@@ -1804,6 +1827,196 @@ local function constructRoomLift(stair: StairData, parent: Instance, floorsFolde
 	end)
 end
 
+-- ── The Infernal Keep's way down: the demon gate and a dark hallway ────────
+-- Instead of the lift: the boss arena's demon-skull gate, set in a gap in one
+-- of its walls. Once the boss falls its portcullis grinds up and the molten
+-- glow behind it dies, showing a dark hallway running away from the keep:
+-- walk down it into the dark (the descend vote, as on the lift). It stands
+-- on the arena's +X or -Z wall (top right / top left on screen, facing the
+-- camera, so the opening is seen), at the spot along them where the hallway,
+-- and some way past its end, crosses no room, corridor or stair, and no
+-- doorway is near: the middlest spot with plenty of room, the hallway as long
+-- as fits (up to HALL_LEN). Under 36 studs to spare anywhere there: the lift.
+local keepExitBuilt = false
+local HALL_LEN = 64
+local HALL_W = 12       -- inside
+
+local function constructKeepExit(room: RoomData, floorGrid: { [string]: CellData }, doorways: { DoorwayData },
+	stairs: { StairData }, wallsFolder: Folder, parentFolder: Folder, runId: string): CFrame?
+	local minX, maxX = room.gx, room.gx + room.w - 1
+	local minZ, maxZ = room.gz, room.gz + room.d - 1
+	local top = room.floorY + 0.5 -- (the keep's floor pieces: their top)
+	-- Where it can stand: on the arena's +X wall or its -Z wall, the two the
+	-- camera faces (IsometricCamera sits off to -X, +Z): seen top right and
+	-- top left on screen, the gate facing the player, the hallway running
+	-- away into the screen. Along each wall, every cell clear of the corners,
+	-- the middle ones first.
+	local sides: { { Vector3 } } = {}
+	local function along(n: number, mid: number, first: number, make: (number) -> { Vector3 })
+		local spots = {}
+		for k = first + 2, first + n - 3 do table.insert(spots, k) end
+		table.sort(spots, function(a, b) return math.abs(a - mid) < math.abs(b - mid) end)
+		for _, k in ipairs(spots) do table.insert(sides, make(k)) end
+	end
+	along(room.d, room.gz + (room.d - 1) / 2, room.gz, function(gz)
+		return { Vector3.new(maxX * FLOOR_SIZE + FLOOR_SIZE / 2, top, gz * FLOOR_SIZE), Vector3.new(1, 0, 0) }
+	end)
+	along(room.w, room.gx + (room.w - 1) / 2, room.gx, function(gx)
+		return { Vector3.new(gx * FLOOR_SIZE, top, minZ * FLOOR_SIZE - FLOOR_SIZE / 2), Vector3.new(0, 0, -1) }
+	end)
+
+	-- How far out from `at` the way is clear: no floor cell (room or corridor)
+	-- or stair within the hallway's width (and a margin) up to there; 0 if a
+	-- doorway is by the gate.
+	local function clearFor(at: Vector3, out: Vector3): number
+		for _, dw in ipairs(doorways) do
+			if Vector2.new(dw.position.X - at.X, dw.position.Z - at.Z).Magnitude < 26 then return 0 end
+		end
+		local side = Vector3.new(out.Z, 0, -out.X)
+		local halfW = HALL_W / 2 + 3 + 10
+		local best = math.huge
+		local function consider(px: number, pz: number, pad: number)
+			local rel = Vector3.new(px - at.X, 0, pz - at.Z)
+			local along, across = rel:Dot(out), rel:Dot(side)
+			if along > 0.5 and math.abs(across) < halfW + pad then
+				best = math.min(best, along - pad)
+			end
+		end
+		for key in pairs(floorGrid) do
+			local c = string.split(key, "_")
+			consider((tonumber(c[1]) :: number) * FLOOR_SIZE, (tonumber(c[2]) :: number) * FLOOR_SIZE, FLOOR_SIZE * 0.75)
+		end
+		for _, st in ipairs(stairs) do consider(st.cframe.Position.X, st.cframe.Position.Z, 14) end
+		return best
+	end
+	local pick: { Vector3 }? = nil
+	local room0 = 0
+	for _, sd in ipairs(sides) do
+		-- (the first spot with plenty of room wins: the middlest)
+		local c = clearFor(sd[1], sd[2])
+		if c > room0 then
+			room0 = c
+			pick = sd
+		end
+		if room0 >= HALL_LEN + 40 then break end
+	end
+	-- (the hallway, with some open dark past its end; a short one if that's all there is)
+	local hallLen = math.min(HALL_LEN, room0 - 24)
+	print(`[DungeonGenerator] Keep exit: clearest side has {if room0 == math.huge then "open" else math.floor(room0)} studs: hallway {math.floor(hallLen)}`)
+	if hallLen < 36 then pick = nil end
+	if not pick then return nil end
+	local at: Vector3, out: Vector3 = pick[1], pick[2]
+	local into = -out
+	local folder = Instance.new("Folder")
+	folder.Name = "KeepExit"
+	folder.Parent = parentFolder
+
+	-- the gap in the wall (the piece there, and any pillar in the way)
+	for _, piece in ipairs(wallsFolder:GetChildren()) do
+		local pos = if piece:IsA("Model") then piece:GetPivot().Position elseif piece:IsA("BasePart") then piece.Position else nil
+		if pos and math.abs(pos.Y - top) < 30 then
+			local rel = Vector3.new(pos.X - at.X, 0, pos.Z - at.Z)
+			if math.abs(rel:Dot(out)) < 4 and math.abs(rel:Dot(Vector3.new(out.Z, 0, -out.X))) < 7 then piece:Destroy() end
+		end
+	end
+
+	-- the gate, its back to the wall line, facing into the arena
+	local gate = KeepKit.Build("Demon_Gate") :: Model
+	local gateCF = CFrame.lookAt(at + into * 3, at + into * 10)
+	gate:PivotTo(gateCF)
+	gate.Parent = folder
+	local bars, glows = {}, {}
+	for _, d in ipairs(gate:GetDescendants()) do
+		if d:IsA("BasePart") then
+			if d.Name == "Portcullis" then table.insert(bars, d) elseif d.Name == "GateGlow" then table.insert(glows, d) end
+		end
+	end
+	-- (shut: nobody through until the boss is down)
+	local blocker = Instance.new("Part")
+	blocker.Name = "GateBlocker"
+	blocker.Anchored, blocker.CanCollide, blocker.CanQuery, blocker.CanTouch = true, true, false, false
+	blocker.Transparency = 1
+	blocker.Size = Vector3.new(HALL_W + 2, 18, 1)
+	blocker.CFrame = CFrame.lookAt(at + Vector3.new(0, 9, 0), at + Vector3.new(0, 9, 0) + out)
+	blocker.Parent = folder
+
+	-- the hallway: dark stone, no light, darkening to black, a roof over its far reach
+	local cfHall = CFrame.lookAt(at, at + out) -- (-Z along the hallway)
+	local function hallPart(name: string, size: Vector3, cf: CFrame, color: Color3, transparency: number?)
+		local p = Instance.new("Part")
+		p.Name = name
+		p.Anchored, p.CanTouch = true, false
+		p.Size, p.CFrame, p.Color = size, cf, color
+		p.Material = Enum.Material.Slate
+		p.Transparency = transparency or 0
+		p.TopSurface, p.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
+		p.Parent = folder
+		return p
+	end
+	local DARK = Color3.fromRGB(22, 16, 20)
+	hallPart("HallFloor", Vector3.new(HALL_W + 1, 1, hallLen), cfHall * CFrame.new(0, -0.5, -hallLen / 2), Color3.fromRGB(34, 26, 30))
+	for _, sx in ipairs({ -1, 1 }) do
+		hallPart("HallWall", Vector3.new(3, 24, hallLen), cfHall * CFrame.new(sx * (HALL_W / 2 + 1.5), 12, -hallLen / 2), DARK)
+	end
+	hallPart("HallRoof", Vector3.new(HALL_W + 6, 2, hallLen - 14), cfHall * CFrame.new(0, 24, -(14 + (hallLen - 14) / 2)), DARK)
+	hallPart("HallEnd", Vector3.new(HALL_W + 6, 26, 2), cfHall * CFrame.new(0, 12, -hallLen - 1), Color3.new(0, 0, 0))
+	-- the dark: veils of black across it, thicker the deeper in
+	local veils = 6
+	for k = 1, veils do
+		local dist = 10 + (hallLen - 14) * (k - 1) / (veils - 1)
+		local v = hallPart("Darkness", Vector3.new(HALL_W, 22, 0.2), cfHall * CFrame.new(0, 11, -dist), Color3.new(0, 0, 0),
+			0.82 - 0.8 * (k - 1) / (veils - 1))
+		v.Material = Enum.Material.SmoothPlastic
+		v.CanCollide, v.CanQuery = false, false
+		v.CastShadow = false
+	end
+	-- the way down: near the end, in the dark
+	local zone = Instance.new("Part")
+	zone.Name = "DescendZone"
+	zone.Anchored, zone.CanCollide, zone.CanQuery, zone.CanTouch = true, false, false, false
+	zone.Transparency = 1
+	zone.Size = Vector3.new(HALL_W, 14, 20)
+	zone.CFrame = cfHall * CFrame.new(0, 7, -(hallLen - 14))
+	zone.Parent = folder
+
+	-- opening, once the boss is down: the bars grind up, the glow dies
+	local bossId = room.id
+	task.spawn(function()
+		while folder.Parent do
+			local list = RunScope.Get(runId, "ClearedRooms")
+			if typeof(list) == "string" and string.find(list, `|{bossId}|`, 1, true) then break end
+			task.wait(0.5)
+		end
+		if not folder.Parent then return end
+		for _, b in ipairs(bars) do
+			TweenService:Create(b, TweenInfo.new(2.4, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { CFrame = b.CFrame + Vector3.new(0, 15, 0) }):Play()
+		end
+		for _, g in ipairs(glows) do
+			TweenService:Create(g, TweenInfo.new(2, Enum.EasingStyle.Quad), { Transparency = 1 }):Play()
+		end
+		task.wait(2.4)
+		for _, b in ipairs(bars) do b.Transparency = 1 end
+		blocker:Destroy()
+	end)
+
+	local portals: { Portal } = {}
+	local bb, text = countBoard(zone)
+	table.insert(portals, { part = zone, kind = "descend", bb = bb, text = text })
+	local d = dungeons[runId]
+	local level = if d then d.level else 1
+	local extractFloor = level % EXTRACT_EVERY == 0 or RunScope.Get(runId, "Tutorial") == true
+	if extractFloor then
+		-- in the arena before the gate
+		local base = at + into * 22
+		local ez = buildExtractPortal(CFrame.lookAt(base, base + out), folder)
+		local ebb, etext = countBoard(ez)
+		table.insert(portals, { part = ez, kind = "extract", bb = ebb, text = etext })
+	end
+	watchPortals(runId, portals, extractFloor)
+	keepExitBuilt = true
+	return gateCF
+end
+
 local function constructDungeonLiftExit(liftCF: CFrame, parentFolder: Folder, runId: string)
 	local exitModel = Instance.new("Folder")
 	exitModel.Name = "DungeonLiftExit"
@@ -2067,15 +2280,17 @@ local function constructDungeonLiftExit(liftCF: CFrame, parentFolder: Folder, ru
 	end
 
 	local portals: { Portal } = {}
-	local bb, text = countBoard(liftZone)
-	table.insert(portals, { part = liftZone, kind = "descend", bb = bb, text = text, rise = rise })
+	-- (the tutorial ends here: its way out is the extraction portal alone)
+	local tutorial = RunScope.Get(runId, "Tutorial") == true
+	if not tutorial then
+		local bb, text = countBoard(liftZone)
+		table.insert(portals, { part = liftZone, kind = "descend", bb = bb, text = text, rise = rise })
+	end
 
 	-- (the floor's level: every third one offers extraction)
 	local d = dungeons[runId]
 	local level = if d then d.level else 1
-	local map = MapData.Get(RunScope.Get(runId, "MapId"))
-	local every = if map and map.endless then 5 else EXTRACT_EVERY
-	local extractFloor = level % every == 0
+	local extractFloor = level % EXTRACT_EVERY == 0 or tutorial
 	if extractFloor then
 		-- in front of the lift in the room
 		local base = liftCF * CFrame.new(0, 0, -18)
@@ -2084,33 +2299,6 @@ local function constructDungeonLiftExit(liftCF: CFrame, parentFolder: Folder, ru
 		table.insert(portals, { part = zone, kind = "extract", bb = ebb, text = etext })
 	end
 	watchPortals(runId, portals, extractFloor)
-end
-
--- The dungeon is collapsing (Corruption.luau): an escape portal where the
--- floor began. All living players in it: they extract.
-function DungeonGenerator.OpenEscapePortal(runId: string)
-	local d = dungeons[runId]
-	if not d or not d.spawn then return end
-	local holder = Instance.new("Folder")
-	holder.Name = "EscapePortal"
-	holder.Parent = d.folder
-	local spawnPos = d.spawn.Position
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	local chars = {}
-	for _, p in ipairs(Players:GetPlayers()) do if p.Character then table.insert(chars, p.Character) end end
-	params.FilterDescendantsInstances = chars
-	local hit = Workspace:Raycast(spawnPos + Vector3.new(6, 10, 0), Vector3.new(0, -40, 0), params)
-	local floorPos = if hit then hit.Position else spawnPos - Vector3.new(0, 3, 0)
-	local zone = buildExtractPortal(CFrame.new(floorPos) * d.spawn.Rotation, holder)
-	local bb, text = countBoard(zone)
-	watchPortals(runId, { { part = zone, kind = "extract", bb = bb, text = text } }, true)
-	-- (gone with the level)
-	task.spawn(function()
-		local level = d.level
-		while holder.Parent and dungeons[runId] and dungeons[runId].level == level do task.wait(0.5) end
-		holder:Destroy()
-	end)
 end
 
 -- ── 4. Special Room Gameplay + Rich Cosmetics ───────────────────────────────
@@ -2803,6 +2991,205 @@ local function prisonDecor(room: RoomData, propsFolder: Folder, rng: Random)
 	end
 end
 
+-- ── The Infernal Keep (MapData "keep": KeepKit's pieces) ────────────────────
+-- After its concept art: fire pedestals round each room's sigil dais, lava
+-- pits sunk in two corners of the bigger rooms (their floor cells left open;
+-- chains slung over them between stone posts; an invisible fence keeps
+-- everyone out), the boss's demon-skull gate on a wall of its arena, and
+-- outside the walls a lava sea far below with black spires rising from it.
+local keepTheme = false
+type Pit = { room: RoomData, cells: { string }, center: Vector3, size: Vector2, out: Vector2 }
+local keepPits: { Pit } = {}
+-- Per run: where the pits are ({ minX, maxX, minZ, maxZ }), so no mob spawns in one.
+local keepBlocked: { [string]: { { number } } } = {}
+local PIT_DEPTH = 9
+
+function DungeonGenerator.Blocked(runId: string?): { { number } }
+	return (runId and keepBlocked[runId]) or {}
+end
+
+-- Two opposite corners of each bigger room (not the boss's: its arena has
+-- its own lava), 2 × 2 cells each, clear of doorways and stairs. Returns the
+-- cells to leave without floor.
+local keepDoors: { Vector3 } = {} -- (this floor's doorways: the boss gate keeps clear of them)
+local function planKeepPits(rooms: { RoomData }, doorways: { DoorwayData }, stairs: { StairData }, rng: Random): { [string]: boolean }
+	table.clear(keepPits)
+	table.clear(keepDoors)
+	for _, dw in ipairs(doorways) do table.insert(keepDoors, dw.position) end
+	local cells: { [string]: boolean } = {}
+	for _, room in ipairs(rooms) do
+		if room.roomType == "Boss" or room.w < 9 or room.d < 9 then continue end
+		local minX, maxX = room.gx, room.gx + room.w - 1
+		local minZ, maxZ = room.gz, room.gz + room.d - 1
+		local corners = if rng:NextInteger(0, 1) == 0
+			then { { minX, minZ, -1, -1 }, { maxX - 1, maxZ - 1, 1, 1 } }
+			else { { maxX - 1, minZ, 1, -1 }, { minX, maxZ - 1, -1, 1 } }
+		for _, c in ipairs(corners) do
+			local x0, z0 = c[1], c[2]
+			local center = Vector3.new((x0 + 0.5) * FLOOR_SIZE, room.floorY, (z0 + 0.5) * FLOOR_SIZE)
+			local clear = true
+			for _, dw in ipairs(doorways) do
+				if Vector2.new(dw.position.X - center.X, dw.position.Z - center.Z).Magnitude < 32 then clear = false break end
+			end
+			for _, st in ipairs(stairs) do
+				local q = st.cframe.Position
+				if Vector2.new(q.X - center.X, q.Z - center.Z).Magnitude < 36 then clear = false break end
+			end
+			if clear then
+				local list = {}
+				for dx = 0, 1 do
+					for dz = 0, 1 do
+						local k = (x0 + dx) .. "_" .. (z0 + dz)
+						cells[k] = true
+						table.insert(list, k)
+					end
+				end
+				table.insert(keepPits, { room = room, cells = list, center = center, size = Vector2.new(24, 24), out = Vector2.new(c[3], c[4]) })
+			end
+		end
+	end
+	return cells
+end
+
+local function roomHasPit(room: RoomData): boolean
+	for _, pit in ipairs(keepPits) do
+		if pit.room == room then return true end
+	end
+	return false
+end
+
+local function onFloor(at: Vector3, floorY: number, exclude: Instance): Vector3?
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	rp.FilterDescendantsInstances = { exclude }
+	local hit = Workspace:Raycast(at + Vector3.new(0, 12, 0), Vector3.new(0, -24, 0), rp)
+	if hit and math.abs(hit.Position.Y - floorY) < 2 then return hit.Position end
+	return nil
+end
+
+local function keepDecor(room: RoomData, propsFolder: Folder, rng: Random)
+	local cx = (room.gx + (room.w - 1) / 2) * FLOOR_SIZE
+	local cz = (room.gz + (room.d - 1) / 2) * FLOOR_SIZE
+	-- fire pedestals at the corners of the sigil dais
+	if room.w >= 5 and room.d >= 5 then
+		local pedestal = KeepKit.Build("Fire_Pedestal")
+		for _, sx in ipairs({ -1, 1 }) do
+			for _, sz in ipairs({ -1, 1 }) do
+				local at = onFloor(Vector3.new(cx + sx * 14, room.floorY, cz + sz * 14), room.floorY, propsFolder)
+				if at and pedestal then spawnInstance(pedestal, CFrame.new(at), propsFolder, true) end
+			end
+		end
+		if pedestal then pedestal:Destroy() end
+	end
+	-- the lava pits, chains slung over them
+	for _, pit in ipairs(keepPits) do
+		if pit.room ~= room then continue end
+		local m = KeepKit.LavaPit(pit.size, PIT_DEPTH)
+		m:PivotTo(CFrame.new(pit.center))
+		m.Parent = propsFolder
+		local half = pit.size.X / 2
+		local o = Vector3.new(pit.out.X, 0, pit.out.Y)
+		-- corners: the inner one (toward the room) and the two along the walls
+		local inner = pit.center - o * half - o * 2
+		local edgeA = pit.center + Vector3.new(o.X * half, 0, -o.Z * half) + Vector3.new(0, 0, -o.Z * 2)
+		local edgeB = pit.center + Vector3.new(-o.X * half, 0, o.Z * half) + Vector3.new(-o.X * 2, 0, 0)
+		local tops = {}
+		for i, at in ipairs({ edgeA, inner, edgeB }) do
+			local post = KeepKit.ChainPost()
+			post:PivotTo(CFrame.new(at))
+			post.Parent = propsFolder
+			tops[i] = at + Vector3.new(0, KeepKit.CHAIN_Y, 0)
+		end
+		local chains = Instance.new("Model")
+		chains.Name = "PitChains"
+		KeepKit.Chain(tops[1], tops[2], 3.2, chains, 1.2)
+		KeepKit.Chain(tops[2], tops[3], 3.2, chains, 1.2)
+		chains.Parent = propsFolder
+	end
+	-- the boss's gate: against a wall of the arena with no doorway near (when
+	-- it isn't already the way out: constructKeepExit)
+	if room.roomType == "Boss" and not keepExitBuilt then
+		local gate = KeepKit.Build("Demon_Gate")
+		if not gate then return end
+		local hx, hz = room.w * FLOOR_SIZE / 2, room.d * FLOOR_SIZE / 2
+		local mx, mz = (room.gx + (room.w - 1) / 2) * FLOOR_SIZE, (room.gz + (room.d - 1) / 2) * FLOOR_SIZE
+		-- (each side: where it stands, its turn so it faces into the room; the
+		-- far +Z side is the lift's)
+		local sides = {
+			{ Vector3.new(mx, room.floorY, mz - hz + 3.5), math.pi },
+			{ Vector3.new(mx - hx + 3.5, room.floorY, mz), -math.pi / 2 },
+			{ Vector3.new(mx + hx - 3.5, room.floorY, mz), math.pi / 2 },
+		}
+		for _, side in ipairs(sides) do
+			local at: Vector3 = side[1]
+			local near = false
+			for _, door in ipairs(keepDoors) do
+				if Vector2.new(door.X - at.X, door.Z - at.Z).Magnitude < 30 then near = true break end
+			end
+			if not near then
+				gate:PivotTo(CFrame.new(at) * CFrame.Angles(0, side[2], 0))
+				gate.Parent = propsFolder
+				return
+			end
+		end
+		gate:Destroy()
+	end
+end
+
+-- Outside the walls: a lava sea far below, black spires rising from it.
+local function keepBackdrop(rooms: { RoomData }, parent: Instance, rng: Random)
+	local folder = Instance.new("Folder")
+	folder.Name = "KeepBackdrop"
+	local minX, maxX, minZ, maxZ, minY = math.huge, -math.huge, math.huge, -math.huge, math.huge
+	for _, r in ipairs(rooms) do
+		minX = math.min(minX, r.gx * FLOOR_SIZE - FLOOR_SIZE / 2)
+		maxX = math.max(maxX, (r.gx + r.w - 1) * FLOOR_SIZE + FLOOR_SIZE / 2)
+		minZ = math.min(minZ, r.gz * FLOOR_SIZE - FLOOR_SIZE / 2)
+		maxZ = math.max(maxZ, (r.gz + r.d - 1) * FLOOR_SIZE + FLOOR_SIZE / 2)
+		minY = math.min(minY, r.floorY)
+	end
+	if minX == math.huge then return end
+	local seaY = minY - 70
+	local margin = 380
+	local x0, x1, z0, z1 = minX - margin, maxX + margin, minZ - margin, maxZ + margin
+	-- the lava sea, laid in tiles (a part can't be larger than 2048)
+	local TILE = 600
+	for x = x0, x1, TILE do
+		for z = z0, z1, TILE do
+			local w = math.min(TILE, x1 - x)
+			local d = math.min(TILE, z1 - z)
+			local crust = Instance.new("Part")
+			crust.Name = "LavaSea"
+			crust.Anchored, crust.CanCollide, crust.CanQuery, crust.CanTouch, crust.CastShadow = true, false, false, false, false
+			crust.Material = Enum.Material.CrackedLava
+			crust.Color = Color3.fromRGB(255, 104, 30)
+			crust.Size = Vector3.new(w, 2, d)
+			crust.CFrame = CFrame.new(x + w / 2, seaY, z + d / 2)
+			crust.Parent = folder
+			local glowSheet = crust:Clone()
+			glowSheet.Name = "LavaGlow"
+			glowSheet.Material = Enum.Material.Neon
+			glowSheet.Color = Color3.fromRGB(200, 52, 10)
+			glowSheet.CFrame = crust.CFrame - Vector3.new(0, 1.2, 0)
+			glowSheet.Parent = folder
+		end
+	end
+	-- spires round it, taller further out, never over the dungeon
+	local c = Vector3.new((minX + maxX) / 2, seaY, (minZ + maxZ) / 2)
+	local rx, rz = (maxX - minX) / 2, (maxZ - minZ) / 2
+	local count = 26
+	for k = 1, count do
+		local a = (k + rng:NextNumber(-0.3, 0.3)) / count * math.pi * 2
+		local push = rng:NextNumber(60, margin - 40)
+		local at = c + Vector3.new(math.cos(a) * (rx + push), 0, math.sin(a) * (rz + push))
+		local h = 120 + push * 0.55 + rng:NextNumber(0, 90)
+		local spire = KeepKit.Spire(h, rng:NextInteger(1, 1e6))
+		spire:PivotTo(CFrame.new(at - Vector3.new(0, 4, 0)) * CFrame.Angles(0, rng:NextNumber() * math.pi * 2, 0))
+		spire.Parent = folder
+	end
+	folder.Parent = parent
+end
+
 local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Random)
 	local violet: Instance? = nil
 	if arcadeTheme then
@@ -2816,21 +3203,30 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 
 		buildSpecialRoom(room, propsFolder, rng)
 		if prisonTheme then prisonDecor(room, propsFolder, rng) end
+		if keepTheme then keepDecor(room, propsFolder, rng) end
 
 		-- Hazards: the boss arena gets lava, flame vents and cover pillars;
 		-- about a third of the combat rooms get spike traps.
 		-- (not in the arcade: its rooms are clean boards, and its boss turns
 		-- the arena floor into one)
+		-- (a map's own floor pieces sit their top half a stud over the room's
+		-- floor height: the hazards go on that top, not inside the floor)
+		local hazardRoom: any = room
+		if (assets :: any).ownArt == true then
+			hazardRoom = table.clone(room :: any)
+			hazardRoom.floorY = room.floorY + 0.5
+		end
 		if arcadeTheme then
 			-- nothing
 		elseif room.roomType == "Boss" then
-			Hazards.BuildBossArena(room :: any, propsFolder, rng)
-		elseif room.roomType == "Combat" and room.id ~= 1 and rng:NextNumber() < 0.35 then
-			Hazards.BuildTraps(room :: any, propsFolder, rng)
+			Hazards.BuildBossArena(hazardRoom, propsFolder, rng)
+		elseif room.id ~= 1 and ((room.roomType == "Combat" and rng:NextNumber() < 0.35) or (room.roomType == "Elite" and rng:NextNumber() < 0.5)) then
+			-- (clear of the Infernal Keep's lava pits)
+			Hazards.BuildTraps(hazardRoom, propsFolder, rng, if building then keepBlocked[building] else nil)
 		end
 
 		-- 1. Rubble: Generously placed along wall perimeters and in all room corners (raised +3 studs)
-		if #assets.rubble > 0 and not arcadeTheme then
+		if #assets.rubble > 0 and not arcadeTheme and not keepTheme then
 			local rubbleClusters = rng:NextInteger(3, 6)
 			for _ = 1, rubbleClusters do
 				local side = rng:NextInteger(1, 4)
@@ -2846,7 +3242,7 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 		end
 
 		-- 2. Barriers: Placed as tactical cover inside combat/elite rooms
-		if #assets.barriers > 0 and not arcadeTheme and (room.roomType == "Combat" or room.roomType == "Elite") then
+		if #assets.barriers > 0 and not arcadeTheme and not keepTheme and (room.roomType == "Combat" or room.roomType == "Elite") then
 			local barrierCount = rng:NextInteger(2, 4)
 			for _ = 1, barrierCount do
 				local bx = rng:NextInteger(minX + 1, maxX - 1)
@@ -2894,7 +3290,7 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 				end
 
 				-- (the arcade's props stand on the floor, their pivots at their base)
-				if arcadeTheme then cosPos = Vector3.new(cosPos.X, room.floorY + 0.5, cosPos.Z) end
+				if arcadeTheme or keepTheme then cosPos = Vector3.new(cosPos.X, room.floorY + (if keepTheme then 0 else 0.5), cosPos.Z) end
 				local cf = CFrame.new(cosPos) * CFrame.Angles(0, math.rad(rotY), 0)
 				spawnInstance(cosTemplate, cf, propsFolder, true)
 			end
@@ -2908,7 +3304,7 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 			local center = Vector3.new((room.gx + (room.w - 1) / 2) * FLOOR_SIZE, room.floorY, (room.gz + (room.d - 1) / 2) * FLOOR_SIZE)
 			AtmosphereManager.PlaceFloorMedallion(center, 7, propsFolder)
 		end
-		if room.w >= 3 and room.d >= 3 then
+		if room.w >= 3 and room.d >= 3 and not keepTheme then
 			local inset = 5
 			local corners = {
 				Vector3.new(minX * FLOOR_SIZE - FLOOR_SIZE / 2 + inset, room.floorY, minZ * FLOOR_SIZE - FLOOR_SIZE / 2 + inset),
@@ -2934,7 +3330,7 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 
 		-- 3c. Hanging fire bowls on chains that rise out of view, over the
 		-- open floor either side of the room's centre (clear of the reward).
-		if room.w >= 3 and room.d >= 3 and not arcadeTheme then
+		if room.w >= 3 and room.d >= 3 and not arcadeTheme and not keepTheme then
 			local cx = (room.gx + room.w / 2) * FLOOR_SIZE
 			local cz = (room.gz + room.d / 2) * FLOOR_SIZE
 			local spreadX = room.w * FLOOR_SIZE * 0.26
@@ -2951,7 +3347,7 @@ local function decorateRooms(rooms: { RoomData }, propsFolder: Folder, rng: Rand
 		local rayParams = RaycastParams.new()
 		rayParams.FilterType = Enum.RaycastFilterType.Exclude
 		rayParams.FilterDescendantsInstances = { propsFolder }
-		for _ = 1, if arcadeTheme then 0 else AtmosphereManager.Config.CandlesPerRoom do
+		for _ = 1, if arcadeTheme or keepTheme then 0 else AtmosphereManager.Config.CandlesPerRoom do
 			local side = rng:NextInteger(1, 4)
 			local inset = 3.2
 			local x, z
@@ -3032,6 +3428,7 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 	end
 	arcadeTheme = map ~= nil and map.arcade == true
 	prisonTheme = map ~= nil and map.prison == true
+	keepTheme = map ~= nil and map.keep == true
 
 	-- Clean this run's previous level
 	DungeonGenerator.Clear(runId)
@@ -3062,8 +3459,10 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 	local transit = (map and map.transit) or "stairs"
 	local layered = transit == "portal"
 	local rooms, floorGrid0, doorwayList, stairList
+	-- (the tutorial: its rooms in order, weaker foes, popups: Tutorial.luau)
+	RunScope.Set(runId, "Tutorial", if map and map.tutorial then true else nil)
 	if layered then
-		rooms, floorGrid0 = buildLayeredGraph(rng, cfg)
+		rooms, floorGrid0 = buildLayeredGraph(rng, cfg, map and map.plan)
 		doorwayList, stairList = {}, {}
 	else
 		rooms, floorGrid0, doorwayList, stairList = buildDungeonGraph(rng, cfg)
@@ -3087,6 +3486,13 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 	-- (a map with its own art lays ONE centre piece over each room's floor instead:
 	-- after the tiles, below)
 	local oneCentre = (assets :: any).ownArt == true and #assets.centerPieces > 0
+	if not keepTheme then table.clear(keepPits) end
+	local pitCells: { [string]: boolean } = if keepTheme then planKeepPits(rooms, doorwayList, stairList, rng) else {}
+	keepBlocked[runId] = {}
+	for _, pit in ipairs(keepPits) do
+		local h = pit.size / 2 + Vector2.new(2, 2)
+		table.insert(keepBlocked[runId], { pit.center.X - h.X, pit.center.X + h.X, pit.center.Z - h.Y, pit.center.Z + h.Y })
+	end
 	for _, room in ipairs(rooms) do
 		if oneCentre then break end
 		local centerGX = room.gx + math.floor((room.w - 1) / 2)
@@ -3164,6 +3570,7 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 		local gz = tonumber(coords[2]) :: number
 		local cellFloorY = cellData.floorY or FLOOR_Y_OFFSET
 		local pos = Vector3.new(gx * FLOOR_SIZE, cellFloorY, gz * FLOOR_SIZE)
+		if pitCells[key] then continue end -- (a lava pit: keepDecor)
 
 		local isCenterPiece = (centerPieceGrid[key] == true)
 		local floorTemplate: Instance? = nil
@@ -3185,8 +3592,8 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 			local tile = spawnInstance(floorTemplate, cf, floorsFolder, true)
 			-- No two tiles quite alike: a little lighter or darker, some
 			-- leaning cool (the stone reads less uniformly orange).
-			local shade = rng:NextNumber(0.8, 1.06)
-			local cool = rng:NextNumber(0, 0.4)
+			local shade = if keepTheme then rng:NextNumber(0.92, 1.05) else rng:NextNumber(0.8, 1.06)
+			local cool = if keepTheme then 0 else rng:NextNumber(0, 0.4)
 			local parts = if tile:IsA("BasePart") then { tile } else tile:GetDescendants()
 			for _, d in ipairs(parts) do
 				if d:IsA("BasePart") then
@@ -3283,10 +3690,28 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 	local liftCF = CFrame.new(liftPos) * CFrame.Angles(0, 0, 0)
 	d.exit = liftCF
 
-	constructDungeonLiftExit(liftCF, stairsFolder, runId)
+	-- (the Infernal Keep: its demon gate and dark hallway instead, if a side is clear)
+	keepExitBuilt = false
+	local keepExit = if keepTheme then constructKeepExit(bossRoom, floorGrid, doorwayList, stairList, wallsFolder, stairsFolder, runId) else nil
+	if keepExit then
+		d.exit = keepExit
+	else
+		constructDungeonLiftExit(liftCF, stairsFolder, runId)
+	end
 
 	-- 5. Interior Decorating (Abundant Corner/Perimeter Rubble, Barriers, Cosmetics)
 	decorateRooms(rooms, propsFolder, rng)
+	if keepTheme then
+		keepBackdrop(rooms, dungeonFolder, rng)
+		-- (the default stairs, in the keep's stone)
+		for _, d in ipairs(stairsFolder:GetDescendants()) do
+			if d:IsA("BasePart") then
+				local v = math.clamp((d.Color.R + d.Color.G + d.Color.B) / 3, 0.25, 1)
+				d.Color = KeepKit.COLORS.STONE:Lerp(KeepKit.COLORS.STONE_HI, (v - 0.25) / 0.75)
+				d.Material = Enum.Material.Slate
+			end
+		end
+	end
 
 	-- Debug: Log each room's tier and elevation
 	print("[DungeonGenerator] Room Layout Summary:")
@@ -3407,6 +3832,7 @@ end
 function DungeonGenerator.Forget(runId: string)
 	DungeonGenerator.Clear(runId)
 	dungeons[runId] = nil
+	keepBlocked[runId] = nil
 end
 
 function DungeonGenerator.GetSpawnCFrame(runId: string?): CFrame
@@ -3438,6 +3864,14 @@ end
 -- held in place while the old level is torn down and the new one is built
 -- (so nobody falls into the void), then set down on the new spawn's floor,
 -- side by side. Fallen teammates come back there too.
+-- (a new level's arrival: held until the client has the floor, at most this long)
+local ARRIVE_MAX = 12
+local floorReady: { [Player]: boolean } = {}
+Network.GetRemoteEvent(Network.Remotes.FloorReady).OnServerEvent:Connect(function(plr: Player)
+	if plr:GetAttribute("Arriving") == true then floorReady[plr] = true end
+end)
+Players.PlayerRemoving:Connect(function(plr) floorReady[plr] = nil end)
+
 function DungeonGenerator.NextLevel(runId: string)
 	local d = dungeons[runId]
 	if not d then return end
@@ -3483,16 +3917,25 @@ function DungeonGenerator.NextLevel(runId: string)
 		-- the spawn), or they'd drop straight through a floor that hasn't
 		-- arrived yet. A fixed wait wasn't enough when the network was busy
 		-- (taking the lift mid-horde, dozens of mobs replicating): they fell
-		-- under the map. Still falling after that? Back on the floor.
+		-- under the map. So they're held until their game says the floor is
+		-- under them ("Arriving": FloorReady, from init.client), or ARRIVE_MAX.
+		-- Still falling after that? Back on the floor.
 		task.spawn(function()
 			local t0 = os.clock()
+			floorReady[r.player] = nil
+			r.player:SetAttribute("Arriving", true)
 			pcall(function() r.player:RequestStreamAroundAsync(standCF.Position, 8) end)
-			task.wait(math.max(0.6, 1.5 - (os.clock() - t0)))
+			while os.clock() - t0 < ARRIVE_MAX and r.root.Parent and not (floorReady[r.player] and os.clock() - t0 >= 0.6) do
+				task.wait(0.1)
+			end
+			r.player:SetAttribute("Arriving", nil)
+			floorReady[r.player] = nil
 			local char = r.root.Parent :: Model?
 			if not char then return end
 			r.root.AssemblyLinearVelocity = Vector3.zero
+			r.root.CFrame = standCF
 			r.root.Anchored = false
-			for _ = 1, 16 do
+			for _ = 1, 40 do
 				task.wait(0.5)
 				if r.root.Parent ~= char or r.player.Character ~= char then return end
 				if r.root.Position.Y < standCF.Position.Y - 25 then

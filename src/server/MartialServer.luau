@@ -723,7 +723,10 @@ local function onCharacter(p: Player, char: Model)
 	end
 	MartialServer.Reset(p)
 	task.defer(function()
-		if char.Parent and char:WaitForChild("Head", 5) and char:WaitForChild("Torso", 5) then MartialLook.Dress(char) end
+		-- (the gi is armor: worn while equipped, the "Fighter's Gi" reward)
+		if char.Parent and char:WaitForChild("Head", 5) and char:WaitForChild("Torso", 5) and p:GetAttribute("Armor_martial_artist") == true then
+			MartialLook.Dress(char)
+		end
 	end)
 end
 
@@ -746,6 +749,11 @@ function MartialServer.Init(helpers: any)
 		p.CharacterAdded:Connect(function(c) onCharacter(p, c) end)
 		p:GetAttributeChangedSignal("SelectedClass"):Connect(function()
 			if p.Character then onCharacter(p, p.Character) end
+		end)
+		p:GetAttributeChangedSignal("Armor_martial_artist"):Connect(function()
+			local c = p.Character
+			if not c or p:GetAttribute("SelectedClass") ~= "martial_artist" then return end
+			if p:GetAttribute("Armor_martial_artist") == true then MartialLook.Dress(c) else MartialLook.Undress(c) end
 		end)
 		if p.Character then task.spawn(onCharacter, p, p.Character) end
 	end

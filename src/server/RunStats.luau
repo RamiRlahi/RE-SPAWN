@@ -218,12 +218,10 @@ function RunStats.Finish(player: Player, result: string)
 		PlayerData.MarkDirty(player)
 		records = { bestFloor = r.bestFloor, runs = r.runs, extractions = r.extractions or 0, newBest = newBest }
 	end
-	-- (the Endless Abyss: the Hall of the Deep; and the bests the map picker reads)
+	-- (the bests the map picker reads)
 	pcall(function()
 		local Leaderboard = require(script.Parent:WaitForChild("Leaderboard")) :: any
-		local MapData = require(Shared:WaitForChild("MapData")) :: any
-		local map = MapData.Get(mapId)
-		if map and map.endless then Leaderboard.Submit(player, floor) else Leaderboard.SyncBests(player) end
+		Leaderboard.SyncBests(player)
 	end)
 
 	local party = {}

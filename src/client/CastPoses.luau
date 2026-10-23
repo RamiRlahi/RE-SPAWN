@@ -661,18 +661,16 @@ function CastPoses.rangerSkyShot(char: Model?)
 			{ RS = { 170, 0, -10 }, LS = { 170, 0, 10 }, N = { 18, 0, 0 } }, 8), 0.2) },
 		-- SMASH (impact at 0.36s).
 		{ dur = 0.08, style = QUART, pose = crouch },
-		-- Hold the crouch as the vines spiral up, breathing hard.
-		{ dur = 0.49, pose = crouch, wobble = function(t)
+		-- Hold the crouch as the vines lash up round him, breathing hard.
+		{ dur = 0.8, pose = crouch, wobble = function(t)
 			local b = math.sin(t * 9) * 2
 			return { W = { b, 0, 0 }, RS = { 0, 0, b } }
 		end },
-		-- Spring up and draw skyward (the draw hand pulled in under the bow)...
-		{ dur = 0.07, style = Enum.EasingStyle.Back, pose = body(22, -15, 10, 8,
-			{ LS = { 155, 0, -10 }, RS = { 140, 0, -15 }, N = { 30, -10, 0 } }, 8) },
-		-- ...and loose (0.95s): the draw hand snaps back and out.
-		{ dur = 0.05, style = Enum.EasingStyle.Back, pose = body(26, -18, 10, 8,
-			{ LS = { 155, 0, -10 }, RS = { 100, 0, 60 }, N = { 32, -10, 0 } }, 8) },
-		{ dur = 0.3, pose = body(18, -12, 8, 6, { LS = { 130, 0, -8 }, RS = { 70, 0, 45 }, N = { 25, -8, 0 } }, 8) },
+		-- Spring up and thrust the bow to the sky: the plant behind him spits
+		-- the great arrow up (1.35s, RangerFlair)...
+		{ dur = 0.14, style = Enum.EasingStyle.Back, pose = body(18, 0, 8, 8,
+			{ LS = { 172, 0, -6 }, RS = { 35, 0, 30 }, N = { 30, 0, 0 } }, 8) },
+		{ dur = 0.5, pose = body(18, 0, 8, 8, { LS = { 168, 0, -8 }, RS = { 30, 0, 32 }, N = { 32, 0, 0 } }, 8) },
 	}, 0.3)
 end
 

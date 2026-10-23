@@ -16,12 +16,29 @@ local IceCape = require(Shared:WaitForChild("IceCape"))
 
 -- Class armor (the Ice Mage's is its cape) is a summon reward: without it the
 -- character keeps its own avatar (the weapon is equipped by WeaponManager).
+-- Tagged ARMOR_TAG, so it comes off again when it's unequipped (the
+-- Wardrobe): the other classes' outfits follow Armor_<class> in their own
+-- modules (MageServer, MartialServer, ClassCapes, RogueScarf).
+local ARMOR_TAG = "ClassArmor"
 local function equipClassArmor(character: Model, classId: string)
 	local player = Players:GetPlayerFromCharacter(character)
+	ClassArmor.Remove(character, ARMOR_TAG)
 	if not player or player:GetAttribute(`Armor_{classId}`) ~= true then return end
-	ClassArmor.Equip(character, classId)
+	ClassArmor.Equip(character, classId, ARMOR_TAG)
 	if classId == "ice_mage" then
-		IceCape.Attach(character)
+		IceCape.Attach(character, ARMOR_TAG)
+	end
+end
+
+-- Armor put on / taken off (the Wardrobe) while playing that class: at once.
+local function watchArmor(player: Player)
+	for _, classId in ipairs(ClassData.Order) do
+		player:GetAttributeChangedSignal(`Armor_{classId}`):Connect(function()
+			local char = player.Character
+			if char and player:GetAttribute("SelectedClass") == classId and player:GetAttribute("InLobby") == false then
+				equipClassArmor(char, classId)
+			end
+		end)
 	end
 end
 
@@ -150,6 +167,7 @@ function PlayerManager.Init()
 	Players.PlayerAdded:Connect(function(player: Player)
 		player:SetAttribute("InLobby", true)
 		player:SetAttribute("SpawnedInMap", false)
+		watchArmor(player)
 
 		player.CharacterAdded:Connect(function(character)
 			setupCharacter(player, character)

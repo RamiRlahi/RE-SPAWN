@@ -32,6 +32,7 @@ local SkateController = require(script.Parent:WaitForChild("SkateController"))
 local RangerFlair = require(script.Parent:WaitForChild("RangerFlair"))
 local CapeController = require(script.Parent:WaitForChild("CapeController"))
 local HitFX = require(script.Parent:WaitForChild("HitFX"))
+local DashController = require(script.Parent:WaitForChild("DashController"))
 local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
 local XPOrbs = require(script.Parent:WaitForChild("XPOrbs"))
 local GunslingerController = require(script.Parent:WaitForChild("GunslingerController"))
@@ -2564,297 +2565,6 @@ local function spawnVinePinRing(targetRoot: BasePart, duration: number)
 	end)
 end
 
--- ─────────────────────────────────────────────────────────────────────────────
--- Rain of Arrows: Vine Arena Cage (Visual entrapment cage around the AoE zone)
--- Uses the same vine stem/node/leaf primitives from Entangling Arrow for a
--- cohesive woodland briar aesthetic. Builds arched vine pillars around the
--- perimeter with horizontal vine rings and scattered leaf clusters.
--- ─────────────────────────────────────────────────────────────────────────────
-local function spawnVineArenaCage(center: Vector3, radius: number, duration: number)
-	-- Ground level detection
-	local rayParams = RaycastParams.new()
-	rayParams.FilterType = Enum.RaycastFilterType.Exclude
-	rayParams.FilterDescendantsInstances = {}
-	rayParams.IgnoreWater = true
-	local groundRay = Workspace:Raycast(center + Vector3.new(0, 5, 0), Vector3.new(0, -15, 0), rayParams)
-	local groundY = groundRay and groundRay.Position.Y or center.Y
-	local centerBase = Vector3.new(center.X, groundY, center.Z)
-
-	local cage = Instance.new("Model")
-	cage.Name = "VineArenaCageVFX"
-	cage.Parent = VariantFX.Root()
-
-	local allParts: { BasePart } = {}
-	local function regPart(p: BasePart?)
-		if p then table.insert(allParts, p) end
-		return p
-	end
-
-	local cageHeight = 14
-	local numPillars = 10
-	local pillarSteps = 12
-
-	-- =====================================================================
-	-- 1. ARCHED VINE PILLARS around the perimeter
-	-- =====================================================================
-	for pillar = 1, numPillars do
-		local baseAngle = (pillar / numPillars) * math.pi * 2
-		local pillarBaseX = math.cos(baseAngle) * radius
-		local pillarBaseZ = math.sin(baseAngle) * radius
-		local pillarBase = centerBase + Vector3.new(pillarBaseX, 0.1, pillarBaseZ)
-
-		-- Slight inward lean at the top to form an arena dome shape
-		local topLean = 0.88
-		local prevP = pillarBase
-
-		for step = 1, pillarSteps do
-			local alpha = step / pillarSteps
-			-- Arch inward slightly towards top
-			local curRadius = radius * (1 - (1 - topLean) * math.pow(alpha, 1.5))
-			local curY = alpha * cageHeight
-			-- Gentle spiral twist along each pillar
-			local twistAngle = baseAngle + math.sin(alpha * math.pi * 2) * 0.15
-			local curX = math.cos(twistAngle) * curRadius
-			local curZ = math.sin(twistAngle) * curRadius
-			local curP = centerBase + Vector3.new(curX, curY, curZ)
-
-			local thick = math.max(0.28, 0.65 * (1 - alpha * 0.35))
-			local col = (step % 3 == 0) and VINE_BARK_LIGHT or ((step % 2 == 0) and VINE_BARK_MID or VINE_BARK_DARK)
-
-			regPart(createVineSegment(cage, prevP, curP, thick, col))
-			regPart(createVineJointNode(cage, curP, thick * 1.1, col))
-
-			-- Leaf sprouts on alternating segments facing outward
-			if step % 3 == 0 then
-				local outNorm = Vector3.new(math.cos(twistAngle), 0.2, math.sin(twistAngle))
-				regPart(createLeafSprout(cage, curP, outNorm, 1.15))
-				if math.random() > 0.4 then
-					regPart(createLeafSprout(cage, curP, -outNorm + Vector3.new(0, 0.5, 0), 0.9))
-				end
-			end
-
-			-- Prominent leaf crown at the top of each pillar
-			if step == pillarSteps then
-				local topNorm = Vector3.new(math.cos(baseAngle), 0.8, math.sin(baseAngle))
-				regPart(createLeafSprout(cage, curP, topNorm, 1.35))
-				regPart(createLeafSprout(cage, curP, Vector3.new(-topNorm.X, 0.9, -topNorm.Z), 1.25))
-				regPart(createLeafSprout(cage, curP, Vector3.new(0, 1, 0), 1.1))
-			end
-
-			prevP = curP
-		end
-	end
-
-	-- =====================================================================
-	-- 2. HORIZONTAL VINE RINGS connecting pillars at multiple heights
-	-- =====================================================================
-	local ringHeights = { 0.2, 0.4, 0.65, 0.88 }
-	for _, heightFrac in ipairs(ringHeights) do
-		local ringY = heightFrac * cageHeight
-		local ringRadius = radius * (1 - (1 - 0.88) * math.pow(heightFrac, 1.5))
-		local ringSegments = numPillars * 3
-		local prevRingP = centerBase + Vector3.new(math.cos(0) * ringRadius, ringY, math.sin(0) * ringRadius)
-
-		for seg = 1, ringSegments do
-			local angle = (seg / ringSegments) * math.pi * 2
-			local wobble = math.sin(seg * 2.3 + heightFrac * 7) * 0.4
-			local curP = centerBase + Vector3.new(
-				math.cos(angle) * (ringRadius + wobble),
-				ringY + math.sin(seg * 1.7) * 0.3,
-				math.sin(angle) * (ringRadius + wobble)
-			)
-			local thick = math.max(0.2, 0.38 * (1 - heightFrac * 0.3))
-			local col = (seg % 2 == 0) and VINE_BARK_MID or VINE_BARK_DARK
-
-			regPart(createVineSegment(cage, prevRingP, curP, thick, col))
-
-			-- Joint nodes at pillar intersections
-			if seg % 3 == 0 then
-				regPart(createVineJointNode(cage, curP, thick * 1.15, VINE_BARK_LIGHT))
-			end
-
-			-- Leaf clusters along the rings
-			if seg % 5 == 0 then
-				local outNorm = Vector3.new(math.cos(angle), 0.15, math.sin(angle))
-				regPart(createLeafSprout(cage, curP, outNorm, 0.95))
-			end
-
-			prevRingP = curP
-		end
-	end
-
-	-- =====================================================================
-	-- 3. GROUND ROOT MAT around the cage perimeter
-	-- =====================================================================
-	local numGroundRoots = 14
-	for r = 1, numGroundRoots do
-		local baseAngle = (r / numGroundRoots) * math.pi * 2 + (math.random() - 0.5) * 0.3
-		local rootLen = math.random(28, 50) / 10
-		local steps = 3
-		local prevP = centerBase + Vector3.new(
-			math.cos(baseAngle) * (radius - 1.2),
-			0.08,
-			math.sin(baseAngle) * (radius - 1.2)
-		)
-
-		for s = 1, steps do
-			local distFrac = s / steps
-			local curDist = (radius - 1.2) + rootLen * distFrac
-			local curveAngle = baseAngle + math.sin(s * 1.6 + r) * 0.22
-			local curP = centerBase + Vector3.new(
-				math.cos(curveAngle) * curDist,
-				0.06 + math.sin(s * 1.1) * 0.06,
-				math.sin(curveAngle) * curDist
-			)
-			local thick = math.max(0.16, 0.38 * (1 - distFrac * 0.5))
-			regPart(createVineSegment(cage, prevP, curP, thick, VINE_BARK_DARK))
-			regPart(createVineJointNode(cage, curP, thick * 1.08, VINE_BARK_DARK))
-
-			if s >= 2 and math.random() > 0.35 then
-				local leafDir = Vector3.new(math.cos(curveAngle + math.pi * 0.5), 0.3, math.sin(curveAngle + math.pi * 0.5))
-				regPart(createLeafSprout(cage, curP, leafDir, 0.8))
-			end
-
-			prevP = curP
-		end
-	end
-
-	-- =====================================================================
-	-- 4. EMERALD LIGHTING & FLOATING LEAF PARTICLES
-	-- =====================================================================
-	local lightPart = Instance.new("Part")
-	lightPart.Name = "CageCenter"
-	lightPart.Size = Vector3.new(1, 1, 1)
-	lightPart.Transparency = 1
-	lightPart.CanCollide = false
-	lightPart.CanTouch = false
-	lightPart.CanQuery = false
-	lightPart.Anchored = true
-	lightPart.CFrame = CFrame.new(centerBase + Vector3.new(0, cageHeight * 0.35, 0))
-	lightPart.Parent = cage
-
-	local cageLight = Instance.new("PointLight")
-	cageLight.Color = Color3.fromRGB(110, 235, 60)
-	cageLight.Brightness = 3.2
-	cageLight.Range = math.min(radius, 18) * 2.5 -- (the unscaled cage: not by the Size Tome)
-	cageLight.Parent = lightPart
-
-	local cageLightAtt = Instance.new("Attachment")
-	cageLightAtt.Parent = lightPart
-
-	-- Ambient floating leaves inside the cage
-	local cageLeavesPE = Instance.new("ParticleEmitter")
-	cageLeavesPE.Name = "CageAmbientLeaves"
-	cageLeavesPE.Texture = "rbxassetid://258128463"
-	cageLeavesPE.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(170, 255, 90)),
-		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(130, 230, 65)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(85, 175, 40)),
-	})
-	cageLeavesPE.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.1),
-		NumberSequenceKeypoint.new(0.7, 0.2),
-		NumberSequenceKeypoint.new(1, 1),
-	})
-	cageLeavesPE.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.55),
-		NumberSequenceKeypoint.new(0.5, 0.75),
-		NumberSequenceKeypoint.new(1, 0.3),
-	})
-	cageLeavesPE.Lifetime = NumberRange.new(1.8, 3.0)
-	cageLeavesPE.Rate = 25
-	cageLeavesPE.Speed = NumberRange.new(1, 3.5)
-	cageLeavesPE.SpreadAngle = Vector2.new(180, 60)
-	cageLeavesPE.Rotation = NumberRange.new(0, 360)
-	cageLeavesPE.RotSpeed = NumberRange.new(-40, 40)
-	cageLeavesPE.LightEmission = 0.5
-	cageLeavesPE.Parent = cageLightAtt
-	cageLeavesPE:Emit(20)
-
-	-- Emerald spore glow particles
-	local cageSporesPE = Instance.new("ParticleEmitter")
-	cageSporesPE.Name = "CageSporeGlow"
-	cageSporesPE.Color = ColorSequence.new(Color3.fromRGB(180, 255, 95))
-	cageSporesPE.LightEmission = 1
-	cageSporesPE.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.22),
-		NumberSequenceKeypoint.new(1, 0.04),
-	})
-	cageSporesPE.Lifetime = NumberRange.new(1.0, 1.8)
-	cageSporesPE.Rate = 30
-	cageSporesPE.Speed = NumberRange.new(0.5, 2.0)
-	cageSporesPE.SpreadAngle = Vector2.new(180, 90)
-	cageSporesPE.Parent = cageLightAtt
-	cageSporesPE:Emit(25)
-
-	-- =====================================================================
-	-- 5. GROWTH SURGE ANIMATION (parts scale upward from ground)
-	-- =====================================================================
-	local partOrigData: { { part: BasePart, origCF: CFrame, origSize: Vector3 } } = {}
-	for _, p in ipairs(allParts) do
-		table.insert(partOrigData, { part = p, origCF = p.CFrame, origSize = p.Size })
-	end
-
-	local growDuration = 0.32
-	local growStartTime = os.clock()
-	local growConn: RBXScriptConnection?
-	growConn = RunService.Heartbeat:Connect(function()
-		local elapsed = os.clock() - growStartTime
-		local alpha = math.clamp(elapsed / growDuration, 0, 1)
-		local smoothAlpha = 1 - math.pow(1 - alpha, 3)
-
-		for _, data in ipairs(partOrigData) do
-			if data.part and data.part.Parent then
-				local groundCF = CFrame.new(data.origCF.Position.X, groundY, data.origCF.Position.Z)
-				data.part.CFrame = groundCF:Lerp(data.origCF, smoothAlpha)
-				data.part.Size = data.origSize * math.max(0.05, smoothAlpha)
-			end
-		end
-
-		if alpha >= 1 then
-			if growConn then growConn:Disconnect() end
-			for _, data in ipairs(partOrigData) do
-				if data.part and data.part.Parent then
-					data.part.CFrame = data.origCF
-					data.part.Size = data.origSize
-				end
-			end
-		end
-	end)
-
-	-- =====================================================================
-	-- 6. CRUMBLE DECAY at end of duration
-	-- =====================================================================
-	local decayTime = 0.5
-	task.delay(math.max(0, duration - decayTime), function()
-		if growConn then growConn:Disconnect() end
-		cageLeavesPE.Enabled = false
-		cageSporesPE.Enabled = false
-
-		local decayStart = os.clock()
-		local decayConn: RBXScriptConnection?
-		decayConn = RunService.Heartbeat:Connect(function()
-			local elapsed = os.clock() - decayStart
-			local alpha = math.clamp(elapsed / decayTime, 0, 1)
-			local smoothFade = math.pow(alpha, 2)
-
-			for _, data in ipairs(partOrigData) do
-				if data.part and data.part.Parent then
-					data.part.Transparency = smoothFade
-					data.part.Size = data.origSize * (1 - smoothFade * 0.35)
-				end
-			end
-
-			cageLight.Brightness = 3.2 * (1 - smoothFade)
-
-			if alpha >= 1 then
-				if decayConn then decayConn:Disconnect() end
-				cage:Destroy()
-			end
-		end)
-	end)
-end
-
 local function showPinnedTargets(casterChar: Model, center: Vector3, radius: number, duration: number)
 	for _, desc in ipairs(HumanoidIndex.List()) do -- (models with a Humanoid: never the whole Workspace)
 		if desc:IsA("Model") and desc ~= casterChar and not desc:IsDescendantOf(casterChar) and not desc:FindFirstAncestorOfClass("Accessory") then
@@ -3695,10 +3405,10 @@ local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vecto
 			local pz = center.Z + math.sin(ang) * ringRadius
 			local seg = Instance.new("Part")
 			seg.Name = "RingSeg"
-			seg.Size = Vector3.new(0.6, 0.18, segLen * 1.12)
+			seg.Size = Vector3.new(0.25, 0.08, segLen * 1.12)
 			seg.Material = Enum.Material.Neon
 			seg.Color = ringColor
-			seg.Transparency = 0.3
+			seg.Transparency = 0.45
 			seg.CanCollide = false
 			seg.CanTouch = false
 			seg.CanQuery = false
@@ -3707,10 +3417,8 @@ local function playRangerSkillVFX(char: Model, skillIndex: number, origin: Vecto
 			seg.Parent = marker
 		end
 
-		-- Spawn the vine arena cage around the drop zone
-		spawnVineArenaCage(center, 18 * sizeScale, 5.2)
 
-		task.delay(1.05, function()
+		task.delay(RangerFlair.WITHER_AT, function()
 			for i = 1, 70 do
 				task.delay(i * 0.035, function()
 					local angle = math.random() * math.pi * 2
@@ -4369,15 +4077,15 @@ function SkillController.UseSkill(skillIndex: number)
 			if track then
 				track:Play(0.08)
 			end
-			local castLock = skillIndex == 4 and 1.4 or 0.35
+			local castLock = skillIndex == 4 and RangerFlair.WITHER_AT + 0.35 or 0.35
 			task.delay(castLock, function()
 				char:SetAttribute("IsSkillCasting", false)
 				char:SetAttribute("AllowSkillMovement", false)
 			end)
 			playRangerSkillVFX(char, skillIndex, rootPart.Position, aimDir, skillTargetPosition)
 			if skillIndex == 4 then
-				-- Same wind-up close-up as the Heavy Knight; the storm lands as it cuts back.
-				UltimateCameraChoreography.PlayCloseUp(char, aimDir, 1.0)
+				-- Its own two shots (the summon, the release); the storm lands as it cuts back.
+				RangerFlair.PlayCamera(char, aimDir)
 			end
 		end
 	elseif classId == "heavy_knight" then
@@ -4992,12 +4700,20 @@ function SkillController.Init()
 		getAim = getAimDirection,
 	})
 	IceMageVFX.Init(triggerCameraShake)
+	DashController.Init(getAimDirection)
 	ClericFlair.watchHalos()
 	SkateController.Init()
 	CapeController.Init()
 	HitFX.Init()
 	local damageRemote = Network.GetRemoteEvent(Network.Remotes.DamageDealt)
 	damageRemote.OnClientEvent:Connect(showDamageNumber)
+	-- (and a sound for it landing, for the classes that had none: ClassFX)
+	damageRemote.OnClientEvent:Connect(function(payload: any)
+		if typeof(payload) ~= "table" or typeof(payload.position) ~= "Vector3" or (tonumber(payload.amount) or 0) <= 0 then return end
+		local classId = player:GetAttribute("SelectedClass")
+		if typeof(classId) ~= "string" then return end
+		ClassFX.HitSound(classId, payload.position, payload.crit == true, if typeof(payload.source) == "string" then payload.source else nil)
+	end)
 	cloneKeybinds(nil)
 
 	-- Keybind listeners use current settings so the controls match the settings UI and HUD.
@@ -5008,6 +4724,8 @@ function SkillController.Init()
 		-- (no fighting in the lobby or the menus: only in a run)
 		if player:GetAttribute("InLobby") ~= false then return end
 
+		-- (E by a teammate stuck in lava pulls them out, not a skill: LavaController)
+		if input.KeyCode == Enum.KeyCode.E and player:GetAttribute("HelpReady") == true then return end
 		if inputMatchesAction(input, "PrimaryAttack") then
 			attackHeld.primary = true
 			performBasicAttack()
@@ -5019,11 +4737,9 @@ function SkillController.Init()
 			SkillController.UseSkill(3)
 		elseif inputMatchesAction(input, "Ultimate") then
 			SkillController.UseSkill(4)
-		elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-			-- (right click, when nothing else is bound to it: attack, and keep
-			-- attacking while it's held)
-			attackHeld.right = true
-			performBasicAttack()
+		elseif inputMatchesAction(input, "Dash") then
+			-- (right click by default: the dash, a dodge through the danger)
+			DashController.Dash()
 		end
 	end)
 	-- (let go anywhere, over the UI too, and it stops)
@@ -5161,6 +4877,8 @@ function SkillController.Init()
 				fovStart = 38,
 				fovEnd = 34,
 			})
+		elseif classId == "ranger" then
+			RangerFlair.PlayCamera(char, direction)
 		else
 			UltimateCameraChoreography.PlayCloseUp(char, direction, 1.0)
 		end
@@ -5170,6 +4888,17 @@ function SkillController.Init()
 		if typeof(payload) ~= "table" then return end
 		local castingPlayer = payload.player
 		if not castingPlayer then return end
+		-- The Rain of Arrows' colossal plant and its seed pods (for everyone).
+		if payload.rangerPlant and typeof(payload.center) == "Vector3" then
+			RangerFlair.Plant(payload.center, tonumber(payload.duration) or 4, if typeof(payload.zone) == "Vector3" then payload.zone else nil)
+			return
+		elseif payload.rangerWhip and typeof(payload.center) == "Vector3" and typeof(payload.to) == "Vector3" then
+			if FxBudget.Allow("rangerWhip", 12) then RangerFlair.Whip(payload.center, payload.to) end
+			return
+		elseif payload.rangerVenom and typeof(payload.center) == "Vector3" and typeof(payload.to) == "Vector3" then
+			RangerFlair.Venom(payload.center, payload.to, tonumber(payload.dur) or 0.6)
+			return
+		end
 		-- Our own Divine Touch: the heal sign goes on whoever the server healed.
 		if castingPlayer == player then
 			if typeof(payload.healAt) == "table" then

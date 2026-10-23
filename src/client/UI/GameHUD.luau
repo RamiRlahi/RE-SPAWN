@@ -9,6 +9,8 @@
 	 • Gunslinger only: a revolver-cylinder ammo counter right of the skills
    (brass rounds / empty chambers, spins while reloading) and a Deadeye bar
  • Bottom-right: Tab plate (opens the full dungeon map, like the Tab key)
+ • Hovering a skill slot: a tip above it, the skill in one sentence and the
+   tomes that work well with it (SkillData `hint` / `tomes`)
 ]]
 
 local Players = game:GetService("Players")
@@ -19,6 +21,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RunScope = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("RunScope"))
 local UITheme = require(Shared:WaitForChild("UITheme"))
+local SkillData = require(Shared:WaitForChild("SkillData"))
+local TomeData = require(Shared:WaitForChild("TomeData"))
 
 local GameHUD = {}
 
@@ -522,6 +526,84 @@ local function createHealthBar(parent: Frame)
 	createGoldCounter(section)
 end
 
+-- ─── SKILL TIP ────────────────────────────────────────────────
+-- Hover a skill slot: above it, the skill's name and key, what it does in
+-- one sentence, and the tomes that work well with it (their logos and names).
+local TIP_W = 280
+local skillTip: Frame? = nil
+local skillTipFor: string? = nil -- (class and slot it was last built for)
+
+local function hideSkillTip()
+	if skillTip then skillTip.Visible = false end
+end
+
+local function showSkillTip(index: number, slotFrame: Frame)
+	if not screenGui then return end
+	local classId = player:GetAttribute("SelectedClass")
+	local config = if typeof(classId) == "string" then SkillData.GetSkill(classId, index) else nil
+	if not config or not config.hint then
+		hideSkillTip()
+		return
+	end
+	local key = `{classId}:{index}`
+	if not skillTip or skillTipFor ~= key then
+		if skillTip then skillTip:Destroy() end
+		skillTipFor = key
+		local f = makeFrame({ Name = "SkillTip", Parent = screenGui, Size = UDim2.fromOffset(TIP_W, 0),
+			AnchorPoint = Vector2.new(0.5, 1), BgColor = C.StoneDark, BgTransparency = 0.06, ZIndex = 40 })
+		f.AutomaticSize = Enum.AutomaticSize.Y
+		UITheme.AddCorner(f, 6)
+		UITheme.AddStroke(f, C.Gold, 1.5, 0.1)
+		local pad = Instance.new("UIPadding")
+		pad.PaddingTop, pad.PaddingBottom = UDim.new(0, 9), UDim.new(0, 10)
+		pad.PaddingLeft, pad.PaddingRight = UDim.new(0, 12), UDim.new(0, 12)
+		pad.Parent = f
+		local list = Instance.new("UIListLayout")
+		list.Padding = UDim.new(0, 5)
+		list.SortOrder = Enum.SortOrder.LayoutOrder
+		list.Parent = f
+		local title = makeLabel({ Name = "Title", Parent = f, Size = UDim2.new(1, 0, 0, 20), Text = `{config.name}  [{config.keybind}]`,
+			FontFace = SERIF_BOLD, TextSize = 16, TextColor = C.GoldBright, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 41 })
+		title.LayoutOrder = 1
+		local hint = makeLabel({ Name = "Hint", Parent = f, Size = UDim2.new(1, 0, 0, 0), Text = config.hint,
+			TextSize = 14, TextColor = C.TextWhite, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 41 })
+		hint.AutomaticSize = Enum.AutomaticSize.Y
+		hint.TextWrapped = true
+		hint.LayoutOrder = 2
+		local tomes = config.tomes or {}
+		if #tomes > 0 then
+			local head = makeLabel({ Name = "Pairs", Parent = f, Size = UDim2.new(1, 0, 0, 18), Text = "Works well with",
+				FontFace = SERIF_BOLD, TextSize = 12, TextColor = C.GoldDim, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 41 })
+			head.LayoutOrder = 3
+			local ok, TomeIcons = pcall(require, script.Parent:WaitForChild("TomeIcons"))
+			for i, id in ipairs(tomes) do
+				local tome = TomeData.GetTome(id)
+				local row = makeFrame({ Name = "Tome_" .. id, Parent = f, Size = UDim2.new(1, 0, 0, 24), BgTransparency = 1, ZIndex = 41 })
+				row.LayoutOrder = 3 + i
+				if ok then
+					local icon = TomeIcons.Make(row, id, 1, 24)
+					icon.ZIndex = 42
+				end
+				row.AutomaticSize = Enum.AutomaticSize.Y
+				local name = makeLabel({ Name = "Name", Parent = row, Size = UDim2.new(1, -32, 0, 24), Position = UDim2.fromOffset(32, 0),
+					Text = if tome then `{tome.name}  <font color="#9a8a6a">{tome.description}</font>` else id,
+					TextSize = 13, TextColor = C.TextGold, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 42 })
+				name.RichText = true
+				name.TextWrapped = true
+				name.AutomaticSize = Enum.AutomaticSize.Y
+			end
+		end
+		skillTip = f
+	end
+	local f = skillTip :: Frame
+	-- (centred above the slot, kept on screen)
+	local view = screenGui.AbsoluteSize
+	local x = slotFrame.AbsolutePosition.X + slotFrame.AbsoluteSize.X / 2
+	x = math.clamp(x, TIP_W / 2 + 8, math.max(TIP_W / 2 + 8, view.X - TIP_W / 2 - 8))
+	f.Position = UDim2.fromOffset(x, slotFrame.AbsolutePosition.Y - 12)
+	f.Visible = true
+end
+
 -- ─── SKILL SLOTS ──────────────────────────────────────────────
 local function createSkillSlot(parent: Frame, index: number, keybind: string): {}
 	local slotContainer = makeFrame({
@@ -647,6 +729,9 @@ local function createSkillSlot(parent: Frame, index: number, keybind: string): {
 	chargesLabel.AnchorPoint = Vector2.new(1, 0)
 	chargesLabel.Position = UDim2.new(1, 2, 0, -2)
 	chargesLabel.Size = UDim2.fromOffset(22, 18)
+
+	slotContainer.MouseEnter:Connect(function() showSkillTip(index, slotContainer) end)
+	slotContainer.MouseLeave:Connect(hideSkillTip)
 
 	local slot = {
 		chargesLabel = chargesLabel,

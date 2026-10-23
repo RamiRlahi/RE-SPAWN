@@ -77,6 +77,19 @@ function DevHooks.Init()
 			local hook = DungeonGenerator.Hooks.extract
 			if hook then task.spawn(hook, a, {}) end
 			return hook ~= nil
+		elseif cmd == "traps" then
+			-- one of each new trap round the player (Hazards.Showcase)
+			local p = plr(a)
+			local root = p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if not root then return "no character" end
+			local Hazards = require(script.Parent:WaitForChild("Hazards")) :: any
+			local rp = RaycastParams.new()
+			rp.FilterType = Enum.RaycastFilterType.Exclude
+			rp.FilterDescendantsInstances = { p.Character :: Model }
+			local hit = workspace:Raycast(root.Position, Vector3.new(0, -20, 0), rp)
+			local floor = if hit then hit.Position else root.Position - Vector3.new(0, 3, 0)
+			Hazards.Showcase(floor, workspace, p:GetAttribute("RunId"))
+			return "placed"
 		elseif cmd == "rides" then
 			local p = plr(a)
 			local PlayerData = require(script.Parent:WaitForChild("PlayerData")) :: any

@@ -36,6 +36,9 @@ local CastPoses = require(script.Parent:WaitForChild("CastPoses"))
 local ClassLook = require(script.Parent:WaitForChild("ClassLook"))
 local WingsMounts = require(script.Parent:WaitForChild("WingsMounts"))
 local ClothCape = require(script.Parent:WaitForChild("ClothCape"))
+local RogueScarf = require(script.Parent:WaitForChild("RogueScarf"))
+local MageLook = require(Shared:WaitForChild("MageLook"))
+local MartialLook = require(Shared:WaitForChild("MartialLook"))
 
 local player = Players.LocalPlayer
 
@@ -265,7 +268,7 @@ end
 -- Wings or a mount: the rig alone, jointed to a turntable on the root.
 local function rideShowcase(reward: any): (Model, () -> ())
 	local model, root = emptyModel()
-	local rig = WingsMounts.Build(reward.id)
+	local rig = WingsMounts.Build(reward.id, true)
 	if not rig then return model, function() model:Destroy() end end
 	local isWings = reward.type == "wings"
 	-- (how big it is standing still, to shrink a big mount to fit)
@@ -320,6 +323,20 @@ local function armorShowcase(reward: any, classId: string): (Model, () -> ())
 	ClassArmor.Equip(model, classId, "RewardPreview")
 	if classId == "ice_mage" then IceCape.Attach(model, "RewardPreview") end
 	if classId == "heavy_knight" then ClothCape.Attach(model, "RewardPreview", ClothCape.FIRE_KNIGHT) end
+	if classId == "gunslinger" then ClothCape.Attach(model, "RewardPreview", ClothCape.GUNSLINGER) end
+	if classId == "swordsman" then ClothCape.Attach(model, "RewardPreview", ClothCape.SWORD_MASTER) end
+	if classId == "berserker" then ClothCape.Attach(model, "RewardPreview", ClothCape.BERSERKER) end
+	if classId == "mage" then
+		MageLook.Dress(model)
+		ClothCape.Attach(model, "RewardPreview", ClothCape.MAGE)
+	end
+	if classId == "martial_artist" then MartialLook.Dress(model) end
+	-- (the scarf once the model's been placed: RogueScarf drops unparented ones)
+	if classId == "rogue" then
+		task.defer(function()
+			if model.Parent then RogueScarf.Track(model, true) end
+		end)
+	end
 	-- (the body itself out of sight: only what's worn on it shows)
 	for _, name in ipairs({ "Head", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg",
 		"UpperTorso", "LowerTorso", "LeftUpperArm", "LeftLowerArm", "LeftHand", "RightUpperArm", "RightLowerArm", "RightHand",
@@ -335,6 +352,7 @@ local function armorShowcase(reward: any, classId: string): (Model, () -> ())
 	end)
 	return model, function()
 		conn:Disconnect()
+		RogueScarf.Track(model, false)
 		model:Destroy()
 	end
 end
@@ -346,7 +364,7 @@ local function heroShowcase(reward: any, classId: string, accent: Color3): (Mode
 	local model = characterCopy(false) or Instance.new("Model")
 	local root = model:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if root then model.PrimaryPart = root end
-	pcall(ClassLook.Apply, model, classId, { armor = GachaRewards.BuiltInArmor[classId] == true })
+	pcall(ClassLook.Apply, model, classId, { armor = player:GetAttribute(`Armor_{classId}`) == true })
 	-- CastPoses multiplies its pose onto Motor6D.Transform every frame, relying
 	-- on the Animator to reset the joints first. The copy has no animation
 	-- playing, so reset them ourselves or the pose compounds and the rig spins.

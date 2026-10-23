@@ -656,7 +656,10 @@ local function onCharacter(p: Player, char: Model)
 	end
 	MageServer.Reset(p)
 	task.defer(function()
-		if char.Parent and char:WaitForChild("Head", 5) and char:WaitForChild("Torso", 5) then MageLook.Dress(char) end
+		-- (the robes are armor: worn while equipped; the grimoire always)
+		if char.Parent and char:WaitForChild("Head", 5) and char:WaitForChild("Torso", 5) then
+			MageLook.Dress(char, p:GetAttribute("Armor_mage") == true)
+		end
 	end)
 end
 
@@ -666,6 +669,10 @@ function MageServer.Init(helpers: any)
 		p.CharacterAdded:Connect(function(c) onCharacter(p, c) end)
 		p:GetAttributeChangedSignal("SelectedClass"):Connect(function()
 			if p.Character then onCharacter(p, p.Character) end
+		end)
+		p:GetAttributeChangedSignal("Armor_mage"):Connect(function()
+			local c = p.Character
+			if c and p:GetAttribute("SelectedClass") == "mage" then MageLook.Dress(c, p:GetAttribute("Armor_mage") == true) end
 		end)
 		if p.Character then task.spawn(onCharacter, p, p.Character) end
 	end
