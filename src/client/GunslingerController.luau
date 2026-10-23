@@ -28,6 +28,7 @@ local RunScope = require(game:GetService("ReplicatedStorage"):WaitForChild("Shar
 local Network = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Network"))
 local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
 local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
+local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
 local UltimateCameraChoreography = require(script.Parent:WaitForChild("UltimateCameraChoreography"))
 local SafeMove = require(script.Parent:WaitForChild("SafeMove"))
 
@@ -1681,6 +1682,7 @@ local function updateRunes()
 end
 
 function GunslingerController.Init(d: Deps)
+	ClassFX.Preload(SFX) -- (its own sounds, loaded before the first shot)
 	deps = d
 	RunService.Stepped:Connect(applyPoses)
 	Network.GetRemoteEvent(Network.Remotes.GunslingerFX).OnClientEvent:Connect(function(msg: any)

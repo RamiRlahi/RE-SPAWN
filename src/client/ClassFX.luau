@@ -473,6 +473,42 @@ function ClassFX.Basic(char: Model, classId: string, _dir: Vector3?)
 	end
 end
 
+-- Every sound here (and any other table of them a controller hands over,
+-- e.g. the Gunslinger's), loaded in the background as the game starts: they're
+-- only ids in code, so the menu's preload never sees them, and each variant
+-- used to download the first time it played: the bow's release, a hit, a
+-- moment late, worse on a slow connection. The loaded copies are kept (in
+-- SoundService, silent): while one is alive, every new Sound with its id
+-- plays at once; without them each new one still took ~0.3 s to be ready.
+local preloaded: { [string]: boolean } = {}
+local keep: Folder? = nil
+function ClassFX.Preload(lists: { [string]: { string } }?)
+	if not keep then
+		local f = Instance.new("Folder")
+		f.Name = "ClassSFXCache"
+		f.Parent = game:GetService("SoundService")
+		keep = f
+	end
+	local stand: { Instance } = {}
+	for _, list in pairs(lists or SFX) do
+		for _, sid in ipairs(list) do
+			if not preloaded[sid] then
+				preloaded[sid] = true
+				local snd = Instance.new("Sound")
+				snd.Name = sid
+				snd.SoundId = sid
+				snd.Volume = 0
+				snd.Parent = keep
+				table.insert(stand, snd)
+			end
+		end
+	end
+	if #stand == 0 then return end
+	task.spawn(function()
+		pcall(function() game:GetService("ContentProvider"):PreloadAsync(stand) end)
+	end)
+end
+
 -- A hit of yours landing (DamageDealt, SkillController): its sound, for the
 -- classes whose controllers don't already sound their hits (the Martial
 -- Artist, Berserker, Fire Knight and Gunslinger do). Damage over time ticks

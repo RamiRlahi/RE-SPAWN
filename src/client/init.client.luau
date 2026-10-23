@@ -22,6 +22,9 @@ task.spawn(function()
 	end
 end)
 
+-- Every class's sounds, loaded in the background now, not on first use.
+pcall(function() require(script:WaitForChild("ClassFX")).Preload() end)
+
 -- Every word in the Arcade font (but the map's), from the start.
 do
 	local ok, err = pcall(function() require(script:WaitForChild("FontStyle")).Init() end)
