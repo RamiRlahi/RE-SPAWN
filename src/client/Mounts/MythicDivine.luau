@@ -12,6 +12,9 @@ return function(K: any): { [string]: () -> any }
 	local hold, dot = P.hold, P.dot
 	local GOLD = K.GOLD
 	local M = {}
+	-- (the imported voxel models: bodies lengthened, the seat kept clear of mane
+	-- and tail: BeastKit B:model)
+	local LONGER = { longer = 6, clearSeat = 6 }
 
 	-- ── 22 · Celestial Lion ──────────────────────────────────────────────────
 	-- A great white-marble lion veined with glowing gold, strapped in gold
@@ -182,7 +185,7 @@ return function(K: any): { [string]: () -> any }
 				return CFrame.Angles(0, side * open * 0.25, -side * (flap + open * 0.5))
 			end
 		end
-		local pieces = b:model(require(script.Parent:WaitForChild("Models"):WaitForChild("seraph_steed")), a)
+		local pieces = b:model(require(script.Parent:WaitForChild("Models"):WaitForChild("seraph_steed")), a, LONGER)
 		if pieces.gem then b:glowUp(pieces.gem, function(t: number): number return 0.15 + math.sin(t * 2.4) * 0.15 + burst(t) * 0.5 end) end
 		-- golden feathers drifting down round it
 		local feathers = b:emitter(b.body, b:v(0, 72, 6), b:v(90, 4, 60), {
@@ -366,7 +369,8 @@ return function(K: any): { [string]: () -> any }
 				return CFrame.Angles(math.sin(t * 2.2 + i) * 0.25 - math.min(move, 1) * 0.3, 0, math.sin(t * 1.7 + i) * 0.2)
 			end
 		end
-		local pieces = b:model(require(script.Parent:WaitForChild("Models"):WaitForChild("bloomheart_stag")), a)
+		-- (its antlers sweep back: a little longer still)
+		local pieces = b:model(require(script.Parent:WaitForChild("Models"):WaitForChild("bloomheart_stag")), a, { longer = 9, clearSeat = 6 })
 		for i, n in ipairs({ "lanL", "lanR" }) do
 			if pieces[n] then
 				b:glowUp(pieces[n], function(t: number): number return bloom(t) * 0.5 + math.sin(t * 3 + i) * 0.1 + 0.1 end, Color3.fromRGB(255, 240, 200))

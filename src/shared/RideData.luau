@@ -20,16 +20,15 @@ function RideData.Speed(rarity: string?): number
 	return (rarity and RideData.SpeedByRarity[rarity]) or 40
 end
 
--- Model size by tier (Rare ×1.0, Epic ×1.15, Legendary ×1.3, Mythic ×1.8: big
--- enough that their wings, manes and motes clear the rider;
+-- Model size by tier (Rare ×1.0, Epic ×1.15, Legendary ×1.3, Mythic ×1.4;
 -- the Secret boss-trophy minis are horse-sized, ×1.0).
 RideData.Scale = {
 	giant_spider = 1.15, frost_wolf = 1.15, dire_bear = 1.15, flame_ram = 1.15, venom_scorpion = 1.15,
 	shadow_panther = 1.15, crystal_stag = 1.15, magma_lizard = 1.15, magic_carpet = 1.15,
 	infernal_dragon = 1.3, storm_wyvern = 1.3, death_knight_horse = 1.3, void_disc = 1.3,
 	ossuary_beetle = 1.3, tidal_hippocampus = 1.3, clockwork_gryphon = 1.3, blood_moon_warg = 1.3,
-	void_serpent = 1.8, celestial_lion = 1.8, eclipse_dragon = 1.8, wishing_star = 1.8, abyssal_leviathan_ray = 1.8,
-	seraph_steed = 1.8, chronos_tortoise = 1.8, nebula_kirin = 1.8, bloomheart_stag = 1.8,
+	void_serpent = 1.4, celestial_lion = 1.4, eclipse_dragon = 1.4, wishing_star = 1.4, abyssal_leviathan_ray = 1.4,
+	seraph_steed = 1.4, chronos_tortoise = 1.4, nebula_kirin = 1.4, bloomheart_stag = 1.4,
 }
 
 -- Height of the back (where the rider sits: the top of the saddle) above
@@ -40,8 +39,8 @@ RideData.Back = {
 	shadow_panther = 4.6, crystal_stag = 5.1, magma_lizard = 3.1, magic_carpet = 2.6,
 	infernal_dragon = 5.7, storm_wyvern = 5.7, death_knight_horse = 6.3, void_disc = 3.4,
 	ossuary_beetle = 4.6, tidal_hippocampus = 4.6, clockwork_gryphon = 5.7, blood_moon_warg = 5.2,
-	void_serpent = 7.2, celestial_lion = 9.5, eclipse_dragon = 10.2, wishing_star = 6.7, abyssal_leviathan_ray = 4.9,
-	seraph_steed = 8.7, chronos_tortoise = 8.0, nebula_kirin = 8.7, bloomheart_stag = 8.7,
+	void_serpent = 5.6, celestial_lion = 7.4, eclipse_dragon = 7.9, wishing_star = 5.2, abyssal_leviathan_ray = 3.8,
+	seraph_steed = 6.8, chronos_tortoise = 6.2, nebula_kirin = 6.8, bloomheart_stag = 6.8,
 	mini_ignarath = 3.2, mini_zar0 = 2.7, mini_malakor = 3.2, mini_bone_colossus = 4.8, mini_iron_warlord = 3.2, mini_hex_witch = 4.4,
 }
 

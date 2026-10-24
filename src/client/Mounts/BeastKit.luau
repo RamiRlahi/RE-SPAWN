@@ -240,15 +240,27 @@ return function(W: any)
 	-- follows its parent's motion (a shin its thigh, the head its neck). The
 	-- body's home stays at the ground (its bricks offset up), so the kit's
 	-- effects on b.body sit where they always have.
+	-- opts.longer: model voxels added at each end of the body (its middle
+	-- stretched, the front half (neck, front legs) moved forward, the back
+	-- half (tail, hind legs) back), so the rider sits clear of mane and tail;
+	-- opts.clearSeat: mane and tail bricks still within this many voxels of
+	-- the seat (front to back) are left out.
 	-- → { [name]: piece }, { [name]: home (Vector3, rig space) }
 	local NEON_PIECES = { gem = true, lanL = true, lanR = true }
-	function B:model(data: any, anims: { [string]: (number, number) -> CFrame }): ({ [string]: any }, { [string]: Vector3 })
+	local SEAT_CLIP = { mane = true, tail = true }
+	local BACK_HALF = { wingL = true, wingR = true }
+	function B:model(data: any, anims: { [string]: (number, number) -> CFrame }, opts: any?): ({ [string]: any }, { [string]: Vector3 })
+		local o = opts or {}
+		local ext = o.longer or 0
 		self.artV = self.artV or self.V
 		local s = RideData.BackHeight(self.look) / data.back
 		self.V = s
 		local pieces, homes, pivots, animOf = {}, {}, {}, {}
 		for _, pd in ipairs(data.pieces) do
-			local pivot = (if pd.parent then pivots[pd.parent] else Vector3.zero) + Vector3.new(pd.pivot[1], pd.pivot[2], pd.pivot[3]) * s
+			local pz = pd.pivot[3]
+			-- (wings go with the back half: rooted behind the rider, not at the seat)
+			if pd.parent == "body" then pz += if pz > 0 or BACK_HALF[pd.name] then ext elseif pz < 0 then -ext else 0 end
+			local pivot = (if pd.parent then pivots[pd.parent] else Vector3.zero) + Vector3.new(pd.pivot[1], pd.pivot[2], pz) * s
 			pivots[pd.name] = pivot
 			local home = if pd.parent then pivot else Vector3.zero
 			homes[pd.name] = home
@@ -266,11 +278,21 @@ return function(W: any)
 			local piece = { parts = {}, offsets = {}, home = CFrame.new(home), anim = anim }
 			local shift = pivot - home
 			for _, bx in ipairs(pd.boxes) do
+				local z0, z1 = bx[3], bx[6]
+				if pd.name == "body" and ext > 0 then
+					if z0 < 0 and z1 > 0 then z0, z1 = z0 - ext, z1 + ext
+					elseif z0 >= 0 then z0, z1 = z0 + ext, z1 + ext
+					else z0, z1 = z0 - ext, z1 - ext end
+				end
+				if o.clearSeat and SEAT_CLIP[pd.name] then
+					local at = pivot.Z / s
+					if at + z1 > -o.clearSeat and at + z0 < o.clearSeat then continue end
+				end
 				local c = data.palette[bx[7]]
 				local p = Instance.new("Part")
 				p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
 				p.TopSurface, p.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
-				p.Size = Vector3.new(bx[4] - bx[1], bx[5] - bx[2], bx[6] - bx[3]) * s
+				p.Size = Vector3.new(bx[4] - bx[1], bx[5] - bx[2], z1 - z0) * s
 				p.Color = Color3.fromRGB(c[1], c[2], c[3])
 				-- (the model's glow: Neon only on its accents (the gem, lanterns,
 				-- single bricks on the head: the eyes), never manes, tails or
@@ -279,7 +301,7 @@ return function(W: any)
 				p.Material = if c[4] and (NEON_PIECES[pd.name] or (pd.name == "head" and brick)) then Enum.Material.Neon else Enum.Material.SmoothPlastic
 				p.Parent = self.rig.model
 				table.insert(piece.parts, p)
-				table.insert(piece.offsets, CFrame.new(shift + Vector3.new(bx[1] + bx[4], bx[2] + bx[5], bx[3] + bx[6]) * (s / 2)))
+				table.insert(piece.offsets, CFrame.new(shift + Vector3.new(bx[1] + bx[4], bx[2] + bx[5], z0 + z1) * (s / 2)))
 				table.insert(self.rig.allParts, p)
 			end
 			table.insert(self.rig.pieces, piece)

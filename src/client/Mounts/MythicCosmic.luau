@@ -12,6 +12,9 @@ return function(K: any): { [string]: () -> any }
 	local hold, dot = P.hold, P.dot
 	local GOLD = K.GOLD
 	local M = {}
+	-- (the imported voxel models: bodies lengthened, the seat kept clear of mane
+	-- and tail: BeastKit B:model)
+	local LONGER = { longer = 6, clearSeat = 6 }
 	-- (the seat height of a mount, from RideData)
 	local function W_back(look: string): number return K.W.RideData.BackHeight(look) end
 
@@ -619,7 +622,7 @@ return function(K: any): { [string]: () -> any }
 			local sw = swirl(t)
 			return tail0(t, move) * CFrame.Angles(-sw * 0.4, math.sin(t * 4) * sw * 0.7, 0)
 		end
-		local pieces = b:model(require(script.Parent:WaitForChild("Models"):WaitForChild("nebula_kirin")), a)
+		local pieces = b:model(require(script.Parent:WaitForChild("Models"):WaitForChild("nebula_kirin")), a, LONGER)
 		if pieces.gem then b:glowUp(pieces.gem, function(t: number): number return 0.15 + math.sin(t * 2.2) * 0.15 + swirl(t) * 0.5 end) end
 		if pieces.mane then b:glowUp(pieces.mane, function(t: number): number return swirl(t) * 0.35 end, Color3.fromRGB(235, 225, 255)) end
 		b:legacy(function()
