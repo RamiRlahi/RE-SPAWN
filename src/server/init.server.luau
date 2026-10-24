@@ -50,6 +50,7 @@ require(script:WaitForChild("Leaderboard")).Init()
 require(script:WaitForChild("GuildManager")).Init() -- guilds, their weekly seasons and the podium
 require(script:WaitForChild("DevHooks")).Init() -- (Studio only)
 require(script:WaitForChild("EmoteManager")).Init() -- emote relay for dungeon runs
+require(script:WaitForChild("IslandMode")).Init() -- The Forgotten Isle: its levels, its HUD's asks, its gear and perks
 
 -- Sent into the dungeon (the campfire's portal, ClassManager.Enter): into
 -- their run's dungeon (RunManager: every party's run is its own), weapon in

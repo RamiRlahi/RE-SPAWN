@@ -655,7 +655,8 @@ function IsometricCamera.Start(transitionDuration: number?)
 				end
 				if subject and cam.CameraSubject ~= subject then cam.CameraSubject = subject :: any end
 			end
-			if choosingBuff() or player:GetAttribute("DeathMenuOpen") == true then
+			-- (UIFreeMouse: a panel that wants the cursor, the Forgotten Isle's gear and ritual panels)
+			if choosingBuff() or player:GetAttribute("DeathMenuOpen") == true or player:GetAttribute("UIFreeMouse") == true then
 				-- a free arrow to pick with (a tome, or REVIVE / GIVE UP when
 				-- you've fallen); locked again once it's gone
 				releaseShiftLock()

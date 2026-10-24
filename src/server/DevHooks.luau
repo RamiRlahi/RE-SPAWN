@@ -29,6 +29,13 @@
 	                             16 studs in front of the player
 	  ready|userId               every skill off cooldown, the class meters
 	                             full (Rage, Qi Charge, ...): ults on demand
+	The Forgotten Isle:
+	  isle_gear|userId|itemId    a piece of gear into their bag (EquipmentData)
+	  isle_equip|userId|itemId   ... and put it on
+	  isle_chest|userId|kind     a chest 10 studs in front of them
+	  isle_state|userId          their island state: wave, enemies, level, gear, stats
+	  isle_ritual|userId|bossId  wake the altar now (a boss id, or random)
+	  isle_event|userId|eventId  start one of the island's events now (IslandConfig.Events)
 --]]
 
 local Players = game:GetService("Players")
@@ -88,6 +95,57 @@ function DevHooks.Init()
 			local hook = DungeonGenerator.Hooks.extract
 			if hook then task.spawn(hook, a, {}) end
 			return hook ~= nil
+		elseif cmd == "isle_gear" or cmd == "isle_equip" then
+			local p = plr(a)
+			local EquipmentManager = require(script.Parent:WaitForChild("EquipmentManager")) :: any
+			local item = p and EquipmentManager.Grant(p, b)
+			if not item then return "no such item" end
+			if cmd == "isle_equip" then
+				-- (the newest piece in the bag)
+				for uid = 200, 1, -1 do
+					if EquipmentManager.Equip(p, uid) then break end
+				end
+			end
+			return item.name
+		elseif cmd == "isle_chest" then
+			local p = plr(a)
+			local root = p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+			if not root then return "no character" end
+			local IslandChests = require(script.Parent:WaitForChild("IslandChests")) :: any
+			local at = root.Position + root.CFrame.LookVector * 10
+			local IslandGenerator = require(script.Parent:WaitForChild("IslandGenerator")) :: any
+			local island = IslandGenerator.Get(p:GetAttribute("RunId"))
+			local y = island and island.GroundAt(at + Vector3.new(0, 10, 0)) or (at.Y - 3)
+			local m = IslandChests.Spawn(p:GetAttribute("RunId"), b or "rare", CFrame.lookAt(Vector3.new(at.X, y, at.Z), Vector3.new(root.Position.X, y, root.Position.Z)))
+			return m and m:GetFullName()
+		elseif cmd == "isle_state" then
+			local p = plr(a)
+			if not p then return "no player" end
+			local IslandMode = require(script.Parent:WaitForChild("IslandMode")) :: any
+			local EquipmentManager = require(script.Parent:WaitForChild("EquipmentManager")) :: any
+			local PlayerStats = require(script.Parent:WaitForChild("PlayerStats")) :: any
+			local st = IslandMode.Of(p:GetAttribute("RunId"))
+			local eq = {}
+			for slot, id in pairs(EquipmentManager.Equipped(p)) do table.insert(eq, slot .. "=" .. id) end
+			local stats = {}
+			for _, k in ipairs({ "damage", "maxHealth", "armor", "evasion", "critChance", "critDamage", "abilityDamage", "movementSpeed", "basicAttackSpeed", "luck", "shield" }) do
+				table.insert(stats, k .. "=" .. string.format("%.3g", PlayerStats.GetStat(p, k)))
+			end
+			local alive = 0
+			if st then for _ in pairs(st.enemies) do alive += 1 end end
+			return string.format("wave=%s alive=%d level=%s xp=%s/%s gear={%s} stats={%s}", st and st.wave or "-", alive,
+				tostring(p:GetAttribute("IslandLevel")), tostring(p:GetAttribute("IslandXP")), tostring(p:GetAttribute("IslandXPNext")),
+				table.concat(eq, " "), table.concat(stats, " "))
+		elseif cmd == "isle_ritual" then
+			local p = plr(a)
+			local ritual = script.Parent:FindFirstChild("IslandRitual")
+			if not (p and ritual) then return "no ritual" end
+			return (require(ritual) :: any).Begin(p:GetAttribute("RunId"), p, b, true)
+		elseif cmd == "isle_event" then
+			local p = plr(a)
+			local events = script.Parent:FindFirstChild("IslandEvents")
+			if not (p and events) then return "no events" end
+			return (require(events) :: any).Force(p:GetAttribute("RunId"), b)
 		elseif cmd == "traps" then
 			-- one of each new trap round the player (Hazards.Showcase)
 			local p = plr(a)

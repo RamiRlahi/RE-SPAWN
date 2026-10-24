@@ -144,6 +144,23 @@ local TomeData: { [string]: TomeDefinition } = {
 		id = "thorns", name = "Thorns Tome", category = "Unlockable", description = "+15 Thorns Damage",
 		effects = { { stat = "thornsDamage", operation = "add", value = 15, description = "+15 Thorns Damage" } },
 	},
+	lethality = {
+		id = "lethality", name = "Lethality Tome", category = "Base", description = "+20% Critical Damage",
+		effects = { { stat = "critDamage", operation = "add", value = 0.20, description = "+20% Critical Damage" } },
+	},
+	arcane = {
+		id = "arcane", name = "Arcane Tome", category = "Base", description = "+15% Ability Damage",
+		effects = { { stat = "abilityDamage", operation = "percent", value = 0.15, description = "+15% Ability Damage" } },
+	},
+	fortune = {
+		id = "fortune", name = "Fortune Tome", category = "Base", description = "+15% XP Gain",
+		effects = { { stat = "xpGain", operation = "percent", value = 0.15, description = "+15% XP Gain" } },
+	},
+	leech = {
+		-- (each kill heals 2% of max health; at most 8% a second, however many fall)
+		id = "leech", name = "Leech Tome", category = "Base", description = "Kills heal 2% Max HP",
+		effects = { { stat = "killHeal", operation = "add", value = 0.02, description = "Kills heal 2% Max HP" } },
+	},
 
 	-- ── Boons: they change how you fight (Boons.luau runs them) ──────────────
 	-- Each level adds 1 to its stat (its level). Max level 3: then it can evolve.
@@ -329,12 +346,14 @@ local TomeData: { [string]: TomeDefinition } = {
 }
 
 -- Tomes that can be offered, granted or rolled (level-ups, the Wheel of Fate,
--- the Chaos Tome all draw from this list). Disabled: armor, attraction and
--- thorns (their stats aren't used in-game yet) and silver (no silver currency).
+-- the Chaos Tome all draw from this list). Disabled: attraction and thorns
+-- (their stats aren't used in-game yet) and silver (no silver currency).
+-- (Armor and evasion are applied to every hit a player takes: EquipmentPerks.)
 local TomeOrder = {
 	"agility", "attack_speed", "cooldown", "damage", "evasion", "gold", "health",
 	"knockback", "precision", "projectile_speed", "regen", "ricochet", "shield", "size",
-	"bloody", "chaos", "cursed", "duration", "luck", "quantity",
+	"bloody", "chaos", "cursed", "duration", "luck", "quantity", "armor",
+	"lethality", "arcane", "fortune", "leech",
 	"boon_ignite", "boon_frost", "boon_chain", "boon_bloodlust", "boon_corpse", "boon_execute", "boon_thunder", "boon_secondwind",
 }
 
@@ -426,6 +445,10 @@ local BUFF_COLORS: { [string]: Color3 } = {
 	silver = Color3.fromRGB(210, 215, 230),
 	size = Color3.fromRGB(230, 170, 255),
 	armor = Color3.fromRGB(170, 190, 210),
+	lethality = Color3.fromRGB(255, 70, 90),
+	arcane = Color3.fromRGB(150, 120, 255),
+	fortune = Color3.fromRGB(190, 255, 140),
+	leech = Color3.fromRGB(200, 40, 70),
 	attraction = Color3.fromRGB(255, 140, 220),
 	bloody = Color3.fromRGB(205, 45, 55),
 	chaos = Color3.fromRGB(200, 120, 255),

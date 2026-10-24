@@ -39,6 +39,7 @@ type RunState = {
 	uniqueTomes: { string },
 	chaosBoosts: { string },
 	talentEffects: { any }, -- unlocked class talents (TalentManager), fixed for the run
+	extra: { [string]: { any } }, -- other sources of tome effects, by key (the Forgotten Isle's gear and perk buffs: EquipmentManager)
 	stats: { [string]: number },
 	evolutions: { [string]: boolean }, -- boons evolved this run (TomeData.Evolutions)
 	relics: { string },                -- run relics carried (TomeData.RelicOrder)
@@ -112,6 +113,9 @@ local function baseStats(player: Player): { [string]: number }
 		projectileCount = 0,
 		thornsDamage = 0,
 		xpGain = 1,
+		critDamage = 0,     -- added to a critical hit's ×1.5 (SkillManager)
+		abilityDamage = 1,  -- × an ability's damage (not a basic attack's)
+		killHeal = 0,       -- of max health healed per kill (Leech Tome)
 	}
 end
 
@@ -195,6 +199,29 @@ local function applyStats(player: Player, state: RunState)
 				stats.size = (stats.size or 1) * (1 + value)
 			else
 				percentageBonuses[effect.stat] = (percentageBonuses[effect.stat] or 0) + value
+			end
+		end
+	end
+
+	-- Other sources (the Forgotten Isle's gear, its perks' timed buffs): the
+	-- same rules as a talent.
+	for _, list in pairs(state.extra or {}) do
+		for _, effect in ipairs(list) do
+			local value = effect.value
+			if effect.operation == "add" then
+				stats[effect.stat] = (stats[effect.stat] or 0) + value
+			elseif effect.operation == "multiplier" then
+				stats[effect.stat] = (stats[effect.stat] or 1) + value
+			elseif effect.operation == "percent" then
+				if effect.stat == "evasion" or effect.stat == "critChance" or effect.stat == "lifesteal" or effect.stat == "luck" then
+					stats[effect.stat] = (stats[effect.stat] or 0) + value
+				elseif effect.stat == "abilityCooldown" then
+					stats[effect.stat] *= math.max(0.1, 1 - value)
+				elseif effect.stat == "size" then
+					stats.size = (stats.size or 1) * (1 + value)
+				else
+					percentageBonuses[effect.stat] = (percentageBonuses[effect.stat] or 0) + value
+				end
 			end
 		end
 	end
@@ -398,6 +425,7 @@ function PlayerStats.StartRun(player: Player)
 		uniqueTomes = {},
 		chaosBoosts = {},
 		talentEffects = {},
+		extra = {},
 		stats = {},
 		evolutions = {},
 		relics = {},
@@ -422,8 +450,28 @@ function PlayerStats.StartRun(player: Player)
 end
 
 -- Kill XP goes to the account level (tome choices come from room emblems).
+local xpHooks: { (Player, number) -> () } = {}
 function PlayerStats.AwardXP(player: Player, amount: number)
 	AccountManager.AddXP(player, amount)
+	-- (a run's own levels, where it has them: the Forgotten Isle, IslandMode;
+	-- scaled by the Fortune Tome's xpGain)
+	local state = states[player]
+	local gain = amount * ((state and state.stats.xpGain) or 1)
+	for _, hook in ipairs(xpHooks) do task.spawn(hook, player, gain) end
+end
+-- Called with every XP award (after xpGain): a run that levels on XP.
+function PlayerStats.OnXP(fn: (Player, number) -> ())
+	table.insert(xpHooks, fn)
+end
+
+-- More tome effects from somewhere other than tomes or talents (the
+-- Forgotten Isle's gear and perk buffs), under `key` (nil removes them).
+-- Run-only: never saved.
+function PlayerStats.SetExtraEffects(player: Player, key: string, effects: { any }?)
+	local state = states[player]
+	if not state then return end
+	state.extra[key] = effects
+	applyStats(player, state)
 end
 
 -- How far the current room is cleared (the room's emblem appears when done).

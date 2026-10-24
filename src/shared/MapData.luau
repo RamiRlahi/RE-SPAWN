@@ -52,6 +52,9 @@ export type Map = {
 	-- popups in every room (Tutorial.luau, TutorialController).
 	tutorial: boolean?,
 	plan: { string }?,
+	-- The Forgotten Isle: no dungeon at all, an open island (IslandGenerator)
+	-- taken as an endless survival (IslandMode) with a ritual boss at its heart.
+	island: boolean?,
 	-- How its rooms are joined (DungeonGenerator): "stairs" (the default:
 	-- corridors, stairs where they change height), "lift" (corridors, a lift
 	-- at each change of height) or "portal" (no corridors, no map: the floor
@@ -151,6 +154,36 @@ MapData.Maps = {
 				decay = Color3.fromRGB(22, 14, 64),
 				density = 0.2,
 				haze = 1.0,
+			},
+		},
+	},
+	{
+		id = "isle",
+		name = "The Forgotten Isle",
+		subtitle = "Survive. Plunder. Summon.",
+		rank = "A",
+		description = "An island where an ancient people chained their gods. The dead climb out of its forests, ruins and caves without end. Grow strong on what you find, then wake the ritual at its heart and face whatever answers.",
+		color = Color3.fromRGB(170, 100, 255),
+		stone = Color3.fromRGB(255, 255, 255),
+		packs = { 1 },
+		bosses = {},
+		island = true,
+		-- a dark fantasy dusk: a low bruised sun, sea fog going violet
+		-- in the distance, cold ambient light
+		lighting = {
+			tint = Color3.fromRGB(236, 230, 255),
+			saturation = 0.05,
+			clockTime = 18.1,
+			ambient = Color3.fromRGB(88, 84, 110),
+			outdoorAmbient = Color3.fromRGB(112, 104, 132),
+			brightness = 2.2,
+			exposure = 0.2,
+			bloom = { intensity = 0.4, size = 16, threshold = 1.4 },
+			fog = {
+				color = Color3.fromRGB(110, 104, 140),
+				decay = Color3.fromRGB(46, 30, 78),
+				density = 0.28,
+				haze = 1.6,
 			},
 		},
 	},

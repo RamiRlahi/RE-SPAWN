@@ -46,6 +46,23 @@ local ELITE_MAX_CHANCE = 0.1
 local ROOM_ACTIVATION_PADDING = 36
 local ROOM_REFRESH_INTERVAL = 0.75
 
+-- A mob raised outside any room (MobManager.Spawn: the Forgotten Isle).
+export type SpawnOpts = {
+	kind: string?,        -- a MobKinds id
+	bossKind: string?,    -- or a BossAI kind (a boss)
+	cf: CFrame,
+	runId: string,
+	elite: boolean?,
+	affix: string?,       -- (an elite's trait; rolled if nil)
+	name: string?,        -- shown over it (DisplayName)
+	healthMult: number?,  -- × on top of its kind's
+	damageMult: number?,
+	xpMult: number?,
+	scale: number?,
+	attrs: { [string]: any }?, -- set on it before it's configured (AggroRange, WalkSpeed...)
+	onDied: ((Model) -> ())?,
+}
+
 type MobRecord = {
 	template: Model?,
 	spawnCFrame: CFrame,
@@ -57,6 +74,7 @@ type MobRecord = {
 	summoned: boolean?, -- brought by another mob (risen dead, slimelings)
 	runId: string?, -- its run, when it isn't in a room group
 	group: any,
+	extra: SpawnOpts?, -- raised by MobManager.Spawn (no room): its own multipliers and name
 	health: number,
 	defeated: boolean,
 	model: Model?,
@@ -405,14 +423,21 @@ local function parried(targetChar: Model, attacker: Model?): boolean
 end
 
 -- Incoming damage to a player (e.g. the Fire Knight's guard soaking hits into
--- Heat): each hook may return a reduced amount.
-local incomingHooks: { (Player, Model, number) -> number } = {}
-function MobManager.AddIncomingHook(fn: (Player, Model, number) -> number)
+-- Heat): each hook may return a reduced amount. It's also told who hit
+-- (`attacker`, when there's a single mob) and whether a boss did (`fromBoss`).
+local incomingHooks: { (Player, Model, number, Model?, boolean?) -> number } = {}
+function MobManager.AddIncomingHook(fn: (Player, Model, number, Model?, boolean?) -> number)
 	table.insert(incomingHooks, fn)
 end
-local function incoming(plr: Player, targetChar: Model, damage: number): number
+-- A hit that didn't land because the player was dodging (a dash's i-frames).
+local dodgeHooks: { (Player, Model?) -> () } = {}
+function MobManager.AddDodgeHook(fn: (Player, Model?) -> ())
+	table.insert(dodgeHooks, fn)
+end
+local bossHitting = false -- (set while a boss's own move is hurting someone)
+local function incoming(plr: Player, targetChar: Model, damage: number, attacker: Model?): number
 	for _, hook in ipairs(incomingHooks) do
-		damage = hook(plr, targetChar, damage)
+		damage = hook(plr, targetChar, damage, attacker, bossHitting)
 	end
 	return damage
 end
@@ -1587,7 +1612,7 @@ local function bossDown(record: MobRecord)
 	local at = record.spawnCFrame.Position + Vector3.new(0, 3, 0)
 	pcall(function()
 		local DeathManager = require(script.Parent:WaitForChild("DeathManager"))
-		DeathManager.ReviveAllAt(at, record.group and record.group.runId or nil)
+		DeathManager.ReviveAllAt(at, record.group and record.group.runId or record.runId)
 	end)
 end
 
@@ -1610,8 +1635,10 @@ local function activateMob(record: MobRecord)
 	end
 
 	-- (the Fallen Angel is built from parts: the place's boss template is a slime)
+	local built = record.bossKind and BossAI.Kinds[record.bossKind] and BossAI.Kinds[record.bossKind].build
 	local model = if record.bossKind == "fallen_angel" then BossAI.BuildFallenAngel()
 		elseif record.bossKind == "djinn" then BossAI.BuildDjinn()
+		elseif built then built()
 		elseif record.template then record.template:Clone() else createFallbackMob()
 	-- Rank tags for abilities that care (e.g. the Gunslinger's Silver Dollar).
 	model:SetAttribute("IsBoss", record.isBoss)
@@ -1638,6 +1665,22 @@ local function activateMob(record: MobRecord)
 		model:SetAttribute("DamageMult", kind.damage)
 		model:SetAttribute("XPMult", kind.xp)
 	end
+	-- raised outside a room (MobManager.Spawn): its own multipliers on top
+	local extra = record.extra
+	if extra then
+		if extra.healthMult then model:SetAttribute("HealthMult", (model:GetAttribute("HealthMult") or 1) * extra.healthMult) end
+		if extra.damageMult then model:SetAttribute("DamageMult", (model:GetAttribute("DamageMult") or 1) * extra.damageMult) end
+		if extra.xpMult then model:SetAttribute("XPMult", (model:GetAttribute("XPMult") or 1) * extra.xpMult) end
+		if extra.name then model:SetAttribute("DisplayName", extra.name) end
+		if extra.scale then pcall(function() model:ScaleTo(model:GetScale() * (extra.scale :: number)) end) end
+		if extra.attrs then
+			for k, v in pairs(extra.attrs) do
+				-- (a speed is × its kind's own)
+				if k == "WalkSpeed" and typeof(v) == "number" then v = (model:GetAttribute("WalkSpeed") or 14) * v end
+				model:SetAttribute(k, v)
+			end
+		end
+	end
 	model.Parent = activeMobsFolder
 	record.model = model
 	configureMob(model, record.spawnCFrame, record.isBoss, record.health, function()
@@ -1645,6 +1688,7 @@ local function activateMob(record: MobRecord)
 		record.model = nil
 		if record.group then updateEmblem(record.group) end
 		bossDown(record)
+		if extra and extra.onDied then task.spawn(extra.onDied, model) end
 	end)
 	if record.isElite and not record.isBoss then addEliteAura(model) end
 	if kind then BossAI.Attach(model, record.bossKind :: string) end
@@ -1919,6 +1963,47 @@ local function spawnKind(kindId: string, cf: CFrame, near: Model?): Model?
 	return record.model
 end
 
+-- A mob raised anywhere, in no room (the Forgotten Isle's survival:
+-- IslandMode): a MobKinds kind, or a BossAI boss, with its own multipliers on
+-- top of its kind's. Not filled in or emptied by the rooms' loop: whoever
+-- raised it keeps track of it (and takes it back: model:Destroy()).
+function MobManager.Spawn(o: SpawnOpts): Model?
+	if not activeMobsFolder or not activeMobsFolder.Parent then
+		local mobsFolder = Workspace:FindFirstChild("Mobs") :: Folder?
+		if not mobsFolder then
+			local f = Instance.new("Folder")
+			f.Name = "Mobs"
+			f.Parent = Workspace
+			mobsFolder = f
+		end
+		activeMobsFolder = mobsFolder
+	end
+	local template: Model? = nil
+	if o.bossKind then
+		local _, bossTemplates = getMobTemplates()
+		template = bossTemplates[1]
+	elseif o.kind then
+		template = MobKinds.Template(o.kind)
+	end
+	local record: MobRecord = {
+		template = template,
+		kind = if o.bossKind then nil else o.kind,
+		bossKind = o.bossKind,
+		spawnCFrame = o.cf,
+		isBoss = o.bossKind ~= nil,
+		isElite = o.elite == true and o.bossKind == nil,
+		affix = if o.elite then (o.affix or MobKinds.RollAffix(DifficultyManager.GetTier(o.runId))) else nil,
+		runId = o.runId,
+		group = nil,
+		health = math.huge,
+		defeated = false,
+		model = nil,
+		extra = o,
+	}
+	activateMob(record)
+	return record.model
+end
+
 -- ── The prison's alarm (Prison.luau) ─────────────────────────────────────────
 -- Up to `max` mobs from the run's other rooms (planned now if they weren't yet;
 -- never the boss's, nor one already up and fighting, and every room keeps at
@@ -2084,13 +2169,17 @@ local function hurtPlayer(targetChar: Model, damage: number, from: Vector3?, att
 	end
 	local plr = Players:GetPlayerFromCharacter(targetChar)
 	if not plr or plr:GetAttribute("InLobby") == true then return 0 end
-	if (targetChar:GetAttribute("InvulnerableUntil") or 0) > os.clock() then return 0 end
+	if (targetChar:GetAttribute("InvulnerableUntil") or 0) > os.clock() then
+		for _, hook in ipairs(dodgeHooks) do task.spawn(hook, plr, attacker) end
+		return 0
+	end
 	-- Boss attacks can be parried too (no single attacker to stun, but the
 	-- counter still fires).
 	if parried(targetChar, attacker) then return 0 end
-	local dealt = incoming(plr, targetChar, damage * curseScale(plr))
+	local dealt = incoming(plr, targetChar, damage * curseScale(plr), attacker)
 	hum:TakeDamage(dealt)
-	if from and knockable(targetChar) then
+	-- (Ironroot Sabatons: no knockback at all)
+	if from and knockable(targetChar) and targetChar:GetAttribute("KnockImmune") ~= true then
 		local diff = Vector3.new(root.Position.X - from.X, 0, root.Position.Z - from.Z)
 		local dir = if diff.Magnitude > 0.1 then diff.Unit else Vector3.xAxis
 		root:ApplyImpulse((dir + Vector3.new(0, 0.35, 0)).Unit * root.AssemblyMass * 22)
@@ -2139,15 +2228,22 @@ function MobManager.Init()
 			end
 		end
 	end)
+	-- (a boss's move: the incoming hooks are told it was a boss)
+	local function bossHurt(targetChar: Model, damage: number, from: Vector3?, attacker: Model?): number
+		bossHitting = true
+		local ok, dealt = pcall(hurtPlayer, targetChar, damage, from, attacker)
+		bossHitting = false
+		return if ok then dealt else 0
+	end
 	BossAI.Init({
 		canAct = bossCanAct,
-		hurt = hurtPlayer,
+		hurt = bossHurt,
 		spawnMinion = MobManager.SpawnMinion,
 		roomAt = MobManager.RoomBoundsAt,
 	})
 	DragonBoss.Init({
 		canAct = bossCanAct,
-		hurt = hurtPlayer,
+		hurt = bossHurt,
 		reward = grantBossRewards,
 	})
 	MobKinds.Init({

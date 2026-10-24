@@ -258,6 +258,11 @@ pcall(function()
 	require(script:WaitForChild("UI"):WaitForChild("FloorPortalHUD")).Init()
 end)
 
+-- The Forgotten Isle: its level, notices, ritual, boss bar, gear and events.
+pcall(function()
+	require(script:WaitForChild("UI"):WaitForChild("IslandHUD")).Init()
+end)
+
 -- "Left click to interact" bubble + prompt near a ready room reward.
 pcall(function()
 	require(script:WaitForChild("UI"):WaitForChild("EmblemPrompt")).Init()

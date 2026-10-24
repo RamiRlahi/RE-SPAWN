@@ -68,6 +68,10 @@ export type Kind = {
 	moves: { string },
 	signature: string?, -- the move that makes it invulnerable while it runs
 	gap: number?,       -- seconds between its moves (GAP otherwise; less enraged)
+	-- (a boss registered from elsewhere: BossAI.Register)
+	build: (() -> Model)?, -- its own body, built from parts (the place's boss template otherwise)
+	aura: boolean?,        -- false: no flames on it (its body glows on its own)
+	hidden: boolean?,      -- never picked for a dungeon's Boss room (KindIds)
 }
 
 BossAI.Kinds = {
@@ -112,7 +116,9 @@ local INTRO_TIME = 3.6
 
 function BossAI.KindIds(): { string }
 	local ids = {}
-	for id in pairs(BossAI.Kinds) do table.insert(ids, id) end
+	for id, k in pairs(BossAI.Kinds) do
+		if not k.hidden then table.insert(ids, id) end
+	end
 	table.sort(ids)
 	return ids
 end
@@ -2234,6 +2240,7 @@ end
 -- ── Attach ──────────────────────────────────────────────────────────────────
 local function addAura(b: Boss)
 	if b.model:GetAttribute("SelfRigged") == true then return end -- (the angel and the djinn glow on their own)
+	if b.kind.aura == false then return end
 	local fire = Instance.new("Fire")
 	fire.Name = "BossFlames"
 	fire.Color = b.kind.color
@@ -2311,7 +2318,11 @@ function BossAI.Attach(model: Model, kindId: string)
 		damage = kind.damage * DifficultyManager.GetMobScale(runId).damage
 			* (if runId and RunScope.Get(runId, "Tutorial") == true then 0.5 else 1),
 		enraged = false, minions = {},
-		home = root.Position, runId = runId,
+		-- (an arena of its own: the Forgotten Isle's ritual circle)
+		home = (function(): Vector3
+			local c = model:GetAttribute("ArenaCenter")
+			return if typeof(c) == "Vector3" then c else root.Position
+		end)(), runId = runId,
 	}
 	addAura(b)
 	if kindId == "fallen_angel" and model:GetAttribute("AngelBuilt") ~= true then
@@ -2457,5 +2468,44 @@ end
 function BossAI.Init(d: Deps)
 	deps = d
 end
+
+-- ── Bosses from elsewhere ───────────────────────────────────────────────────
+-- Another module's bosses (the Forgotten Isle's: IslandBosses) join this
+-- loop: their kind (with `build` for a body of their own, and `hidden` so
+-- the dungeons never pick them), their moves by name, and what their
+-- signature is called on screen. Their moves are written with the same
+-- helpers as these (BossAI.Kit).
+function BossAI.Register(id: string, kind: Kind, moves: { [string]: (any, any) -> () }, signatureName: string?)
+	BossAI.Kinds[id] = kind
+	for name, fn in pairs(moves) do MOVES[name] = fn end
+	if kind.signature and signatureName then SIGNATURE_NAMES[kind.signature] = signatureName end
+end
+
+BossAI.Kit = {
+	TELEGRAPH = TELEGRAPH,
+	FLAT = FLAT,
+	MOVES = MOVES,
+	fx = fx,
+	part = part,
+	victims = victims,
+	flatDist = flatDist,
+	telegraphCircle = telegraphCircle,
+	telegraphLine = telegraphLine,
+	telegraphCone = telegraphCone,
+	shock = shock,
+	blast = blast,
+	orb = orb,
+	bossFX = bossFX,
+	runPlayers = runPlayers,
+	alive = alive,
+	hold = hold,
+	nearestVictim = nearestVictim,
+	face = face,
+	dmg = dmg,
+	groundAt = groundAt,
+	standY = standY,
+	hurt = function(char: Model, amount: number, from: Vector3?) deps.hurt(char, amount, from) end,
+	canAct = function(model: Model): boolean return deps.canAct(model) end,
+}
 
 return BossAI

@@ -91,6 +91,9 @@ Network.Remotes = {
 	LavaEscape          = "LavaEscape",       -- client → server: the lava quick-time sequence beaten (Hazards)
 	LavaHelp            = "LavaHelp",         -- client → server: userId of the stuck teammate you pulled out (E)
 	FloorReady          = "FloorReady",       -- client → server: the new level's floor has arrived under you (DungeonGenerator.NextLevel)
+	-- The Forgotten Isle (IslandMode and friends)
+	IslandEvent         = "IslandEvent",      -- server → client: discoveries, waves, events, the ritual, loot (IslandHUD)
+	IslandAction        = "IslandAction",     -- client → server: open a chest, equip gear, wake the ritual (each checked by the server)
 }
 
 local function getFolder(): Folder

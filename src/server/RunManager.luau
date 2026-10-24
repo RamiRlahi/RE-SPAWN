@@ -6,7 +6,9 @@
 
 	  RunManager.Start(players, mapId)   a new run for these players (a party
 	                                     leaving the campfire): its dungeon is
-	                                     built, then each is sent in
+	                                     built (or, for The Forgotten Isle,
+	                                     its island: IslandGenerator, run by
+	                                     IslandMode), then each is sent in
 	  RunManager.RunOf(player)           the run a player is in (or nil)
 	  RunManager.SpawnFor(player)        where they enter it
 
@@ -24,10 +26,12 @@ local RunScope = require(Shared:WaitForChild("RunScope"))
 local MapData = require(Shared:WaitForChild("MapData"))
 local DungeonGenerator = require(script.Parent:WaitForChild("DungeonGenerator"))
 local DifficultyManager = require(script.Parent:WaitForChild("DifficultyManager"))
+local IslandGenerator = require(script.Parent:WaitForChild("IslandGenerator"))
+local IslandMode = require(script.Parent:WaitForChild("IslandMode"))
 
 local RunManager = {}
 
-type Run = { id: string, mapId: string, slot: number, ready: boolean }
+type Run = { id: string, mapId: string, slot: number, ready: boolean, island: boolean }
 local runs: { [string]: Run } = {}
 
 -- The lowest slot no run is using.
@@ -54,7 +58,7 @@ end
 function RunManager.Start(players: { Player }, mapId: string?): string
 	local id = "run_" .. string.sub(HttpService:GenerateGUID(false), 1, 8)
 	local map = MapData.Get(mapId) or MapData.Get(MapData.DEFAULT)
-	local run: Run = { id = id, mapId = (map :: any).id, slot = freeSlot(), ready = false }
+	local run: Run = { id = id, mapId = (map :: any).id, slot = freeSlot(), ready = false, island = (map :: any).island == true }
 	runs[id] = run
 	RunScope.Create(id)
 	RunScope.Set(id, "MapId", run.mapId)
@@ -62,6 +66,17 @@ function RunManager.Start(players: { Player }, mapId: string?): string
 		if p.Parent then p:SetAttribute("RunId", id) end
 	end
 	DifficultyManager.Reset(id)
+	if run.island then
+		-- The Forgotten Isle: an open island instead of a dungeon
+		local ok, err = pcall(function()
+			IslandGenerator.Build(id, run.slot, os.time() + math.random(1, 100000))
+			IslandMode.Start(id)
+		end)
+		if not ok then warn("[RunManager] Building island " .. id .. " failed:", err) end
+		run.ready = true
+		print(`[RunManager] Run {id} started on {run.mapId} (slot {run.slot}) for {#players} player(s).`)
+		return id
+	end
 	local ok, err = pcall(function()
 		DungeonGenerator.Generate({
 			runId = id,
@@ -88,6 +103,10 @@ function RunManager.SpawnFor(player: Player): CFrame
 	local r = runs[id]
 	local t0 = os.clock()
 	while r and not r.ready and os.clock() - t0 < 20 do task.wait(0.1) end
+	if r and r.island then
+		local island = IslandGenerator.Get(id)
+		return if island then island.spawn else CFrame.identity
+	end
 	return DungeonGenerator.GetSpawnCFrame(id)
 end
 
@@ -97,7 +116,12 @@ local function endIfEmpty(id: string)
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p:GetAttribute("RunId") == id and p:GetAttribute("InLobby") == false then return end
 	end
+	local wasIsland = runs[id].island
 	runs[id] = nil
+	if wasIsland then
+		IslandMode.Stop(id)
+		IslandGenerator.Forget(id)
+	end
 	DungeonGenerator.Forget(id)
 	DifficultyManager.Forget(id)
 	RunScope.Destroy(id)

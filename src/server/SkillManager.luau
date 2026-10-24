@@ -24,6 +24,8 @@ local AllyManager = require(script.Parent:WaitForChild("AllyManager"))
 local MobManager = require(script.Parent:WaitForChild("MobManager"))
 local MobKinds = require(script.Parent:WaitForChild("MobKinds"))
 local Boons = require(script.Parent:WaitForChild("Boons"))
+local EquipmentPerks = require(script.Parent:WaitForChild("EquipmentPerks"))
+local EquipmentData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("EquipmentData"))
 local GunslingerServer = require(script.Parent:WaitForChild("GunslingerServer"))
 local SwordsmanServer = require(script.Parent:WaitForChild("SwordsmanServer"))
 local RogueServer = require(script.Parent:WaitForChild("RogueServer"))
@@ -436,12 +438,17 @@ local function dealDamage(player: Player, target: { character: Model, humanoid: 
 	local shielded = false
 	-- (the run's boons: Frostbite, Executioner, Bloodlust, Second Wind…)
 	finalAmount = math.floor(finalAmount * Boons.DamageMult(player, target, source))
+	-- (the Forgotten Isle's gear perks; an ability's own damage: the Arcane Tome)
+	local abilityDamage = if EquipmentData.BASIC[source] then 1 else PlayerStats.GetStat(player, "abilityDamage")
+	if abilityDamage <= 0 then abilityDamage = 1 end
+	finalAmount = math.floor(finalAmount * EquipmentPerks.DamageMult(player, target, source) * abilityDamage)
 
 	local isCrit = false
 	local critChance = PlayerStats.GetStat(player, "critChance")
-	if (opts and opts.forceCrit) or Boons.ForceCrit(player, source) or (critChance > 0 and math.random() < critChance) then
+	if (opts and opts.forceCrit) or Boons.ForceCrit(player, source) or EquipmentPerks.ForceCrit(player, source) or (critChance > 0 and math.random() < critChance) then
 		isCrit = true
-		finalAmount = math.floor(finalAmount * 1.5)
+		-- ×1.5, plus the Lethality Tome's Crit Damage and any perk's
+		finalAmount = math.floor(finalAmount * (1.5 + PlayerStats.GetStat(player, "critDamage") + EquipmentPerks.CritBonus(player, target)))
 	end
 
 	-- A Shielded elite's barrier soaks the hit first (MobKinds).
@@ -459,6 +466,7 @@ local function dealDamage(player: Player, target: { character: Model, humanoid: 
 		RunStats.OnDamage(player, target, finalAmount)
 		Boons.OnHit(player, target, finalAmount, source, isCrit)
 		if killed then Boons.OnKill(player, target, finalAmount, source) end
+		EquipmentPerks.OnHit(player, target, finalAmount, source, isCrit, killed)
 	end
 	applyImpact(player, target, source, isCrit)
 
@@ -1831,6 +1839,7 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 		})
 	end
 
+	EquipmentPerks.OnCast(player, skillIndex)
 	print(`[SkillManager] {player.Name} successfully cast Skill {skillIndex} ({config.name})`)
 end
 
@@ -1979,6 +1988,11 @@ local function reduceCooldown(player: Player, skillIndex: number, seconds: numbe
 end
 
 function SkillManager.Init()
+	EquipmentPerks.SetDeps({
+		dealDamage = dealDamage,
+		targets = getPotentialTargets,
+		reduceCooldown = reduceCooldown,
+	})
 	GunslingerServer.Init({
 		getPotentialTargets = getPotentialTargets,
 		dealDamage = dealDamage,

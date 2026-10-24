@@ -33,6 +33,9 @@ function Dash.Init()
 		last[player] = now
 		local untilT = char:GetAttribute("InvulnerableUntil")
 		char:SetAttribute("InvulnerableUntil", math.max(if typeof(untilT) == "number" then untilT else 0, now + IFRAMES))
+		-- (the Forgotten Isle's dash perks: the Riftwalker Greaves, the Riftbound Blade)
+		local perks = script.Parent:FindFirstChild("EquipmentPerks")
+		if perks then pcall(function() (require(perks) :: any).OnDash(player) end) end
 	end)
 	Players.PlayerRemoving:Connect(function(p) last[p] = nil end)
 end
