@@ -155,128 +155,55 @@ return function(K: any): { [string]: () -> any }
 	end
 
 	-- ── 26 · Seraph Steed ────────────────────────────────────────────────────
-	-- A white warhorse of divine grace in gold armour set with blue crystals,
-	-- glowing blue eyes, a crown of gold spikes for a mane, a flowing gold
-	-- tail, and immense layered wings of white and gold feathers raised high;
-	-- golden feathers drift down around it. Called: it rears, wings spread.
-	-- Emote: all its wings open in a burst of light.
+	-- A white warhorse in gold armour set with blue crystals, a gold mane and
+	-- tail, a crystal on its chest, and immense feathered wings raised high
+	-- (Models/seraph_steed: the artist's voxel model, tools/mounts/export.py);
+	-- golden feathers drift down round it. Called: it rears, wings spread.
+	-- Emote: its wings open wide in a burst of light.
 	function M.seraph_steed()
 		local b = K.new("seraph_steed", { gait = 10, emoteLen = 2.6 })
-		b.smooth = true
-		local WHITE, WHITE2, WHITE3, CREAM = rgb(250, 248, 242), rgb(232, 228, 220), rgb(212, 206, 196), rgb(250, 232, 182)
-		local GEM, GEM2, EYE, TIP, GOLD2 = glow(70, 150, 255), glow(160, 210, 255), glow(110, 200, 255), glow(255, 214, 100), glow(255, 226, 130)
-		local V = b.V
 		local burst = function(t: number): number return hold(b:emPhase(t), 0.2, 2.3, 0.25) end
-		b:gallop(8, 0.08)
+		b:gallop(8, 0.06)
 		b:rearUp(5, 0.4)
 		b:move(function(t: number): CFrame
 			local a = burst(t) * 0.3
 			if a == 0 then return CFrame.identity end
-			local hind = Vector3.new(0, 0, 5 * V)
+			local hind = Vector3.new(0, 0, 5 * b.artV)
 			return CFrame.new(hind) * CFrame.Angles(a, 0, 0) * CFrame.new(-hind)
 		end)
-
-		local body = Kit.group()
-		Kit.box(body, -2, 7, -6, 2, 11, -2, WHITE)
-		Kit.box(body, -2, 7, -2, 2, 10, 5, WHITE)
-		Kit.box(body, -2, 7, 5, 2, 10, 7, WHITE)
-		for z = -6, 7 do for x = -2, 2 do Kit.set(body, x, 7, z, WHITE2.color) end end
-		for _, c in ipairs({ { -2, 9, 1 }, { 2, 8, 3 }, { -2, 8, -4 }, { 2, 10, -1 } }) do Kit.set(body, c[1], c[2], c[3], WHITE3.color) end
-		-- gold armour: breastplate with a great crystal, bands set with crystals
-		for x = -2, 2 do for y = 7, 11 do if math.abs(x) == 2 or y == 7 or y == 11 or (x == 0 and y == 9) then Kit.set(body, x, y, -7, GOLD.color) end end end
-		Kit.box(body, -1, 8, -8, 1, 10, -8, GOLD)
-		Kit.set(body, 0, 9, -9, GEM.color, true)
-		Kit.set(body, 0, 10, -9, GEM2.color, true)
-		for _, z in ipairs({ -3, 4 }) do
-			for y = 7, 10 do
-				Kit.set(body, -3, y, z, GOLD.color)
-				Kit.set(body, 3, y, z, GOLD.color)
-			end
-			P.jewel(body, -4, 9, z, GEM, GOLD, "x")
-			P.jewel(body, 4, 9, z, GEM, GOLD, "x")
-		end
-		P.saddle(body, 2, 11, -1, 2, { seat = CREAM, frame = GOLD, gem = GEM, cloth = WHITE2 })
-		b:bodyPiece({ body })
-
-		local head = Kit.group()
-		Kit.box(head, -1, 0, -3, 1, 5, 0, WHITE)
-		for x = -2, 2 do Kit.set(head, x, 1, -2, GOLD.color) end
-		P.jewel(head, 0, 2, -4, GEM, GOLD, "z")
-		Kit.box(head, -1, 5, -8, 1, 7, -4, WHITE)
-		Kit.box(head, -1, 5, -10, 1, 6, -9, WHITE2)
-		Kit.set(head, 0, 6, -11, WHITE3.color)
-		for _, s in ipairs({ -1, 1 }) do
-			Kit.set(head, s, 7, -6, EYE.color, true)
-			Kit.set(head, s, 8, -4, WHITE.color)
-			Kit.set(head, s, 9, -4, GOLD.color)
-		end
-		Kit.box(head, 0, 8, -8, 0, 8, -5, GOLD)
-		Kit.set(head, 0, 8, -9, GEM.color, true)
-		-- the crown of gold spikes running down its mane
-		for i, c in ipairs({ { 8, -3 }, { 9, -2 }, { 10, -2 }, { 9, -1 }, { 8, 0 }, { 7, 1 }, { 6, 1 }, { 5, 2 } }) do Kit.set(head, 0, c[1], c[2], (if i % 2 == 0 then GOLD2 else GOLD).color, i % 2 == 0) end
-		for _, c in ipairs({ { 0, 11, -2 }, { 1, 10, -3 }, { -1, 10, -3 }, { 0, 10, 0 }, { 1, 9, -1 }, { -1, 9, -1 }, { 0, 9, 1 } }) do Kit.set(head, c[1], c[2], c[3], TIP.color, true) end
-		b:head({ head }, 0, 11, -6, function(t: number): (number, number) return burst(t) * 0.3 + b:mu(t) * 0.35, 0 end)
-
-		-- immense layered wings, raised high
-		local function wingGroup(scale: number): any
-			local g = Kit.group()
-			local depth = { 4, 5, 6, 7, 8, 9, 10, 10, 10, 9, 8, 7, 6, 5, 4 }
-			local n = math.floor(#depth * scale)
-			for x = 0, n do Kit.set(g, x, 0, 0, GOLD.color) end
-			for x = 1, n do
-				local d = math.max(2, math.floor(depth[math.max(1, math.floor(x / scale))] * scale))
-				for z = 1, d do
-					if z == d and x % 2 == 1 then continue end
-					local p = if z >= d - 1 then TIP elseif z <= 2 then WHITE elseif x % 2 == 0 then CREAM else WHITE
-					Kit.set(g, x, 0, z, p.color, p.neon)
-				end
-			end
-			return g
-		end
-		for layer, sc in ipairs({ 1, 0.8, 0.6 }) do
-			local g = wingGroup(sc)
-			for _, side in ipairs({ -1, 1 }) do
-				b:piece({ if side > 0 then g else K.mirror(g) }, b:at(side * 2.5, 11 + (layer - 1) * 0.6, -3 + (layer - 1) * 1.5), function(t: number, move: number): CFrame
-					local open = math.max(burst(t), b:mu(t))
-					local flap = math.sin(t * (2.2 + move * 7) + layer * 0.5) * (0.12 + math.min(move, 1) * 0.35) * (1 - open)
-					local a = 0.75 - (layer - 1) * 0.25 + flap + open * 0.35
-					return CFrame.Angles(0, -side * (0.55 - open * 0.45), side * a)
-				end)
+		local a = b:horseAnims({ head = function(t: number): number return burst(t) * 0.3 + b:mu(t) * 0.35 end })
+		-- the wings: a slow beat at rest, harder at a run; thrown wide open
+		-- when called and on the emote (a turn about z tips them out)
+		local beat = K.W.runner(2.2, 7)
+		for _, side in ipairs({ 1, -1 }) do
+			a[if side > 0 then "wingL" else "wingR"] = function(t: number, move: number): CFrame
+				local open = math.max(burst(t), b:mu(t))
+				local flap = math.sin(beat(t, move)) * (0.06 + math.min(move, 1) * 0.28) * (1 - open)
+				return CFrame.Angles(0, side * open * 0.25, -side * (flap + open * 0.5))
 			end
 		end
-		b:legs4({ x = 1.5, front = -4, hind = 5, hip = 7, w = 2,
-			make = function(): any
-				local g = K.legGroup(7, 2, WHITE, GOLD)
-				Kit.box(g, -1, -2, -1, 0, -2, 0, GOLD)
-				Kit.box(g, -1, -5, -1, 0, -5, 0, GOLD)
-				Kit.set(g, 0, -2, -1, GEM.color, true)
-				Kit.box(g, -1, -6, -1, 0, -6, 0, CREAM)
-				return g
-			end })
-		local tail = Kit.group()
-		for i, c in ipairs({ { 0, 0 }, { -1, 1 }, { -2, 2 }, { -3, 2 }, { -4, 3 }, { -5, 3 }, { -6, 4 } }) do
-			Kit.box(tail, 0, c[1], c[2], 0, c[1], c[2] + 1, (if i >= 5 then TIP elseif i % 2 == 0 then GOLD2 else CREAM))
-		end
-		b:tail({ tail }, 0, 10, 7)
+		local pieces = b:model(require(script.Parent:WaitForChild("Models"):WaitForChild("seraph_steed")), a)
+		if pieces.gem then b:glowUp(pieces.gem, function(t: number): number return 0.15 + math.sin(t * 2.4) * 0.15 + burst(t) * 0.5 end) end
 		-- golden feathers drifting down round it
-		local feathers = b:emitter(b.body, b:v(0, 18, 0), b:v(18, 2, 12), {
+		local feathers = b:emitter(b.body, b:v(0, 72, 6), b:v(90, 4, 60), {
 			Texture = K.SPARK, Color = ColorSequence.new(Color3.fromRGB(255, 240, 190), Color3.fromRGB(255, 205, 90)), LightEmission = 0.8,
 			Size = K.seq(0.35, 0.25), Transparency = K.seq(0, 1), Lifetime = NumberRange.new(2, 3), Speed = NumberRange.new(0.5, 1),
 			Acceleration = Vector3.new(0, -2, 0), RotSpeed = NumberRange.new(-90, 90), Rate = 6,
 		})
-		local light = b:fx(b.body, b:v(0, 13, 0), b:v(16, 6, 10), "stars", Color3.fromRGB(255, 245, 210))
+		local light = b:fx(b.body, b:v(0, 45, 6), b:v(80, 30, 50), "stars", Color3.fromRGB(255, 245, 210))
 		b:whileEmote(light, 80, 0.3, 1.2)
 		b:atEmote(0.3, function() feathers:Emit(30) end)
 		b:atMount(0.3, function() feathers:Emit(20) end)
-		b:orbitVar(b:at(0, 12, 0), 8, 10 * V, function(t: number): number return 0.4 + burst(t) * 2 end, function(i: number)
-			local g = Kit.group()
-			Kit.set(g, 0, 0, 0, CREAM.color)
-			Kit.set(g, 1, 0, 0, TIP.color, true)
-			return g
-		end, 0.25, 1.2)
-		P.runes(b, 11, Color3.fromRGB(255, 230, 160), "hex")
-		b:runTrail(Vector3.new(0, 0.5, 0), b:v(5, 1, 12), "stars", Color3.fromRGB(255, 240, 200), 14)
-		b:dust(12, 5, Color3.fromRGB(240, 235, 220))
+		b:legacy(function()
+			b:orbitVar(b:at(0, 12, 0), 8, 10 * b.V, function(t: number): number return 0.4 + burst(t) * 2 end, function()
+				local g = Kit.group()
+				Kit.set(g, 0, 0, 0, Color3.fromRGB(250, 232, 182))
+				Kit.set(g, 1, 0, 0, Color3.fromRGB(255, 214, 100), true)
+				return g
+			end, 0.25, 1.2)
+		end)
+		b:runTrail(Vector3.new(0, 0.5, 0), b:v(25, 4, 60), "stars", Color3.fromRGB(255, 240, 200), 14)
+		b:dust(60, 25, Color3.fromRGB(240, 235, 220))
 		return b.rig
 	end
 
@@ -418,122 +345,43 @@ return function(K: any): { [string]: () -> any }
 	end
 
 	-- ── 29 · Bloomheart Stag ─────────────────────────────────────────────────
-	-- A graceful white stag, vines and pink blossoms wound round its neck and
-	-- back, great branching antlers of living wood heavy with cherry blossom
-	-- and hung with glowing lanterns, a pink heart jewel set in gold on its
-	-- chest, gold bands on its legs, petals drifting round it. Emote: its
-	-- antlers burst into full bloom.
+	-- A graceful white stag wound with vines and blossom, great branching
+	-- antlers of living wood heavy with cherry blossom and hung with glowing
+	-- lanterns (Models/bloomheart_stag: the artist's voxel model,
+	-- tools/mounts/export.py); petals drift round it. Emote: its antlers burst
+	-- into bloom, the lanterns blaze.
 	function M.bloomheart_stag()
 		local b = K.new("bloomheart_stag", { gait = 10, emoteLen = 2.8 })
-		b.smooth = true
-		local WHITE, WHITE2, WHITE3 = rgb(250, 248, 242), rgb(232, 228, 220), rgb(214, 208, 198)
-		local WOOD, WOOD2, LEAF, LEAF2 = rgb(122, 86, 52), rgb(96, 66, 40), rgb(80, 150, 70), rgb(112, 182, 82)
-		local PINK, PINK2, HEARTC = rgb(255, 168, 200), rgb(255, 138, 184), rgb(255, 244, 214)
-		local HEART, HEART2, LAMP, EYE = glow(255, 90, 160), glow(255, 170, 210), glow(255, 184, 96), rgb(30, 30, 40)
-		local V = b.V
 		local bloom = function(t: number): number return hold(b:emPhase(t), 0.2, 2.6, 0.35) end
 		b:gallop(8, 0.08)
 		b:rearUp(4, 0.35)
-
-		local body = Kit.group()
-		Kit.box(body, -2, 7, -6, 2, 11, -2, WHITE)
-		Kit.box(body, -2, 7, -2, 2, 10, 4, WHITE)
-		Kit.box(body, -2, 7, 4, 2, 10, 6, WHITE)
-		for z = -6, 6 do for x = -2, 2 do Kit.set(body, x, 7, z, WHITE2.color) end end
-		for _, c in ipairs({ { -2, 9, 0 }, { 2, 8, 2 }, { -2, 10, -4 }, { 2, 9, -3 }, { 0, 10, 5 } }) do Kit.set(body, c[1], c[2], c[3], WHITE3.color) end
-		-- vines and blossoms along the back and down the flanks
-		for z = -6, 6 do
-			if z < -2 or z > 3 then Kit.set(body, (if z % 2 == 0 then 1 else -1), if z <= -2 then 12 else 11, z, LEAF.color) end
-		end
-		for _, s in ipairs({ -1, 1 }) do
-			for i, c in ipairs({ { 11, -5 }, { 10, -4 }, { 10, -3 }, { 9, -2 }, { 9, 4 }, { 10, 5 } }) do Kit.set(body, 3 * s, c[1], c[2], (if i % 2 == 0 then LEAF2 else LEAF).color) end
-			P.blossom(body, 3 * s, 10, -6, PINK, HEARTC, PINK2)
-			P.blossom(body, 3 * s, 10, 5, PINK, HEARTC, PINK2)
-		end
-		P.blossom(body, 0, 13, -5, PINK, HEARTC, PINK2)
-		-- the heart jewel's gold frame
-		for _, c in ipairs({ { -2, 10 }, { -1, 11 }, { 1, 11 }, { 2, 10 }, { 2, 9 }, { 1, 8 }, { 0, 7 }, { -1, 8 }, { -2, 9 }, { 0, 10 } }) do Kit.set(body, c[1], c[2], -7, GOLD.color) end
-		P.saddle(body, 2, 11, -1, 2, { seat = LEAF, frame = GOLD, gem = HEART, cloth = rgb(250, 214, 228) })
-		P.blossom(body, 0, 14, 3, PINK, HEARTC, PINK2)
-		b:bodyPiece({ body })
-		local heart = Kit.group()
-		for _, c in ipairs({ { -1, 10 }, { 1, 10 }, { -1, 9 }, { 0, 9 }, { 1, 9 }, { 0, 8 } }) do Kit.set(heart, c[1], c[2], -7.5, (if c[2] == 10 then HEART2 else HEART).color, true) end
-		local heartPiece = b:onBody({ heart })
-		b:glowUp(heartPiece, function(t: number): number return 0.2 + math.sin(t * 2.6) * 0.2 + bloom(t) * 0.5 end, Color3.fromRGB(255, 230, 240))
-
-		local head = Kit.group()
-		Kit.box(head, -1, 0, -3, 1, 5, 0, WHITE)
-		for x = -2, 2 do Kit.set(head, x, 1, -2, GOLD.color) end
-		for i, c in ipairs({ { -2, 2, -1 }, { 2, 3, -2 }, { -2, 4, -1 }, { 2, 1, 0 } }) do Kit.set(head, c[1], c[2], c[3], (if i % 2 == 0 then LEAF2 else LEAF).color) end
-		P.blossom(head, 2, 3, -1, PINK, HEARTC, PINK2)
-		P.blossom(head, -2, 1, -2, PINK, HEARTC, PINK2)
-		Kit.box(head, -1, 5, -8, 1, 7, -4, WHITE)
-		Kit.box(head, -1, 5, -10, 1, 6, -9, WHITE2)
-		Kit.set(head, 0, 6, -11, rgb(70, 56, 50).color)
-		for _, s in ipairs({ -1, 1 }) do
-			Kit.set(head, s, 7, -6, EYE.color)
-			Kit.box(head, 2 * s, 8, -4, 2 * s, 8, -3, WHITE)
-			Kit.set(head, 2 * s, 8, -5, PINK.color)
-		end
-		b:head({ head }, 0, 11, -6, function(t: number): (number, number) return bloom(t) * 0.2 + b:mu(t) * 0.3, 0 end)
-		-- the living-wood antlers, blossoming, and the full bloom
-		local ant, full = Kit.group(), Kit.group()
-		local trunk = { { 1, 8, -4 }, { 2, 9, -4 }, { 2, 10, -3 }, { 3, 11, -3 }, { 3, 12, -2 }, { 4, 13, -2 }, { 4, 14, -1 }, { 5, 15, -1 }, { 5, 16, 0 } }
-		local branches = { { { 2, 10, -3 }, { 2, 11, -5 }, { 2, 12, -6 } }, { { 3, 12, -2 }, { 5, 12, -2 }, { 6, 13, -2 }, { 7, 13, -1 } },
-			{ { 4, 14, -1 }, { 3, 15, -1 }, { 3, 16, -2 }, { 2, 17, -2 } }, { { 5, 16, 0 }, { 6, 16, 0 }, { 6, 17, 1 } } }
-		local tips = { { 2, 13, -6 }, { 7, 14, -1 }, { 2, 18, -2 }, { 6, 18, 1 }, { 5, 17, 0 } }
-		for _, s in ipairs({ -1, 1 }) do
-			for i, c in ipairs(trunk) do Kit.set(ant, c[1] * s, c[2], c[3], (if i % 3 == 0 then WOOD2 else WOOD).color) end
-			for _, br in ipairs(branches) do
-				for i = 1, #br - 1 do P.line(ant, Vector3.new(br[i][1] * s, br[i][2], br[i][3]), Vector3.new(br[i + 1][1] * s, br[i + 1][2], br[i + 1][3]), WOOD) end
+		local a = b:horseAnims({
+			head = function(t: number): number return bloom(t) * 0.2 + b:mu(t) * 0.3 end,
+			-- (a deer's flicking scut)
+			tail = function(t: number): number return -0.2 + math.sin(t * 7) * 0.12 end,
+		})
+		-- the lanterns swing from the antler tips (trailing back at a run)
+		for i, n in ipairs({ "lanL", "lanR" }) do
+			a[n] = function(t: number, move: number): CFrame
+				return CFrame.Angles(math.sin(t * 2.2 + i) * 0.25 - math.min(move, 1) * 0.3, 0, math.sin(t * 1.7 + i) * 0.2)
 			end
-			for _, c in ipairs(tips) do P.blossom(ant, c[1] * s, c[2], c[3], PINK, HEARTC, PINK2) end
-			for _, c in ipairs({ { 3, 11, -4 }, { 4, 13, -3 }, { 5, 14, 0 }, { 1, 9, -3 } }) do P.blossom(full, c[1] * s, c[2], c[3], PINK2, HEARTC, PINK) end
-			for _, c in ipairs({ { 6, 15, -1 }, { 3, 17, -1 }, { 4, 12, -1 } }) do P.blossom(full, c[1] * s, c[2], c[3], PINK, HEARTC, PINK2) end
 		end
-		b:onHead({ ant }, Vector3.zero, function(): CFrame return CFrame.identity end)
-		local fullPiece = b:onHead({ full }, Vector3.new(0, 12, -2), function(t: number): CFrame return CFrame.new(0, -(1 - bloom(t)) * 1.5 * V, 0) end)
-		b:fade(fullPiece.parts, function(t: number): number return 1 - bloom(t) end)
-		-- lanterns hanging from the antlers, swaying
-		for i, c in ipairs({ { 6, 12, -2 }, { -6, 12, -2 }, { 3, 15, -1 }, { -3, 15, -1 } }) do
-			local g = Kit.group()
-			Kit.set(g, 0, -1, 0, GOLD.color)
-			Kit.set(g, 0, -2, 0, GOLD.color)
-			Kit.set(g, 0, -3, 0, LAMP.color, true)
-			Kit.set(g, 0, -4, 0, LAMP.color, true)
-			Kit.set(g, 0, -5, 0, GOLD.color)
-			local lantern = b:onHead({ g }, Vector3.new(c[1], c[2], c[3]), function(t: number, move: number): CFrame
-				return CFrame.new(c[1] * V, c[2] * V, c[3] * V) * CFrame.Angles(math.sin(t * 2.2 + i) * 0.25 + move * 0.3, 0, math.sin(t * 1.7 + i) * 0.2) * CFrame.new(-c[1] * V, -c[2] * V, -c[3] * V)
-			end)
-			b:glowUp(lantern, function(t: number): number return bloom(t) * 0.5 + math.sin(t * 3 + i) * 0.1 + 0.1 end, Color3.fromRGB(255, 240, 200))
+		local pieces = b:model(require(script.Parent:WaitForChild("Models"):WaitForChild("bloomheart_stag")), a)
+		for i, n in ipairs({ "lanL", "lanR" }) do
+			if pieces[n] then
+				b:glowUp(pieces[n], function(t: number): number return bloom(t) * 0.5 + math.sin(t * 3 + i) * 0.1 + 0.1 end, Color3.fromRGB(255, 240, 200))
+			end
 		end
-		local petals = b:fx(b.headPiece, b:v(0, 14, -2), b:v(14, 6, 4), "stars", Color3.fromRGB(255, 180, 210))
+		if pieces.blooms then b:glowUp(pieces.blooms, function(t: number): number return bloom(t) * 0.55 end, Color3.fromRGB(255, 225, 240)) end
+		local petals = b:fx(b.headPiece, b:v(0, 12, 0), b:v(60, 14, 30), "stars", Color3.fromRGB(255, 180, 210))
 		b:whileEmote(petals, 50, 0.3, 2.4)
-		b:legs4({ x = 1.5, front = -4, hind = 5, hip = 7, w = 2,
-			make = function(_, side: number): any
-				local g = K.legGroup(7, 2, WHITE, rgb(100, 80, 60))
-				Kit.box(g, -1, -5, -1, 0, -5, 0, GOLD)
-				Kit.set(g, if side > 0 then 0 else -1, -2, -1, LEAF.color)
-				Kit.set(g, if side > 0 then 0 else -1, -3, -1, PINK.color)
-				return g
-			end })
-		local tail = Kit.group()
-		Kit.set(tail, 0, 0, 0, WHITE.color)
-		Kit.set(tail, 0, 1, 0, WHITE.color)
-		P.blossom(tail, 0, 1, 1, PINK, HEARTC, PINK2)
-		b:tail({ tail }, 0, 10, 6, function(t: number): (number, number) return -0.3 + math.sin(t * 7) * 0.2, 0 end)
-		b:orbitVar(b:at(0, 11, 0), 10, 9 * V, function(t: number): number return 0.7 + bloom(t) * 3 end, function(i: number)
-			return dot((if i % 3 == 0 then rgb(255, 235, 120) elseif i % 2 == 0 then PINK2 else PINK).color, i % 3 == 0)
-		end, 0.25, 1.2)
-		local ring = Kit.group()
-		for i = 0, 29 do
-			local a = i / 30 * math.pi * 2
-			local x, z = math.floor(math.cos(a) * 14 + 0.5), math.floor(math.sin(a) * 14 + 0.5)
-			if i % 3 == 0 then P.blossom(ring, x, 0, z, PINK, HEARTC, PINK2) else Kit.set(ring, x, 0, z, (if i % 2 == 0 then LEAF2 else LEAF).color) end
-		end
-		b:piece({ ring }, CFrame.new(0, 0.15, 0), function(t: number): CFrame return CFrame.Angles(0, t * 0.12, 0) end)
-		P.runes(b, 11, Color3.fromRGB(255, 140, 190), "star")
-		b:runTrail(Vector3.new(0, 0.5, 0), b:v(5, 1, 12), "stars", Color3.fromRGB(255, 190, 220), 14)
+		b:legacy(function()
+			b:orbitVar(b:at(0, 11, 0), 10, 9 * b.V, function(t: number): number return 0.7 + bloom(t) * 3 end, function(i: number)
+				return dot((if i % 3 == 0 then rgb(255, 235, 120) elseif i % 2 == 0 then rgb(255, 138, 184) else rgb(255, 168, 200)).color, i % 3 == 0)
+			end, 0.25, 1.2)
+		end)
+		b:runTrail(Vector3.new(0, 0.5, 0), b:v(25, 4, 60), "stars", Color3.fromRGB(255, 190, 220), 14)
+		b:dust(60, 25, Color3.fromRGB(240, 235, 220))
 		return b.rig
 	end
 

@@ -231,6 +231,121 @@ return function(W: any)
 		table.insert(self.rig.pieces, piece)
 		return piece
 	end
+	-- An imported voxel model (Mounts/Models: tools/mounts/export.py from a
+	-- GLB): each of its pieces built as merged boxes at its pivot, scaled so
+	-- the body's top is the rider's seat. b.V becomes studs per model voxel
+	-- (b.artV keeps the brick size, for the kit's own brick-built extras:
+	-- b:legacy), so b:at / b:v and the whole-rig moves work in model units.
+	-- anims[name](t, move) → that piece's own turn about its pivot; a piece
+	-- follows its parent's motion (a shin its thigh, the head its neck). The
+	-- body's home stays at the ground (its bricks offset up), so the kit's
+	-- effects on b.body sit where they always have.
+	-- → { [name]: piece }, { [name]: home (Vector3, rig space) }
+	local NEON_PIECES = { gem = true, lanL = true, lanR = true }
+	function B:model(data: any, anims: { [string]: (number, number) -> CFrame }): ({ [string]: any }, { [string]: Vector3 })
+		self.artV = self.artV or self.V
+		local s = RideData.BackHeight(self.look) / data.back
+		self.V = s
+		local pieces, homes, pivots, animOf = {}, {}, {}, {}
+		for _, pd in ipairs(data.pieces) do
+			local pivot = (if pd.parent then pivots[pd.parent] else Vector3.zero) + Vector3.new(pd.pivot[1], pd.pivot[2], pd.pivot[3]) * s
+			pivots[pd.name] = pivot
+			local home = if pd.parent then pivot else Vector3.zero
+			homes[pd.name] = home
+			local own = anims[pd.name]
+			local parentAnim = if pd.parent then animOf[pd.parent] else nil
+			local anim: ((number, number) -> CFrame)? = own
+			if parentAnim then
+				local rel = home - homes[pd.parent]
+				anim = function(t: number, move: number): CFrame
+					local cf = CFrame.new(-rel) * parentAnim(t, move) * CFrame.new(rel)
+					return if own then cf * own(t, move) else cf
+				end
+			end
+			animOf[pd.name] = anim or function(): CFrame return CFrame.identity end
+			local piece = { parts = {}, offsets = {}, home = CFrame.new(home), anim = anim }
+			local shift = pivot - home
+			for _, bx in ipairs(pd.boxes) do
+				local c = data.palette[bx[7]]
+				local p = Instance.new("Part")
+				p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
+				p.TopSurface, p.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
+				p.Size = Vector3.new(bx[4] - bx[1], bx[5] - bx[2], bx[6] - bx[3]) * s
+				p.Color = Color3.fromRGB(c[1], c[2], c[3])
+				-- (the model's glow: Neon only on its accents (the gem, lanterns,
+				-- single bricks on the head: the eyes), never manes, tails or
+				-- wings, or the bloom drowns the whole mount)
+				local brick = math.max(bx[4] - bx[1], bx[5] - bx[2], bx[6] - bx[3]) <= 3
+				p.Material = if c[4] and (NEON_PIECES[pd.name] or (pd.name == "head" and brick)) then Enum.Material.Neon else Enum.Material.SmoothPlastic
+				p.Parent = self.rig.model
+				table.insert(piece.parts, p)
+				table.insert(piece.offsets, CFrame.new(shift + Vector3.new(bx[1] + bx[4], bx[2] + bx[5], bx[3] + bx[6]) * (s / 2)))
+				table.insert(self.rig.allParts, p)
+			end
+			table.insert(self.rig.pieces, piece)
+			pieces[pd.name] = piece
+		end
+		self.body, self.bodyAnim = pieces.body, animOf.body
+		if pieces.head then
+			self.headPiece, self.headHome, self.headAnim = pieces.head, CFrame.new(homes.head), animOf.head
+		end
+		return pieces, homes
+	end
+	-- The moves of an imported four-legged model (its pieces named as the
+	-- exporter's GLBs name them): thighs "lFL" "lFR" "lBL" "lBR" bounding like
+	-- b:leg, their shins ("…2") folding at the knee as each leg swings
+	-- forward; the neck steady against the gallop and looking round at rest,
+	-- the head nodding (o.head(t, move) → more pitch), the mane rippling, the
+	-- tail swishing (o.tail(t, move) → more pitch). Merge your own into it.
+	function B:horseAnims(o: any?): { [string]: (number, number) -> CFrame }
+		local opts = o or {}
+		local a: { [string]: (number, number) -> CFrame } = {}
+		for _, front in ipairs({ true, false }) do
+			for _, side in ipairs({ -1, 1 }) do
+				-- (the GLBs' left legs are on rig +x)
+				local name = "l" .. (if front then "F" else "B") .. (if side > 0 then "L" else "R")
+				local phase = (if front then K.FRONT_LAG else 0) + (if side > 0 then K.SIDE_LAG else 0)
+				local amp = if front then 0.5 else 0.6
+				a[name] = function(t: number, move: number): CFrame
+					local swing = math.sin(t * self.gait - phase) * amp * math.min(move, 1.2)
+					if front and self.rearing then swing += self:mu(t) * (0.7 + math.sin(t * 16 + phase) * 0.4) end
+					return CFrame.Angles(swing, 0, 0)
+				end
+				a[name .. "2"] = function(t: number, move: number): CFrame
+					-- (folds while the leg swings forward: the hoof tucked back and up)
+					local k = math.max(0, math.cos(t * self.gait - phase)) * (if front then 0.95 else 0.7) * math.min(move, 1.2)
+					if front and self.rearing then k += self:mu(t) * (1 + math.sin(t * 16 + phase) * 0.3) end
+					return CFrame.Angles(-k, 0, 0)
+				end
+			end
+		end
+		a.neck = function(t: number, move: number): CFrame
+			local rest = math.max(0, 1 - move)
+			return CFrame.Angles(-self:pitch(t, move) * 0.6 + math.sin(t * 1.1) * 0.04 * rest, math.sin(t * 0.7) * 0.12 * rest, 0)
+		end
+		a.head = function(t: number, move: number): CFrame
+			local extra = if opts.head then opts.head(t, move) else 0
+			return CFrame.Angles(math.sin(t * 1.3 + 0.6) * 0.05 + math.sin(t * self.gait) * 0.06 * math.min(move, 1) + extra, 0, 0)
+		end
+		a.mane = function(t: number, move: number): CFrame
+			return CFrame.Angles(math.sin(t * 2.4) * 0.03 + math.min(move, 1) * 0.12, 0, math.sin(t * 1.9) * 0.03)
+		end
+		local swish = W.runner(2, 3)
+		a.tail = function(t: number, move: number): CFrame
+			local extra = if opts.tail then opts.tail(t, move) else 0
+			-- (raised as it runs: a turn about x lowers what trails behind)
+			return CFrame.Angles(math.sin(t * 2.2) * 0.08 - math.min(move, 1) * 0.25 + extra, math.sin(swish(t, move)) * 0.3, 0)
+		end
+		return a
+	end
+	-- Run `fn` with b.V back at the kit's brick size (the brick-built extras:
+	-- rune circles, orbiting motes) on an imported model.
+	function B:legacy(fn: () -> ())
+		local v = self.V
+		self.V = self.artV or v
+		fn()
+		self.V = v
+	end
 	function B:anchor(home: CFrame, anim: any?): any
 		return W.addAnchorPiece(self.rig, home, anim)
 	end

@@ -599,110 +599,39 @@ return function(K: any): { [string]: () -> any }
 	end
 
 	-- ── 28 · Nebula Kirin ────────────────────────────────────────────────────
-	-- A slender deer-dragon of deep indigo starred with sparkles, branching
-	-- gold antlers, gold armour bands set with blue crystals, and a great
-	-- flowing mane and tail of nebula ribbons in violet, blue and white.
-	-- Emote: its mane and tail swirl into a spiral galaxy round it.
+	-- A slender deer-dragon of deep indigo starred with sparkles, gold antlers,
+	-- gold armour set with blue crystals, a crystal on its chest, and a great
+	-- flowing mane and tail of nebula in violet, blue and white
+	-- (Models/nebula_kirin: the artist's voxel model, tools/mounts/export.py).
+	-- Emote: its mane and tail swirl round like a galaxy.
 	function M.nebula_kirin()
 		local b = K.new("nebula_kirin", { gait = 10, emoteLen = 2.8 })
-		b.smooth = true
-		local IND, IND2, IND3, LEG = rgb(30, 24, 72), rgb(44, 36, 98), rgb(62, 50, 130), rgb(26, 20, 60)
-		local STAR, GEM, GEM2, EYE = glow(255, 255, 255), glow(90, 160, 255), glow(170, 210, 255), glow(150, 220, 255)
-		local GOLD2 = glow(255, 205, 80)
-		local NEB1, NEB2, NEB3, NEB4 = glow(150, 80, 255), glow(96, 140, 255), glow(230, 230, 255), glow(255, 120, 230)
-		local V = b.V
 		local swirl = function(t: number): number return hold(b:emPhase(t), 0.2, 2.6, 0.45) end
 		b:gallop(8, 0.08)
 		b:rearUp(5, 0.35)
-
-		local function coat(x: number, y: number, z: number): any
-			local h = (x * 7 + y * 13 + z * 5) % 11
-			if h == 0 then return STAR end
-			if h == 5 then return GEM end
-			return if (x + y + z) % 3 == 0 then IND2 else IND
+		local a = b:horseAnims({ head = function(t: number): number return swirl(t) * 0.25 + b:mu(t) * 0.3 end })
+		-- the mane and tail stream and, on the emote, whirl round
+		local mane0, tail0 = a.mane, a.tail
+		a.mane = function(t: number, move: number): CFrame
+			return mane0(t, move) * CFrame.Angles(0, math.sin(t * 3) * swirl(t) * 0.45, math.sin(t * 2.3) * 0.05)
 		end
-		local body = Kit.group()
-		for x = -2, 2 do
-			for y = 7, 11 do
-				for z = -6, 6 do
-					local inChest = z <= -2
-					if (inChest or y <= 10) and not (z >= 5 and y == 10 and math.abs(x) == 2) then
-						local p = coat(x, y, z)
-						Kit.set(body, x, y, z, p.color, p.neon)
-					end
-				end
-			end
+		a.tail = function(t: number, move: number): CFrame
+			local sw = swirl(t)
+			return tail0(t, move) * CFrame.Angles(-sw * 0.4, math.sin(t * 4) * sw * 0.7, 0)
 		end
-		-- gold bands with crystals, the breastplate
-		for _, z in ipairs({ -3, 3 }) do
-			for y = 7, 10 do
-				Kit.set(body, -3, y, z, GOLD.color)
-				Kit.set(body, 3, y, z, GOLD.color)
-			end
-			for x = -2, 2 do Kit.set(body, x, 6, z, GOLD.color) end
-			P.jewel(body, -4, 9, z, GEM, GOLD, "x")
-			P.jewel(body, 4, 9, z, GEM, GOLD, "x")
-		end
-		for x = -2, 2 do for y = 7, 11 do if math.abs(x) == 2 or y == 7 or y == 11 then Kit.set(body, x, y, -7, GOLD.color) end end end
-		Kit.box(body, -1, 8, -7, 1, 10, -7, IND3)
-		Kit.set(body, 0, 9, -8, GEM.color, true)
-		Kit.set(body, 0, 10, -8, GEM2.color, true)
-		P.saddle(body, 2, 11, -1, 2, { seat = IND3, frame = GOLD, gem = GEM, cloth = IND2 })
-		b:bodyPiece({ body })
-
-		local head = Kit.group()
-		Kit.box(head, -1, 0, -3, 1, 5, 0, IND)
-		for x = -2, 2 do Kit.set(head, x, 1, -2, GOLD.color) end -- collar
-		P.jewel(head, 0, 2, -4, GEM, GOLD, "z")
-		Kit.box(head, -1, 5, -8, 1, 7, -4, IND2)
-		Kit.box(head, -1, 5, -10, 1, 6, -9, IND3)
-		Kit.set(head, 0, 6, -11, IND.color)
-		for _, sx in ipairs({ -1, 1 }) do Kit.set(head, sx, 7, -6, EYE.color, true) end
-		Kit.box(head, 0, 8, -7, 0, 8, -4, GOLD)
-		Kit.set(head, 0, 8, -8, GEM.color, true)
-		for _, s in ipairs({ -1, 1 }) do
-			for _, c in ipairs({ { 1, 8, -4 }, { 1, 9, -4 }, { 2, 10, -3 }, { 2, 11, -3 }, { 3, 12, -2 }, { 3, 13, -1 }, { 4, 14, 0 } }) do Kit.set(head, c[1] * s, c[2], c[3], GOLD.color) end
-			for _, c in ipairs({ { 2, 12, -4 }, { 3, 14, -2 }, { 4, 15, -1 }, { 5, 14, 1 }, { 1, 11, -2 } }) do Kit.set(head, c[1] * s, c[2], c[3], GOLD2.color, true) end
-			Kit.set(head, s * 2, 8, -4, IND3.color)
-		end
-		b:head({ head }, 0, 10, -6, function(t: number): (number, number) return swirl(t) * 0.25 + b:mu(t) * 0.3, 0 end)
-		-- the nebula mane: ribbons streaming back off the neck
-		for r = 1, 5 do
-			local by, bz = 5 - r * 0.9, -1 + r * 0.5
-			local side = (r % 2) * 2 - 1
-			P.ribbon(b, b.headHome, 9, { NEB1, NEB2, NEB3, NEB1, NEB4 }, function(j: number, t: number): Vector3
-				local sw = swirl(t)
-				local w = t * 3 - j * 0.6 + r
-				local a = sw * j * 0.7
-				return Vector3.new(side * (0.6 + j * 0.25) * (1 - sw) + math.sin(w) * j * 0.12 + math.cos(a + r) * sw * j * 0.6,
-					by + j * 0.5 - j * j * 0.05 + math.sin(w * 0.8) * 0.3 + math.sin(a + r) * sw * j * 0.6, bz + j * 1.3)
-			end, b.headAnim, 2)
-		end
-		-- the nebula tail
-		for r = 1, 3 do
-			P.ribbon(b, CFrame.new(), 10, { NEB2, NEB1, NEB3, NEB4 }, function(j: number, t: number, move: number): Vector3
-				local sw = swirl(t)
-				local w = t * 2.6 - j * 0.55 + r * 2
-				return Vector3.new((r - 2) * 0.8 + math.sin(w) * j * 0.15 + math.cos(j * 0.6 + t * 2) * sw * j * 0.4,
-					10 - j * 0.45 + math.sin(w * 0.9) * 0.4 + math.sin(j * 0.6 + t * 2) * sw * j * 0.4, 7 + j * 1.2 + math.min(move, 1) * j * 0.15)
-			end, nil, 2)
-		end
-		b:legs4({ x = 1.5, front = -4, hind = 5, hip = 7, w = 2,
-			make = function(): any
-				local g = K.legGroup(7, 2, LEG, rgb(20, 16, 36))
-				Kit.box(g, -1, -5, -1, 0, -5, 0, GOLD)
-				Kit.box(g, -1, -2, -1, 0, -2, 0, IND3)
-				Kit.set(g, 0, -6, -1, GEM.color, true)
-				return g
-			end })
-		b:orbitVar(b:at(0, 10, 0), 10, 10 * V, function(t: number): number return 0.5 + swirl(t) * 3 end, function(i: number)
-			return dot((if i % 3 == 0 then NEB4 elseif i % 2 == 0 then STAR else NEB2).color, true)
-		end, 0.2, 1)
-		P.runes(b, 11, Color3.fromRGB(130, 110, 255), "star")
-		b:runTrail(Vector3.new(0, 0.5, 0), b:v(5, 1, 12), "stars", Color3.fromRGB(170, 140, 255), 16)
-		local burst = b:fx(b.body, b:v(0, 9, 0), b:v(4, 3, 12), "stars", Color3.fromRGB(190, 160, 255))
-		burst.Rate = 0
-		b:atMount(0.3, function() burst:Emit(30) end)
+		local pieces = b:model(require(script.Parent:WaitForChild("Models"):WaitForChild("nebula_kirin")), a)
+		if pieces.gem then b:glowUp(pieces.gem, function(t: number): number return 0.15 + math.sin(t * 2.2) * 0.15 + swirl(t) * 0.5 end) end
+		if pieces.mane then b:glowUp(pieces.mane, function(t: number): number return swirl(t) * 0.35 end, Color3.fromRGB(235, 225, 255)) end
+		b:legacy(function()
+			b:orbitVar(b:at(0, 10, 0), 10, 10 * b.V, function(t: number): number return 0.5 + swirl(t) * 3 end, function(i: number)
+				return dot((if i % 3 == 0 then glow(255, 120, 230) elseif i % 2 == 0 then glow(255, 255, 255) else glow(96, 140, 255)).color, true)
+			end, 0.2, 1)
+		end)
+		b:runTrail(Vector3.new(0, 0.5, 0), b:v(25, 4, 60), "stars", Color3.fromRGB(170, 140, 255), 16)
+		local sparkle = b:fx(b.body, b:v(0, 38, 0), b:v(20, 15, 60), "stars", Color3.fromRGB(190, 160, 255))
+		sparkle.Rate = 0
+		b:atMount(0.3, function() sparkle:Emit(30) end)
+		b:dust(60, 25, Color3.fromRGB(120, 110, 160))
 		return b.rig
 	end
 
