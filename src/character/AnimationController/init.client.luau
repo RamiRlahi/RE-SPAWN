@@ -820,6 +820,16 @@ function UpdateMovement()
 
 	if not WalkTrack or not RunTrack or not IdleTrack then return end
 
+	-- Flying (the lobby's flight, on a mount or on wings: MountController):
+	-- no walk or run cycle treading the air, just the idle under the pose.
+	if character:GetAttribute("Flying") == true then
+		stopSpeedSprintVFX()
+		if WalkTrack.IsPlaying then WalkTrack:Stop(0.25) end
+		if RunTrack.IsPlaying then RunTrack:Stop(0.25) end
+		if not IdleTrack.IsPlaying then IdleTrack:Play(0.25) end
+		return
+	end
+
 	local isMoving = humanoid.MoveDirection.Magnitude > 0
 	local isGrounded = not AirborneState[humanoid:GetState()]
 
