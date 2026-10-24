@@ -30,6 +30,8 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GachaRewards = require(Shared:WaitForChild("GachaRewards"))
@@ -37,6 +39,7 @@ local BrickModels = require(script.Parent:WaitForChild("BrickModels"))
 local RideData = require(Shared:WaitForChild("RideData"))
 local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
 local WingModels = require(script.Parent:WaitForChild("WingModels"))
+local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
 
 local Kit = BrickModels.Kit
 local WingsMounts = {}
@@ -1859,6 +1862,33 @@ local function holder(): Folder
 	return f
 end
 
+-- Flying on a Mythic mount (the lobby's flight: MountController): a
+-- shockwave of air bursts under its hooves every so often, so it's plain
+-- it's treading on nothing. Seen by everyone: flight is found from here (air
+-- under the hooves, checked a few times a second), not from the rider's own
+-- client. Budgeted (FxBudget).
+local SKY_GAP = 6 -- studs of air under the hooves: flying
+local skyParams = RaycastParams.new()
+skyParams.FilterType = Enum.RaycastFilterType.Exclude
+local function skyRing(at: CFrame, color: Color3, size: number)
+	if not FxBudget.Allow("skyRing", 10) then return end
+	for k, c in ipairs({ color, Color3.new(1, 1, 1) }) do
+		local p = Instance.new("Part")
+		p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
+		p.Shape = Enum.PartType.Cylinder
+		p.Material = Enum.Material.Neon
+		p.Color = c
+		p.Transparency = if k == 1 then 0.35 else 0.55
+		p.Size = Vector3.new(0.12, size * 0.25, size * 0.25)
+		p.CFrame = at * CFrame.new(0, 0.05 * k, 0) * CFrame.Angles(0, 0, math.rad(90))
+		p.Parent = holder()
+		local grow = size * (if k == 1 then 1 else 0.7)
+		TweenService:Create(p, TweenInfo.new(0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ Size = Vector3.new(0.04, grow, grow), Transparency = 1 }):Play()
+		Debris:AddItem(p, 0.6)
+	end
+end
+
 local function drop(rig: Rig?)
 	if rig then rig.model:Destroy() end
 end
@@ -1985,6 +2015,19 @@ local function step()
 			WingsMounts.Attach(e.mount, root, CFrame.new(0, -sink, -RideData.SeatBackOf(r and r.look)))
 			WingsMounts.Animate(e.mount, t, move)
 			e.seat, e.flat = true, RideData.IsFlat(r and r.look)
+			-- in the air over the lobby on a Mythic: the shockwaves under it
+			if r and r.rarity == "Mythic" and player:GetAttribute("InHub") == true then
+				local feet = root.CFrame * CFrame.new(0, -sink, -RideData.SeatBackOf(r.look))
+				if (e.skyCheck or 0) <= t then
+					e.skyCheck = t + 0.25
+					skyParams.FilterDescendantsInstances = { char, holder() }
+					e.flying = Workspace:Raycast(feet.Position + Vector3.new(0, 0.5, 0), Vector3.new(0, -SKY_GAP - 0.5, 0), skyParams) == nil
+				end
+				if e.flying and (e.nextRing or 0) <= t then
+					e.nextRing = t + (if move > 0.3 then 0.3 else 0.6)
+					skyRing(CFrame.new(feet.Position), POOF_COLOR.Mythic:Lerp(Color3.new(1, 1, 1), 0.55), 7 * RideData.ScaleOf(r.look))
+				end
+			end
 		end
 	end
 	for player, e in pairs(entries) do

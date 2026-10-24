@@ -9,12 +9,15 @@
 	worked out here from your momentum (Tumble.Plan), played, and the plan sent
 	back so everyone else sees the same tumble ("tumble").
 
-	Flight (the lobby only): mounted, double-tap Space to take off. WASD steers
+	Flight (the lobby only): mounted, or wearing wings, double-tap Space to
+	take off (on foot: jump, and tap again in the air). WASD steers
 	(camera-relative), hold Space to climb, Ctrl or Q to descend; the mount
 	banks into turns and pitches with the climb. Come down onto the ground (or
 	press the mount key) to land. Capped at FLY_CEILING over the plaza; ends
-	if you dismount, die, are thrown or leave the lobby. Your client owns your
-	character, so everyone else sees the flight through ordinary replication.
+	if you dismount (or take the wings off), die, are thrown or leave the
+	lobby. Your client owns your character, so everyone else sees the flight
+	through ordinary replication (and the Mythic mounts' shockwaves:
+	WingsMounts).
 --]]
 
 local Players = game:GetService("Players")
@@ -40,6 +43,7 @@ local STILL = 6          -- slower than this: thrown off the front, the way you 
 -- ── Flight ──────────────────────────────────────────────────────────────────
 local DOUBLE_TAP = 0.3    -- seconds between the two Space presses to take off
 local FLY_SPEED = 1.35    -- × the mount's riding speed, flat
+local WING_SPEED = 44     -- studs/s, flat, flying on wings alone
 local CLIMB = 26          -- studs/s up / down
 local ACCEL = 4           -- how quickly the speed follows the controls (1/s)
 local FLY_CEILING = 140   -- studs over the plaza
@@ -104,10 +108,13 @@ local function takeOff()
 	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not (char and hum and root) or hum.Health <= 0 then return end
 	if player:GetAttribute("InHub") ~= true then return end
+	if char:GetAttribute("Tumbling") then return end
+	-- on the mount, or on foot with wings on
 	local riding = char:GetAttribute("Riding")
-	if typeof(riding) ~= "string" or char:GetAttribute("Tumbling") then return end
-	local reward = GachaRewards.Get(riding)
-	local flat = RideData.Speed(reward and reward.rarity) * FLY_SPEED
+	local onWings = typeof(riding) ~= "string"
+	if onWings and typeof(player:GetAttribute("Wings")) ~= "string" then return end
+	local reward = if onWings then nil else GachaRewards.Get(riding)
+	local flat = if onWings then WING_SPEED else RideData.Speed(reward and reward.rarity) * FLY_SPEED
 
 	local att = Instance.new("Attachment")
 	att.Name = "FlightAttachment"
@@ -135,7 +142,9 @@ local function takeOff()
 	local f: Flight = { att = att, lv = lv, ao = ao, conn = nil :: any, vel = Vector3.new(0, 18, 0), yaw = yaw, bank = 0 }
 	local liftOff = os.clock()
 	f.conn = RunService.Heartbeat:Connect(function(dt)
-		if not root.Parent or hum.Health <= 0 or char:GetAttribute("Riding") == nil or char:GetAttribute("Tumbling")
+		local lost = if onWings then typeof(player:GetAttribute("Wings")) ~= "string" or char:GetAttribute("Riding") ~= nil
+			else char:GetAttribute("Riding") == nil
+		if not root.Parent or hum.Health <= 0 or lost or char:GetAttribute("Tumbling")
 			or player:GetAttribute("InHub") ~= true then
 			land()
 			return
@@ -216,11 +225,12 @@ function MountController.Init()
 	UserInputService.InputBegan:Connect(function(input, gpe)
 		if gpe or player:GetAttribute("SettingsOpen") == true then return end
 		if isMountKey(input) then toggle() end
-		-- double-tap Space while riding: take off
+		-- double-tap Space riding, or wearing wings: take off
 		if input.KeyCode == Enum.KeyCode.Space and not flight then
 			local now = os.clock()
 			local char = player.Character
-			if char and char:GetAttribute("Riding") ~= nil and now - lastSpace < DOUBLE_TAP then
+			local canFly = char ~= nil and (char:GetAttribute("Riding") ~= nil or typeof(player:GetAttribute("Wings")) == "string")
+			if canFly and now - lastSpace < DOUBLE_TAP then
 				lastSpace = 0
 				takeOff()
 			else
