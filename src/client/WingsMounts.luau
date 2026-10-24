@@ -1980,9 +1980,10 @@ local function step()
 			local sink = math.floor((root.Size.Y / 2 + legs + hum.HipHeight) * 1000 + 0.5) / 1000
 			local emoting = char:GetAttribute("IsEmoting") == true
 			if emoting ~= (e.mount.emoteAt ~= nil) then e.mount.emoteAt = if emoting then t else nil end
-			WingsMounts.Attach(e.mount, root, CFrame.new(0, -sink, 0))
-			WingsMounts.Animate(e.mount, t, move)
+			-- (sat back from the middle of its back: the mount drawn ahead of them)
 			local r = GachaRewards.Get(e.mountId :: string)
+			WingsMounts.Attach(e.mount, root, CFrame.new(0, -sink, -RideData.SeatBackOf(r and r.look)))
+			WingsMounts.Animate(e.mount, t, move)
 			e.seat, e.flat = true, RideData.IsFlat(r and r.look)
 		end
 	end

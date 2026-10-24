@@ -47,6 +47,14 @@ RideData.Back = {
 -- Floating platforms: sat on cross-legged, not straddled.
 RideData.Flat = { magic_carpet = true, void_disc = true, wishing_star = true, abyssal_leviathan_ray = true, mini_zar0 = true }
 
+-- How far back from the middle of its back the rider sits (studs): the mount
+-- is drawn this far ahead of them, so a long neck and mane stay in front.
+RideData.SeatBack = { seraph_steed = 1.4, nebula_kirin = 1.4, bloomheart_stag = 1.6 }
+
+function RideData.SeatBackOf(look: string?): number
+	return (look and RideData.SeatBack[look]) or 0
+end
+
 function RideData.ScaleOf(look: string?): number
 	return (look and RideData.Scale[look]) or 1
 end

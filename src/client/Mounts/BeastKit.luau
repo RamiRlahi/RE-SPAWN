@@ -244,7 +244,8 @@ return function(W: any)
 	-- stretched, the front half (neck, front legs) moved forward, the back
 	-- half (tail, hind legs) back), so the rider sits clear of mane and tail;
 	-- opts.clearSeat: mane and tail bricks still within this many voxels of
-	-- the seat (front to back) are left out.
+	-- the seat (front to back) are left out. The seat is RideData.SeatBack
+	-- behind the middle; wings are rooted behind it.
 	-- → { [name]: piece }, { [name]: home (Vector3, rig space) }
 	local NEON_PIECES = { gem = true, lanL = true, lanR = true }
 	local SEAT_CLIP = { mane = true, tail = true }
@@ -255,11 +256,14 @@ return function(W: any)
 		self.artV = self.artV or self.V
 		local s = RideData.BackHeight(self.look) / data.back
 		self.V = s
+		local seat = RideData.SeatBackOf(self.look) / s -- (voxels behind the middle)
 		local pieces, homes, pivots, animOf = {}, {}, {}, {}
 		for _, pd in ipairs(data.pieces) do
 			local pz = pd.pivot[3]
 			-- (wings go with the back half: rooted behind the rider, not at the seat)
-			if pd.parent == "body" then pz += if pz > 0 or BACK_HALF[pd.name] then ext elseif pz < 0 then -ext else 0 end
+			if pd.parent == "body" then
+				pz += if BACK_HALF[pd.name] then ext + seat elseif pz > 0 then ext elseif pz < 0 then -ext else 0
+			end
 			local pivot = (if pd.parent then pivots[pd.parent] else Vector3.zero) + Vector3.new(pd.pivot[1], pd.pivot[2], pz) * s
 			pivots[pd.name] = pivot
 			local home = if pd.parent then pivot else Vector3.zero
@@ -286,7 +290,7 @@ return function(W: any)
 				end
 				if o.clearSeat and SEAT_CLIP[pd.name] then
 					local at = pivot.Z / s
-					if at + z1 > -o.clearSeat and at + z0 < o.clearSeat then continue end
+					if at + z1 > seat - o.clearSeat and at + z0 < seat + o.clearSeat then continue end
 				end
 				local c = data.palette[bx[7]]
 				local p = Instance.new("Part")
