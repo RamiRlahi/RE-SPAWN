@@ -12,7 +12,8 @@
 	Flight (the lobby only): mounted, or wearing wings, double-tap Space to
 	take off (on foot: jump, and tap again in the air). WASD steers
 	(camera-relative), hold Space to climb, Ctrl or Q to descend; the mount
-	banks into turns and pitches with the climb. Come down onto the ground (or
+	banks into turns and pitches with the climb; on wings you fly headfirst,
+	laid out flat at speed. Come down onto the ground (or
 	press the mount key) to land. Capped at FLY_CEILING over the plaza; ends
 	if you dismount (or take the wings off), die, are thrown or leave the
 	lobby. Your client owns your character, so everyone else sees the flight
@@ -169,7 +170,18 @@ local function takeOff()
 		end
 		f.bank += (math.clamp(-turn * 0.35, -0.6, 0.6) - f.bank) * (1 - math.exp(-6 * dt))
 		local pitch = math.clamp(f.vel.Y / CLIMB, -1, 1) * 0.3
-		ao.CFrame = CFrame.Angles(0, f.yaw, 0) * CFrame.Angles(pitch, 0, 0) * CFrame.Angles(0, 0, f.bank)
+		if onWings then
+			-- on wings: headfirst into the way you fly, laid out flat at full
+			-- speed (a turn about x tips the head forward), upright hovering;
+			-- the nose lifts climbing, drops diving
+			local k = math.clamp(hv.Magnitude / flat, 0, 1)
+			pitch = -k * math.rad(80) + math.clamp(f.vel.Y / CLIMB, -1, 1) * (0.25 + 0.35 * k)
+			-- (banking about the way you fly, before tipping forward: laid
+			-- out, rolling about the body's own z would swing the head aside)
+			ao.CFrame = CFrame.Angles(0, f.yaw, 0) * CFrame.Angles(0, 0, f.bank) * CFrame.Angles(pitch, 0, 0)
+		else
+			ao.CFrame = CFrame.Angles(0, f.yaw, 0) * CFrame.Angles(pitch, 0, 0) * CFrame.Angles(0, 0, f.bank)
+		end
 		-- flown down onto the ground (holding descend): landed
 		if os.clock() - liftOff > 0.6 and vy < 0 then
 			local gap = groundBelow(root, char)
