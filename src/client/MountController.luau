@@ -49,23 +49,15 @@ type Flight = { att: Attachment, lv: LinearVelocity, ao: AlignOrientation, conn:
 	vel: Vector3, yaw: number, bank: number }
 local flight: Flight? = nil
 local lastSpace = 0
-local controls: any = nil
 
-local function moveVector(): Vector3
-	if not controls then
-		local ok, pm = pcall(function()
-			return require((player:WaitForChild("PlayerScripts") :: any):WaitForChild("PlayerModule") :: any)
-		end)
-		controls = if ok and pm then pm:GetControls() else false
-	end
-	local mv = if controls then controls:GetMoveVector() else Vector3.zero
-	if mv.Magnitude < 0.05 then return Vector3.zero end
-	-- (camera-relative, flat)
-	local cam = Workspace.CurrentCamera
-	local look = Vector3.new(cam.CFrame.LookVector.X, 0, cam.CFrame.LookVector.Z)
-	look = if look.Magnitude > 1e-3 then look.Unit else Vector3.new(0, 0, -1)
-	local right = Vector3.new(-look.Z, 0, look.X)
-	local v = right * mv.X - look * mv.Z
+-- The way the controls point (WASD, the stick), camera-relative and flat: the
+-- Humanoid's MoveDirection, which the controls keep up to date even while it
+-- platform-stands. (Not the PlayerModule's GetMoveVector: this place's
+-- PlayerModule isn't in PlayerScripts, so that found nothing and the mount
+-- could only hover.)
+local function moveVector(hum: Humanoid): Vector3
+	local v = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)
+	if v.Magnitude < 0.05 then return Vector3.zero end
 	return if v.Magnitude > 1 then v.Unit else v
 end
 
@@ -149,7 +141,7 @@ local function takeOff()
 			return
 		end
 		-- the controls → the wanted velocity, eased toward
-		local move = moveVector()
+		local move = moveVector(hum)
 		local vy = vertical() * CLIMB
 		local ceiling = MapData.LOBBY_CENTER.Y + FLY_CEILING
 		if root.Position.Y > ceiling and vy > 0 then vy = 0 end
@@ -193,8 +185,8 @@ local function toggle()
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	if not char or not hum or hum.Health <= 0 or char:GetAttribute("Tumbling") then return end
-	-- (only in the lobby plaza: never in a run or the menus)
-	if player:GetAttribute("InHub") ~= true then return end
+	-- (in the lobby plaza or a run, never the menus; flying is the lobby's only)
+	if not (player:GetAttribute("InHub") == true or player:GetAttribute("InLobby") == false) then return end
 	if flight then
 		land()
 		return
