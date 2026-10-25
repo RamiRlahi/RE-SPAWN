@@ -18,6 +18,8 @@ local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local SocialService = game:GetService("SocialService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
+local CollectionService = game:GetService("CollectionService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
@@ -32,6 +34,7 @@ local LobbySocial = require(script.Parent:WaitForChild("LobbySocial"))
 local BuildCodex = require(script.Parent:WaitForChild("BuildCodex"))
 local Armory = require(script.Parent:WaitForChild("Armory"))
 local WardrobeScreen = require(script.Parent:WaitForChild("WardrobeScreen"))
+local GuildScreen = require(script.Parent:WaitForChild("GuildScreen"))
 
 local LobbyHUD = {}
 
@@ -175,8 +178,16 @@ local function build()
 	wrd.BackgroundColor3 = Color3.fromRGB(60, 36, 74)
 	wrd.Parent = panel
 	wrd.MouseButton1Click:Connect(function() WardrobeScreen.OpenLobby("armor") end)
+	-- Guilds (the weekly rankings, the podium).
+	local gld = inv:Clone()
+	gld.Name = "Guild"
+	gld.LayoutOrder = 7
+	gld.Text = "GUILD"
+	gld.BackgroundColor3 = Color3.fromRGB(30, 52, 70)
+	gld.Parent = panel
+	gld.MouseButton1Click:Connect(function() GuildScreen.Open() end)
 	label(panel, "Walk up to a player and press E to meet them.\n1-5: emotes (wave, cheer, point, laugh, dance).\n/ to chat.\nAt the DUNGEON gate (or the QUESTS board) press F\nto choose where to go (the leader chooses).\nAt the GACHA tent: summon.\nCtrl: shift lock on / off (off to click INVITE FRIENDS).\nM: settings.", 14, PARCH,
-		{ Size = UDim2.new(1, 0, 0, 156), LayoutOrder = 7, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, TextTransparency = 0.15 })
+		{ Size = UDim2.new(1, 0, 0, 156), LayoutOrder = 8, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, TextTransparency = 0.15 })
 
 	-- Notices (centre, below the top)
 	local n = label(g, "", 22, PARCH, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 90),
@@ -298,10 +309,99 @@ local function openPicker()
 				upd()
 				player:GetAttributeChangedSignal("BestFloor"):Connect(upd)
 			end
-			card.MouseButton1Click:Connect(function()
-				closePicker()
-				Network.GetRemoteEvent(Network.Remotes.LobbyAction):FireServer({ kind = "pick", mapId = map.id })
-			end)
+			-- (sealed: dimmed under two heavy chains crossing it, a padlock where
+			-- they meet; it can't be chosen)
+			if map.sealed then
+				go.Visible = false
+				local shade = Instance.new("Frame")
+				shade.Size = UDim2.fromScale(1, 1)
+				shade.BackgroundColor3 = Color3.new(0, 0, 0)
+				shade.BackgroundTransparency = 0.45
+				shade.ZIndex = 5
+				shade.Parent = card
+				local sc = Instance.new("UICorner")
+				sc.CornerRadius = UDim.new(0, 10)
+				sc.Parent = shade
+				local IRON_LIGHT, IRON_DARK = Color3.fromRGB(150, 156, 168), Color3.fromRGB(70, 74, 84)
+				-- each chain: oval links alternating face-on and edge-on, end to end
+				local diag = math.deg(math.atan2(410, 252))
+				for _, ang in ipairs({ diag, -diag }) do
+					local chain = Instance.new("Frame")
+					chain.AnchorPoint = Vector2.new(0.5, 0.5)
+					chain.Position = UDim2.fromScale(0.5, 0.5)
+					chain.Size = UDim2.fromOffset(520, 30)
+					chain.Rotation = ang
+					chain.BackgroundTransparency = 1
+					chain.ZIndex = 6
+					chain.Parent = card
+					local n = 21
+					for i = 0, n - 1 do
+						local flat = i % 2 == 0
+						local link = Instance.new("Frame")
+						link.AnchorPoint = Vector2.new(0.5, 0.5)
+						link.Position = UDim2.new(0, 12 + i * 23.8, 0.5, 0)
+						link.Size = if flat then UDim2.fromOffset(34, 22) else UDim2.fromOffset(32, 9)
+						link.BackgroundColor3 = if flat then IRON_DARK else IRON_LIGHT
+						link.BackgroundTransparency = if flat then 1 else 0
+						link.ZIndex = if flat then 6 else 7
+						link.Parent = chain
+						local lc = Instance.new("UICorner")
+						lc.CornerRadius = UDim.new(1, 0)
+						lc.Parent = link
+						local ls = Instance.new("UIStroke")
+						ls.Color = if flat then IRON_LIGHT else IRON_DARK
+						ls.Thickness = if flat then 5 else 1.5
+						ls.Parent = link
+					end
+				end
+				-- the padlock where they cross
+				local lock = Instance.new("Frame")
+				lock.AnchorPoint = Vector2.new(0.5, 0.5)
+				lock.Position = UDim2.fromScale(0.5, 0.53)
+				lock.Size = UDim2.fromOffset(64, 54)
+				lock.BackgroundColor3 = Color3.fromRGB(176, 140, 64)
+				lock.ZIndex = 9
+				lock.Parent = card
+				local lc = Instance.new("UICorner")
+				lc.CornerRadius = UDim.new(0, 8)
+				lc.Parent = lock
+				local lst = Instance.new("UIStroke")
+				lst.Color = Color3.fromRGB(90, 66, 24)
+				lst.Thickness = 2.5
+				lst.Parent = lock
+				local shackle = Instance.new("Frame")
+				shackle.AnchorPoint = Vector2.new(0.5, 1)
+				shackle.Position = UDim2.new(0.5, 0, 0, 8)
+				shackle.Size = UDim2.fromOffset(42, 44)
+				shackle.BackgroundTransparency = 1
+				shackle.ZIndex = 8
+				shackle.Parent = lock
+				local shc = Instance.new("UICorner")
+				shc.CornerRadius = UDim.new(1, 0)
+				shc.Parent = shackle
+				local shs = Instance.new("UIStroke")
+				shs.Color = IRON_LIGHT
+				shs.Thickness = 7
+				shs.Parent = shackle
+				local hole = Instance.new("Frame")
+				hole.AnchorPoint = Vector2.new(0.5, 0.5)
+				hole.Position = UDim2.fromScale(0.5, 0.45)
+				hole.Size = UDim2.fromOffset(12, 18)
+				hole.BackgroundColor3 = Color3.fromRGB(40, 28, 10)
+				hole.ZIndex = 10
+				hole.Parent = lock
+				local hc = Instance.new("UICorner")
+				hc.CornerRadius = UDim.new(1, 0)
+				hc.Parent = hole
+				local sealedLabel = label(card, "SEALED", 30, Color3.fromRGB(190, 225, 255), { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -18),
+					Size = UDim2.new(1, -32, 0, 40), TextXAlignment = Enum.TextXAlignment.Center, TextStrokeTransparency = 0.2 })
+				sealedLabel.ZIndex = 11
+			else
+				card.MouseButton1Click:Connect(function()
+					closePicker()
+					Network.GetRemoteEvent(Network.Remotes.LobbyAction):FireServer({ kind = "pick", mapId = map.id })
+				end)
+			end
 		end
 		local close = Instance.new("TextButton")
 		close.AnchorPoint = Vector2.new(0.5, 0)
@@ -577,6 +677,54 @@ function LobbyHUD.Init(UIManager: any)
 	end)
 	build()
 	render()
+	GuildScreen.Init()
+	-- The stations whose screens open here (LobbyBuilder: OpenScreen).
+	ProximityPromptService.PromptTriggered:Connect(function(prompt: ProximityPrompt)
+		local screen = prompt:GetAttribute("OpenScreen")
+		if player:GetAttribute("InHub") ~= true or typeof(screen) ~= "string" then return end
+		if screen == "armory" then Armory.Open()
+		elseif screen == "wardrobe" then WardrobeScreen.OpenLobby("armor")
+		elseif screen == "codex" then BuildCodex.Open()
+		elseif screen == "guild" then GuildScreen.Open()
+		end
+	end)
+	-- The lobby's slow motions: the fountain's crystal turning and bobbing,
+	-- the portal's swirl; the podium's figures in their classes' looks.
+	local ClassLook: any = nil
+	pcall(function() ClassLook = require(script.Parent.Parent:WaitForChild("ClassLook")) end)
+	local base: { [BasePart]: CFrame } = setmetatable({}, { __mode = "k" }) :: any
+	local dressed: { [Model]: string } = setmetatable({}, { __mode = "k" }) :: any
+	local nextDress = 0
+	RunService.RenderStepped:Connect(function()
+		if player:GetAttribute("InHub") ~= true then return end
+		local t = os.clock()
+		for _, p in ipairs(CollectionService:GetTagged("LobbyCrystal")) do
+			if p:IsA("BasePart") then
+				base[p] = base[p] or p.CFrame
+				p.CFrame = CFrame.new(base[p].Position + Vector3.new(0, math.sin(t * 1.3) * 0.8, 0)) * CFrame.Angles(0, t * 0.6, 0) * base[p].Rotation
+			end
+		end
+		for _, p in ipairs(CollectionService:GetTagged("LobbyPortalSwirl")) do
+			if p:IsA("BasePart") then
+				base[p] = base[p] or p.CFrame
+				p.CFrame = base[p] * CFrame.Angles(t * 0.8, 0, 0)
+			end
+		end
+		if ClassLook and t > nextDress then
+			nextDress = t + 2
+			local lobby = workspace:FindFirstChild("Lobby")
+			local pod = lobby and lobby:FindFirstChild("GuildPodium", true)
+			if pod then
+				for _, f in ipairs(pod:GetChildren()) do
+					local class = f:GetAttribute("PodiumClass")
+					if f:IsA("Model") and f.Name == "PodiumFigure" and typeof(class) == "string" and dressed[f] ~= class then
+						dressed[f] = class
+						pcall(ClassLook.Apply, f, class)
+					end
+				end
+			end
+		end
+	end)
 	if inviteFriendsBtn then
 		local busy = false
 		inviteFriendsBtn.MouseButton1Click:Connect(function()

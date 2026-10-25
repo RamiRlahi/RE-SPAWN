@@ -42,6 +42,7 @@ export type Map = {
 	bosses: { string },     -- BossAI kinds for the other boss rooms
 	lighting: Lighting,
 	unlockFloor: number?,   -- your deepest floor must reach this to enter
+	sealed: boolean?,       -- chained shut: on the picker (last, in chains) but never enterable
 	assets: string?,        -- its own dungeon pieces: a folder in ReplicatedStorage (DungeonGenerator)
 	prison: boolean?,       -- the prison: spotlights hunt you, three sightings raise the alarm (Prison.luau)
 	arcade: boolean?,       -- the arcade: neon rooms (no torches, candles or rubble) and immunity towers (ImmunityTower)
@@ -123,21 +124,6 @@ MapData.Maps = {
 		},
 	},
 	{
-		id = "frost",
-		name = "The Frozen Halls",
-		subtitle = "Silence beneath the ice",
-		rank = "A",
-		description = "Hushed blue halls rimed with frost. Wraiths, bone mages and the Hex Witch in the cold.",
-		color = Color3.fromRGB(130, 190, 255),
-		stone = Color3.fromRGB(205, 220, 245),
-		packs = { 4, 3, 1, 7 },
-		bosses = { "witch", "colossus", "fallen_angel" },
-		lighting = {
-			tint = Color3.fromRGB(232, 242, 255),
-			saturation = 0.15,
-		},
-	},
-	{
 		id = "arcade",
 		name = "The Neon Arcade",
 		subtitle = "Break the towers",
@@ -166,6 +152,22 @@ MapData.Maps = {
 				density = 0.2,
 				haze = 1.0,
 			},
+		},
+	},
+	{
+		id = "frost",
+		name = "The Frozen Halls",
+		sealed = true, -- chained shut: shown last on the picker, can't be entered
+		subtitle = "Silence beneath the ice",
+		rank = "A",
+		description = "Hushed blue halls rimed with frost. Wraiths, bone mages and the Hex Witch in the cold.",
+		color = Color3.fromRGB(130, 190, 255),
+		stone = Color3.fromRGB(205, 220, 245),
+		packs = { 4, 3, 1, 7 },
+		bosses = { "witch", "colossus", "fallen_angel" },
+		lighting = {
+			tint = Color3.fromRGB(232, 242, 255),
+			saturation = 0.15,
 		},
 	},
 } :: { Map }

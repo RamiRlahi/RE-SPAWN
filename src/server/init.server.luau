@@ -47,6 +47,7 @@ require(script:WaitForChild("MountManager")).Init() -- riding mounts (B), thrown
 require(script:WaitForChild("Corruption")).Init()
 require(script:WaitForChild("Horde")).Init()
 require(script:WaitForChild("Leaderboard")).Init()
+require(script:WaitForChild("GuildManager")).Init() -- guilds, their weekly seasons and the podium
 require(script:WaitForChild("DevHooks")).Init() -- (Studio only)
 require(script:WaitForChild("EmoteManager")).Init() -- emote relay for dungeon runs
 

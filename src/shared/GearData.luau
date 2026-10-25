@@ -112,6 +112,9 @@ local ITEMS: { Item } = {
 	{ id = "t_crowned", slot = "title", name = "Crowned in Ash", rarity = "Legendary", glyph = "CA", description = "A title.", title = "Crowned in Ash" },
 	{ id = "t_harbinger", slot = "title", name = "Harbinger", rarity = "Legendary", glyph = "HA", description = "A title.", title = "Harbinger" },
 	{ id = "t_voidborn", slot = "title", name = "Voidborn", rarity = "Mythic", glyph = "VO", description = "A title.", title = "Voidborn" },
+	-- (the guild season's titles: GuildManager, never dropped)
+	{ id = "t_guild_champion", slot = "title", name = "Champion of the Crossroads", rarity = "Mythic", glyph = "CC", description = "Your guild finished a season at the top.", title = "Champion of the Crossroads", noDrop = true },
+	{ id = "t_guild_vanguard", slot = "title", name = "Guild Vanguard", rarity = "Legendary", glyph = "GV", description = "Your guild finished a season in the top 3.", title = "Guild Vanguard", noDrop = true },
 }
 
 local byId: { [string]: Item } = {}

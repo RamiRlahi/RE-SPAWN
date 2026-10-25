@@ -20,6 +20,7 @@
 	  gear|userId                every Armory weapon finish, aura and title, owned
 	  ride|userId|on             call the mount (on = 1) or send it away (0)
 	  hit|userId|damage          a hit on the player (thrown off a mount)
+	  souls|userId|amount        souls given (or taken, negative)
 	  boss|userId|kind           the player's run's boss made a `kind`
 	                             (BossAI.Kinds), the player put in its arena
 	                             (sent into a run first if in the lobby; set
@@ -64,6 +65,16 @@ function DevHooks.Init()
 			RunScope.Set(a, "CorruptionSince", RunScope.Get(a, "RunElapsed") or 0)
 			RunScope.Set(a, "CorruptionFloors", tonumber(b) or 0)
 			return true
+		elseif cmd == "souls" then
+			local p = plr(a)
+			local PlayerData = require(script.Parent:WaitForChild("PlayerData")) :: any
+			local TalentManager = require(script.Parent:WaitForChild("TalentManager")) :: any
+			local prof = p and PlayerData.Get(p)
+			if not prof then return "no profile" end
+			prof.souls = math.max(0, prof.souls + (tonumber(b) or 0))
+			PlayerData.MarkDirty(p)
+			TalentManager.Sync(p)
+			return prof.souls
 		elseif cmd == "horde" then
 			-- (the next tick starts it)
 			RunScope.Set(a, "DevHordeNow", true)

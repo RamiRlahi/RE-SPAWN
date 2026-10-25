@@ -40,6 +40,11 @@ export type Profile = {
 	gear: { owned: { [string]: number }, equipped: { [string]: string } }, -- the Armory (LootManager)
 	records: { [string]: number },                    -- bests and totals (deepest floor, runs, kills…)
 	settings: { [string]: any },                      -- the player's settings (SettingsConfig; empty: never saved)
+	guild: string,                                    -- the guild's id ("" none: GuildManager)
+	guildRequest: string,                             -- a guild asked to join ("" none)
+	guildInvites: { string },                         -- guilds that invited them
+	guildClaimed: number,                             -- the last season's guild rewards paid
+	guildBuff: { [string]: any },                     -- { season, mult }: the run buff from a ranked guild
 }
 
 local function newProfile(): Profile
@@ -58,6 +63,11 @@ local function newProfile(): Profile
 		records = {},
 		gear = { owned = {}, equipped = {} },
 		settings = {},
+		guild = "",
+		guildRequest = "",
+		guildInvites = {},
+		guildClaimed = -1,
+		guildBuff = {},
 	}
 end
 

@@ -108,6 +108,10 @@ end
 onGate = function(player: Player, mapId: string)
 	if player:GetAttribute("InHub") ~= true or not MapData.Get(mapId) then return end
 	local map = MapData.Get(mapId)
+	if map and map.sealed then
+		state(player, { mode = "hub", notice = `{map.name} is sealed.` })
+		return
+	end
 	if map and map.unlockFloor and (player:GetAttribute("BestFloor") or 0) < map.unlockFloor then
 		state(player, { mode = "hub", notice = `{map.name}: reach floor {map.unlockFloor} in any dungeon to open it.` })
 		return
@@ -168,6 +172,8 @@ function LobbyManager.Init()
 	})
 	hub = built
 	spawnCF = sp
+	-- (the season's top guilds' best players, stood on the podium)
+	require(script.Parent:WaitForChild("LobbyPodium")).Init(built)
 	-- (the gate's portal: walked into by someone who hasn't done the tutorial)
 	local portal = built:FindFirstChild("Portal", true)
 	if portal and portal:IsA("BasePart") then Tutorial.SetPortal(portal.CFrame, portal.Size + Vector3.new(0, 0, 6)) end

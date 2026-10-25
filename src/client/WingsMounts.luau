@@ -51,7 +51,12 @@ local FIRE_SPARK = "rbxasset://textures/particles/fire_sparks_main.dds"
 type Paint = { color: Color3, neon: boolean?, alpha: number? }
 type Piece = { parts: { BasePart }, offsets: { CFrame }, home: CFrame, anim: ((t: number, move: number) -> CFrame)?, motor: Motor6D? }
 export type Rig = { model: Model, pieces: { Piece }, world: WorldRoot?, allParts: { BasePart }, cfs: { CFrame }, kind: string,
-	base: BasePart?, baseOff: CFrame? }
+	base: BasePart?, baseOff: CFrame?,
+	-- (set by step: when it was called, and since when its rider has been
+	-- emoting -- for the mount-up flourish and the special emote)
+	born: number?, emoteAt: number?,
+	-- a move of the whole rig (rear-ups, sitting back), rig space; nil = none
+	whole: ((t: number, move: number) -> CFrame)? }
 
 local function rgb(r: number, g: number, b: number): Paint return { color = Color3.fromRGB(r, g, b) } end
 local function glow(r: number, g: number, b: number): Paint return { color = Color3.fromRGB(r, g, b), neon = true } end
@@ -124,7 +129,7 @@ local function seq(...: number): NumberSequence
 end
 
 -- Particle presets.
-local function fx(anchor: BasePart, kind: string, color: Color3)
+local function fx(anchor: BasePart, kind: string, color: Color3): ParticleEmitter
 	local e = Instance.new("ParticleEmitter")
 	e.LightInfluence = 0
 	e.Shape = Enum.ParticleEmitterShape.Box
@@ -164,8 +169,16 @@ local function fx(anchor: BasePart, kind: string, color: Color3)
 		e.Size = seq(0.18, 0.1)
 		e.Lifetime, e.Speed, e.Rate = NumberRange.new(0.6, 1), NumberRange.new(0, 0.1), 6
 		e.Acceleration = Vector3.new(0, -9, 0)
+	elseif kind == "dust" then
+		e.Texture, e.Color, e.LightEmission = SMOKE, ColorSequence.new(color), 0
+		e.Size, e.Transparency = seq(0.5, 1.4), seq(0.5, 1)
+		e.Lifetime, e.Speed, e.Rate = NumberRange.new(0.5, 0.9), NumberRange.new(0.5, 1.5), 0
+		e.Acceleration, e.Drag = Vector3.new(0, 1.5, 0), 2
+		e.RotSpeed = NumberRange.new(-60, 60)
+		e.LightInfluence = 1
 	end
 	e.Parent = anchor
+	return e
 end
 
 -- ─── Showpieces (Epic and up) ───────────────────────────────────────────────
@@ -1384,10 +1397,187 @@ local function buildVoidDisc(look: string): Rig
 	return rig
 end
 
-local DIRE = rgb(120, 120, 132)
+-- ─── Mount-up and emote moves ──────────────────────────────────────────────
+-- A 0 → 1 → 0 bump while x is between a and b.
+local function bump(x: number, a: number, b: number): number
+	if x <= a or x >= b then return 0 end
+	return math.sin((x - a) / (b - a) * math.pi)
+end
+
+-- How far into its mount-up flourish (0..1..0 over `len` seconds after it
+-- was called) and into its rider's emote (held near 1 while it lasts,
+-- repeating every `period` seconds) a rig is at time t.
+local function mountUp(rig: Rig, t: number, len: number): number
+	return if rig.born then bump(t - rig.born, 0, len) else 0
+end
+local function emoting(rig: Rig, t: number, period: number): number
+	if not rig.emoteAt then return 0 end
+	return math.sqrt(bump((t - rig.emoteAt) % period, 0.1, period - 0.2))
+end
+
+-- A piece hinged on another (a jaw, an ear, an eyelid on a head): it follows
+-- `parent`'s motion, then turns by its own about `hinge` (parent space).
+local function follow(parent: (number, number) -> CFrame, hinge: Vector3, own: (number, number) -> CFrame): (number, number) -> CFrame
+	return function(t: number, move: number): CFrame
+		return parent(t, move) * CFrame.new(hinge) * own(t, move) * CFrame.new(-hinge)
+	end
+end
+
+-- ─── Dire Wolf (Rare) ──────────────────────────────────────────────────────
+-- A big shaggy grey-brown wolf: fur ruff on the shoulders and rump, amber
+-- eyes (its only glow), a plain leather saddle with girth straps and iron
+-- stirrups. Idle: breathes, looks round, blinks, flicks its ears. Running:
+-- a diagonal-pair gallop kicking up dust. Called: rears up pawing the air and
+-- thumps down in a puff of dust. Emote: sits back and howls, jaw open.
+local function buildDireWolf(): Rig
+	local rig = newRig("Mount_dire_wolf", "mount")
+	local V = VOX_MOUNT
+	local FUR, FUR2, PALE, DARK = rgb(112, 98, 90), rgb(138, 122, 104), rgb(168, 152, 130), rgb(62, 52, 44)
+	local LEATHER, STRAP, IRON = rgb(118, 66, 34), rgb(72, 40, 26), rgb(96, 96, 104)
+	local EYE = glow(255, 176, 60)
+	local gait = 10
+	local MOUNT_LEN, HOWL = 1.1, 2.8
+
+	-- A bounding gallop: the hind legs push off together, the body launches
+	-- nose-up, and the front legs reach out and land a beat later
+	-- (FRONT_LAG) to catch it, tipping it nose-down. (Each pair a little
+	-- out of step side to side.)
+	local FRONT_LAG, SIDE_LAG = 1.4, 0.3
+	local function gallopPitch(t: number, move: number): number
+		return math.cos(t * gait - math.pi - 0.5) * 0.08 * math.min(move, 1.2)
+	end
+
+	-- rocks with the gallop; rears up about its hind feet when called; leans back to howl
+	local hind = Vector3.new(0, 0, 5 * V)
+	local mid = Vector3.new(0, 6 * V, 0)
+	rig.whole = function(t: number, move: number): CFrame
+		local lift = math.max(0, math.cos(t * gait - math.pi - 0.3)) * 0.14 * math.min(move, 1.2)
+		local g = CFrame.new(0, lift, 0) * CFrame.new(mid) * CFrame.Angles(gallopPitch(t, move), 0, 0) * CFrame.new(-mid)
+		local a = mountUp(rig, t, MOUNT_LEN) * 0.35 + emoting(rig, t, HOWL) * 0.1
+		if a == 0 then return g end
+		return g * CFrame.new(hind) * CFrame.Angles(a, 0, 0) * CFrame.new(-hind)
+	end
+
+	-- Body (legs 0..4, body 5..8, saddle 9: the back is 4 studs up)
+	local body = Kit.group()
+	Kit.box(body, -2, 5, -6, 2, 8, 5, FUR)
+	Kit.box(body, -2, 5, -6, 2, 5, 5, PALE) -- belly
+	Kit.box(body, -2, 4, -7, 2, 8, -7, PALE) -- chest ruff
+	Kit.box(body, -2, 9, -6, 2, 9, -4, FUR2) -- shoulder ruff
+	Kit.box(body, -1, 10, -6, 1, 10, -5, FUR2)
+	Kit.box(body, -1, 9, 4, 1, 9, 5, FUR2) -- rump ruff
+	for _, sx in ipairs({ -3, 3 }) do
+		Kit.box(body, sx, 6, -6, sx, 8, -4, FUR2) -- shaggy shoulders
+		Kit.box(body, sx, 5, 0, sx, 8, 0, STRAP) -- girth strap
+		Kit.set(body, sx, 4, 0, IRON.color) -- stirrup
+	end
+	Kit.box(body, -2, 9, -2, 2, 9, 1, LEATHER) -- seat
+	Kit.box(body, -1, 10, 1, 1, 10, 2, STRAP) -- cantle
+	Kit.set(body, 0, 10, -2, STRAP.color) -- pommel
+	local bodyPiece = addPiece(rig, { body }, V, CFrame.new(), function(t: number, move: number): CFrame
+		return CFrame.new(0, math.sin(t * 1.6) * 0.025 * math.max(0, 1 - move), 0)
+	end)
+
+	-- dust off the paws while running, and a puff when it lands from the rear-up
+	local dust = fx(addEmitterAnchor(rig, bodyPiece, Vector3.new(0, 0.2, 0), Vector3.new(5 * V, 0.2, 12 * V)), "dust", Color3.fromRGB(150, 135, 115))
+	local landed = false
+	addAnchorPiece(rig, CFrame.new(), function(t: number, move: number): CFrame
+		dust.Rate = if move > 0.35 then 16 * move else 0
+		local since = if rig.born then t - rig.born else math.huge
+		if since < MOUNT_LEN * 0.5 then landed = false end
+		if not landed and since >= MOUNT_LEN * 0.9 and since < MOUNT_LEN + 0.5 then
+			landed = true
+			dust:Emit(14)
+		end
+		return CFrame.identity
+	end)
+
+	-- Head (hinged at the neck): throws itself back to howl
+	local head = Kit.group()
+	Kit.box(head, -1, -2, -2, 1, 1, 0, FUR) -- neck
+	Kit.box(head, -2, 0, -5, 2, 3, -2, FUR)
+	Kit.box(head, -2, 3, -5, 2, 3, -3, FUR2) -- brow
+	Kit.box(head, -1, 0, -8, 1, 1, -6, PALE) -- muzzle
+	Kit.box(head, -1, 2, -6, 1, 2, -6, FUR)
+	Kit.set(head, 0, 1, -9, DARK.color) -- nose
+	for _, sx in ipairs({ -3, 3 }) do Kit.box(head, sx, 0, -3, sx, 1, -2, FUR2) end -- cheek fur
+	for _, sx in ipairs({ -2, 2 }) do Kit.set(head, sx, 2, -4, EYE.color, true) end
+	local function headAnim(t: number, move: number): CFrame
+		local howl = emoting(rig, t, HOWL)
+		-- (the head holds steady against the body's rocking, eyes on the road)
+		return CFrame.Angles(-gallopPitch(t, move) * 0.6 + math.sin(t * 1.1) * 0.04 * math.max(0, 1 - move) + howl * 0.95 + mountUp(rig, t, MOUNT_LEN) * 0.35,
+			math.sin(t * 0.7) * 0.12 * (1 - howl), 0)
+	end
+	local headHome = CFrame.new(0, 8 * V, -6 * V)
+	addPiece(rig, { head }, V, headHome, headAnim)
+
+	-- Jaw (drops open for the howl, and a little on the rear-up)
+	local jaw = Kit.group()
+	Kit.box(jaw, -1, -1, -7, 1, -1, -3, rgb(92, 78, 66))
+	Kit.set(jaw, 0, -1, -8, PALE.color)
+	addPiece(rig, { jaw }, V, headHome, follow(headAnim, Vector3.new(0, -0.5 * V, -3 * V), function(t: number): CFrame
+		return CFrame.Angles(-(emoting(rig, t, HOWL) * 0.45 + mountUp(rig, t, MOUNT_LEN) * 0.25), 0, 0)
+	end))
+
+	-- Ears (flick now and then) and eyelids (blink: slid out over the eyes)
+	for i, sx in ipairs({ -2, 2 }) do
+		local ear = Kit.group()
+		Kit.set(ear, 0, 0, 0, FUR.color)
+		Kit.set(ear, 0, 1, 0, DARK.color)
+		local phase = i * 1.3
+		addPiece(rig, { ear }, V, headHome, follow(headAnim, Vector3.new(sx * V, 4 * V, -2 * V), function(t: number): CFrame
+			local flick = bump((t + phase) % 3.7, 0, 0.25)
+			return CFrame.Angles(-flick * 0.5 - emoting(rig, t, HOWL) * 0.4, 0, (sx > 0 and -1 or 1) * flick * 0.3)
+		end))
+		local lid = Kit.group()
+		Kit.set(lid, 0, 0, 0, FUR.color)
+		local side = if sx > 0 then 1 else -1
+		addPiece(rig, { lid }, V, headHome, follow(headAnim, Vector3.new(side * V, 2 * V, -4 * V), function(t: number): CFrame
+			local shut = (t + i * 0.05) % 4.2 < 0.13 or emoting(rig, t, HOWL) > 0.5
+			return CFrame.new(if shut then side * 1.06 * V else 0, 0, 0)
+		end))
+	end
+
+	-- Legs (hinged at the hips; the front pair lags the hind push and paws
+	-- the air on the rear-up)
+	local legSpots = { { -1, -4, FRONT_LAG, true }, { 2, -4, FRONT_LAG + SIDE_LAG, true }, { -1, 5, 0, false }, { 2, 5, SIDE_LAG, false } }
+	for _, spot in ipairs(legSpots) do
+		local leg = Kit.group()
+		Kit.box(leg, -1, -5, -1, 0, -1, 0, FUR)
+		Kit.box(leg, -1, -5, -1, 0, -5, 0, DARK) -- paw
+		local phase, front = spot[3] :: number, spot[4]
+		addPiece(rig, { leg }, V, CFrame.new((spot[1] :: number) * V, 5 * V, (spot[2] :: number) * V), function(t: number, move: number): CFrame
+			-- (the hind legs swing wider: they do the launching)
+			local a = math.sin(t * gait - phase) * (if front then 0.5 else 0.65) * math.min(move, 1.2)
+			if front then a += mountUp(rig, t, MOUNT_LEN) * (0.7 + math.sin(t * 16 + phase) * 0.4) end
+			return CFrame.Angles(a, 0, 0)
+		end)
+	end
+
+	-- Tail (hinged at the rump): bushy, pale tip; drops while it howls
+	local tail = Kit.group()
+	for i = 0, 5 do
+		local y = math.floor(i * 0.5)
+		Kit.box(tail, -1, y, i, 0, y + 1, i, if i >= 4 then PALE elseif i >= 2 then FUR2 else FUR)
+	end
+	local swish = runner(2, 3)
+	addPiece(rig, { tail }, V, CFrame.new(0.5 * V, 7 * V, 6 * V), function(t: number, move: number): CFrame
+		return CFrame.Angles(math.sin(t * 2.2) * 0.08 + emoting(rig, t, HOWL) * 0.5, math.sin(swish(t, move)) * 0.35, 0)
+	end)
+
+	-- breath misting from the muzzle while it howls
+	local mist = addAnchorPiece(rig, headHome, headAnim)
+	local puff = fx(addEmitterAnchor(rig, mist, Vector3.new(0, 1.5 * V, -9 * V), Vector3.one * 0.3), "dust", Color3.fromRGB(235, 230, 220))
+	puff.Acceleration = Vector3.new(0, 4, 0)
+	addAnchorPiece(rig, CFrame.new(), function(t: number): CFrame
+		puff.Rate = if emoting(rig, t, HOWL) > 0.6 then 8 else 0
+		return CFrame.identity
+	end)
+	return rig
+end
+
 local MOUNTS: { [string]: () -> Rig } = {
-	dire_wolf = function() return buildQuad("dire_wolf", { L = 10, H = 4, W = 4, legLen = 4, headL = 3, headH = 3, headW = 4, snoutL = 2, neckUp = 2,
-		ears = "point", tailLen = 5, tailUp = 0.5, tailT = 2, main = DIRE, belly = rgb(170, 170, 178), dark = rgb(50, 50, 55), eye = glow(255, 200, 80), saddle = true }) end,
+	dire_wolf = buildDireWolf,
 	war_boar = function() return buildQuad("war_boar", { L = 9, H = 5, W = 5, legLen = 3, headL = 3, headH = 3, headW = 4, snoutL = 2, neckUp = 0,
 		ears = "point", horns = "tusk", tailLen = 2, tailUp = 0.5, main = rgb(115, 75, 45), dark = rgb(55, 35, 20), eye = glow(255, 90, 50), saddle = true,
 		mane = rgb(60, 40, 25), armor = rgb(110, 110, 120) }) end,
@@ -1499,6 +1689,15 @@ local MOUNTS: { [string]: () -> Rig } = {
 			for _, lp in ipairs(ctx.legs) do fx(addEmitterAnchor(rig, lp, ctx.foot, Vector3.one * 0.6), "embers", Color3.fromRGB(255, 190, 70)) end
 		end }) end,
 }
+-- The reworked mounts (Mounts/<Tier>, built with Mounts/BeastKit) take the
+-- place of the older builds above.
+do
+	local helpers = { Kit = Kit, rgb = rgb, glow = glow, glass = glass, newRig = newRig, addPiece = addPiece,
+		addEmitterAnchor = addEmitterAnchor, addAnchorPiece = addAnchorPiece, addTrail = addTrail, fx = fx, runner = runner,
+		spinRing = spinRing, orbit = orbit, ball = ball, shard = shard, corona = corona, hover = hover,
+		VOX_MOUNT = VOX_MOUNT, RideData = RideData, GachaRewards = GachaRewards }
+	for look, build in pairs(require(script.Parent:WaitForChild("Mounts"))(helpers)) do MOUNTS[look] = build end
+end
 
 -- ─── Public ────────────────────────────────────────────────────────────────
 function WingsMounts.Build(rewardId: string, closeUp: boolean?): Rig?
@@ -1513,8 +1712,9 @@ end
 -- facing the rider's way), animated for time `t` and movement 0..1+.
 function WingsMounts.Pose(rig: Rig, cf: CFrame, t: number, move: number)
 	local i = 0
+	local w = if rig.whole then rig.whole(t, move) else CFrame.identity
 	for _, piece in ipairs(rig.pieces) do
-		local pcf = cf * piece.home
+		local pcf = cf * w * piece.home
 		if piece.anim then pcf *= piece.anim(t, move) end
 		for k, off in ipairs(piece.offsets) do
 			i += 1
@@ -1574,9 +1774,14 @@ end
 
 -- Play an attached rig's animation for time `t` and movement 0..1+.
 function WingsMounts.Animate(rig: Rig, t: number, move: number)
+	local w = if rig.whole then rig.whole(t, move) else nil
 	for _, piece in ipairs(rig.pieces) do
 		local m = piece.motor
-		if m then m.Transform = if piece.anim then piece.anim(t, move) else CFrame.identity end
+		if m then
+			local a = if piece.anim then piece.anim(t, move) else CFrame.identity
+			-- (the whole-rig move, taken into this piece's own joint frame)
+			m.Transform = if w then piece.home:Inverse() * w * piece.home * a else a
+		end
 	end
 end
 
@@ -1743,6 +1948,7 @@ local function step()
 			drop(e.mount)
 			e.mountId = mid
 			e.mount = if mid then WingsMounts.Build(mid) else nil
+			if e.mount and not fresh then e.mount.born = t end
 		end
 		local near = (root.Position - camPos).Magnitude < FAR and hum.Health > 0
 		-- (how fast they're going, eased: turning makes the speed flicker)
@@ -1772,6 +1978,8 @@ local function step()
 			-- feet on the ground under the rider (HipHeight was raised to ride)
 			local legs = if hum.RigType == Enum.HumanoidRigType.R6 then 2 else 0
 			local sink = math.floor((root.Size.Y / 2 + legs + hum.HipHeight) * 1000 + 0.5) / 1000
+			local emoting = char:GetAttribute("IsEmoting") == true
+			if emoting ~= (e.mount.emoteAt ~= nil) then e.mount.emoteAt = if emoting then t else nil end
 			WingsMounts.Attach(e.mount, root, CFrame.new(0, -sink, 0))
 			WingsMounts.Animate(e.mount, t, move)
 			local r = GachaRewards.Get(e.mountId :: string)

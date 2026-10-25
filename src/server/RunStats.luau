@@ -180,9 +180,16 @@ function RunStats.Finish(player: Player, result: string)
 	local tier = RunScope.Get(runId, "RunTier") or 0
 	local mapId = RunScope.Get(runId, "MapId")
 
-	-- The floor bonus (paid now, so it's in the totals below).
-	local bonusSouls = FLOOR_SOULS * floor
-	local bonusXP = FLOOR_XP * floor
+	-- The floor bonus (paid now, so it's in the totals below), raised by a
+	-- ranked guild's run buff; and the run's guild points.
+	local buff = 0
+	pcall(function()
+		local GuildManager = require(script.Parent:WaitForChild("GuildManager")) :: any
+		buff = GuildManager.BuffOf(player)
+		GuildManager.AddRunPoints(player, floor, rec.c.bosses, rec.c.elites, result == "extracted")
+	end)
+	local bonusSouls = math.floor(FLOOR_SOULS * floor * (1 + buff) + 0.5)
+	local bonusXP = math.floor(FLOOR_XP * floor * (1 + buff) + 0.5)
 	pcall(function()
 		local TalentManager = require(script.Parent:WaitForChild("TalentManager")) :: any
 		TalentManager.AwardSouls(player, bonusSouls)

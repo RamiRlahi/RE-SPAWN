@@ -5,8 +5,14 @@ local FOLDER_NAME = "NetworkRemotes"
 
 local Network = {}
 
+-- RemoteFunctions (kept apart: every name in Remotes is made a RemoteEvent)
+Network.Functions = {
+	GuildAction = "GuildAction",   -- client → server: { op, ... } → { ok, error?, ... } (GuildManager)
+}
+
 -- Predefined remote names
 Network.Remotes = {
+	GuildUpdate    = "GuildUpdate",     -- server → client: { kind = "points" | "reward" | "invited" | "joined" | "kicked", ... }
 	SelectClass    = "SelectClass",
 	ClassConfirmed = "ClassConfirmed",
 	SaveSettings   = "SaveSettings",    -- client → server: the settings (saved on their account: PlayerData)
