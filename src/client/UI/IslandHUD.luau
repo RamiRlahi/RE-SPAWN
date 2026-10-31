@@ -57,9 +57,35 @@ local C = {
 local SERIF = Font.new("rbxasset://fonts/families/Merriweather.json", Enum.FontWeight.Regular)
 local SERIF_BOLD = Font.new("rbxasset://fonts/families/Merriweather.json", Enum.FontWeight.Bold)
 local REGION_COLORS: { [string]: Color3 } = {
-	shore = Color3.fromRGB(140, 210, 230), forest = Color3.fromRGB(150, 210, 110), ruins = Color3.fromRGB(220, 200, 150),
-	highlands = Color3.fromRGB(255, 140, 80), caves = Color3.fromRGB(150, 170, 255), sanctuary = Color3.fromRGB(200, 150, 255),
+	shore = Color3.fromRGB(120, 225, 225), ruins = Color3.fromRGB(150, 215, 100), forest = Color3.fromRGB(210, 120, 255),
+	sunken = Color3.fromRGB(110, 235, 245), highlands = Color3.fromRGB(255, 140, 70), caves = Color3.fromRGB(150, 170, 255),
+	frozen = Color3.fromRGB(170, 225, 255),
+	sanctuary = Color3.fromRGB(240, 80, 90),
 }
+-- each biome's grade on the screen, eased in as you cross into it
+local BIOME_GRADES: { [string]: { [string]: any } } = {
+	shore = { TintColor = Color3.fromRGB(240, 252, 255), Saturation = 0.12, Contrast = 0.02, Brightness = 0.02 },
+	ruins = { TintColor = Color3.fromRGB(255, 248, 225), Saturation = 0.15, Contrast = 0.05, Brightness = 0 },
+	forest = { TintColor = Color3.fromRGB(225, 200, 255), Saturation = -0.05, Contrast = 0.1, Brightness = -0.05 },
+	sunken = { TintColor = Color3.fromRGB(205, 245, 255), Saturation = 0.1, Contrast = 0.05, Brightness = 0.01 },
+	highlands = { TintColor = Color3.fromRGB(255, 215, 190), Saturation = 0.05, Contrast = 0.12, Brightness = -0.03 },
+	frozen = { TintColor = Color3.fromRGB(225, 240, 255), Saturation = -0.08, Contrast = 0.06, Brightness = 0.03 },
+	sanctuary = { TintColor = Color3.fromRGB(255, 205, 210), Saturation = -0.1, Contrast = 0.15, Brightness = -0.05 },
+}
+local biomeGrade: ColorCorrectionEffect? = nil
+local gradedFor: string? = nil
+local function gradeBiome(id: string?)
+	if id == gradedFor then return end
+	gradedFor = id
+	if not biomeGrade then
+		local cc = Instance.new("ColorCorrectionEffect")
+		cc.Name = "IsleBiome"
+		cc.Parent = Lighting
+		biomeGrade = cc
+	end
+	local goal = (id and BIOME_GRADES[id]) or { TintColor = Color3.new(1, 1, 1), Saturation = 0, Contrast = 0, Brightness = 0 }
+	TweenService:Create(biomeGrade :: ColorCorrectionEffect, TweenInfo.new(2.5), goal):Play()
+end
 local STAT_NAMES: { [string]: string } = {
 	damage = "Damage", maxHealth = "Max Health", armor = "Armor", evasion = "Evasion", critChance = "Crit Chance",
 	critDamage = "Crit Damage", abilityDamage = "Ability Damage", abilityCooldown = "Cooldowns", movementSpeed = "Speed",
@@ -671,7 +697,7 @@ local function onMessage(msg: any)
 	elseif kind == "ritual_info" then
 		showRitual(msg)
 	elseif kind == "ritual_ready" then
-		toast("The altar is ready", C.violet, "Find it at the island's heart, in the Ancient Sanctuary")
+		toast("The altar is ready", C.violet, "Find it on the isle's summit: its guardian waits")
 		sfx(SFX.chime, 0.5)
 	elseif kind == "ritual_start" then
 		ritualPanel.Visible = false
@@ -686,6 +712,16 @@ local function onMessage(msg: any)
 		setBoss(nil)
 		banner("SOVEREIGN SLAIN", C.goldBright, `{msg.name} has fallen. A Ritual Chest rises at the altar.`, 4)
 		sfx(SFX.burst, 0.8)
+	elseif kind == "isle_unlocked" then
+		banner(`LEVEL {msg.level} · {string.upper(msg.name or "")}`, REGION_COLORS[msg.region] or C.goldBright, "A new isle rises. Its guardian waits at its summit.", 4.5)
+		sfx(SFX.chime, 0.7)
+	elseif kind == "isle_soon" then
+		toast("The isle trembles", C.goldBright, `Open the Ritual Chest: in {msg.seconds or 20}s the next isle rises`)
+	elseif kind == "isle_leaving" then
+		banner("THE ISLE GIVES WAY", REGION_COLORS[msg.region] or C.goldBright, `{msg.name} rises in its place`, 2.5)
+		tremor(2.5, 0.8)
+	elseif kind == "isle_final" then
+		toast("The final isle", C.red, "Its altar will answer again: the guardians return")
 	elseif kind == "ritual_failed" then
 		setBoss(nil)
 		setTint(if currentEvent then EVENT_TINTS[currentEvent] else nil, 2)
@@ -747,6 +783,7 @@ local function step()
 			ritualPanel.Visible = false
 			setBoss(nil)
 			setTint(nil, 1)
+			gradeBiome(nil)
 			for key in pairs(markers) do clearMarker(key) end
 			currentEvent = nil
 			eventEnds = 0
@@ -755,7 +792,9 @@ local function step()
 	if not onIsland then return end
 
 	local region = IslandConfig.Region(player:GetAttribute("IslandRegion"))
-	set("region", regionText, "Text", if region then string.upper(region.name) else "THE FORGOTTEN ISLE")
+	gradeBiome(region and region.id)
+	local isle = RunScope.Mine("IslandIsle") or 1
+	set("region", regionText, "Text", `LV {isle} · ` .. (if region then string.upper(region.name) else "THE FORGOTTEN ISLE"))
 	set("regionC", regionText, "TextColor3", if region then (REGION_COLORS[region.id] or C.white) else C.white)
 	local wave = RunScope.Mine("IslandWave") or 1
 	local alive = RunScope.Mine("IslandAlive") or 0
@@ -841,7 +880,7 @@ function IslandHUD.Init()
 	end)
 	UserInputService.InputBegan:Connect(function(input, processed)
 		if processed or not onIsland then return end
-		if input.KeyCode == Enum.KeyCode.G then toggleGear() end
+		if input.KeyCode == Enum.KeyCode.G or input.KeyCode == Enum.KeyCode.DPadRight then toggleGear() end
 	end)
 	RunService.Heartbeat:Connect(step)
 	RunService:BindToRenderStep("IsleTremor", Enum.RenderPriority.Camera.Value + 2, tremorStep)

@@ -77,6 +77,13 @@ local DAMAGE_TRAIL_SPEED = 2.5  -- how fast the trail catches up (per second fra
 -- Format: "rbxassetid://123456789"
 -- (`passive`: uploaded for when the bar shows one; not drawn yet)
 local SKILL_ICONS_BY_CLASS: { [string]: { [any]: string } } = {
+	-- (placeholders borrowed from other kits until the Summoner's own are uploaded)
+	summoner = {
+		[1] = "rbxassetid://131134579080569",  -- Rockborn (E)
+		[2] = "rbxassetid://85167837069373",   -- Skyfeather (F)
+		[3] = "rbxassetid://83970690874192",   -- Lunari (Q)
+		[4] = "rbxassetid://102883539726716",  -- Divine Cataclysm (R)
+	},
 	cleric = {
 		[1] = "rbxassetid://83970690874192",  -- 1st ability (E)
 		[2] = "rbxassetid://79167595723607",  -- 2nd ability (F)

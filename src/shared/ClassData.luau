@@ -224,6 +224,44 @@ local ClassData: { [string]: ClassInfo } = {
 		},
 	},
 
+	["summoner"] = {
+		id = "summoner",
+		name = "Summoner",
+		title = "The Beastcaller",
+		role = "Summons / Control",
+		description = "\"I never fight alone.\" A wanderer bound to three spirit beasts: a golem of living lava, a storm hawk and a moon stag. Call them down, command their great moves, and when the bond runs deepest, fuse all three into the Skyrockorn.",
+		accentColor = Color3.fromRGB(130, 215, 255),
+		stats = {
+			strength = 3,
+			vitality = 3,
+			defense = 2,
+			agility = 3,
+			maxHealth = 110,
+			offense = 4,
+			difficulty = 3,
+		},
+		abilities = {
+			{ name = "Bond Bolt", tag = "M1/Primary", summary = "Spirit bolts from the staff; whatever they hit becomes every beast's target.", icon = "rbxassetid://137276181827966", description = "Fire bolts of spirit light from the Bondstaff. The enemy a bolt hits is marked with the Focus sigil and every beast on the field turns on it.", videoId = "" },
+			{ name = "Pack Bond", tag = "Passive", summary = "Every other beast on the field makes all of them hit 12% harder.", icon = "rbxassetid://103445564097184", description = "Your beasts fight on their own beside you. Each other beast on the field makes every one of them hit 12% harder, so a full pack is far deadlier than the sum of its parts.", videoId = "" },
+			{ name = "Rockborn", tag = "Skill 1 (E)", summary = "A lava golem crashes down as a meteor, taunts and pummels. Recast: Ground Slam.", icon = "rbxassetid://131134579080569", description = "Call the Rockborn: it falls where you aim as a burning meteor, then holds the line, drawing enemies onto itself and battering them with hooks and hammer fists. Press again while it's out: it leaps to the cursor and slams the ground, splitting it with erupting lava fissures.", videoId = "" },
+			{ name = "Skyfeather", tag = "Skill 2 (F)", summary = "A storm hawk dives in, firing feather volleys. Recast: Wind Circle.", icon = "rbxassetid://85167837069373", description = "Call the Skyfeather: it dives in out of the sky and hovers at range, loosing volleys of feather blades and diving onto enemies. Press again: it flies to the cursor and circles, raising a cyclone that drags enemies in, cuts them and bursts.", videoId = "" },
+			{ name = "Lunari", tag = "Skill 3 (Q)", summary = "A moon stag heals the party and tramples lines. Recast: Radiant Bloom.", icon = "rbxassetid://83970690874192", description = "Call the Lunari: it rises from a moon gate, heals the party with pulses of moonlight, jabs with its antlers and tramples through lines of enemies. Press again: it gallops to the cursor, rears and stomps, blooming a flower of moonlight that heals the party and stuns enemies.", videoId = "" },
+			{ name = "Divine Cataclysm", tag = "Ultimate (R)", summary = "Fuse every beast into the Skyrockorn: starfire, judgement rays, a crash.", icon = "rbxassetid://102883539726716", description = "Your beasts fly to you and fuse into the Skyrockorn. It takes off and circles the battlefield raining starfire, rears high and fires judgement rays into every enemy, then crashes down in a cataclysm. The beasts it was made of step back out of it.", videoId = "" },
+		},
+		equipment = {
+			name = "Bondstaff",
+			slot = "Staff",
+			rarity = "Bond Relic",
+			description = "A staff of dark heartwood bound in old gold. Its crystal holds the bond: ember, sky and moon stones set round it, one for each beast.",
+			stats = {
+				["Max Health"] = "110 HP",
+				["Beasts"] = "3 + the fusion",
+				["Pack Bond"] = "+12% per beast",
+				["Summon Time"] = "16 s",
+			},
+		},
+	},
+
 	["cleric"] = {
 		id = "cleric",
 		name = "Cleric",
@@ -424,6 +462,7 @@ local PlayableClasses: { [string]: boolean } = {
 	rogue = true,
 	mage = true,
 	martial_artist = true,
+	summoner = true,
 }
 
 -- Array order for Carousel / UI display: playable classes first, locked after.
@@ -432,6 +471,7 @@ local ClassOrder: { string } = {
 	"rogue",
 	"mage",
 	"martial_artist",
+	"summoner",
 	"ranger",
 	"cleric",
 	"ice_mage",

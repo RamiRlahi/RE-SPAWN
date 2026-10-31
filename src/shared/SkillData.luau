@@ -463,6 +463,54 @@ SkillData.martial_artist = {
 	},
 }
 
+-- The Summoner, the Beastcaller (SummonerServer; the beasts' tuning is
+-- SummonerData). E / F / Q call a beast for `duration` seconds; pressed
+-- again while it's out, it makes its signature move (sigDamage) on its own
+-- short recharge, the skill's cooldown untouched.
+SkillData.summoner = {
+	[1] = {
+		name = "Rockborn",
+		slot = 1,
+		keybind = "E",
+		cooldown = 20.0,
+		damage = 60, -- the meteor it lands as
+		sigDamage = 120, -- Ground Slam (each fissure 50%)
+		range = 30,
+		duration = 16,
+		description = "Call the Rockborn: it crashes down where you aim as a burning meteor, then taunts nearby enemies and batters them with hooks and hammer fists. Recast while it's out: Ground Slam, a leap to the cursor and a slam that splits the floor with lava fissures.",
+	},
+	[2] = {
+		name = "Skyfeather",
+		slot = 2,
+		keybind = "F",
+		cooldown = 20.0,
+		damage = 30, -- the dive it arrives in
+		sigDamage = 55, -- Wind Circle's burst (the cyclone cuts for 11 a tick)
+		range = 30,
+		duration = 16,
+		description = "Call the Skyfeather: it dives in from the sky and hovers at range, loosing volleys of feather blades and diving onto enemies. Recast while it's out: Wind Circle, a cyclone at the cursor that drags enemies in, cuts them and bursts.",
+	},
+	[3] = {
+		name = "Lunari",
+		slot = 3,
+		keybind = "Q",
+		cooldown = 22.0,
+		damage = 0,
+		sigDamage = 80, -- Radiant Bloom (and it heals the party 25%)
+		range = 24,
+		duration = 16,
+		description = "Call the Lunari: it rises from a moon gate, heals the party with pulses of moonlight and tramples through lines of enemies. Recast while it's out: Radiant Bloom, a rearing stomp that blooms moonlight, healing the party and stunning enemies.",
+	},
+	[4] = {
+		name = "Divine Cataclysm",
+		slot = 4,
+		keybind = "R",
+		cooldown = 60.0,
+		damage = 260, -- the crash; the starfire hits for 30, the judgement rays for 22
+		description = "Ultimate: your beasts fly to you and fuse into the Skyrockorn. It circles the battlefield raining starfire, rears high and fires judgement rays into every enemy, then crashes down in a cataclysm. The beasts it was made of step back out.",
+	},
+}
+
 -- The skill bar's hover tip: one sentence on what the skill does, and the
 -- tomes that make it better (only ones its code actually reads: Size for its
 -- area, Duration for how long it lasts, Quantity for extra projectiles or
@@ -521,6 +569,12 @@ local TIPS: { [string]: { { any } } } = {
 		{ "Trap enemies in a circle that charges up and explodes.", { "size", "duration", "cooldown" } },
 		{ "Teleport to a spot, leaving a shockwave and an echo of your next spell.", { "size", "cooldown" } },
 		{ "Mark every enemy nearby, rain arcane bolts on them, then detonate the marks.", { "size", "damage", "cooldown" } },
+	},
+	summoner = {
+		{ "Drop a lava golem that taunts and pummels; recast for a lava Ground Slam.", { "duration", "size", "damage" } },
+		{ "Call a storm hawk that fires feathers; recast for a cyclone.", { "quantity", "duration", "size" } },
+		{ "Call a moon stag that heals the party; recast for a healing bloom.", { "duration", "size", "cooldown" } },
+		{ "Fuse every beast into the Skyrockorn for a storm of starfire and a crash.", { "size", "damage", "cooldown" } },
 	},
 	martial_artist = {
 		{ "Hammer out a barrage of punches, then finish with a punch that craters a cone.", { "size", "knockback", "ricochet" } },

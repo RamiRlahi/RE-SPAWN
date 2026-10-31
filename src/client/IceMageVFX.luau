@@ -21,6 +21,7 @@ local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 local UserInputService = game:GetService("UserInputService")
 local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
+local AimInput = require(script.Parent:WaitForChild("AimInput")) -- (the mouse, or a controller's aim)
 local HumanoidIndex = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("HumanoidIndex"))
 local BeamFan = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("BeamFan"))
 
@@ -706,7 +707,7 @@ end
 -- ═════════════════════════════════════════════════════════════════════════════
 local function getCursorAim(rootPart: BasePart): Vector3
 	local camera = Workspace.CurrentCamera
-	local mp = UserInputService:GetMouseLocation()
+	local mp = AimInput.ScreenPoint() -- (the mouse, or a controller's aim)
 	local ray = camera:ViewportPointToRay(mp.X, mp.Y)
 	local rp = RaycastParams.new()
 	rp.FilterType = Enum.RaycastFilterType.Exclude

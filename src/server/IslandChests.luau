@@ -271,8 +271,16 @@ local function ambush(rc: RunChests, chest: Chest, opener: Player)
 	local island = IslandGenerator.Get(rc.runId)
 	local foes: { Model } = {}
 	local pool = {}
+	-- (the ambush is the chest's own biome's)
+	local region = island and island.RegionAt(base.Position)
 	for _, a in ipairs(IslandConfig.Enemies) do
+		if a.regions and region and not table.find(a.regions, region) then continue end
 		if a.from <= math.max(wave, 3) then table.insert(pool, a) end
+	end
+	if #pool == 0 then
+		for _, a in ipairs(IslandConfig.Enemies) do
+			if a.from <= 1 then table.insert(pool, a) end
+		end
 	end
 	for i = 1, n do
 		local a = pool[rc.rng:NextInteger(1, #pool)]
@@ -354,7 +362,7 @@ placeCommon = function(rc: RunChests)
 	if not island then return end
 	local free = {}
 	for i, spot in ipairs(island.chestSpots) do
-		if spot.kind == "common" and not rc.usedSpots[i] then table.insert(free, i) end
+		if spot.kind == "common" and not rc.usedSpots[i] and not spot.gone then table.insert(free, i) end
 	end
 	if #free == 0 then return end
 	local i = free[rc.rng:NextInteger(1, #free)]
@@ -380,6 +388,29 @@ function IslandChests.Start(runId: string)
 	for i, spot in ipairs(island.chestSpots) do
 		rc.usedSpots[i] = true
 		IslandChests.Spawn(runId, spot.kind, spot.cf, nil, i)
+	end
+end
+
+-- The next isle raised: the last one's chests gone with it, its own chest
+-- spots (from `first` on) filled.
+function IslandChests.AddSpots(runId: string, first: number)
+	local rc = runs[runId]
+	local island = IslandGenerator.Get(runId)
+	if not rc or not island then return end
+	for i = #rc.chests, 1, -1 do
+		local c = rc.chests[i]
+		local spot = c.spot and island.chestSpots[c.spot]
+		if not spot or spot.gone then
+			if c.model.Parent then c.model:Destroy() end
+			table.remove(rc.chests, i)
+		end
+	end
+	for i = first, #island.chestSpots do
+		local spot = island.chestSpots[i]
+		if not rc.usedSpots[i] and not spot.gone then
+			rc.usedSpots[i] = true
+			IslandChests.Spawn(runId, spot.kind, spot.cf, nil, i)
+		end
 	end
 end
 

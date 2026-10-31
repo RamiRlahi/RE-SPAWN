@@ -237,7 +237,7 @@ local function applyStats(player: Player, state: RunState)
 	for id in pairs(state.evolutions or {}) do stats[id] = 1 end
 	-- The one cap: ability size (anything bigger swallows the screen). Every
 	-- other tome stacks without limit.
-	stats.size = math.min(stats.size or 1, 1.75)
+	stats.size = math.min(stats.size or 1, 2.5) -- (+150% at most)
 	state.stats = stats
 
 	for stat, value in pairs(stats) do
@@ -399,6 +399,13 @@ local function presentChoices(player: Player, state: RunState)
 			if not table.find(picks, id) then table.insert(picks, id) end
 		end
 		state.pendingChoices = picks
+	end
+	-- (the tutorial: the class's suggested tome is always among the three)
+	local runId = player:GetAttribute("RunId")
+	local suggested = TomeData.SuggestedFor(player:GetAttribute("SelectedClass"))
+	if suggested and not state.presentingRelics and typeof(runId) == "string" and RunScope.Get(runId, "Tutorial") == true
+		and table.find(pool, suggested.id) and not table.find(state.pendingChoices, suggested.id) then
+		state.pendingChoices[math.max(1, math.min(3, #state.pendingChoices))] = suggested.id
 	end
 	state.selectionUnlockAt = os.clock() + SELECTION_LOCK_DURATION
 	setGamePaused(player, true)

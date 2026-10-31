@@ -65,6 +65,62 @@ local SettingsConfig = {}
 SettingsConfig.DefaultSettings = DefaultSettings
 SettingsConfig.DefaultKeybinds = DefaultKeybinds
 
+-- A controller's buttons for the same actions (fixed: not rebindable): the
+-- four face buttons are the skills; RT attacks (and, with a prompt showing
+-- close by, uses it instead: GamepadSupport), RB dodges, LT sprints, LB
+-- jumps (moved off A: GamepadSupport).
+SettingsConfig.GamepadBinds = {
+	PrimaryAttack = "ButtonR2",
+	Skill1 = "ButtonX",
+	Skill2 = "ButtonY",
+	Skill3 = "ButtonB",
+	Ultimate = "ButtonA",
+	Sprint = "ButtonL2",
+	Dash = "ButtonR1",
+	Jump = "ButtonL1",
+	Mount = "DPadUp",
+	Interact = "ButtonR2",
+	OpenMenu = "ButtonSelect",
+} :: { [string]: string }
+-- (the rest of a controller's layout, for the screens that ask)
+SettingsConfig.GamepadExtra = {
+	Tomes = "DPadDown",   -- the tome list / the full map (Tab)
+	Emotes = "DPadLeft",  -- the emote wheel (T)
+	Gear = "DPadRight",   -- the Forgotten Isle's gear panel (G)
+	Back = "ButtonB",     -- closes a panel (Escape)
+	Confirm = "ButtonA",  -- skips a cinematic, picks on the class screen (Enter)
+}
+
+local GAMEPADS: { [Enum.UserInputType]: boolean } = {}
+for i = 1, 8 do GAMEPADS[(Enum.UserInputType :: any)["Gamepad" .. i]] = true end
+function SettingsConfig.IsGamepad(input: InputObject): boolean
+	return GAMEPADS[input.UserInputType] == true
+end
+
+-- Does `input` press `action`: its bound key (`keyName`: a KeyCode or a
+-- UserInputType's name), or its controller button?
+function SettingsConfig.Matches(input: InputObject, keyName: any, action: string): boolean
+	if GAMEPADS[input.UserInputType] then
+		local pad = SettingsConfig.GamepadBinds[action] or SettingsConfig.GamepadExtra[action]
+		return pad ~= nil and input.KeyCode.Name == pad
+	end
+	if typeof(keyName) ~= "string" or keyName == "" or keyName == "None" then return false end
+	if input.UserInputType == Enum.UserInputType.Keyboard then return input.KeyCode.Name == keyName end
+	return input.UserInputType.Name == keyName
+end
+
+-- Is `action`'s controller button held down right now (any controller)?
+function SettingsConfig.GamepadDown(action: string): boolean
+	local pad = SettingsConfig.GamepadBinds[action] or SettingsConfig.GamepadExtra[action]
+	if not pad then return false end
+	local UserInputService = game:GetService("UserInputService")
+	local key = (Enum.KeyCode :: any)[pad]
+	for gp in pairs(GAMEPADS) do
+		if UserInputService:GetGamepadConnected(gp) and UserInputService:IsGamepadButtonDown(gp, key) then return true end
+	end
+	return false
+end
+
 function SettingsConfig.CloneDefaultSettings(): PlayerSettings
 	local clone: PlayerSettings = {
 		masterVolume = DefaultSettings.masterVolume,

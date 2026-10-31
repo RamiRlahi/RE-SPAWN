@@ -106,7 +106,17 @@ end
 local function showChoices(choices: { any }, rerollsRemaining: number, lockDuration: number)
 	if not choiceOverlay or not choiceScreen then return end
 	choiceOverlay.Visible = true
-	choiceScreen.Show(choices, rerollsRemaining, lockDuration)
+	-- (the tutorial: the class's suggested tome marked, and why)
+	local suggested = nil
+	if RunScope.Mine("Tutorial") == true then
+		local sg = TomeData.SuggestedFor(player:GetAttribute("SelectedClass"))
+		if sg then
+			for _, c in ipairs(choices) do
+				if c.id == sg.id then suggested = sg end
+			end
+		end
+	end
+	choiceScreen.Show(choices, rerollsRemaining, lockDuration, suggested)
 end
 
 function TomeController.Init()
@@ -188,6 +198,7 @@ function TomeController.Init()
 
 	choiceScreen = ChoiceScreen.Create(overlay, function(id: string)
 		overlay.Visible = false
+		player:SetAttribute("TomePicked", id) -- (the tutorial watches for its suggestion)
 		Network.GetRemoteEvent(Network.Remotes.ChooseTome):FireServer(id)
 	end, function()
 		Network.GetRemoteEvent(Network.Remotes.RerollTomes):FireServer()

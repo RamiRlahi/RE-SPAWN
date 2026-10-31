@@ -909,7 +909,7 @@ function ConstellationWish.Play(best: any, all: { any }?, onDone: (() -> ())?)
 	local clicked = false
 	local clickConn = UserInputService.InputBegan:Connect(function(io)
 		if io.UserInputType == Enum.UserInputType.MouseButton1 or io.UserInputType == Enum.UserInputType.Touch
-			or io.KeyCode == Enum.KeyCode.Space or io.KeyCode == Enum.KeyCode.Return then
+			or io.KeyCode == Enum.KeyCode.Space or io.KeyCode == Enum.KeyCode.Return or io.KeyCode == Enum.KeyCode.ButtonA then
 			clicked = true
 		end
 	end)

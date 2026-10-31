@@ -19,6 +19,7 @@ local SkillData = require(Shared:WaitForChild("SkillData"))
 local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
 
 local UltimateCameraChoreography = require(script.Parent:WaitForChild("UltimateCameraChoreography"))
+local AimInput = require(script.Parent:WaitForChild("AimInput")) -- (the mouse, or a controller's aim)
 local IsometricCamera = require(script.Parent:WaitForChild("IsometricCamera"))
 local DivineBeamChannel = require(script.Parent:WaitForChild("DivineBeamChannel"))
 local ClericVFX = require(script.Parent:WaitForChild("ClericVFX"))
@@ -41,6 +42,7 @@ local SwordsmanController = require(script.Parent:WaitForChild("SwordsmanControl
 local RogueController = require(script.Parent:WaitForChild("RogueController"))
 local MageController = require(script.Parent:WaitForChild("MageController"))
 local MartialController = require(script.Parent:WaitForChild("MartialController"))
+local SummonerController = require(script.Parent:WaitForChild("SummonerController"))
 local BerserkerController = require(script.Parent:WaitForChild("BerserkerController"))
 local FireKnightController = require(script.Parent:WaitForChild("FireKnightController"))
 
@@ -333,7 +335,7 @@ local aimOverride: Vector3? = nil
 
 local function getCursorWorldPosition(rootPart: BasePart): Vector3
 	if aimOverride then return aimOverride end
-	local mousePos = UserInputService:GetMouseLocation()
+	local mousePos = AimInput.ScreenPoint() -- (the mouse, or a controller's aim)
 	local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -3950,6 +3952,11 @@ function SkillController.UseSkill(skillIndex: number)
 	if classId == "heavy_knight" and not FireKnightController.CanCast(skillIndex) then return end
 	if classId == "mage" and not MageController.CanCast(skillIndex) then return end
 	if classId == "martial_artist" and not MartialController.CanCast(skillIndex) then return end
+	-- Summoner: E / F / Q with that beast out commands its signature move.
+	if classId == "summoner" then
+		if not SummonerController.CanCast(skillIndex) then return end
+		if SummonerController.TryRecast(skillIndex, char, rootPart) then return end
+	end
 
 	-- Check Cooldown
 	local now = os.clock()
@@ -4197,6 +4204,9 @@ function SkillController.UseSkill(skillIndex: number)
 	elseif classId == "martial_artist" then
 		skillTargetPosition = MartialController.OnCast(skillIndex, char, rootPart, aimDir, config, cursorPosition) or skillTargetPosition
 		if skillIndex == 4 then MartialController.PlayUltCutscene(char, aimDir) end
+	elseif classId == "summoner" then
+		skillTargetPosition = SummonerController.OnCast(skillIndex, char, rootPart, aimDir, config, cursorPosition) or skillTargetPosition
+		if skillIndex == 4 then SummonerController.PlayUltCutscene(char, aimDir) end
 	elseif classId == "berserker" then
 		skillTargetPosition = BerserkerController.OnCast(skillIndex, char, rootPart, aimDir, config, cursorPosition) or skillTargetPosition
 		if skillIndex == 4 then BerserkerController.PlayUltCutscene(char, aimDir) end
@@ -4406,15 +4416,8 @@ end
 
 local function inputMatchesAction(input: InputObject, action: string): boolean
 	local keyName = currentKeybinds[action] or SettingsConfig.DefaultSettings.keybinds[action]
-	if not keyName or keyName == "" or keyName == "None" then
-		return false
-	end
-
-	if input.UserInputType == Enum.UserInputType.Keyboard then
-		return input.KeyCode.Name == keyName
-	end
-
-	return input.UserInputType.Name == keyName
+	-- (its key, or its controller button)
+	return SettingsConfig.Matches(input, keyName, action)
 end
 
 function SkillController.SetKeybinds(keybinds: { [string]: string }?)
@@ -4465,6 +4468,12 @@ local function performBasicAttack()
 	if player:GetAttribute("SelectedClass") == "martial_artist" then
 		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 		if root then MartialController.Basic(char, root) end
+		return
+	end
+	-- The Summoner's Bond Bolts.
+	if player:GetAttribute("SelectedClass") == "summoner" then
+		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if root then SummonerController.Basic(char, root) end
 		return
 	end
 	-- The Berserker's greatsword chain.
@@ -4627,6 +4636,7 @@ local attackHeld: { [string]: boolean } = {}
 
 -- Is the Primary Attack bind physically down right now?
 local function primaryDown(): boolean
+	if SettingsConfig.GamepadDown("PrimaryAttack") then return player:GetAttribute("PromptNear") ~= true end
 	local keyName = player:GetAttribute("Keybind_PrimaryAttack") or SettingsConfig.DefaultSettings.keybinds.PrimaryAttack
 	if typeof(keyName) ~= "string" then return false end
 	if keyName == "MouseButton1" or keyName == "MouseButton2" or keyName == "MouseButton3" then
@@ -4688,6 +4698,12 @@ function SkillController.Init()
 		shake = triggerCameraShake,
 		fovPunch = triggerFOVPunch,
 		getAim = getAimDirection,
+	})
+	SummonerController.Init({
+		shake = triggerCameraShake,
+		fovPunch = triggerFOVPunch,
+		getAim = getAimDirection,
+		getCursor = getCursorWorldPosition,
 	})
 	FireKnightController.Init({
 		shake = triggerCameraShake,

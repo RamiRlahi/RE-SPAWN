@@ -20,6 +20,7 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
+local AimInput = require(script.Parent:WaitForChild("AimInput")) -- (the mouse, or a controller's aim)
 
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
@@ -252,7 +253,7 @@ local function createAimCursor(): (ScreenGui, Frame)
 end
 
 local function getMouseWorldPosition(planeY: number): Vector3?
-	local mousePos = UserInputService:GetMouseLocation()
+	local mousePos = AimInput.ScreenPoint() -- (the mouse, or a controller's aim)
 	local cam = Workspace.CurrentCamera
 	if not cam then return nil end
 
@@ -677,7 +678,7 @@ function IsometricCamera.Start(transitionDuration: number?)
 		if focusYLock then
 			rawTargetPos = Vector3.new(rawTargetPos.X, focusYLock + TARGET_HEIGHT, rawTargetPos.Z)
 		end
-		local mousePos = UserInputService:GetMouseLocation()
+		local mousePos = AimInput.ScreenPoint()
 
 		-- Update Custom Cursor Screen Position
 		if cursorFrame then

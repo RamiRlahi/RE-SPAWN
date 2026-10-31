@@ -23,6 +23,7 @@ local RogueLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild(
 local RogueScarf = require(script.Parent:WaitForChild("RogueScarf"))
 local MageLook = require(Shared:WaitForChild("MageLook"))
 local MartialLook = require(Shared:WaitForChild("MartialLook"))
+local SummonerLook = require(Shared:WaitForChild("SummonerLook"))
 local Players = game:GetService("Players")
 local WeaponSling = require(Shared:WaitForChild("WeaponSling"))
 local GearLook = require(Shared:WaitForChild("GearLook"))
@@ -62,6 +63,7 @@ local function buildWeapon(classId: string): Tool?
 	if classId == "swordsman" then return SwordModel.Build() end
 	if classId == "berserker" then return BerserkerLook.BuildGreatsword() end
 	if classId == "rogue" then return RogueLook.BuildDagger() end
+	if classId == "summoner" then return SummonerLook.BuildStaff() end
 	local name = WEAPONS[classId]
 	local template = name and findTool(name)
 	return if template then template:Clone() else nil

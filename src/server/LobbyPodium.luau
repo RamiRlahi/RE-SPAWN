@@ -3,10 +3,10 @@
 	LobbyPodium.luau
 	The guild podium in the lobby (LobbyBuilder's GuildPodium): stands the
 	season's top 3 guilds' top contributors (GuildManager.Top3) on its tiers,
-	as their own avatars (R6), still, facing the plaza, a nameplate over each
-	(rank, guild [TAG], name, the guild's points). Their class shows on every
-	client (PodiumClass: LobbyHUD dresses them with ClassLook). An empty tier
-	shows "Unclaimed". Re-stood whenever the ranking moves.
+	as their own avatars (R6), in their own clothes (no class look, no
+	weapon), idling, facing the plaza, a nameplate over each (rank, guild
+	[TAG], name, the guild's points). An empty tier shows "Unclaimed".
+	Re-stood whenever the ranking moves.
 
 	LobbyPodium.Init(lobbyModel)
 --]]
@@ -19,6 +19,7 @@ local LobbyPodium = {}
 
 local MEDAL = { Color3.fromRGB(255, 210, 90), Color3.fromRGB(215, 220, 230), Color3.fromRGB(215, 140, 80) }
 local FONT = Enum.Font.Antique
+local IDLE = "rbxassetid://180435571" -- (Roblox's R6 idle)
 
 local podium: Model? = nil
 local token = 0
@@ -84,11 +85,22 @@ local function figure(entry: any, spot: BasePart, my: number)
 	end
 	local root = model:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if root then root.Anchored = true end
-	model:SetAttribute("PodiumClass", top.class)
 	model:SetAttribute("Rank", entry.rank)
-	-- (standing on the tier, facing the plaza)
-	model:PivotTo(spot.CFrame * CFrame.new(0, 3, 0))
+	-- (standing on the tier, turned to face the plaza)
+	model:PivotTo(spot.CFrame * CFrame.new(0, 3, 0) * CFrame.Angles(0, math.pi, 0))
 	model.Parent = podium
+	-- the plain idle, looped (Roblox's R6 one)
+	if hum then
+		local animator = hum:FindFirstChildOfClass("Animator") or Instance.new("Animator")
+		animator.Parent = hum
+		local anim = Instance.new("Animation")
+		anim.AnimationId = IDLE
+		local ok3, track = pcall(function() return animator:LoadAnimation(anim) end)
+		if ok3 and track then
+			track.Looped = true
+			track:Play()
+		end
+	end
 end
 
 local function stand(list: { any })

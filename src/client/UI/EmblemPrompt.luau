@@ -3,14 +3,16 @@
 -- When you're near a room reward that's ready (the server marks it
 -- "Charged"), a speech bubble pops up in front of your character and a prompt
 -- at the bottom of the screen shows a mouse with its left button lit:
--- "LEFT CLICK TO INTERACT", in the arcade font. Both go away once it's
--- claimed or you walk off.
+-- "LEFT CLICK TO INTERACT", in the arcade font (on a controller, an RT
+-- button and "PRESS RT TO INTERACT", switching as you change hands). Both
+-- go away once it's claimed or you walk off.
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
+local AimInput = require(script.Parent.Parent:WaitForChild("AimInput")) -- (a controller in hand?)
 
 local EmblemPrompt = {}
 
@@ -62,7 +64,47 @@ local function mouseIcon(parent: Instance, height: number, lit: Color3): Frame
 	return body
 end
 
+-- A controller's RT, drawn as a key chip the mouse's size.
+local function rtIcon(parent: Instance, height: number, lit: Color3): Frame
+	local chip = Instance.new("Frame")
+	chip.Name = "RT"
+	chip.Size = UDim2.fromOffset(math.floor(height * 1.15), height)
+	chip.BackgroundColor3 = INK
+	chip.BorderSizePixel = 0
+	chip.Visible = false
+	chip.Parent = parent
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0.3, 0)
+	corner.Parent = chip
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = lit
+	stroke.Thickness = 2
+	stroke.Parent = chip
+	local t = Instance.new("TextLabel")
+	t.BackgroundTransparency = 1
+	t.Size = UDim2.fromScale(1, 1)
+	t.Font = Enum.Font.Arcade
+	t.Text = "RT"
+	t.TextSize = math.floor(height * 0.6)
+	t.TextColor3 = lit
+	t.Parent = chip
+	return chip
+end
+
 local bubble: BillboardGui
+local mouseBits: { Frame } = {}
+local padBits: { Frame } = {}
+local promptLabel: TextLabel? = nil
+local padShown: boolean? = nil
+-- The mouse or the controller's button, whichever is in hand.
+local function showInput()
+	local pad = AimInput.UsingGamepad()
+	if pad == padShown then return end
+	padShown = pad
+	for _, f in ipairs(mouseBits) do f.Visible = not pad end
+	for _, f in ipairs(padBits) do f.Visible = pad end
+	if promptLabel then promptLabel.Text = if pad then "PRESS RT TO INTERACT" else "LEFT CLICK TO INTERACT" end
+end
 local bubbleScale: UIScale
 local prompt: Frame
 local promptScale: UIScale
@@ -116,6 +158,11 @@ local function build()
 	local icon = mouseIcon(cloud, 30, GOLD)
 	icon.AnchorPoint = Vector2.new(0, 0.5)
 	icon.Position = UDim2.new(0, 10, 0.5, 0)
+	local padIcon = rtIcon(cloud, 26, GOLD)
+	padIcon.AnchorPoint = Vector2.new(0, 0.5)
+	padIcon.Position = UDim2.new(0, 6, 0.5, 0)
+	table.insert(mouseBits, icon)
+	table.insert(padBits, padIcon)
 	local bang = Instance.new("TextLabel")
 	bang.BackgroundTransparency = 1
 	bang.AnchorPoint = Vector2.new(1, 0.5)
@@ -157,6 +204,11 @@ local function build()
 	local pIcon = mouseIcon(prompt, 32, GOLD)
 	pIcon.AnchorPoint = Vector2.new(0, 0.5)
 	pIcon.Position = UDim2.new(0, 14, 0.5, 0)
+	local pPad = rtIcon(prompt, 30, GOLD)
+	pPad.AnchorPoint = Vector2.new(0, 0.5)
+	pPad.Position = UDim2.new(0, 10, 0.5, 0)
+	table.insert(mouseBits, pIcon)
+	table.insert(padBits, pPad)
 	local label = Instance.new("TextLabel")
 	label.BackgroundTransparency = 1
 	label.Position = UDim2.fromOffset(52, 0)
@@ -167,6 +219,8 @@ local function build()
 	label.TextColor3 = WHITE
 	label.TextXAlignment = Enum.TextXAlignment.Left
 	label.Parent = prompt
+	promptLabel = label
+	showInput()
 end
 
 local function setShown(on: boolean)
@@ -206,7 +260,7 @@ function EmblemPrompt.Init()
 	local ReplicatedStorage = game:GetService("ReplicatedStorage")
 	local Network = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Network"))
 	UserInputService.InputBegan:Connect(function(input)
-		if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.KeyCode ~= Enum.KeyCode.ButtonR2 then return end
 		if UserInputService:GetFocusedTextBox() then return end
 		if nearest and nearest.Parent then
 			Network.GetRemoteEvent(Network.Remotes.ClaimReward):FireServer(nearest)
@@ -224,6 +278,7 @@ function EmblemPrompt.Init()
 			if nearest and head then bubble.Adornee = head end
 			-- Local-only flag: the attack scripts skip clicks while it's set.
 			player:SetAttribute("InteractReady", nearest ~= nil)
+			showInput()
 			setShown(nearest ~= nil)
 		end
 	end)

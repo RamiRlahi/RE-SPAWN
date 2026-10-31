@@ -359,7 +359,7 @@ function PurgeScreen.Init()
 	end)
 
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if isVisible and input.KeyCode == Enum.KeyCode.Escape then
+		if isVisible and (input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.ButtonB) then
 			close()
 		end
 	end)

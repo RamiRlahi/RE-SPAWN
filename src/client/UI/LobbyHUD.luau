@@ -544,6 +544,20 @@ local function modalOpen(): boolean
 	return false
 end
 
+-- (a controller's cursor follows only the lobby's own menus: not
+-- LobbyScreenGui, UIManager's canvas, which can stay switched on in the
+-- lobby with nothing showing)
+local function padModalOpen(): boolean
+	local pg = player:FindFirstChildOfClass("PlayerGui")
+	if not pg then return false end
+	for name in pairs(MODALS) do
+		if name == "LobbyScreenGui" then continue end
+		local g = pg:FindFirstChild(name)
+		if g and g:IsA("ScreenGui") and g.Enabled then return true end
+	end
+	return false
+end
+
 local function crosshairDot(on: boolean)
 	if on and not dotGui then
 		local g = Instance.new("ScreenGui")
@@ -619,6 +633,8 @@ end
 
 local function lockStep(dt: number)
 	local here = player:GetAttribute("InHub") == true
+	local modal = here and padModalOpen()
+	if player:GetAttribute("UIModal") ~= modal then player:SetAttribute("UIModal", modal) end
 	local cam = workspace.CurrentCamera
 	if not here or not lockWanted or modalOpen() or cam.CameraType ~= Enum.CameraType.Custom then
 		releaseLock()

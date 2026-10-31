@@ -389,7 +389,7 @@ end
 
 -- ── 1. Graph & Layout Generation (Deterministic Critical Path + Branches) ────
 
-local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomData }, { [string]: CellData }, { DoorwayData }, { StairData })
+local function buildDungeonGraph(rng: Random, config: DungeonConfig, plan: { string }?): ({ RoomData }, { [string]: CellData }, { DoorwayData }, { StairData })
 	-- Large, readable arenas make the dungeon feel like a place to explore rather
 	-- than a chain of small fighting boxes. The start is an intentionally larger hub.
 	local totalRooms = config.totalRooms or rng:NextInteger(16, 20)
@@ -604,8 +604,13 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 	end
 
 	-- 2. Build Critical Path across Multi-Floor Tiers
-	local criticalLength = math.max(6, math.floor(totalRooms * 0.55))
+	-- (a plan, the tutorial's: exactly its rooms, in its order, one route)
+	local criticalLength = if plan then #plan else math.max(6, math.floor(totalRooms * 0.55))
 	local activeRoom = startRoom
+	local function typeFor(i: number, isBoss: boolean): RoomType
+		if plan then return (plan[i] or "Combat") :: RoomType end
+		return if isBoss then "Boss" else "Combat"
+	end
 
 	for i = 2, criticalLength do
 		local rW = rng:NextInteger(minTiles, maxTiles)
@@ -642,7 +647,7 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 				carveCorridor(activeRoom, nextTier, nextFY, nextWY, candidateGX, candidateGZ, rW, rD, dir, corrLen)
 				local newRoom: RoomData = {
 					id = i,
-					roomType = isBoss and "Boss" or "Combat",
+					roomType = typeFor(i, isBoss),
 					tier = nextTier,
 					floorY = nextFY,
 					wallY = nextWY,
@@ -688,7 +693,7 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 						carveCorridor(activeRoom, nextTier, nextFY, nextWY, candidateGX, candidateGZ, rW, rD, fbDir, corrLen)
 						local newRoom: RoomData = {
 							id = i,
-							roomType = isBoss and "Boss" or "Combat",
+							roomType = typeFor(i, isBoss),
 							tier = nextTier,
 							floorY = nextFY,
 							wallY = nextWY,
@@ -719,6 +724,9 @@ local function buildDungeonGraph(rng: Random, config: DungeonConfig): ({ RoomDat
 			end
 		end
 	end
+
+	-- (a plan has no spokes or side rooms: just its route)
+	if plan then return rooms, floorGrid, doorwayList, stairList end
 
 	-- 3. Spawn hub spokes. Every run begins with at least three viable directions:
 	-- the critical route plus two guaranteed side routes. This removes the old
@@ -3465,7 +3473,7 @@ build = function(runId: string, cfg: any): (CFrame, CFrame, CFrame)
 		rooms, floorGrid0 = buildLayeredGraph(rng, cfg, map and map.plan)
 		doorwayList, stairList = {}, {}
 	else
-		rooms, floorGrid0, doorwayList, stairList = buildDungeonGraph(rng, cfg)
+		rooms, floorGrid0, doorwayList, stairList = buildDungeonGraph(rng, cfg, map and map.plan)
 	end
 	-- (into this run's slot)
 	local floorGrid = shiftLayout(slot * SLOT_TILES, rooms, floorGrid0, doorwayList, stairList)
@@ -3833,6 +3841,21 @@ function DungeonGenerator.Forget(runId: string)
 	DungeonGenerator.Clear(runId)
 	dungeons[runId] = nil
 	keepBlocked[runId] = nil
+end
+
+-- The room a position stands in (its id and kind), by the map's room
+-- rectangles (nil in a corridor or off the map).
+function DungeonGenerator.RoomAt(runId: string?, pos: Vector3): (number?, string?)
+	local d = runId and dungeons[runId]
+	local payload = d and d.payload
+	if not payload then return nil, nil end
+	local s = payload.tileSize
+	for _, r in ipairs(payload.rooms) do
+		if pos.X >= r.gx * s and pos.X <= (r.gx + r.w) * s and pos.Z >= r.gz * s and pos.Z <= (r.gz + r.d) * s then
+			return r.id, r.roomType
+		end
+	end
+	return nil, nil
 end
 
 function DungeonGenerator.GetSpawnCFrame(runId: string?): CFrame

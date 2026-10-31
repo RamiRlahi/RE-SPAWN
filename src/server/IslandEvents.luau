@@ -165,7 +165,12 @@ end
 
 START.cursed_treasure = function(re, ev, folder)
 	local island = re.island
-	local spots = island.chestSpots :: { any }
+	-- (the spots of the isles still standing)
+	local spots = {}
+	for _, s in ipairs(island.chestSpots :: { any }) do
+		if not s.gone then table.insert(spots, s) end
+	end
+	if #spots == 0 then return end
 	-- somewhere far from everyone, so it's a trip
 	local best, bestD = nil, -1
 	for _ = 1, 10 do

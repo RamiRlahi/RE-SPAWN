@@ -442,12 +442,12 @@ function EmoteController.Init()
 	table.insert(conns, UserInputService.InputBegan:Connect(function(input, gpe)
 		if gpe then return end
 
-		if input.KeyCode == Enum.KeyCode.Escape and wheelOpen then
+		if (input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.ButtonB) and wheelOpen then
 			EmoteController.CloseWheel()
 			return
 		end
 
-		if input.KeyCode == Enum.KeyCode.T then
+		if input.KeyCode == Enum.KeyCode.T or input.KeyCode == Enum.KeyCode.DPadLeft then
 			-- Don't open in menus / loading
 			local char = player.Character
 			if not char then return end

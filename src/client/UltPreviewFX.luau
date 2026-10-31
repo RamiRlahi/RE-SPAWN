@@ -15,6 +15,8 @@
 	                 magic circle over his raised hand, arcane motes rising,
 	                 bolts of light falling round him
 	  martial_artist — crimson rings turning on the floor, ink rising
+	  summoner     — (an entrance only) her three beasts arrive round her and
+	                 idle there
 
 	And each class's entrance (CastPoses' preview: its moments come from
 	CastPoses.previewBeats): the Rogue's smoke and tossed dagger, the Martial
@@ -1356,6 +1358,66 @@ function UltPreviewFX.Stop()
 		if a.Parent then a:Destroy() end
 	end
 	cur.folder:Destroy()
+end
+
+-- ── Summoner: her three beasts arrive round her one after another (the
+-- Skyfeather diving in to hover at her shoulder, the Rockborn falling as a
+-- meteor behind her, the Lunari rising out of a moon gate) and stay there,
+-- breathing, flapping, grazing, watching her, while she's shown.
+ENTRANCES.summoner = function(c)
+	local Summons = script.Parent:FindFirstChild("Summons")
+	if not Summons then return end
+	local Rig = require(Summons:WaitForChild("Rig") :: ModuleScript) :: any
+	local Beasts = require(Summons:WaitForChild("Beasts") :: ModuleScript) :: any
+	local SummonerData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SummonerData")) :: any
+	local back = -c.toward
+	local spots = {
+		{ kind = "sky", at = 0.35, off = -c.screenRight * 3.6 + back * 1.5 + Vector3.new(0, 4.5, 0), scale = 0.6 },
+		{ kind = "rock", at = 0.9, off = c.screenRight * 5.2 + back * 4, scale = 0.72 },
+		{ kind = "moon", at = 1.5, off = -c.screenRight * 6.2 + back * 4.5, scale = 0.72 },
+	}
+	local live = {}
+	for _, s in ipairs(spots) do
+		c.at(s.at, function()
+			local data = require(Summons:WaitForChild("Models"):WaitForChild(SummonerData.MODEL[s.kind]) :: ModuleScript)
+			local rig = Rig.new(data, s.scale, c.folder)
+			local anim = Beasts.new(s.kind, rig)
+			local fall = SummonerData.BEAST[s.kind].landing.fall
+			anim:arrive(fall)
+			local pos = c.ground + s.off
+			table.insert(live, { rig = rig, anim = anim, pos = pos, kind = s.kind })
+			local color = SummonerData.COLOR[s.kind]
+			c.at(fall, function()
+				local floor = Vector3.new(pos.X, c.ground.Y, pos.Z)
+				ringOut(c, floor, 0.6, if s.kind == "sky" then 3 else 4.5, 0.5, color, 0.3)
+				flare(c, floor + Vector3.new(0, 1.5, 0), 4, 0.35, color)
+				burst(c, CFrame.new(floor + Vector3.new(0, 0.4, 0)), Vector3.new(2, 0.2, 2), 18, {
+					Texture = TEX_SPARKLE, Color = ColorSequence.new(Color3.new(1, 1, 1), color), LightEmission = 1,
+					Size = seq(0, 0.35, 1, 0), Lifetime = NumberRange.new(0.5, 1), Speed = NumberRange.new(4, 9),
+					SpreadAngle = Vector2.new(70, 70), EmissionDirection = Enum.NormalId.Top, Drag = 3 })
+			end)
+		end)
+	end
+	local last = 0
+	c.onStep(function(t)
+		local dt = math.clamp(t - last, 0, 0.1)
+		last = t
+		local now = os.clock()
+		for _, b in ipairs(live) do
+			-- (each faces the camera, turned a little toward her)
+			local toHero = Vector3.new(c.root.Position.X - b.pos.X, 0, c.root.Position.Z - b.pos.Z)
+			local face = (c.toward * 2 + (if toHero.Magnitude > 0.1 then toHero.Unit else c.toward)).Unit
+			local yaw = math.atan2(-face.X, -face.Z)
+			local heroYaw = if toHero.Magnitude > 0.1 then math.atan2(-toHero.X, -toHero.Z) else yaw
+			local look = (heroYaw - yaw + math.pi) % (2 * math.pi) - math.pi
+			local ok, extra = pcall(b.anim.update, b.anim, dt, { clock = now, speed = 0, climb = 0, yawRate = 0, look = look * 0.6 })
+			if ok then b.rig:render(CFrame.new(b.pos) * CFrame.Angles(0, yaw, 0) * extra) end
+		end
+	end)
+	c.onCleanup(function()
+		for _, b in ipairs(live) do b.rig:destroy() end
+		table.clear(live)
+	end)
 end
 
 function UltPreviewFX.Start(char: Model?, classId: string)

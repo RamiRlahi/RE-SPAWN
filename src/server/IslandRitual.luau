@@ -160,6 +160,80 @@ local function focusPart(rt: Ritual): BasePart?
 	return (model:FindFirstChild("Focus", true) or model.PrimaryPart) :: BasePart?
 end
 
+-- The altar's prompt, on the current isle's altar.
+local function addPrompt(rt: Ritual)
+	if rt.prompt then rt.prompt:Destroy() end
+	rt.prompt = nil
+	local focus = focusPart(rt)
+	if not focus then return end
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Examine"
+	prompt.ObjectText = "Ritual Altar"
+	prompt.HoldDuration = 0.3
+	prompt.MaxActivationDistance = 14
+	prompt.RequiresLineOfSight = false
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.Parent = focus
+	prompt.Triggered:Connect(function(p: Player)
+		if p:GetAttribute("RunId") ~= rt.runId or p:GetAttribute("InLobby") ~= false then return end
+		IslandMode.Notify(rt.runId, info(rt), p)
+	end)
+	rt.prompt = prompt
+end
+
+-- The guardian slain: the isle gives way to the next. Everyone is lifted
+-- to a platform in the sky while the old isle is taken down and the next
+-- raised in its place, then set down on its shore; the ritual moves to its
+-- altar.
+local function advance(rt: Ritual)
+	local island = rt.island
+	if island.current >= #IslandConfig.Isles then
+		-- (the last isle: its altar keeps answering)
+		IslandMode.Notify(rt.runId, { kind = "isle_final" })
+		return
+	end
+	local nextDef = IslandConfig.Isles[island.current + 1]
+	IslandMode.Notify(rt.runId, { kind = "isle_leaving", level = island.current + 1, name = nextDef.name, region = nextDef.region })
+	task.wait(2.5)
+	if not rt.alive then return end
+	-- the holding platform, high over the isle
+	local hold = Instance.new("Part")
+	hold.Name = "IsleHold"
+	hold.Anchored, hold.CanTouch = true, false
+	hold.Size = Vector3.new(60, 2, 60)
+	hold.Material = Enum.Material.Neon
+	hold.Color = nextDef.altar.beam
+	hold.Transparency = 0.6
+	hold.CFrame = CFrame.new(island.origin + Vector3.new(0, 420, 0))
+	hold.Parent = island.folder
+	local function lift(to: CFrame)
+		for i, e in ipairs(IslandMode.Living(rt.runId)) do
+			local off = Vector3.new(((i - 1) % 4 - 1.5) * 4, 0, math.floor((i - 1) / 4) * 4)
+			e.root.AssemblyLinearVelocity = Vector3.zero
+			e.root.CFrame = to + off
+		end
+	end
+	lift(hold.CFrame + Vector3.new(0, 4, 0))
+	IslandMode.ClearEnemies(rt.runId)
+	local n, first = IslandGenerator.Advance(rt.runId)
+	if not rt.alive then return end
+	if not n then
+		hold:Destroy()
+		return
+	end
+	lift(island.spawn)
+	hold:Destroy()
+	local chests = script.Parent:FindFirstChild("IslandChests")
+	if chests and first then pcall(function() (require(chests) :: any).AddSpots(rt.runId, first) end) end
+	rt.center = rt.island.altar.Position
+	rt.altarPivot = (rt.island.altarModel :: Model):GetPivot()
+	rt.lastBoss = nil
+	addPrompt(rt)
+	local def = IslandConfig.Isles[n]
+	RunScope.Set(rt.runId, "IslandIsle", n)
+	IslandMode.Notify(rt.runId, { kind = "isle_unlocked", level = n, name = def.name, region = def.region })
+end
+
 -- ── The fight ───────────────────────────────────────────────────────────────
 local function endFight(rt: Ritual)
 	IslandMode.SetArena(rt.runId, nil)
@@ -195,6 +269,15 @@ local function defeated(rt: Ritual, bossId: string, model: Model)
 			end)
 		end
 		rest(rt)
+		-- (then, a while to open it, the isle gives way to the next)
+		if rt.island.current < #IslandConfig.Isles then
+			IslandMode.Notify(rt.runId, { kind = "isle_soon", seconds = 20 })
+			task.wait(20)
+		end
+		if rt.alive then
+			local ok, err = pcall(advance, rt)
+			if not ok then warn("[IslandRitual] advance:", err) end
+		end
 	end)
 end
 
@@ -248,6 +331,9 @@ end
 -- ── The summoning ───────────────────────────────────────────────────────────
 local function pickBoss(rt: Ritual, want: string?): string
 	if want and IslandBosses.Get(want) then return want end
+	-- (each isle's own guardian, the first time; any after that, on the last)
+	local isle = IslandConfig.Isles[rt.island.current]
+	if isle and IslandBosses.Get(isle.boss) and rt.lastBoss ~= isle.boss then return isle.boss end
 	local ids = IslandBosses.Ids()
 	local options = {}
 	for _, id in ipairs(ids) do
@@ -391,22 +477,8 @@ function IslandRitual.Start(runId: string)
 		extras = {},
 	}
 	rituals[runId] = rt
-	local focus = focusPart(rt)
-	if focus then
-		local prompt = Instance.new("ProximityPrompt")
-		prompt.ActionText = "Examine"
-		prompt.ObjectText = "Ritual Altar"
-		prompt.HoldDuration = 0.3
-		prompt.MaxActivationDistance = 14
-		prompt.RequiresLineOfSight = false
-		prompt.KeyboardKeyCode = Enum.KeyCode.E
-		prompt.Parent = focus
-		prompt.Triggered:Connect(function(p: Player)
-			if p:GetAttribute("RunId") ~= runId or p:GetAttribute("InLobby") ~= false then return end
-			IslandMode.Notify(runId, info(rt), p)
-		end)
-		rt.prompt = prompt
-	end
+	addPrompt(rt)
+	RunScope.Set(runId, "IslandIsle", island.current)
 	-- dormant → ready (and back to ready after a cooldown)
 	task.spawn(function()
 		while rt.alive do

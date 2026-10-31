@@ -1275,11 +1275,11 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		if gameProcessed then return end
 		if not container.Visible or container.GroupTransparency > 0.5 then return end
 
-		if input.KeyCode == Enum.KeyCode.Left then
+		if input.KeyCode == Enum.KeyCode.Left or input.KeyCode == Enum.KeyCode.DPadLeft or input.KeyCode == Enum.KeyCode.ButtonL1 then
 			navigateCarousel(-1)
-		elseif input.KeyCode == Enum.KeyCode.Right then
+		elseif input.KeyCode == Enum.KeyCode.Right or input.KeyCode == Enum.KeyCode.DPadRight or input.KeyCode == Enum.KeyCode.ButtonR1 then
 			navigateCarousel(1)
-		elseif input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.Space then
+		elseif input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.Space or input.KeyCode == Enum.KeyCode.ButtonY or input.KeyCode == Enum.KeyCode.ButtonA then
 			local selectedClassId = ClassData.Order[currentIndex]
 			if not ClassData.IsPlayable(selectedClassId) then return end
 			SoundManager.PlayConfirm()

@@ -38,6 +38,8 @@ pcall(function()
 end)
 
 TomeController.Init()
+-- (a controller: its virtual cursor on the menus; the aim is AimInput's)
+pcall(function() require(script:WaitForChild("GamepadSupport")).Init() end)
 VariantFX.Init() -- recolours ability VFX with each player's equipped VFX variant
 pcall(function()
 	require(script:WaitForChild("UI"):WaitForChild("PurgeScreen")).Init()

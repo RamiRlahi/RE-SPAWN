@@ -353,6 +353,36 @@ TalentData.mage = {
 	},
 }
 
+-- Summoner: the Skyrockorn's sign, three stars (ember, sky, moon) bound by
+-- a triangle round the bond at its heart, wings spread from it.
+TalentData.summoner = {
+	name = "The Threefold Bond",
+	lines = {
+		{ 0.5, 0.12, 0.16, 0.74 }, { 0.16, 0.74, 0.84, 0.74 }, { 0.84, 0.74, 0.5, 0.12 }, -- the triangle
+		{ 0.5, 0.12, 0.5, 0.5 }, { 0.16, 0.74, 0.5, 0.5 }, { 0.84, 0.74, 0.5, 0.5 },      -- to the heart
+		{ 0.16, 0.74, 0.04, 0.4 }, { 0.84, 0.74, 0.96, 0.4 },                             -- the wings
+		{ 0.5, 0.5, 0.5, 0.94 },
+	},
+	nodes = {
+		{ id = "bond", name = "Bond", glyph = "BO", x = 0.5, y = 0.5, cost = 1,
+			description = "+0.06x Damage", effect = { stat = "damage", operation = "multiplier", value = 0.06 } },
+		{ id = "ember_heart", name = "Ember Heart", glyph = "EH", x = 0.16, y = 0.74, cost = 2, requires = "bond",
+			description = "+30 Max HP", effect = { stat = "maxHealth", operation = "add", value = 30 } },
+		{ id = "sky_call", name = "Sky Call", glyph = "SC", x = 0.5, y = 0.12, cost = 2, requires = "bond",
+			description = "+12% Attack Speed", effect = { stat = "basicAttackSpeed", operation = "percent", value = 0.12 } },
+		{ id = "moon_tide", name = "Moon Tide", glyph = "MT", x = 0.84, y = 0.74, cost = 2, requires = "bond",
+			description = "+15% Ability Duration", effect = { stat = "abilityDuration", operation = "percent", value = 0.15 } },
+		{ id = "long_leash", name = "Long Leash", glyph = "LL", x = 0.5, y = 0.94, cost = 3, requires = "bond",
+			description = "+10% Ability Size", effect = { stat = "size", operation = "percent", value = 0.1 } },
+		{ id = "feather_storm", name = "Feather Storm", glyph = "FS", x = 0.96, y = 0.4, cost = 4, requires = "moon_tide",
+			description = "+1 Projectile", effect = { stat = "projectileCount", operation = "add", value = 1 } },
+		{ id = "swift_return", name = "Swift Return", glyph = "SR", x = 0.04, y = 0.4, cost = 4, requires = "ember_heart",
+			description = "-10% Ability Cooldowns", effect = { stat = "abilityCooldown", operation = "percent", value = 0.1 } },
+		{ id = "threefold", name = "Threefold", glyph = "TF", x = 0.5, y = 0.3, cost = 6, requires = "sky_call",
+			description = "+0.1x Damage", effect = { stat = "damage", operation = "multiplier", value = 0.1 } },
+	},
+}
+
 -- Martial Artist: a dragon coiling up from below (the sheet's emblem): its
 -- tail low on the left, the body winding up through the middle, the head at
 -- the top right.

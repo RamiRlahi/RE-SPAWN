@@ -55,6 +55,7 @@ local Network = require(Shared:WaitForChild("Network"))
 local IslandConfig = require(Shared:WaitForChild("IslandConfig"))
 local IslandGenerator = require(script.Parent:WaitForChild("IslandGenerator"))
 local MobManager = require(script.Parent:WaitForChild("MobManager"))
+require(script.Parent:WaitForChild("IslandMobs")) -- (registers the biomes' enemies into MobKinds)
 local DifficultyManager = require(script.Parent:WaitForChild("DifficultyManager"))
 
 local IslandMode = {}
@@ -157,9 +158,11 @@ local function arrivals(st: RunState)
 	end
 end
 
-local function pickArchetype(st: RunState, danger: number): IslandConfig.Archetype?
+local function pickArchetype(st: RunState, danger: number, region: string?): IslandConfig.Archetype?
 	local total, pool = 0, {}
 	for _, a in ipairs(IslandConfig.Enemies) do
+		-- (each biome raises its own)
+		if a.regions and region and not table.find(a.regions, region) then continue end
 		if a.from <= st.wave and (a.minDanger or 1) <= danger then
 			-- (tougher kinds come more often where the island is more dangerous)
 			local w = a.weight * (if (a.minDanger or 1) > 1 then 1 + 0.25 * (danger - 1) else 1)
@@ -199,7 +202,7 @@ local function raise(st: RunState, island: any, src: any, archetype: any, behemo
 		elite = elite,
 		name = if behemoth then "☠ " .. B.name elseif elite then "Elite " .. archetype.name else archetype.name,
 		healthMult = healthMult * (if behemoth then B.health else 1),
-		damageMult = st.mods.damage * (if behemoth then B.damage else 1),
+		damageMult = st.mods.damage * (if behemoth then B.damage else 1) * (1 + (S.DANGER_DAMAGE or 0) * (danger - 1)),
 		xpMult = xpMult * st.mods.xp * (if behemoth then B.xp else 1),
 		scale = if behemoth then B.scale else nil,
 		-- (the island's dead hunt: they notice you from much further than a
@@ -224,6 +227,7 @@ local function sourcesFor(st: RunState, island: any, people: { { player: Player,
 	local anchor = people[st.rng:NextInteger(1, #people)].root.Position
 	local out = {}
 	for _, src in ipairs(island.sources) do
+		if src.gone then continue end
 		local d = (src.pos - anchor).Magnitude
 		if d < S.SPAWN_MIN or d > S.SPAWN_MAX then continue end
 		local clear = true
@@ -306,7 +310,7 @@ local function spawnStep(st: RunState)
 		local danger = (IslandConfig.Region(src.region) :: any).danger
 		local batch = math.min(deficit, st.rng:NextInteger(1, S.BATCH))
 		for _ = 1, batch do
-			local a = pickArchetype(st, danger)
+			local a = pickArchetype(st, danger, src.region)
 			if a then raise(st, island, src, a, false, n) end
 			deficit -= 1
 		end
@@ -405,6 +409,16 @@ function IslandMode.Stop(runId: string)
 		local m = script.Parent:FindFirstChild(name)
 		if m then pcall(function() (require(m) :: any).Stop(runId) end) end
 	end
+end
+
+-- Every enemy out taken back (the isle they stood on is going).
+function IslandMode.ClearEnemies(runId: string)
+	local st = runs[runId]
+	if not st then return end
+	for model in pairs(st.enemies) do
+		if model.Parent then model:Destroy() end
+	end
+	table.clear(st.enemies)
 end
 
 function IslandMode.Of(runId: string?): RunState?

@@ -261,7 +261,7 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 		-- (not while the settings window is waiting for a new key)
 		if settingsModalGroup and settingsModalGroup:GetAttribute("Listening") == true then return end
 		local keyName = (currentSettings and currentSettings.keybinds and currentSettings.keybinds.OpenMenu) or "M"
-		if input.KeyCode.Name ~= keyName then return end
+		if input.KeyCode.Name ~= keyName and input.KeyCode ~= Enum.KeyCode.ButtonSelect then return end
 		UIManager.ToggleInGameSettings()
 	end)
 

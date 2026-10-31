@@ -243,8 +243,14 @@ local function watch(player: Player)
 		step(player, "Start", 1)
 		return
 	end
+	-- (the room you stand in: by the map's rooms; by the portals' floor where
+	-- a floor is taken room by room)
 	local roomId, roomType = RoomPortals.Here(runId)
-	if roomId and roomType and roomId ~= pr.room then
+	if not roomId then
+		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if root then roomId, roomType = DungeonGenerator.RoomAt(runId, root.Position) end
+	end
+	if roomId and roomType and roomId > pr.room then -- (onward only: walking back shows nothing again)
 		pr.room = roomId
 		step(player, roomType, roomId)
 		return

@@ -31,6 +31,7 @@ local SwordsmanServer = require(script.Parent:WaitForChild("SwordsmanServer"))
 local RogueServer = require(script.Parent:WaitForChild("RogueServer"))
 local MageServer = require(script.Parent:WaitForChild("MageServer"))
 local MartialServer = require(script.Parent:WaitForChild("MartialServer"))
+local SummonerServer = require(script.Parent:WaitForChild("SummonerServer"))
 local BerserkerServer = require(script.Parent:WaitForChild("BerserkerServer"))
 local FireKnightServer = require(script.Parent:WaitForChild("FireKnightServer"))
 local MountManager = require(script.Parent:WaitForChild("MountManager"))
@@ -1678,6 +1679,12 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	-- Mage: nothing mid-Apocalypse.
 	if classId == "mage" and not MageServer.CanUseSkill(player, skillIndex) then return end
 	if classId == "martial_artist" and not MartialServer.CanUseSkill(player, skillIndex) then return end
+	-- Summoner: nothing mid-fusion; E / F / Q with that beast out is its
+	-- signature move (its own recharge, not the skill's cooldown).
+	if classId == "summoner" then
+		if not SummonerServer.CanUseSkill(player, skillIndex) then return end
+		if SummonerServer.TryRecast(player, char, skillIndex, payload) then return end
+	end
 
 	-- Validate Cooldown
 	local now = os.clock()
@@ -1778,6 +1785,9 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	elseif classId == "martial_artist" then
 		MartialServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig,
 			if typeof(targetPosition) == "Vector3" then targetPosition else nil)
+	elseif classId == "summoner" then
+		SummonerServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig,
+			if typeof(targetPosition) == "Vector3" then targetPosition else nil)
 	elseif classId == "berserker" then
 		BerserkerServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig,
 			if typeof(targetPosition) == "Vector3" then targetPosition else nil)
@@ -1852,6 +1862,7 @@ ultCutscene = function(classId: string, config: any): number
 	if classId == "rogue" then return RogueServer.REALM_WINDUP end
 	if classId == "mage" then return MageServer.ULT_WINDUP end -- the Apocalypse's marks
 	if classId == "martial_artist" then return MartialServer.ULT_WINDUP end -- the Dragon Soul's summoning
+	if classId == "summoner" then return SummonerServer.ULT_WINDUP end -- the beasts gathering to fuse
 	if classId == "berserker" then return BerserkerServer.GATHER_TIME end -- the Beast Awakening
 	if classId == "heavy_knight" then return FireKnightServer.AWAKEN end
 	return 1.6 -- Ranger: the summon and the release (RangerFlair)
@@ -1892,6 +1903,11 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 	-- The Martial Artist's Flowing Fists and Qi Charge.
 	if player:GetAttribute("SelectedClass") == "martial_artist" then
 		MartialServer.OnBasic(player, char, rootPart, payload)
+		return
+	end
+	-- The Summoner's Bond Bolts.
+	if player:GetAttribute("SelectedClass") == "summoner" then
+		SummonerServer.OnBasic(player, char, rootPart, payload)
 		return
 	end
 	-- The Berserker's greatsword chain and Bloodrage.
@@ -2038,6 +2054,15 @@ function SkillManager.Init()
 		lineReach = lineReach,
 		ricochet = ricochet,
 		addIncomingHook = MobManager.AddIncomingHook,
+	})
+	SummonerServer.Init({
+		getPotentialTargets = getPotentialTargets,
+		dealDamage = dealDamage,
+		knock = knock,
+		fxAllowed = fxAllowed,
+		lineReach = lineReach,
+		ricochet = ricochet,
+		registerDecoy = MobManager.RegisterDecoy,
 	})
 	BerserkerServer.Init({
 		getPotentialTargets = getPotentialTargets,

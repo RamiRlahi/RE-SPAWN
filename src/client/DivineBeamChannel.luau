@@ -5,6 +5,7 @@ local Debris = game:GetService("Debris")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
+local AimInput = require(script.Parent:WaitForChild("AimInput")) -- (the mouse, or a controller's aim)
 local BeamFan = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("BeamFan"))
 
 local player = Players.LocalPlayer
@@ -18,7 +19,7 @@ local HOLY_AMBER = Color3.fromRGB(255, 184, 66)
 local HOLY_RAY_TEXTURE = "rbxassetid://1053548563"
 
 local function getCursorWorldPosition(rootPart)
-	local mousePos = UserInputService:GetMouseLocation()
+	local mousePos = AimInput.ScreenPoint()
 	local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
 	local rp = RaycastParams.new()
 	rp.FilterType = Enum.RaycastFilterType.Exclude

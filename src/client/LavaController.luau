@@ -159,7 +159,7 @@ function LavaController.Init()
 				progress = 0 -- (wrong: start over)
 			end
 			render()
-		elseif helpTarget and input.KeyCode == Enum.KeyCode.E then
+		elseif helpTarget and (input.KeyCode == Enum.KeyCode.E or input.KeyCode == Enum.KeyCode.ButtonR2) then
 			Network.GetRemoteEvent(Network.Remotes.LavaHelp):FireServer(helpTarget.UserId)
 		end
 	end)

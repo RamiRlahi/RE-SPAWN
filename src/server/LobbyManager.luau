@@ -108,6 +108,7 @@ end
 onGate = function(player: Player, mapId: string)
 	if player:GetAttribute("InHub") ~= true or not MapData.Get(mapId) then return end
 	local map = MapData.Get(mapId)
+	if map and map.hidden then return end -- (taken out for now)
 	if map and map.sealed then
 		state(player, { mode = "hub", notice = `{map.name} is sealed.` })
 		return

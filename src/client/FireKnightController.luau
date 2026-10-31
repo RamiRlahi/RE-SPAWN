@@ -34,6 +34,7 @@ local UserInputService = game:GetService("UserInputService")
 
 local Network = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Network"))
 local CastPoses = require(script.Parent:WaitForChild("CastPoses"))
+local AimInput = require(script.Parent:WaitForChild("AimInput")) -- (the mouse, or a controller's aim)
 local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
 local SwordFX = require(script.Parent:WaitForChild("SwordFX"))
 local FireFX = require(script.Parent:WaitForChild("FireFX"))
@@ -1278,7 +1279,7 @@ local cursorParams = RaycastParams.new()
 cursorParams.FilterType = Enum.RaycastFilterType.Exclude
 local function cursorGround(floorY: number): Vector3
 	local cam = Workspace.CurrentCamera
-	local m = UserInputService:GetMouseLocation()
+	local m = AimInput.ScreenPoint() -- (the mouse, or a controller's aim)
 	local ray = cam:ViewportPointToRay(m.X, m.Y)
 	local ignore: { Instance } = { ClassFX.Folder() }
 	for _, p in ipairs(Players:GetPlayers()) do
@@ -3045,7 +3046,8 @@ function FireKnightController.Init(d: Deps)
 		local a = aiming
 		if not a then return end
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
-			or (input.KeyCode == Enum.KeyCode.F and not processed) then
+			or (input.KeyCode == Enum.KeyCode.F and not processed)
+			or input.KeyCode == Enum.KeyCode.ButtonR2 or input.KeyCode == Enum.KeyCode.ButtonY then
 			a.confirm()
 		end
 	end)

@@ -7,7 +7,7 @@
 	its bosses. Some bring their own pieces (`assets`) and rules: the Prison of
 	Souls' searchlights, the Neon Arcade's neon rooms and immunity towers.
 
-	  MapData.Maps          the list, in gate order
+	  MapData.Maps          the list, in gate order (not the hidden ones: MapData.Hidden)
 	  MapData.Get(id)       one map (nil for an unknown id)
 	  MapData.DEFAULT       the map used when none was picked
 --]]
@@ -43,6 +43,7 @@ export type Map = {
 	lighting: Lighting,
 	unlockFloor: number?,   -- your deepest floor must reach this to enter
 	sealed: boolean?,       -- chained shut: on the picker (last, in chains) but never enterable
+	hidden: boolean?,       -- taken out for now: no gate, not on the picker, never enterable (its code kept: MapData.Hidden)
 	assets: string?,        -- its own dungeon pieces: a folder in ReplicatedStorage (DungeonGenerator)
 	prison: boolean?,       -- the prison: spotlights hunt you, three sightings raise the alarm (Prison.luau)
 	arcade: boolean?,       -- the arcade: neon rooms (no torches, candles or rubble) and immunity towers (ImmunityTower)
@@ -160,6 +161,9 @@ MapData.Maps = {
 	{
 		id = "isle",
 		name = "The Forgotten Isle",
+		-- (taken out for now: its six islands, enemies and bosses stay in the
+		-- code; drop this line to bring it back)
+		hidden = true,
 		subtitle = "Survive. Plunder. Summon.",
 		rank = "A",
 		description = "An island where an ancient people chained their gods. The dead climb out of its forests, ruins and caves without end. Grow strong on what you find, then wake the ritual at its heart and face whatever answers.",
@@ -168,22 +172,21 @@ MapData.Maps = {
 		packs = { 1 },
 		bosses = {},
 		island = true,
-		-- a dark fantasy dusk: a low bruised sun, sea fog going violet
-		-- in the distance, cold ambient light
+		-- a bright tropical day: a high sun, a clear blue haze over the sea
 		lighting = {
-			tint = Color3.fromRGB(236, 230, 255),
-			saturation = 0.05,
-			clockTime = 18.1,
-			ambient = Color3.fromRGB(88, 84, 110),
-			outdoorAmbient = Color3.fromRGB(112, 104, 132),
-			brightness = 2.2,
-			exposure = 0.2,
-			bloom = { intensity = 0.4, size = 16, threshold = 1.4 },
+			tint = Color3.fromRGB(255, 252, 240),
+			saturation = 0.2,
+			clockTime = 13.2,
+			ambient = Color3.fromRGB(120, 128, 140),
+			outdoorAmbient = Color3.fromRGB(150, 160, 176),
+			brightness = 3,
+			exposure = 0.15,
+			bloom = { intensity = 0.3, size = 18, threshold = 1.6 },
 			fog = {
-				color = Color3.fromRGB(110, 104, 140),
-				decay = Color3.fromRGB(46, 30, 78),
-				density = 0.28,
-				haze = 1.6,
+				color = Color3.fromRGB(170, 210, 240),
+				decay = Color3.fromRGB(90, 150, 210),
+				density = 0.18,
+				haze = 0.8,
 			},
 		},
 	},
@@ -205,25 +208,40 @@ MapData.Maps = {
 	},
 } :: { Map }
 
--- The tutorial: every kind of room in turn, taken one at a time through
--- portals, with a popup in each explaining it. Not on the map picker (its
--- own button there, and new players are sent in once: Tutorial.luau).
+-- The tutorial: every kind of room in turn, in the Infernal Keep's burning
+-- fortress, one hall leading to the next (the plan's order, no side rooms),
+-- with a popup in each explaining it. Not on the map picker (its own button
+-- there, and new players are sent in once: Tutorial.luau).
 MapData.Tutorial = {
 	id = "tutorial",
 	name = "The Proving Grounds",
 	subtitle = "Learn the ropes",
 	rank = "-",
-	description = "A short guided dungeon: every kind of room, one after another, and a weakened boss.",
-	color = Color3.fromRGB(150, 220, 255),
-	stone = Color3.fromRGB(215, 215, 225),
-	packs = { 1 },
+	description = "A short guided run through the Infernal Keep: every kind of room, one after another, and a weakened boss.",
+	color = Color3.fromRGB(255, 120, 50),
+	stone = Color3.fromRGB(230, 200, 190),
+	packs = { 5 },
 	bosses = { "warlord" },
-	transit = "portal",
+	assets = "map:keep assets",
+	keep = true,
 	tutorial = true,
 	plan = { "Start", "Combat", "Treasure", "Elite", "Shop", "Gamble", "Rest", "Cursed", "Purge", "Boss" },
+	-- (the Keep's own light: dusk in hell)
 	lighting = {
-		tint = Color3.fromRGB(250, 246, 240),
-		saturation = 0.2,
+		tint = Color3.fromRGB(255, 236, 222),
+		saturation = 0.12,
+		clockTime = 15.5,
+		ambient = Color3.fromRGB(105, 82, 92),
+		outdoorAmbient = Color3.fromRGB(135, 98, 92),
+		brightness = 3,
+		exposure = 0.35,
+		bloom = { intensity = 0.5, size = 18, threshold = 1.35 },
+		fog = {
+			color = Color3.fromRGB(175, 62, 40),
+			decay = Color3.fromRGB(60, 16, 20),
+			density = 0.22,
+			haze = 1.3,
+		},
 	},
 } :: Map
 
@@ -232,8 +250,17 @@ MapData.DEFAULT = "keep"
 -- The lobby plaza's centre (LobbyManager builds it; clients draw its sky).
 MapData.LOBBY_CENTER = Vector3.new(-4200, 300, 0)
 
+-- (a hidden map leaves the list every gate and picker is built from, but
+-- stays known by its id)
+MapData.Hidden = {} :: { Map }
+for i = #MapData.Maps, 1, -1 do
+	local m = MapData.Maps[i]
+	if m.hidden then table.insert(MapData.Hidden, 1, table.remove(MapData.Maps, i)) end
+end
+
 local byId: { [string]: Map } = {}
 for _, m in ipairs(MapData.Maps) do byId[m.id] = m end
+for _, m in ipairs(MapData.Hidden) do byId[m.id] = m end
 byId[MapData.Tutorial.id] = MapData.Tutorial
 
 function MapData.Get(id: any): Map?

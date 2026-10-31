@@ -99,7 +99,7 @@ local TomeData: { [string]: TomeDefinition } = {
 		effects = { { stat = "ricochet", operation = "add", value = 1, description = "Projectiles bounce to +1 nearby enemy" } },
 	},
 	size = {
-		id = "size", name = "Size Tome", category = "Base", description = "+30% Ability Size (max +75%)",
+		id = "size", name = "Size Tome", category = "Base", description = "+30% Ability Size (max +150%)",
 		effects = { { stat = "size", operation = "percent", value = 0.30, description = "+30% Ability Size" } },
 	},
 	armor = {
@@ -532,6 +532,26 @@ function TomeModule.EvolveHint(id: string, classId: any): string?
 		end
 	end
 	return if #bits > 0 then "Max level evolves: " .. table.concat(bits, ", ") else nil
+end
+
+-- The tome each class is best served by (the tutorial guides a new player
+-- to it: Tutorial, ChoiceScreen's SUGGESTED ribbon), and why.
+TomeModule.Suggested = {
+	heavy_knight = { id = "size", why = "his fire tornado, slams and flame lines all grow with Ability Size: more of the room burns" },
+	martial_artist = { id = "attack_speed", why = "her combos and Qi build faster the quicker she strikes" },
+	berserker = { id = "damage", why = "every swing hits harder, and Rage builds from the damage he deals" },
+	mage = { id = "cooldown", why = "her spells are her damage: the sooner they're back, the more she casts" },
+	summoner = { id = "cooldown", why = "her beasts come back sooner, and a full pack on the field hits far harder" },
+	rogue = { id = "precision", why = "her strikes and blades crit more often, and crits are where her damage lives" },
+	cleric = { id = "cooldown", why = "her heals and smites come back sooner" },
+	ranger = { id = "quantity", why = "every volley fires more arrows" },
+	gunslinger = { id = "ricochet", why = "every bullet bounces on to another enemy" },
+	swordsman = { id = "quantity", why = "each Phantom Thrust strikes again for every extra projectile" },
+	ice_mage = { id = "size", why = "his frost fields and shards cover more ground" },
+} :: { [string]: { id: string, why: string } }
+
+function TomeModule.SuggestedFor(classId: any): { id: string, why: string }?
+	return if typeof(classId) == "string" then TomeModule.Suggested[classId] else nil
 end
 
 return TomeModule

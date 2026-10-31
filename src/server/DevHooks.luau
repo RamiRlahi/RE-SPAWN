@@ -9,6 +9,7 @@
 	properties but not invoke the game's functions.)
 
 	  tome|userId|tomeId         a level of a tome / boon
+	  levelup|userId             a level-up's tome choice (as a reward orb gives)
 	  relics|userId              a relic choice
 	  drop|userId|rarity         a gear drop
 	  corruption|runId|level     set it (wakes it)
@@ -59,6 +60,12 @@ function DevHooks.Init()
 			local PlayerStats = require(script.Parent:WaitForChild("PlayerStats")) :: any
 			local t = p and PlayerStats.GrantTome(p, b)
 			return if t then t.name else "none"
+		elseif cmd == "levelup" then
+			-- (a level-up's tome choice, as a reward orb gives)
+			local p = plr(a)
+			local PlayerStats = require(script.Parent:WaitForChild("PlayerStats")) :: any
+			if p then PlayerStats.LevelUp(p) end
+			return p ~= nil
 		elseif cmd == "relics" then
 			local p = plr(a)
 			local PlayerStats = require(script.Parent:WaitForChild("PlayerStats")) :: any

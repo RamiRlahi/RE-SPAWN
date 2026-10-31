@@ -22,7 +22,7 @@
 	as you have them bound (Settings), e.g. [Right Click].
 
 	In the lobby, until the tutorial is done ("TutorialDone"): the way to the
-	DUNGEON gate's portal, arrows streaming along the ground to it, a START
+	DUNGEON gate's portal, chevrons streaming along the ground to it, a START
 	HERE sign over it and a line at the top of the screen (walking in starts
 	the tutorial: Tutorial.luau).
 --]]
@@ -37,8 +37,11 @@ local CollectionService = game:GetService("CollectionService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
+local AimInput = require(script.Parent:WaitForChild("AimInput"))
 local SkillData = require(Shared:WaitForChild("SkillData"))
 local RunScope = require(Shared:WaitForChild("RunScope"))
+local TomeData = require(Shared:WaitForChild("TomeData"))
+local ClassData = require(Shared:WaitForChild("ClassData"))
 
 local TutorialController = {}
 
@@ -69,21 +72,43 @@ local function bound(action: string): string
 	return tostring(k)
 end
 local function isAction(input: InputObject, action: string): boolean
-	local k = bound(action)
-	if input.UserInputType == Enum.UserInputType.Keyboard then return input.KeyCode.Name == k end
-	return input.UserInputType.Name == k
+	return SettingsConfig.Matches(input, bound(action), action)
 end
 -- a key, drawn as a gold chip in the text
 local function K(name: string): string
 	return `<font color="#ffde8c"><b>[{name}]</b></font>`
 end
+-- (a controller's buttons, by their names on the pad)
+local PAD_NAMES: { [string]: string } = {
+	ButtonR2 = "RT", ButtonL2 = "LT", ButtonR1 = "RB", ButtonL1 = "LB", ButtonY = "Y", ButtonX = "X", ButtonB = "B", ButtonA = "A",
+	ButtonL3 = "Left Stick Click", DPadUp = "D-Pad Up", DPadDown = "D-Pad Down", DPadLeft = "D-Pad Left", DPadRight = "D-Pad Right",
+	Thumbstick1 = "Left Stick", Thumbstick2 = "Right Stick",
+	ButtonSelect = "Back",
+}
 local function A(action: string): string
+	if action == "Tomes" and not AimInput.UsingGamepad() then return K("Tab") end
+	if AimInput.UsingGamepad() then
+		local pad = SettingsConfig.GamepadBinds[action] or SettingsConfig.GamepadExtra[action]
+		if pad then return K(PAD_NAMES[pad] or pad) end
+	end
 	local k = bound(action)
 	return K(KEY_NAMES[k] or k)
 end
 local function B(text: string): string return `<font color="#ffde8c"><b>{text}</b></font>` end
 
 -- ── What each step says ─────────────────────────────────────────────────────
+-- The tome that suits your class (TomeData.Suggested): take it.
+local function suggestedCard(): Card
+	local sg = TomeData.SuggestedFor(player:GetAttribute("SelectedClass"))
+	local tome = sg and TomeData.GetTome(sg.id)
+	local class = ClassData.GetClass(player:GetAttribute("SelectedClass"))
+	if not sg or not tome then
+		return { title = "Your build", body = "Tomes stack: take the ones that suit how you fight." }
+	end
+	return { title = "The tome for you", done = "suggested",
+		body = `As the {B(if class then class.name else "hero")}, take the {B(tome.name)}: {sg.why}.\nIt's marked {B("SUGGESTED")} on the choice screen. Picked something else? The next reward offers it again.` }
+end
+
 -- Each a list of cards { title, body, done? } (built when shown, so the keys
 -- are current).
 type Card = { title: string, body: string, done: string? }
@@ -93,7 +118,9 @@ local STEPS: { [string]: () -> { Card } } = {
 			{ title = "Welcome to the Proving Grounds",
 				body = "A short dungeon that walks you through every kind of room, one at a time. Do what each card says to move on." },
 			{ title = "Move", done = "move",
-				body = `{K("W")}{K("A")}{K("S")}{K("D")} to walk around. Your character faces the mouse cursor: you aim with the mouse.` },
+				body = if AimInput.UsingGamepad()
+					then `{K("Left Stick")} to walk around, {K("Right Stick")} to aim (it locks onto the enemy you point at; let go and you aim the way you walk).`
+					else `{K("W")}{K("A")}{K("S")}{K("D")} to walk around. Your character faces the mouse cursor: you aim with the mouse.` },
 			{ title = "Attack", done = "attack",
 				body = `Walk up to a {B("straw dummy")} and {A("PrimaryAttack")} to hit it (you attack where you aim). Hold it to keep attacking.` },
 			{ title = "Skills", done = "skills",
@@ -103,7 +130,7 @@ local STEPS: { [string]: () -> { Card } } = {
 			{ title = "Sprint", done = "sprint",
 				body = `{A("Sprint")} switches sprinting on and off, to cross a room quickly.` },
 			{ title = "Onward", done = "next",
-				body = "Each room's portals, on its far wall, light up once the room is cleared. This room is safe: walk into the glowing portal." },
+				body = "Rooms lead on to each other down the Keep's halls. This room is safe: head out down the hall to the next room." },
 		}
 	end,
 	Combat = function()
@@ -116,14 +143,15 @@ local STEPS: { [string]: () -> { Card } } = {
 		return {
 			{ title = "The room's reward", done = "claim",
 				body = `A cleared fight room leaves a {B("reward orb")}. Walk up to it and {A("PrimaryAttack")} it: you level up and pick one of three {B("tomes")}, upgrades that stack for the rest of the run.` },
+			suggestedCard(),
 			{ title = "Your tomes", done = "tab",
-				body = `Hold {K("Tab")} to look over the tomes you have (hover one to read it).` },
+				body = `Hold {A("Tomes")} to look over the tomes you have (hover one to read it).` },
 		}
 	end,
 	Treasure = function()
 		return {
 			{ title = "Treasure", done = "next",
-				body = "No fight here: open the chest (walk up and use the prompt). It always holds gold, usually a tome, and now and then a curse. Then take the portal." },
+				body = "No fight here: open the chest (walk up and use the prompt). It always holds gold, usually a tome, and now and then a curse. Then on down the hall." },
 		}
 	end,
 	Elite = function()
@@ -197,7 +225,7 @@ local titleL: TextLabel? = nil
 local bodyL: TextLabel? = nil
 local hintL: TextLabel? = nil
 
-type Entry = { cards: { Card }, room: number, of: number }
+type Entry = { cards: { Card }, room: number, of: number, make: (() -> { Card })? }
 local queue: { Entry } = {}
 local current: Entry? = nil
 local page = 1
@@ -310,10 +338,11 @@ local function render()
 	;(bodyL :: TextLabel).Text = c.body
 	if c.done == "skills" then
 		table.clear(tested)
-		;(hintL :: TextLabel).Text = checklist() .. "\nEnter to skip"
+		;(hintL :: TextLabel).Text = checklist() .. (if AimInput.UsingGamepad() then "" else "\nEnter to skip")
 	else
 		local hint = HINTS[c.done or ""]
-		;(hintL :: TextLabel).Text = (if hint then `▶ {hint}   ·   ` else "") .. "Enter to skip"
+		local skip = if AimInput.UsingGamepad() then "" else "Enter to skip"
+		;(hintL :: TextLabel).Text = (if hint then `▶ {hint}` .. (if skip ~= "" then "   ·   " else "") else "") .. skip
 	end
 	;(hintL :: TextLabel).TextColor3 = MUTED
 	shownAt = os.clock()
@@ -322,6 +351,37 @@ local function render()
 end
 
 local showNext: () -> ()
+
+-- Switched between keyboard and controller: every card shown or waiting
+-- rewritten with the buttons of what you're holding now.
+local padShown: boolean? = nil
+local function relabel()
+	local pad = AimInput.UsingGamepad()
+	if pad == padShown then return end
+	padShown = pad
+	for _, e in ipairs(queue) do
+		if e.make then e.cards = e.make() end
+	end
+	local cur = current
+	if cur and cur.make and not finishing then
+		local fresh = cur.make()
+		if #fresh == #cur.cards then
+			cur.cards = fresh
+			-- (just its words: a card's progress, the skills ticked, kept)
+			local c = fresh[page]
+			if c then
+				local tl, bl, hl = titleL :: TextLabel, bodyL :: TextLabel, hintL :: TextLabel
+				tl.Text = c.title
+				bl.Text = c.body
+				if c.done ~= "skills" then
+					local hint = HINTS[c.done or ""]
+					local skip = if pad then "" else "Enter to skip"
+					hl.Text = (if hint then `▶ {hint}` .. (if skip ~= "" then "   ·   " else "") else "") .. skip
+				end
+			end
+		end
+	end
+end
 
 -- The card's been done (or skipped): a beat in green, then the next.
 local function complete(instant: boolean?)
@@ -378,7 +438,7 @@ local function push(step: string, room: number, of: number)
 		current = nil
 		finishing = false
 	end
-	table.insert(queue, { cards = make(), room = room, of = of })
+	table.insert(queue, { cards = make(), room = room, of = of, make = make })
 	if not current then showNext() end
 end
 
@@ -408,16 +468,20 @@ local function did(kind: string)
 end
 
 -- ── The way to the portal (the lobby, until it's done) ───────────────────────
-local CHEVRON = "rbxassetid://116498485433110" -- (ArcadeKit's: an arrow, white on clear)
-type Guide = { beam: Beam, from: Attachment, anchor: Part, sign: BillboardGui, hint: ScreenGui }
+-- (chevrons on the ground, from your feet to the portal, streaming toward it)
+local ARROW_GAP = 4.5          -- studs between chevrons
+local ARROW_SPEED = 3          -- studs a second they stream
+local ARROW_MAX = 40           -- (the most drawn)
+local ARROW_COLOR = Color3.fromRGB(255, 222, 140)
+type Guide = { root: BasePart, folder: Folder, conn: RBXScriptConnection, anchor: Part, sign: BillboardGui, hint: ScreenGui }
 local guide: Guide? = nil
 
 local function dropGuide()
 	local g = guide
 	guide = nil
 	if not g then return end
-	g.beam:Destroy()
-	g.from:Destroy()
+	g.conn:Disconnect()
+	g.folder:Destroy()
 	g.anchor:Destroy()
 	g.sign:Destroy()
 	g.hint:Destroy()
@@ -432,29 +496,51 @@ local function makeGuide(root: BasePart, portal: BasePart): Guide
 	anchor.Size = Vector3.one * 0.2
 	anchor.CFrame = CFrame.new(portal.Position - Vector3.new(0, portal.Size.Y / 2 - 0.3, 0) + portal.CFrame.LookVector * -2)
 	anchor.Parent = workspace
-	-- (both ends' axis up: the beam lies flat on the ground)
-	local to = Instance.new("Attachment")
-	to.Orientation = Vector3.new(0, 0, 90)
-	to.Parent = anchor
-	local from = Instance.new("Attachment")
-	from.Position = Vector3.new(0, -2.8, 0) -- (at the feet)
-	from.Orientation = Vector3.new(0, 0, 90)
-	from.Parent = root
-	local beam = Instance.new("Beam")
-	-- (the arrows point toward Attachment0, and stream that way: to the portal)
-	beam.Attachment0, beam.Attachment1 = to, from
-	beam.Texture = CHEVRON
-	beam.TextureMode = Enum.TextureMode.Static
-	beam.TextureLength = 3
-	beam.TextureSpeed = -1.4
-	beam.Width0, beam.Width1 = 3.6, 3.6
-	beam.FaceCamera = false
-	beam.Brightness = 3
-	beam.LightEmission = 1
-	beam.LightInfluence = 0
-	beam.Color = ColorSequence.new(Color3.fromRGB(255, 222, 140))
-	beam.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(0.85, 0.1), NumberSequenceKeypoint.new(1, 0.6) })
-	beam.Parent = root
+	-- the chevrons: two bars each, a ">" pointing at the portal, laid on the
+	-- ground along the line from your feet, streaming toward it
+	local folder = Instance.new("Folder")
+	folder.Name = "TutorialGuideArrows"
+	folder.Parent = workspace
+	local chevrons: { { BasePart } } = {}
+	for i = 1, ARROW_MAX do
+		local pair = {}
+		for _ = 1, 2 do
+			local p = Instance.new("Part")
+			p.Anchored, p.CanCollide, p.CanQuery, p.CanTouch, p.CastShadow = true, false, false, false, false
+			p.Material = Enum.Material.Neon
+			p.Color = ARROW_COLOR
+			p.Size = Vector3.new(0.45, 0.12, 2.4)
+			p.Transparency = 1
+			p.Parent = folder
+			table.insert(pair, p)
+		end
+		chevrons[i] = pair
+	end
+	local conn = RunService.RenderStepped:Connect(function()
+		if not root.Parent then return end
+		local from = root.Position - Vector3.new(0, 2.85, 0) -- (at the feet)
+		local to = anchor.Position
+		local span = Vector3.new(to.X - from.X, 0, to.Z - from.Z)
+		local len = span.Magnitude
+		local dir = if len > 0.1 then span.Unit else Vector3.new(0, 0, -1)
+		local phase = (os.clock() * ARROW_SPEED) % ARROW_GAP
+		for i, pair in ipairs(chevrons) do
+			local d = 2.5 + phase + (i - 1) * ARROW_GAP
+			if d > len - 1 then
+				for _, p in ipairs(pair) do p.Transparency = 1 end
+				continue
+			end
+			local at = from:Lerp(to, d / math.max(len, 0.1))
+			local cf = CFrame.lookAt(at, at + dir)
+			-- (fading in at your feet and out at the portal)
+			local fade = math.max(1 - math.clamp((d - 2.5) / 3, 0, 1), math.clamp((d - (len - 6)) / 5, 0, 1))
+			for k, p in ipairs(pair) do
+				local sx = if k == 1 then -1 else 1
+				p.CFrame = cf * CFrame.new(sx * 0.75, 0, 0) * CFrame.Angles(0, math.rad(sx * 40), 0)
+				p.Transparency = 0.05 + 0.9 * fade
+			end
+		end
+	end)
 	-- the sign over the gate
 	local sign = Instance.new("BillboardGui")
 	sign.Name = "TutorialStartSign"
@@ -503,7 +589,7 @@ local function makeGuide(root: BasePart, portal: BasePart): Guide
 	local hs = Instance.new("UIStroke")
 	hs.Color = GOLD
 	hs.Parent = h
-	return { beam = beam, from = from, anchor = anchor, sign = sign, hint = hint }
+	return { root = root, folder = folder, conn = conn, anchor = anchor, sign = sign, hint = hint }
 end
 
 local function guideStep()
@@ -516,7 +602,7 @@ local function guideStep()
 		return
 	end
 	local g = guide
-	if g and g.from.Parent ~= root then
+	if g and g.root ~= root then
 		dropGuide()
 		g = nil
 	end
@@ -550,10 +636,12 @@ function TutorialController.Init()
 		end
 		if isAction(input, "Dash") then did("dash") end
 		if isAction(input, "Sprint") then did("sprint") end
-		if input.KeyCode == Enum.KeyCode.Tab then did("tab") end
+		if input.KeyCode == Enum.KeyCode.Tab or input.KeyCode.Name == SettingsConfig.GamepadExtra.Tomes then did("tab") end
 	end)
 	-- walked far enough, a tome choice came up, a read card's time is up
 	RunService.Heartbeat:Connect(function()
+		-- (the buttons shown: whatever you're holding now)
+		relabel()
 		-- (out of the way while a tome or relic is being chosen)
 		if card then
 			local hide = RunScope.Mine("TomesPaused") == true
@@ -576,6 +664,9 @@ function TutorialController.Init()
 			end
 		elseif c.done == "claim" then
 			if RunScope.Mine("TomesPaused") == true then did("claim") end
+		elseif c.done == "suggested" then
+			local sg = TomeData.SuggestedFor(player:GetAttribute("SelectedClass"))
+			if not sg or player:GetAttribute("TomePicked") == sg.id then did("suggested") end
 		elseif c.done == nil then
 			if os.clock() - shownAt > math.clamp(#c.body / 20, 6, 12) then complete() end
 		end

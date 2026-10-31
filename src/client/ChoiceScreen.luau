@@ -13,7 +13,13 @@
 	"waiting for…" handling is shared).
 
 	  local screen = ChoiceScreen.Create(parent, onChoose(id), onReroll())
-	  screen.Show(choices, rerollsRemaining, lockDuration)
+	On a controller: the D-pad or the left stick moves between the choices,
+	A or RT picks the highlighted one, Y rerolls (no virtual cursor:
+	"ChoosingTome" keeps GamepadSupport's off while the screen is up).
+
+	  screen.Show(choices, rerollsRemaining, lockDuration, suggested?)
+	    (suggested { id, why }: that choice wears a SUGGESTED ribbon, and a
+	    line under the title says why: the tutorial)
 	  screen.Hide()
 --]]
 
@@ -23,6 +29,9 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local BrickModels = require(script.Parent:WaitForChild("BrickModels"))
+local AimInput = require(script.Parent:WaitForChild("AimInput"))
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = game:GetService("Players").LocalPlayer
 local TomeData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("TomeData"))
 
 local ChoiceScreen = {}
@@ -39,7 +48,7 @@ local Z = 40 -- above the tome overlay's own layers
 local W, H = 1600, 900
 local MODEL_SIZE = 8 -- a model's longest side in the viewport, in studs
 
-type Shown = { model: Model, column: TextButton, hover: boolean, phase: number, book: boolean }
+type Shown = { model: Model, column: TextButton, hover: boolean, phase: number, book: boolean, id: string?, light: ((boolean) -> ())? }
 type Look = { theme: Color3, badge: string, badgeColor: Color3, model: Model, book: boolean }
 
 -- A tome's accent, pushed bright and saturated for the light beam.
@@ -238,6 +247,7 @@ function ChoiceScreen.Create(parent: GuiObject, onChoose: (string) -> (), onRero
 		columns:ClearAllChildren()
 	end
 
+	local suggestedId: string? = nil
 	local function buildColumn(choice: any, index: number, total: number): Shown
 		local look = lookFor(choice)
 		local theme = look.theme
@@ -341,6 +351,25 @@ function ChoiceScreen.Create(parent: GuiObject, onChoose: (string) -> (), onRero
 		text(badge, badgeText, 20, rarityColor, { Size = UDim2.fromScale(1, 1), ZIndex = Z + 6 })
 		diamond(badge, UDim2.new(0, 12, 0.5, 0), 10, rarityColor, true)
 		diamond(badge, UDim2.new(1, -12, 0.5, 0), 10, rarityColor, true)
+		-- the tutorial's suggestion: a gold ribbon over the card, its edge pulsing
+		if choice.id == suggestedId then
+			local ribbon = new("Frame", {
+				Name = "Suggested",
+				AnchorPoint = Vector2.new(0.5, 1),
+				Position = UDim2.new(0.5, 0, 0, -6),
+				Size = UDim2.fromOffset(COL_W - 40, 40),
+				BackgroundColor3 = GOLD,
+				ZIndex = Z + 6,
+			}, card)
+			new("UICorner", { CornerRadius = UDim.new(0, 4) }, ribbon)
+			new("UIStroke", { Color = GOLD_L, Thickness = 3 }, ribbon)
+			text(ribbon, "★ SUGGESTED ★", 24, INK, { Size = UDim2.fromScale(1, 1), ZIndex = Z + 7 })
+			table.insert(conns, RunService.RenderStepped:Connect(function()
+				local k = 0.5 + 0.5 * math.sin(os.clock() * 5)
+				cardStroke.Color = GOLD:Lerp(GOLD_L, k)
+				cardStroke.Thickness = 4 + 3 * k
+			end))
+		end
 
 		-- Embers rising in the beam.
 		local token = alive
@@ -365,21 +394,21 @@ function ChoiceScreen.Create(parent: GuiObject, onChoose: (string) -> (), onRero
 			end
 		end)
 
-		local entry: Shown = { model = model, column = column, hover = false, phase = index * 1.7, book = look.book }
+		local entry: Shown = { model = model, column = column, hover = false, phase = index * 1.7, book = look.book, id = choice.id }
+		-- (highlighted: by the mouse over it, or the controller's choice)
+		entry.light = function(on: boolean)
+			entry.hover = on
+			TweenService:Create(colScale, TweenInfo.new(0.15, Enum.EasingStyle.Quad), { Scale = if on then 1.04 else 1 }):Play()
+			cardStroke.Color = if on then bright else theme
+			cardStroke.Thickness = if on then 4 else 3
+			halo.BackgroundTransparency = if on then 0.7 else 0.82
+		end
 		column.MouseEnter:Connect(function()
 			if not column.Active then return end
-			entry.hover = true
-			TweenService:Create(colScale, TweenInfo.new(0.15, Enum.EasingStyle.Quad), { Scale = 1.04 }):Play()
-			cardStroke.Color = bright
-			cardStroke.Thickness = 4
-			halo.BackgroundTransparency = 0.7
+			entry.light(true)
 		end)
 		column.MouseLeave:Connect(function()
-			entry.hover = false
-			TweenService:Create(colScale, TweenInfo.new(0.15, Enum.EasingStyle.Quad), { Scale = 1 }):Play()
-			cardStroke.Color = theme
-			cardStroke.Thickness = 3
-			halo.BackgroundTransparency = 0.82
+			entry.light(false)
 		end)
 		column.Activated:Connect(function()
 			if not column.Active then return end
@@ -398,17 +427,64 @@ function ChoiceScreen.Create(parent: GuiObject, onChoose: (string) -> (), onRero
 
 	local screen = {}
 
-	function screen.Show(choices: { any }, rerollsRemaining: number, lockDuration: number)
+	function screen.Show(choices: { any }, rerollsRemaining: number, lockDuration: number, suggested: { id: string, why: string }?)
 		clear()
 		fit()
 		root.Visible = true
+		suggestedId = if suggested then suggested.id else nil
 		local relics = #choices > 0 and choices[1].category == "Relic"
 		title.Text = if relics then "RELIC SELECTION" else "BUFF SELECTION"
-		subtitle.Text = if relics then "CHOOSE ONE RELIC" else "CHOOSE ONE BUFF"
+		subtitle.Text = if suggested then `TUTORIAL: TAKE THE SUGGESTED TOME, {string.upper(suggested.why)}`
+			elseif relics then "CHOOSE ONE RELIC" else "CHOOSE ONE BUFF"
 		for i, choice in ipairs(choices) do
 			table.insert(shown, buildColumn(choice, i, #choices))
 		end
-		rerollLabel.Text = if rerollsRemaining > 1 then `SKIP (REROLL x{rerollsRemaining})` else "SKIP (REROLL)"
+		-- the controller: a highlighted choice moved with the D-pad or the
+		-- stick, A / RT to pick it, Y to reroll
+		LocalPlayer:SetAttribute("ChoosingTome", true)
+		local sel = 1
+		if suggested then
+			for i, s in ipairs(shown) do
+				if s.id == suggested.id then sel = i end
+			end
+		end
+		local function highlight(i: number)
+			if #shown == 0 then return end
+			sel = (i - 1) % #shown + 1
+			for k, s in ipairs(shown) do
+				if s.light then s.light(k == sel) end
+			end
+		end
+		if AimInput.UsingGamepad() then task.defer(highlight, sel) end
+		local stickReady = true
+		table.insert(conns, UserInputService.InputBegan:Connect(function(input)
+			if not root.Visible or not input.UserInputType.Name:find("Gamepad") then return end
+			local k = input.KeyCode
+			if k == Enum.KeyCode.DPadLeft then
+				highlight(sel - 1)
+			elseif k == Enum.KeyCode.DPadRight then
+				highlight(sel + 1)
+			elseif k == Enum.KeyCode.ButtonA or k == Enum.KeyCode.ButtonR2 then
+				local s = shown[sel]
+				if s and s.column.Active and s.id then onChoose(s.id) end
+			elseif k == Enum.KeyCode.ButtonY then
+				if reroll.Visible and reroll.Active then
+					reroll.Active = false
+					onReroll()
+				end
+			end
+		end))
+		table.insert(conns, UserInputService.InputChanged:Connect(function(input)
+			if not root.Visible or input.KeyCode ~= Enum.KeyCode.Thumbstick1 then return end
+			local x = input.Position.X
+			if math.abs(x) < 0.35 then
+				stickReady = true
+			elseif stickReady and math.abs(x) > 0.7 then
+				stickReady = false
+				highlight(sel + (if x > 0 then 1 else -1))
+			end
+		end))
+		rerollLabel.Text = (if AimInput.UsingGamepad() then "[Y] " else "") .. (if rerollsRemaining > 1 then `SKIP (REROLL x{rerollsRemaining})` else "SKIP (REROLL)")
 		reroll.Visible = rerollsRemaining > 0
 		reroll.Active = false
 
@@ -441,6 +517,7 @@ function ChoiceScreen.Create(parent: GuiObject, onChoose: (string) -> (), onRero
 	function screen.Hide()
 		clear()
 		root.Visible = false
+		LocalPlayer:SetAttribute("ChoosingTome", nil)
 	end
 
 	return screen

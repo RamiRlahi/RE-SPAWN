@@ -654,15 +654,8 @@ end
 
 local function inputMatchesAction(input: InputObject, action: string): boolean
 	local keyName = player:GetAttribute(`Keybind_{action}`) or SettingsConfig.DefaultSettings.keybinds[action]
-	if typeof(keyName) ~= "string" or keyName == "" or keyName == "None" then
-		return false
-	end
-
-	if input.UserInputType == Enum.UserInputType.Keyboard then
-		return input.KeyCode.Name == keyName
-	end
-
-	return input.UserInputType.Name == keyName
+	-- (its key, or its controller button)
+	return SettingsConfig.Matches(input, keyName, action)
 end
 
 -- Sprint key: toggles sprinting (Settings > Toggle Sprint, on by default) or,
@@ -703,11 +696,13 @@ UserInputService.InputBegan:Connect(function(input, gpe)
 		elseif not isSprinting and character:GetAttribute("IsUltActive") ~= true then
 			setSprinting(true)
 		end
-	elseif inputMatchesAction(input, "PrimaryAttack") or input.KeyCode == Enum.KeyCode.ButtonR2 then
+	elseif inputMatchesAction(input, "PrimaryAttack") then
 		-- That click is claiming a room reward (EmblemPrompt), not attacking;
 		-- and no swinging in the lobby (only in a run).
 		local lp = game:GetService("Players").LocalPlayer
-		if lp:GetAttribute("InteractReady") ~= true and lp:GetAttribute("InLobby") == false then
+		-- (a controller's RT with a prompt close by: that's the prompt's)
+		local padPrompt = SettingsConfig.IsGamepad(input) and lp:GetAttribute("PromptNear") == true
+		if lp:GetAttribute("InteractReady") ~= true and lp:GetAttribute("InLobby") == false and not padPrompt then
 			performAttack()
 		end
 	end

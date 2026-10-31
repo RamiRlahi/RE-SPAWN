@@ -772,7 +772,7 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?, all: { any }?)
 		local clicked = false
 		local conn = UserInputService.InputBegan:Connect(function(io)
 			if io.UserInputType == Enum.UserInputType.MouseButton1 or io.UserInputType == Enum.UserInputType.Touch
-				or io.KeyCode == Enum.KeyCode.Space or io.KeyCode == Enum.KeyCode.Return then
+				or io.KeyCode == Enum.KeyCode.Space or io.KeyCode == Enum.KeyCode.Return or io.KeyCode == Enum.KeyCode.ButtonA then
 				clicked = true
 			end
 		end)
@@ -1057,7 +1057,7 @@ function SummonCinematic.Showcase(reward: any, onDone: (() -> ())?)
 	input = UserInputService.InputBegan:Connect(function(io)
 		if os.clock() - t0 < 0.4 then return end
 		if io.UserInputType == Enum.UserInputType.MouseButton1 or io.UserInputType == Enum.UserInputType.Touch
-			or io.KeyCode == Enum.KeyCode.Space or io.KeyCode == Enum.KeyCode.Return then
+			or io.KeyCode == Enum.KeyCode.Space or io.KeyCode == Enum.KeyCode.Return or io.KeyCode == Enum.KeyCode.ButtonA then
 			input:Disconnect()
 			finish()
 		end

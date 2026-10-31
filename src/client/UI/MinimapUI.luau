@@ -705,12 +705,12 @@ function MinimapUI.Init()
 	end)
 	-- Hold Tab: map + your tomes; let go to close.
 	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if input.KeyCode ~= Enum.KeyCode.Tab then return end
+		if input.KeyCode ~= Enum.KeyCode.Tab and input.KeyCode ~= Enum.KeyCode.DPadDown then return end
 		if gameProcessed and UserInputService:GetFocusedTextBox() then return end
 		MinimapUI.ToggleFullMap(true)
 	end)
 	UserInputService.InputEnded:Connect(function(input)
-		if input.KeyCode == Enum.KeyCode.Tab then MinimapUI.ToggleFullMap(false) end
+		if input.KeyCode == Enum.KeyCode.Tab or input.KeyCode == Enum.KeyCode.DPadDown then MinimapUI.ToggleFullMap(false) end
 	end)
 
 	-- Listen for DungeonMapData remote from server

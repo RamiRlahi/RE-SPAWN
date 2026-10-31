@@ -84,7 +84,7 @@ function AbilityPreview.Show(name: string, tag: string, videoId: string, accentC
 		rootGroup.Parent = gui
 
 		UserInputService.InputBegan:Connect(function(input, gp)
-			if isVisible and input.KeyCode == Enum.KeyCode.Escape then
+			if isVisible and (input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.ButtonB) then
 				close()
 			end
 		end)

@@ -71,9 +71,11 @@ end
 local spaceArmed = false
 
 local function vertical(): number
-	if not UserInputService:IsKeyDown(Enum.KeyCode.Space) then spaceArmed = true end
-	local up = spaceArmed and UserInputService:IsKeyDown(Enum.KeyCode.Space)
+	local padUp = UserInputService:IsGamepadButtonDown(Enum.UserInputType.Gamepad1, Enum.KeyCode.ButtonL1)
+	if not UserInputService:IsKeyDown(Enum.KeyCode.Space) and not padUp then spaceArmed = true end
+	local up = spaceArmed and (UserInputService:IsKeyDown(Enum.KeyCode.Space) or padUp)
 	local down = UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) or UserInputService:IsKeyDown(Enum.KeyCode.Q)
+		or UserInputService:IsGamepadButtonDown(Enum.UserInputType.Gamepad1, Enum.KeyCode.ButtonL2)
 	return (if up then 1 else 0) - (if down then 1 else 0)
 end
 
@@ -197,9 +199,7 @@ end
 
 local function isMountKey(input: InputObject): boolean
 	local keyName = player:GetAttribute("Keybind_Mount") or SettingsConfig.DefaultSettings.keybinds.Mount
-	if typeof(keyName) ~= "string" or keyName == "" or keyName == "None" then return false end
-	if input.UserInputType == Enum.UserInputType.Keyboard then return input.KeyCode.Name == keyName end
-	return input.UserInputType.Name == keyName
+	return SettingsConfig.Matches(input, keyName, "Mount")
 end
 
 local function toggle()
@@ -238,7 +238,7 @@ function MountController.Init()
 		if gpe or player:GetAttribute("SettingsOpen") == true then return end
 		if isMountKey(input) then toggle() end
 		-- double-tap Space riding, or wearing wings: take off
-		if input.KeyCode == Enum.KeyCode.Space and not flight then
+		if (input.KeyCode == Enum.KeyCode.Space or input.KeyCode == Enum.KeyCode.ButtonL1) and not flight then
 			local now = os.clock()
 			local char = player.Character
 			local canFly = char ~= nil and (char:GetAttribute("Riding") ~= nil or typeof(player:GetAttribute("Wings")) == "string")

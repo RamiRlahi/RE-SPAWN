@@ -1,14 +1,15 @@
 --!strict
 --[[
 	IslandConfig.luau
-	The Forgotten Isle (MapData "isle"): every number the mode runs on, kept
-	apart from the code that runs it. The island itself (IslandGenerator),
+	RE's island run (MapData "isle"): six islands, Level 1 to Level 6
+	(IslandIsles), every number the mode runs on kept apart from the code
+	that runs it. The island itself (IslandGenerator),
 	the survival loop (IslandMode), the chests (IslandChests), the ritual and
 	its bosses (IslandRitual, IslandBosses) and the HUD (IslandHUD) all read
 	from here; nothing else in the mode hardcodes these values.
 
-	Island space: studs from the island's centre (IslandConfig.Origin(slot) in
-	the world); +X east, +Z north, Y up from the sea's surface. Bearings in
+	Island space: studs from an isle's centre (IslandConfig.Origin(slot) plus
+	its offset, in the world); +X east, +Z north, Y up from the sea's surface. Bearings in
 	degrees from +X toward +Z (north is 90, west 180, south -90).
 --]]
 
@@ -16,8 +17,8 @@ local IslandConfig = {}
 
 -- ── Where it sits ───────────────────────────────────────────────────────────
 -- Each run has its own slot (RunManager), 2040 studs apart along +X like the
--- dungeons; the island is built far out along +Z, clear of every dungeon and
--- of the lobby.
+-- dungeons; its six isles run out along +Z from here (IslandIsles offsets),
+-- clear of every dungeon and of the lobby.
 IslandConfig.SLOT_SPACING = 2040
 IslandConfig.ORIGIN_Z = 6200
 function IslandConfig.Origin(slot: number): Vector3
@@ -25,17 +26,20 @@ function IslandConfig.Origin(slot: number): Vector3
 end
 
 -- ── Shape ───────────────────────────────────────────────────────────────────
+-- What every isle's shape shares (IslandIsles: each isle's own shape reads
+-- through to these).
 IslandConfig.Shape = {
-	radius = 430,          -- the coast, on average
-	coastWobble = 0.14,    -- how far the coast wanders from the circle (fraction)
-	seaFloor = -26,        -- the sea bed off the coast
-	extent = 600,          -- half the square built (island and the sea round it)
-	voxel = 4,             -- terrain resolution
-	plateau = { radius = 78, height = 46 }, -- the Ancient Sanctuary's hill
+	coastWobble = 0,       -- (the land is the islets: no single coast)
+	seaFloor = -26,        -- the sea bed between and round them
+	voxel = 4,             -- terrain resolution (the water)
+	pathWidth = 10,        -- the stair paths
+	pathSlope = 0.5,       -- (climbing no steeper)
+	spireFrom = math.huge, -- (an isle's summit region only if it sets one)
 }
--- The open sea round the built square, to the slot's edge (a shallow sheet
--- of water: nothing swims there, it only hides the end of the world)
-IslandConfig.SEA = { halfX = 1000, halfZ = 1400, step = 200 }
+-- The isles, in order: Level 1 to Level 6.
+IslandConfig.Isles = require(script.Parent:WaitForChild("IslandIsles"))
+-- The open sea round the route, past every isle (studs).
+IslandConfig.SEA_MARGIN = 320
 
 -- ── Biomes ──────────────────────────────────────────────────────────────────
 -- Each region is a sector of the island round its bearing (width: degrees
@@ -55,74 +59,38 @@ export type Region = {
 	color: Color3,       -- its accent on the HUD
 }
 IslandConfig.Regions = {
+	-- (bearing, width, inner, outer, height, rough: unused now that each
+	-- islet is its own biome; kept for the type)
 	shore = {
-		id = "shore", name = "The Forsaken Shore", bearing = -90, width = 50, inner = 0.55, outer = 1.05,
-		danger = 1, height = -4, rough = 2.5, color = Color3.fromRGB(214, 196, 150),
-	},
-	forest = {
-		id = "forest", name = "The Corrupted Forest", bearing = 180, width = 48, inner = 0.3, outer = 1.0,
-		danger = 2, height = 2, rough = 6, color = Color3.fromRGB(120, 190, 90),
+		id = "shore", name = "The Shipwreck Coast", bearing = 0, width = 180, inner = 0, outer = 1,
+		danger = 1, height = 0, rough = 0, color = Color3.fromRGB(110, 220, 220),
 	},
 	ruins = {
-		id = "ruins", name = "The Sunken Ruins", bearing = 0, width = 48, inner = 0.3, outer = 1.0,
-		danger = 3, height = -9, rough = 4, color = Color3.fromRGB(110, 170, 200),
+		id = "ruins", name = "The Forgotten Isle", bearing = 0, width = 180, inner = 0, outer = 1,
+		danger = 1, height = 0, rough = 0, color = Color3.fromRGB(130, 210, 90),
+	},
+	forest = {
+		id = "forest", name = "The Corrupted Isle", bearing = 0, width = 180, inner = 0, outer = 1,
+		danger = 2, height = 0, rough = 0, color = Color3.fromRGB(200, 90, 255),
 	},
 	highlands = {
-		id = "highlands", name = "The Ashen Highlands", bearing = 70, width = 42, inner = 0.3, outer = 0.95,
-		danger = 4, height = 22, rough = 9, color = Color3.fromRGB(255, 120, 60),
+		id = "highlands", name = "The Infernal Isle", bearing = 0, width = 180, inner = 0, outer = 1,
+		danger = 3, height = 0, rough = 0, color = Color3.fromRGB(255, 120, 50),
 	},
-	caves = {
-		id = "caves", name = "The Hollow Caves", bearing = 128, width = 22, inner = 0.3, outer = 0.85,
-		danger = 4, height = 34, rough = 7, color = Color3.fromRGB(150, 120, 255),
+	frozen = {
+		id = "frozen", name = "The Frozen Isle", bearing = 0, width = 180, inner = 0, outer = 1,
+		danger = 4, height = 0, rough = 0, color = Color3.fromRGB(150, 215, 255),
+	},
+	sunken = {
+		id = "sunken", name = "The Sunken Isle", bearing = 0, width = 180, inner = 0, outer = 1,
+		danger = 5, height = 0, rough = 0, color = Color3.fromRGB(90, 230, 240),
 	},
 	sanctuary = {
-		id = "sanctuary", name = "The Ancient Sanctuary", bearing = 0, width = 180, inner = 0, outer = 0.2,
-		danger = 3, height = 0, rough = 0, color = Color3.fromRGB(190, 90, 255),
+		id = "sanctuary", name = "The Shattered Isle", bearing = 0, width = 180, inner = 0, outer = 1,
+		danger = 6, height = 0, rough = 0, color = Color3.fromRGB(230, 50, 60),
 	},
 } :: { [string]: Region }
-IslandConfig.RegionOrder = { "shore", "forest", "ruins", "highlands", "caves", "sanctuary" }
-
--- ── The Hollow Caves ────────────────────────────────────────────────────────
--- Tunnels through the ridge, each from a mouth on one side to a mouth on
--- another (bearing, fraction of the coast), its floor at `floor` studs, with
--- crystal halls along it (fraction of the way).
-IslandConfig.Caves = {
-	floor = 18, radius = 9, hallRadius = 17,
-	tunnels = {
-		{ from = { 152, 0.62 }, to = { 104, 0.6 }, halls = { 0.5 } },        -- forest ↔ highlands (a shortcut)
-		{ from = { 140, 0.86 }, to = { 128, 0.34 }, halls = { 0.35, 0.72 } }, -- the coast ↔ the sanctuary's foot
-	},
-}
-
--- ── Points of interest ──────────────────────────────────────────────────────
--- Named places: discovering one (coming within `radius`) gives XP once per
--- player and names it on screen. Each is built by IslandGenerator from its
--- `build` piece.
-export type Poi = { id: string, name: string, region: string, bearing: number, dist: number, radius: number, build: string, xp: number }
-IslandConfig.Pois = {
-	{ id = "docks", name = "The Broken Docks", region = "shore", bearing = -90, dist = 0.93, radius = 40, build = "docks", xp = 0 },
-	{ id = "wreck", name = "Wreck of the Grey Gull", region = "shore", bearing = -62, dist = 0.9, radius = 34, build = "shipwreck", xp = 40 },
-	{ id = "grove", name = "The Twisted Grove", region = "forest", bearing = 196, dist = 0.62, radius = 40, build = "grove", xp = 60 },
-	{ id = "hunter", name = "Hunter's Clearing", region = "forest", bearing = 160, dist = 0.82, radius = 32, build = "camp", xp = 50 },
-	{ id = "temple", name = "The Drowned Temple", region = "ruins", bearing = 8, dist = 0.6, radius = 46, build = "temple", xp = 80 },
-	{ id = "colossus", name = "The Fallen Colossus", region = "ruins", bearing = -24, dist = 0.82, radius = 36, build = "fallen_statue", xp = 70 },
-	{ id = "fort", name = "The Ashen Fort", region = "highlands", bearing = 62, dist = 0.7, radius = 44, build = "fort", xp = 90 },
-	{ id = "rift", name = "The Ember Rift", region = "highlands", bearing = 84, dist = 0.48, radius = 34, build = "ember_rift", xp = 90 },
-	{ id = "hollow", name = "The Crystal Hollow", region = "caves", bearing = 128, dist = 0.6, radius = 30, build = "none", xp = 100 },
-	{ id = "sanctuary", name = "The Ancient Sanctuary", region = "sanctuary", bearing = 0, dist = 0, radius = 70, build = "none", xp = 120 },
-} :: { Poi }
-
--- ── Props ───────────────────────────────────────────────────────────────────
--- How many of each piece a region scatters (IslandKit builds them). Kept
--- modest: the generated island is terrain; parts are only what terrain
--- can't be.
-IslandConfig.Props = {
-	shore = { palm = 14, driftwood = 18, crate = 10, rock = 14 },
-	forest = { tree = 110, deadtree = 26, mushroom = 34, log = 20, rock = 12 },
-	ruins = { pillar = 40, wall = 22, statue = 6, rock = 10, deadtree = 10 },
-	highlands = { spire = 22, crack = 26, deadtree = 18, rock = 18 },
-	caves = { rock = 16, deadtree = 6 },
-}
+IslandConfig.RegionOrder = { "shore", "ruins", "forest", "highlands", "frozen", "sunken", "sanctuary" }
 
 -- ── Survival ────────────────────────────────────────────────────────────────
 -- A wave every WAVE_SECONDS of the run's clock (DifficultyManager: the same
@@ -140,7 +108,8 @@ IslandConfig.Survival = {
 	ALIVE_MAX = 60,
 	ALIVE_PER_EXTRA_PLAYER = 0.45,    -- × the population, for each player past the first
 	HEALTH_PER_EXTRA_PLAYER = 0.25,   -- × each enemy's health, for each player past the first
-	DANGER_HEALTH = 0.1,              -- × each enemy's health per region danger past 1 (its XP too)
+	DANGER_HEALTH = 0.2,              -- × each enemy's health per level past 1 (its XP too)
+	DANGER_DAMAGE = 0.12,             -- × each enemy's damage per level past 1
 	AGGRO = 170,                      -- how far an island enemy notices you (the dungeon's is 70)
 	ELITE_BASE = 0.03, ELITE_PER_WAVE = 0.012, ELITE_MAX = 0.22,
 	BEHEMOTH_EVERY = 5,               -- a Cursed Behemoth every this many waves (from wave 5)
@@ -151,38 +120,57 @@ IslandConfig.Survival = {
 	LEVEL_GROWTH = 1.17,              -- each level asks this much more than the last
 }
 
--- The roster: each archetype is an existing MobKinds kind under its island
--- name, raised from `from` wave on at its weight (scaled by the source's
--- region danger). `regions`: only there (any region if nil).
-export type Archetype = { id: string, name: string, kind: string, from: number, weight: number, minDanger: number?, elite: boolean? }
+-- The roster: four of each biome's own (IslandMobs registers their kinds),
+-- each raised from `from` wave on at its weight, only from sources in its
+-- `regions` (the Hollow Caves raise the Corrupted Forest's).
+export type Archetype = { id: string, name: string, kind: string, from: number, weight: number, minDanger: number?, elite: boolean?, regions: { string }? }
+local SHORE, RUINS, FOREST, SUNKEN, HIGH, SPIRE = { "shore" }, { "ruins" }, { "forest" }, { "sunken" }, { "highlands" }, { "sanctuary" }
+local FROZEN = { "frozen" }
 IslandConfig.Enemies = {
-	{ id = "thrall", name = "Hollow Thrall", kind = "zombie", from = 1, weight = 10 },
-	{ id = "hound", name = "Plague Hound", kind = "ghoul", from = 1, weight = 5 },
-	{ id = "archer", name = "Rot Archer", kind = "skeleton", from = 2, weight = 5 },
-	{ id = "acolyte", name = "Corrupted Acolyte", kind = "necromancer", from = 3, weight = 3, minDanger = 2 },
-	{ id = "brute", name = "Grave Brute", kind = "brute", from = 3, weight = 2.5, minDanger = 2 },
-	{ id = "stalker", name = "Rift Stalker", kind = "wraith", from = 4, weight = 3, minDanger = 3 },
-	{ id = "knight", name = "Ironbound Knight", kind = "executioner", from = 6, weight = 1.2, minDanger = 3, elite = true },
+	-- the Shipwreck Coast
+	{ id = "raider", name = "Pirate Raider", kind = "pirate_raider", from = 1, weight = 10, regions = SHORE },
+	{ id = "gunner", name = "Pirate Gunner", kind = "pirate_gunner", from = 1, weight = 5, regions = SHORE },
+	{ id = "shark", name = "Reef Shark", kind = "reef_shark", from = 2, weight = 5, regions = SHORE },
+	{ id = "crab", name = "Crustacean Brute", kind = "crustacean_brute", from = 3, weight = 2, regions = SHORE },
+	-- the Verdant Ruins
+	{ id = "warrior", name = "Jungle Warrior", kind = "jungle_warrior", from = 1, weight = 10, regions = RUINS },
+	{ id = "jarcher", name = "Jungle Archer", kind = "jungle_archer", from = 1, weight = 5, regions = RUINS },
+	{ id = "vine", name = "Vine Crawler", kind = "vine_crawler", from = 2, weight = 5, regions = RUINS },
+	{ id = "guardian", name = "Stone Guardian", kind = "stone_guardian", from = 3, weight = 2, regions = RUINS },
+	-- the Corrupted Forest
+	{ id = "stalker", name = "Corrupted Stalker", kind = "corrupted_stalker", from = 1, weight = 9, regions = FOREST },
+	{ id = "varcher", name = "Void Archer", kind = "void_archer", from = 1, weight = 5, regions = FOREST },
+	{ id = "wisp", name = "Shadow Wisp", kind = "shadow_wisp", from = 2, weight = 5, regions = FOREST },
+	{ id = "cbrute", name = "Corrupted Brute", kind = "corrupted_brute", from = 3, weight = 2.2, regions = FOREST },
+	-- the Frozen Isle
+	{ id = "wolf", name = "Frost Wolf", kind = "frost_wolf", from = 1, weight = 9, regions = FROZEN },
+	{ id = "iarcher", name = "Ice Archer", kind = "ice_archer", from = 1, weight = 5, regions = FROZEN },
+	{ id = "fwraith", name = "Frost Wraith", kind = "frost_wraith", from = 2, weight = 4, regions = FROZEN },
+	{ id = "yeti", name = "Yeti Brute", kind = "yeti_brute", from = 3, weight = 2.2, regions = FROZEN },
+	-- the Sunken Sanctuary
+	{ id = "sprite", name = "Water Sprite", kind = "water_sprite", from = 1, weight = 9, regions = SUNKEN },
+	{ id = "tarcher", name = "Tide Archer", kind = "tide_archer", from = 1, weight = 5, regions = SUNKEN },
+	{ id = "sentinel", name = "Aqua Sentinel", kind = "aqua_sentinel", from = 2, weight = 4, regions = SUNKEN },
+	{ id = "leviathan", name = "Guardian Leviathan", kind = "guardian_leviathan", from = 4, weight = 1.5, regions = SUNKEN },
+	-- the Infernal Citadel
+	{ id = "imp", name = "Lava Imp", kind = "lava_imp", from = 1, weight = 10, regions = HIGH },
+	{ id = "farcher", name = "Fire Archer", kind = "fire_archer", from = 1, weight = 5, regions = HIGH },
+	{ id = "flame", name = "Flame Elemental", kind = "flame_elemental", from = 2, weight = 4, regions = HIGH },
+	{ id = "magma", name = "Magma Brute", kind = "magma_brute", from = 3, weight = 2.4, regions = HIGH },
+	-- the Ancient Spire
+	{ id = "drone", name = "Rift Drone", kind = "rift_drone", from = 1, weight = 8, regions = SPIRE },
+	{ id = "mage", name = "Arcane Mage", kind = "arcane_mage", from = 1, weight = 5, regions = SPIRE },
+	{ id = "golem", name = "Void Golem", kind = "void_golem", from = 3, weight = 2, regions = SPIRE },
+	{ id = "knight", name = "Spire Knight", kind = "spire_knight", from = 5, weight = 1.2, regions = SPIRE, elite = true },
 } :: { Archetype }
 IslandConfig.Behemoth = { id = "behemoth", name = "Cursed Behemoth", kind = "crusher", scale = 1.35, health = 6, damage = 1.4, xp = 12 }
 
--- Spawn sources: places enemies climb out of (IslandGenerator places them,
--- each marked with a small piece of its kind). Count per region.
-IslandConfig.SpawnSources = {
-	shore = { clearing = 5, fissure = 2 },
-	forest = { clearing = 8, rift = 2 },
-	ruins = { ruin = 8, fissure = 2 },
-	highlands = { fissure = 7, rift = 2, elite = 1 },
-	caves = { cave = 6 },
-	sanctuary = {},
-}
+-- Spawn sources (places enemies climb out of) are each isle's own:
+-- IslandIsles `sources`.
 
 -- ── Chests ──────────────────────────────────────────────────────────────────
--- How many of each kind the island scatters, and where (region ids).
+-- (how many of each kind, and where: each isle's own, IslandIsles `chests`)
 IslandConfig.Chests = {
-	common = { count = 22, regions = { "shore", "forest", "ruins" } },
-	rare = { count = 9, regions = { "caves", "ruins", "highlands", "forest" } },
-	cursed = { count = 4, regions = { "forest", "ruins", "highlands" } },
 	respawnAfter = 150, -- seconds after a common chest is opened before another appears elsewhere
 }
 
