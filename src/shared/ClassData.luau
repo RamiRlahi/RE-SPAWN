@@ -262,6 +262,44 @@ local ClassData: { [string]: ClassInfo } = {
 		},
 	},
 
+	["death_knight"] = {
+		id = "death_knight",
+		name = "Death Knight",
+		title = "The Soul Reaper",
+		role = "Bruiser / Control",
+		description = "\"A fallen warrior. A harbinger of eternal rest.\" A walking nightmare in blackened plate, wreathed in black mist, swinging an executioner's greatsword whose chains reach out to drag the living to him.",
+		accentColor = Color3.fromRGB(112, 201, 245),
+		stats = {
+			strength = 5,
+			vitality = 5,
+			defense = 4,
+			agility = 2,
+			maxHealth = 280,
+			offense = 4,
+			difficulty = 3,
+		},
+		abilities = {
+			{ name = "Graveblade", tag = "M1/Primary", summary = "Heavy 3-hit greatsword chain ending in an overhead slam of black mist.", icon = "rbxassetid://16951304645", description = "A heavy 3-hit chain with the Graveblade: a horizontal cleave, a rising backhand, and an overhead slam that bursts into black mist.", videoId = "" },
+			{ name = "Dread", tag = "Passive", summary = "Hits build Dread. At 100 he is Dreadforged: harder hits, bigger skills, ghostfire.", icon = "rbxassetid://103445564097184", description = "Every enemy struck builds Dread; kills more. At 100 Dread he becomes Dreadforged for 8 s: the Graveblade burns with icy-blue ghostfire, his swings send out spectral shockwaves, he hits 20% harder and his skills grow.", videoId = "" },
+			{ name = "Blackwake", tag = "Skill 1 (E)", summary = "A two-handed horizontal swing that sends a huge crescent of black smoke forward.", icon = "rbxassetid://103491694383784", description = "Swing the greatsword wide with both hands: a huge crescent of dense black smoke rolls forward, cutting and shoving everything it passes. Dreadforged: wider, and a second wave follows.", videoId = "" },
+			{ name = "Doomfall", tag = "Skill 2 (F)", summary = "Leap high, blade overhead, and crash down sword-first in a dark shockwave.", icon = "rbxassetid://76976244029000", description = "Leap high with the Graveblade raised as black mist gathers on it, then crash down sword-first at the cursor: a wide dark shockwave, and thick mist lingers on the spot, hurting whoever stays in it. Dreadforged: bigger, and the mist bites harder.", videoId = "" },
+			{ name = "Grave Reversal", tag = "Skill 3 (Q)", summary = "Chain an enemy, smash it down behind you, drag it back and execute it.", icon = "rbxassetid://80913065419728", description = "A spectral chain shoots from your free hand and coils round the first enemy it reaches. Tear it across past you and smash it into the ground behind you, reverse the chain to drag it back in front of you, then execute it with an overhead slam that pins it to the ground. Bosses are too heavy to move: they take both blows where they stand.", videoId = "" },
+			{ name = "King of the Grave", tag = "Ultimate (R)", summary = "Plant the blade: ghostfire spreads, chains bind every enemy, spectral sweeps, a final impact.", icon = "rbxassetid://74715237240108", description = "Plant the Graveblade in the ground: ghostfire spreads out across the floor and spectral chains burst from the dark to bind every enemy near. Enormous spectral blades sweep the field behind you, then a massive final impact fills it with black mist and icy-blue light.", videoId = "" },
+		},
+		equipment = {
+			name = "The Graveblade & Soul Reaper Plate",
+			slot = "Greatsword (Two-Handed)",
+			rarity = "Grave Relic",
+			description = "A massive chained executioner's greatsword of blackened metal, a tiny spectral core set under its guard. Black mist never stops leaking from it, or from the plate of the knight who carries it.",
+			stats = {
+				["Max Health"] = "280 HP",
+				["Dread"] = "0 – 100",
+				["Dreadforged"] = "8 s",
+				["Grave Reversal"] = "2 slams, behind and in front",
+			},
+		},
+	},
+
 	["cleric"] = {
 		id = "cleric",
 		name = "Cleric",
@@ -463,6 +501,7 @@ local PlayableClasses: { [string]: boolean } = {
 	mage = true,
 	martial_artist = true,
 	summoner = true,
+	death_knight = true,
 }
 
 -- Array order for Carousel / UI display: playable classes first, locked after.
@@ -472,6 +511,7 @@ local ClassOrder: { string } = {
 	"mage",
 	"martial_artist",
 	"summoner",
+	"death_knight",
 	"ranger",
 	"cleric",
 	"ice_mage",
@@ -480,9 +520,23 @@ local ClassOrder: { string } = {
 	"berserker",
 }
 
+-- Every new profile owns these; every other class is unlocked at the Altar of
+-- Souls (GachaManager) and stays unlocked for good.
+local StarterClasses: { string } = { "ranger", "swordsman", "cleric", "mage", "rogue" }
+
 return {
 	Classes = ClassData,
 	Order = ClassOrder,
+	Starter = StarterClasses,
+	-- Whether `player` may play `classId`: a finished kit they own. The server
+	-- keeps "OwnedClasses" (",id,id,") on the player (GachaManager) and
+	-- ClassManager refuses anything else.
+	IsOwnedBy = function(player: Player, id: string): boolean
+		if PlayableClasses[id] ~= true then return false end
+		local owned = player:GetAttribute("OwnedClasses")
+		if typeof(owned) ~= "string" then return table.find(StarterClasses, id) ~= nil end
+		return string.find(owned, "," .. id .. ",", 1, true) ~= nil
+	end,
 	GetClass = function(id: string): ClassInfo?
 		return ClassData[id]
 	end,

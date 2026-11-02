@@ -33,6 +33,7 @@ local MageServer = require(script.Parent:WaitForChild("MageServer"))
 local MartialServer = require(script.Parent:WaitForChild("MartialServer"))
 local SummonerServer = require(script.Parent:WaitForChild("SummonerServer"))
 local BerserkerServer = require(script.Parent:WaitForChild("BerserkerServer"))
+local DeathKnightServer = require(script.Parent:WaitForChild("DeathKnightServer"))
 local FireKnightServer = require(script.Parent:WaitForChild("FireKnightServer"))
 local MountManager = require(script.Parent:WaitForChild("MountManager"))
 
@@ -289,6 +290,19 @@ local IMPACT_PROFILES: { [string]: ImpactProfile } = {
 	["CARNAGE FINISH"]     = { kb = 40, lift = 34, stagger = 1.0,  style = "slash", heavy = true },
 	["BEAST CHARGE"]       = { kb = 0,  lift = 0,  stagger = 0.6,  style = "slash", heavy = true },
 	["BEAST THROW"]        = { kb = 0,  lift = 0,  stagger = 0.8,  style = "slash", heavy = true },
+	-- Death Knight (Grave Snatch's held body is anchored: no knockback on it)
+	["GRAVE CLEAVE"]       = { kb = 8,  lift = 0,  stagger = 0.35, style = "slash" },
+	["GRAVE SMASH"]        = { kb = 32, lift = 14, stagger = 0.7,  style = "slash", heavy = true },
+	["DREAD WAVE"]         = { kb = 12, lift = 4,  stagger = 0.3,  style = "slash" },
+	["BLACKWAKE"]          = { kb = 24, lift = 5,  stagger = 0.5,  style = "slash", heavy = true },
+	["DOOMFALL"]           = { kb = 30, lift = 14, stagger = 0.8,  style = "slash", heavy = true },
+	["GRAVE SNATCH"]       = { kb = 0,  lift = 0,  stagger = 0.6,  style = "slash" },
+	["GRAVE SLAM"]         = { kb = 16, lift = 6,  stagger = 0.6,  style = "slash", heavy = true },
+	["GRAVE EXECUTION"]    = { kb = 0,  lift = 0,  stagger = 1.2,  style = "slash", heavy = true }, -- (pinned under the hammer)
+	["GRAVE CHAINS"]       = { kb = 0,  lift = 0,  stagger = 0,    style = "slash" },
+	["SPECTRAL SWEEP"]     = { kb = 0,  lift = 0,  stagger = 0.5,  style = "slash", heavy = true },
+	["GRAVE MARK"]         = { kb = 14, lift = 14, stagger = 0.6,  style = "slash", heavy = true },
+	["KING OF THE GRAVE"]  = { kb = 40, lift = 34, stagger = 1.0,  style = "slash", heavy = true },
 	-- the Rogue's Shadow Execution
 	["SHADOW SLASH"]       = { kb = 2,  lift = 0,  stagger = 0.35, style = "slash" },
 	["SHADOW DETONATION"]  = { kb = 10, lift = 8,  stagger = 0.6,  style = "slash", heavy = true },
@@ -1679,6 +1693,8 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	-- Mage: nothing mid-Apocalypse.
 	if classId == "mage" and not MageServer.CanUseSkill(player, skillIndex) then return end
 	if classId == "martial_artist" and not MartialServer.CanUseSkill(player, skillIndex) then return end
+	-- Death Knight: nothing mid-move (a leap, a snatch, the King of the Grave).
+	if classId == "death_knight" and not DeathKnightServer.CanUseSkill(player, skillIndex) then return end
 	-- Summoner: nothing mid-fusion; E / F / Q with that beast out is its
 	-- signature move (its own recharge, not the skill's cooldown).
 	if classId == "summoner" then
@@ -1791,6 +1807,9 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	elseif classId == "berserker" then
 		BerserkerServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig,
 			if typeof(targetPosition) == "Vector3" then targetPosition else nil)
+	elseif classId == "death_knight" then
+		DeathKnightServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig,
+			if typeof(targetPosition) == "Vector3" then targetPosition else nil)
 	elseif classId == "ice_mage" then
 		if skillIndex == 1 then
 			-- Hits line up with the cast pose's impact frame (castDelay).
@@ -1864,6 +1883,7 @@ ultCutscene = function(classId: string, config: any): number
 	if classId == "martial_artist" then return MartialServer.ULT_WINDUP end -- the Dragon Soul's summoning
 	if classId == "summoner" then return SummonerServer.ULT_WINDUP end -- the beasts gathering to fuse
 	if classId == "berserker" then return BerserkerServer.GATHER_TIME end -- the Beast Awakening
+	if classId == "death_knight" then return DeathKnightServer.ULT_WINDUP end -- the blade planted, the chains rising
 	if classId == "heavy_knight" then return FireKnightServer.AWAKEN end
 	return 1.6 -- Ranger: the summon and the release (RangerFlair)
 end
@@ -1913,6 +1933,11 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 	-- The Berserker's greatsword chain and Bloodrage.
 	if player:GetAttribute("SelectedClass") == "berserker" then
 		BerserkerServer.OnBasic(player, char, rootPart, payload)
+		return
+	end
+	-- The Death Knight's Graveblade chain and Dread.
+	if player:GetAttribute("SelectedClass") == "death_knight" then
+		DeathKnightServer.OnBasic(player, char, rootPart, payload)
 		return
 	end
 	-- The Fire Knight's Emberblade combo, Heat and Scorch.
@@ -2067,6 +2092,12 @@ function SkillManager.Init()
 	BerserkerServer.Init({
 		getPotentialTargets = getPotentialTargets,
 		dealDamage = dealDamage,
+		addIncomingHook = MobManager.AddIncomingHook,
+	})
+	DeathKnightServer.Init({
+		getPotentialTargets = getPotentialTargets,
+		dealDamage = dealDamage,
+		lineReach = lineReach,
 		addIncomingHook = MobManager.AddIncomingHook,
 	})
 	FireKnightServer.Init({

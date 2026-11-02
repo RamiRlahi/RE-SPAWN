@@ -511,6 +511,52 @@ SkillData.summoner = {
 	},
 }
 
+-- The Death Knight, the Soul Reaper (DeathKnightServer). Dread (the
+-- passive) is built by his hits; Dreadforged, his skills grow.
+SkillData.death_knight = {
+	[1] = {
+		name = "Blackwake",
+		slot = 1,
+		keybind = "E",
+		cooldown = 7.0,
+		damage = 70,
+		range = 30, -- how far the crater tears out in front of him
+		angle = 70, -- the cone's width in degrees (grows with Size)
+		projectileSpeed = 70, -- how fast the crater ripples out
+		description = "Drag the hammer behind you and swing it up with both hands: the ground tears open in a huge cone of black stone and smoke in front of you, smashing everything in it. Dreadforged: longer, and a second wave of smoke follows.",
+	},
+	[2] = {
+		name = "Doomfall",
+		slot = 2,
+		keybind = "F",
+		cooldown = 10.0,
+		damage = 110, -- the crash; the mist left behind bites for 12% a tick
+		range = 24, -- the furthest leap (to the cursor)
+		radius = 14,
+		duration = 3.0, -- how long the mist lingers
+		description = "Leap high with the Graveblade raised as black mist gathers on it, then crash down sword-first at the cursor: a wide dark shockwave, and thick mist lingers on the spot. Dreadforged: bigger, and the mist bites harder.",
+	},
+	[3] = {
+		name = "Grave Reversal",
+		slot = 3,
+		keybind = "Q",
+		cooldown = 11.0,
+		damage = 55, -- the snare 0.4x; the first slam 1x, the execution 2.6x (round them: 0.5x, 0.8x)
+		range = 34, -- how far the chain reaches
+		projectileSpeed = 140,
+		description = "A spectral chain shoots from your free hand and coils round the first enemy it reaches. Tear it across past you and smash it into the ground behind you, reverse the chain to drag it back in front of you, then execute it with an overhead slam that pins it to the ground. Bosses take both blows where they stand.",
+	},
+	[4] = {
+		name = "King of the Grave",
+		slot = 4,
+		keybind = "R",
+		cooldown = 70.0,
+		damage = 60, -- the chains 0.4x, the impact 4.5x, the Dread marks 2.5x
+		radius = 32,
+		description = "Ultimate: summon a gigantic spectral warhammer. Leap into the air with it and bring it down: a huge crater hurls every enemy in reach into the air, then chains drag the survivors in and mark them with Dread, and the marks burst.",
+	},
+}
+
 -- The skill bar's hover tip: one sentence on what the skill does, and the
 -- tomes that make it better (only ones its code actually reads: Size for its
 -- area, Duration for how long it lasts, Quantity for extra projectiles or
@@ -575,6 +621,12 @@ local TIPS: { [string]: { { any } } } = {
 		{ "Call a storm hawk that fires feathers; recast for a cyclone.", { "quantity", "duration", "size" } },
 		{ "Call a moon stag that heals the party; recast for a healing bloom.", { "duration", "size", "cooldown" } },
 		{ "Fuse every beast into the Skyrockorn for a storm of starfire and a crash.", { "size", "damage", "cooldown" } },
+	},
+	death_knight = {
+		{ "Swing wide and send a huge crescent of black smoke rolling forward.", { "size", "knockback", "damage" } },
+		{ "Leap up and crash down sword-first, leaving a pool of biting mist.", { "size", "duration", "cooldown" } },
+		{ "Hook an enemy with a chain, slam it twice and hurl it into the rest.", { "damage", "knockback", "cooldown" } },
+		{ "Plant the blade: chains bind every enemy near, spectral sweeps, a final impact.", { "size", "damage", "cooldown" } },
 	},
 	martial_artist = {
 		{ "Hammer out a barrage of punches, then finish with a punch that craters a cone.", { "size", "knockback", "ricochet" } },

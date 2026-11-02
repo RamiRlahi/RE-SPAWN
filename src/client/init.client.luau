@@ -57,6 +57,9 @@ pcall(function()
 	require(script:WaitForChild("SummonAnnouncer")).Init() -- others' Legendary wishes: a banner + a beam on them
 end)
 pcall(function()
+	require(script:WaitForChild("TicketToast")).Init() -- a Pull Ticket dropped from a kill
+end)
+pcall(function()
 	require(script:WaitForChild("LavaController")).Init() -- stuck in lava: the quick-time keys, a friend's E
 end)
 pcall(function()

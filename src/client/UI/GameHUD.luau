@@ -84,6 +84,13 @@ local SKILL_ICONS_BY_CLASS: { [string]: { [any]: string } } = {
 		[3] = "rbxassetid://83970690874192",   -- Lunari (Q)
 		[4] = "rbxassetid://102883539726716",  -- Divine Cataclysm (R)
 	},
+	-- (placeholders borrowed from other kits until the Death Knight's own are uploaded)
+	death_knight = {
+		[1] = "rbxassetid://103491694383784",  -- Blackwake (E)
+		[2] = "rbxassetid://76976244029000",   -- Doomfall (F)
+		[3] = "rbxassetid://80913065419728",   -- Grave Snatch (Q)
+		[4] = "rbxassetid://74715237240108",   -- King of the Grave (R)
+	},
 	cleric = {
 		[1] = "rbxassetid://83970690874192",  -- 1st ability (E)
 		[2] = "rbxassetid://79167595723607",  -- 2nd ability (F)

@@ -520,15 +520,17 @@ local HIT_SOUND: { [string]: { any } } = {
 	ice_mage = { "iceCrack", 0.55, 1.2 },
 	cleric = { "chime", 0.5, 1.1 },
 	ranger = { "arrowHit", 0.55, 1.05 },
+	-- (a hammer: a heavy blunt thud, and no bright crit ding over it)
+	death_knight = { "punch", 0.6, 0.7, true },
 }
-local QUIET_SOURCES = { BLEED = true, BURN = true, BURNING = true, POISON = true, VENOM = true, THORNS = true, ["FIRE LINE"] = true, BLIZZARD = true }
+local QUIET_SOURCES = { BLEED = true, BURN = true, BURNING = true, POISON = true, VENOM = true, THORNS = true, ["FIRE LINE"] = true, BLIZZARD = true, ["GRAVE MIST"] = true }
 function ClassFX.HitSound(classId: string, at: Vector3, crit: boolean, source: string?)
 	local spec = HIT_SOUND[classId]
 	if not spec or (source and QUIET_SOURCES[source]) then return end
 	if not FxBudget.Allow(if crit then "hitSoundCrit" else "hitSound", if crit then 6 else 10) then return end
 	play(SFX[spec[1]], at, spec[2] * (if crit then 1.5 else 1), spec[3] * (if crit then 0.85 else 1))
 	-- (a crit rings out over it)
-	if crit then play(SFX.ding, at, 0.35, 1.3) end
+	if crit and not spec[4] then play(SFX.ding, at, 0.35, 1.3) end
 end
 
 -- Building blocks shared with class controllers (e.g. SwordsmanController).

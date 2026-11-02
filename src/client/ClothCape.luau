@@ -137,6 +137,22 @@ ClothCape.GUNSLINGER = {
 	shred = 0.42,
 } :: Style
 
+-- The Death Knight's: black cloth over his plate, lined in charcoal, an ash
+-- hem, torn into ragged strips below the knee. No fur: it hangs from under
+-- his gorget and pauldrons (DeathKnightLook), pinned clear of the plate.
+ClothCape.DEATH_KNIGHT = {
+	outer = Color3.fromRGB(12, 15, 21),
+	lining = Color3.fromRGB(23, 29, 39),
+	hem = Color3.fromRGB(53, 63, 77),
+	tip = Color3.fromRGB(8, 11, 16),
+	fur = Color3.fromRGB(12, 15, 21),
+	furShade = Color3.fromRGB(23, 29, 39),
+	back = 0.36,
+	armor = true,
+	noFur = true,
+	shred = 0.48,
+} :: Style
+
 type Constraint = { a: number, b: number, rest: number }
 type Feather = { i: number, j: number, len: number, width: number, parts: { BasePart } }
 type Cape = {

@@ -157,10 +157,14 @@ function CampfireScreen.Create(parent: GuiObject, callbacks: Callbacks): CanvasG
 
 	local hint = label(col, "", 13, Color3.fromRGB(255, 150, 120), { Size = UDim2.new(1, 0, 0, 20), Position = UDim2.fromOffset(14, 104 + 4 * 58 + 18 + 300) })
 
-	-- The classes you can switch between without leaving the fire.
-	local playable: { string } = {}
-	for _, id in ipairs(ClassData.Order) do
-		if ClassData.IsPlayable(id) then table.insert(playable, id) end
+	-- The classes you can switch between without leaving the fire: the ones
+	-- you own (read each time: a summon can unlock one meanwhile).
+	local function ownedClasses(): { string }
+		local out = {}
+		for _, id in ipairs(ClassData.Order) do
+			if ClassData.IsOwnedBy(Players.LocalPlayer, id) then table.insert(out, id) end
+		end
+		return out
 	end
 	local function className(id: string?): string
 		local info = if id then ClassData.GetClass(id) else nil
@@ -173,6 +177,7 @@ function CampfireScreen.Create(parent: GuiObject, callbacks: Callbacks): CanvasG
 	local inviteEntry: MenuEntry.Entry
 	local backEntry: MenuEntry.Entry
 	local function stepClass(dir: number)
+		local playable = ownedClasses()
 		if portalAt or #playable == 0 then return end
 		local i = table.find(playable, myClass or "") or 0
 		local nextId = playable[((i - 1 + dir) % #playable) + 1]

@@ -10,7 +10,8 @@
 	  • the Mage (Class "mage"): his long navy cloak lined in violet;
 	  • the Fire Knight (Class "heavy_knight"): his crimson cape with a black
 	    fur mantle;
-	  • the Gunslinger: his duster.
+	  • the Gunslinger: his duster;
+	  • the Death Knight: his tattered black cape over the plate.
 	Each is part of its class's outfit, a summon reward: a player wears it
 	only while that armor is equipped (Armor_<class>, from the Wardrobe).
 --]]
@@ -25,7 +26,7 @@ local ClassCapes = {}
 -- a player's character wears it only while that armor is equipped.
 local CAPES: { [string]: ClothCape.Style } = {
 	swordsman = ClothCape.SWORD_MASTER, berserker = ClothCape.BERSERKER, mage = ClothCape.MAGE,
-	gunslinger = ClothCape.GUNSLINGER, heavy_knight = ClothCape.FIRE_KNIGHT,
+	gunslinger = ClothCape.GUNSLINGER, heavy_knight = ClothCape.FIRE_KNIGHT, death_knight = ClothCape.DEATH_KNIGHT,
 }
 
 -- The cape style a character should wear now, if any.

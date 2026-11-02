@@ -24,6 +24,7 @@ ClassManager.Init()
 PlayerStats.Init()
 TalentManager.Init()
 GachaManager.Init()
+ClassManager.SetOwnership(GachaManager.OwnsClass) -- locked classes: owned ones only
 PartyManager.Init()
 CampfireManager.Init()
 DeathManager.Init()

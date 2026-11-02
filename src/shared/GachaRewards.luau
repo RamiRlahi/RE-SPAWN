@@ -5,6 +5,9 @@
 	the server, odds panel, collection and cinematic all read from here.
 
 	types
+	  class      — unlocks a locked class for good (the Altar of Souls). The
+	               five starter classes are never rewards. Copies become Soul
+	               Essence (GachaConfig.Duplicates.classEssence).
 	  character  — a normal character (one of the playable classes). The first
 	               copy AWAKENS it (a small permanent passive for that class);
 	               further copies become Soul Shards → Souls → talents.
@@ -31,7 +34,7 @@
 export type Effect = { stat: string, operation: "add" | "percent" | "multiplier", value: number }
 export type Reward = {
 	id: string,
-	type: "character" | "variant" | "armor" | "relic" | "material" | "cosmetic" | "wings" | "mount",
+	type: "class" | "character" | "variant" | "armor" | "relic" | "material" | "cosmetic" | "wings" | "mount",
 	look: string?,          -- wings / mount: which model (WingsMounts)
 	rarity: string,
 	name: string,
@@ -50,6 +53,25 @@ export type Reward = {
 }
 
 local R: { Reward } = {
+	-- ── Classes (the Altar of Souls: each unlocks a class for good) ──────────
+	{ id = "class_ice_mage", type = "class", classId = "ice_mage", rarity = "Rare", glyph = "IM", accent = Color3.fromRGB(120, 210, 255),
+		name = "Ice Mage", description = "Unlocks the Ice Mage class for good." },
+	{ id = "class_gunslinger", type = "class", classId = "gunslinger", rarity = "Rare", glyph = "GU", accent = Color3.fromRGB(230, 170, 90),
+		name = "Gunslinger", description = "Unlocks the Gunslinger class for good." },
+	{ id = "class_heavy_knight", type = "class", classId = "heavy_knight", rarity = "Epic", glyph = "FK", accent = Color3.fromRGB(255, 110, 40),
+		name = "Fire Knight", description = "Unlocks the Fire Knight class for good." },
+	{ id = "class_berserker", type = "class", classId = "berserker", rarity = "Epic", glyph = "BE", accent = Color3.fromRGB(220, 40, 50),
+		name = "Berserker", description = "Unlocks the Berserker class for good." },
+	{ id = "class_martial_artist", type = "class", classId = "martial_artist", rarity = "Epic", glyph = "MA", accent = Color3.fromRGB(255, 70, 70),
+		name = "Martial Artist", description = "Unlocks the Martial Artist class for good." },
+	{ id = "class_summoner", type = "class", classId = "summoner", rarity = "Legendary", glyph = "SU", accent = Color3.fromRGB(110, 230, 160),
+		name = "Summoner", description = "Unlocks the Summoner class for good." },
+	{ id = "class_death_knight", type = "class", classId = "death_knight", rarity = "Mythic", glyph = "DK", accent = Color3.fromRGB(60, 140, 255),
+		name = "Death Knight", description = "Unlocks the Death Knight class for good." },
+	-- (the altar's commons)
+	{ id = "essence_wisp", type = "material", rarity = "Common", glyph = "SE", name = "Soul Essence Wisp", noDrop = true,
+		description = "10 Soul Essence (the Essence Shop: classes and cosmetics).", currency = "soulEssence", amount = 10 },
+
 	-- ── Normal characters (the playable classes) ─────────────────────────────
 	{ id = "char_heavy_knight", type = "character", classId = "heavy_knight", rarity = "Rare", glyph = "FK",
 		name = "Fire Knight", description = "Awakens the Fire Knight: +0.04× Damage as the Fire Knight.",
@@ -96,6 +118,8 @@ local R: { Reward } = {
 		name = "Fighter's Gi", description = "Martial Artist outfit: the gi, the sash and the headband." },
 	{ id = "armor_berserker", type = "armor", classId = "berserker", rarity = "Epic", glyph = "RV",
 		name = "Ravager's Cape", description = "Berserker outfit: the ragged crimson feather cape." },
+	{ id = "armor_death_knight", type = "armor", classId = "death_knight", rarity = "Epic", glyph = "GP",
+		name = "Grave Plate", description = "Death Knight armor: the black spiked plate, its mist and the tattered cape." },
 
 
 	-- ── Wings (cosmetic, worn everywhere; WingsMounts builds and animates them) ──
@@ -219,7 +243,7 @@ local byId: { [string]: Reward } = {}
 for _, r in ipairs(R) do byId[r.id] = r end
 
 -- Classes that always wear their outfit, its armor never a summon reward.
--- (None now: every class's outfit is an armor reward, worn from the Wardrobe.)
+-- (None for now: the Death Knight's plate comes off like the others.)
 local BUILT_IN_ARMOR: { [string]: boolean } = {}
 
 -- Pools: which rewards a banner draws from.
@@ -228,9 +252,17 @@ local Pools: { [string]: { string } } = {
 		local ids = {}
 		for _, r in ipairs(R) do
 			-- (mounts live on their own banner, with its own odds and pity)
-			if not (r.type == "armor" and r.classId and BUILT_IN_ARMOR[r.classId]) and r.type ~= "mount" and not r.noDrop then
+			if not (r.type == "armor" and r.classId and BUILT_IN_ARMOR[r.classId]) and r.type ~= "mount" and r.type ~= "class" and not r.noDrop then
 				table.insert(ids, r.id)
 			end
+		end
+		return ids
+	end)(),
+	-- The Altar of Souls: every lockable class, and Soul Essence for its commons.
+	classes = (function()
+		local ids = {}
+		for _, r in ipairs(R) do
+			if r.type == "class" or r.id == "essence_wisp" then table.insert(ids, r.id) end
 		end
 		return ids
 	end)(),
@@ -258,14 +290,16 @@ local function idsWhere(pred: (Reward) -> boolean): { string }
 	return out
 end
 local Sets: { Set } = {
+	{ id = "set_altar", name = "Every Soul Answers", glyph = "ES", description = "Unlock every class at the Altar of Souls.",
+		items = idsWhere(function(r) return r.type == "class" end), bonus = { soulEssence = 500 } },
 	{ id = "set_heroes", name = "Heroes Awakened", glyph = "HA", description = "Awaken every class.",
 		items = idsWhere(function(r) return r.type == "character" end), bonus = { tickets = 10 } },
 	{ id = "set_vanguard", name = "Armored Vanguard", glyph = "AV", description = "Every class armor from the summons.",
 		items = idsWhere(function(r) return r.type == "armor" and not (r.classId and BUILT_IN_ARMOR[r.classId]) end), bonus = { tickets = 10 } },
 	{ id = "set_skyborne", name = "Skyborne", glyph = "SK", description = "Every pair of wings.",
-		items = idsWhere(function(r) return r.type == "wings" end), bonus = { tickets = 15, crystals = 300 } },
+		items = idsWhere(function(r) return r.type == "wings" end), bonus = { tickets = 16 } },
 	{ id = "set_beastmaster", name = "Beastmaster", glyph = "BM", description = "Every mount.",
-		items = idsWhere(function(r) return r.type == "mount" and not r.secret end), bonus = { tickets = 20, crystals = 500 } },
+		items = idsWhere(function(r) return r.type == "mount" and not r.secret end), bonus = { tickets = 22 } },
 	{ id = "set_night_sky", name = "Child of the Night Sky", glyph = "CN", description = "The Dark variant and both star-touched titles.",
 		items = { "dark_variant", "title_wanderer", "title_starborn" }, bonus = { tickets = 5, relicDust = 200 } },
 }

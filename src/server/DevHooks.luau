@@ -28,6 +28,7 @@
 	                             "DevMove" on the boss model to call a move)
 	  tower|userId|radius        an immunity tower (ImmunityTower) on the floor
 	                             16 studs in front of the player
+	  own|userId|classId         a locked class owned (this session only)
 	  ready|userId               every skill off cooldown, the class meters
 	                             full (Rage, Qi Charge, ...): ults on demand
 	The Forgotten Isle:
@@ -243,6 +244,16 @@ function DevHooks.Init()
 			-- (off the arena's cross, where its flame vents are)
 			if root then root.CFrame = CFrame.new(mid + Vector3.new(30, 5, 16)) end
 			return mid
+		elseif cmd == "own" then
+			-- (Studio only: the class owned, unsaved, to test a locked kit)
+			local p = plr(a)
+			local PlayerData = require(script.Parent:WaitForChild("PlayerData")) :: any
+			local prof = p and PlayerData.Get(p)
+			if not (p and prof) or typeof(b) ~= "string" then return "no player" end
+			prof.classes[b] = true
+			local owned = p:GetAttribute("OwnedClasses")
+			p:SetAttribute("OwnedClasses", (if typeof(owned) == "string" and owned ~= "" then owned else ",") .. b .. ",")
+			return "owned " .. b
 		elseif cmd == "ready" then
 			local p = plr(a)
 			if not p then return "no player" end
@@ -267,6 +278,39 @@ function DevHooks.Init()
 			local ImmunityTower = require(script.Parent:WaitForChild("ImmunityTower")) :: any
 			ImmunityTower.Spawn(CFrame.lookAt(floor, floor - look), { radius = tonumber(b) })
 			return floor
+		elseif cmd == "gacha_state" or cmd == "gacha_fresh" or cmd == "gacha_tickets" or cmd == "gacha_kills" then
+			local p = plr(a)
+			local PlayerData = require(script.Parent:WaitForChild("PlayerData")) :: any
+			local GachaManager = require(script.Parent:WaitForChild("GachaManager")) :: any
+			local prof = p and PlayerData.Get(p)
+			if not (p and prof) then return "no profile" end
+			if cmd == "gacha_fresh" then
+				-- the class / ticket / pity state of a brand-new profile
+				prof.classes = {}
+				for _, id in ipairs((require(ReplicatedStorage.Shared.ClassData) :: any).Starter) do prof.classes[id] = true end
+				prof.currencies.tickets = 3
+				prof.currencies.soulEssence = 0
+				prof.pity = {}
+				prof.history = {}
+				prof.stats.altarPulls = 0
+				PlayerData.MarkDirty(p)
+				GachaManager.Sync(p)
+			elseif cmd == "gacha_tickets" then
+				prof.currencies.tickets = tonumber(b) or 0
+				PlayerData.MarkDirty(p)
+				GachaManager.Sync(p)
+			elseif cmd == "gacha_kills" then
+				-- b = "tier,count": that many kills of that tier; returns the drops
+				local tier, n = table.unpack(string.split(tostring(b), ","))
+				local before = prof.currencies.tickets or 0
+				for _ = 1, tonumber(n) or 1 do GachaManager.OnMobKilled(p, tier) end
+				return `{(prof.currencies.tickets or 0) - before} tickets from {n} {tier} kills`
+			end
+			local classes = {}
+			for id in pairs(prof.classes) do table.insert(classes, id) end
+			table.sort(classes)
+			local altar = prof.pity.altar_of_souls or {}
+			return `classes={table.concat(classes, ",")} tickets={prof.currencies.tickets or 0} essence={prof.currencies.soulEssence or 0} pity(E{altar.sinceEpic or 0},L{altar.sinceLegendary or 0},M{altar.sinceMythic or 0},star{altar.starlight or 0}) altarPulls={prof.stats.altarPulls or 0} history={#prof.history}`
 		end
 		return "unknown command"
 	end

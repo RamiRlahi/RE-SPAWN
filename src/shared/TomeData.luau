@@ -541,6 +541,7 @@ TomeModule.Suggested = {
 	martial_artist = { id = "attack_speed", why = "her combos and Qi build faster the quicker she strikes" },
 	berserker = { id = "damage", why = "every swing hits harder, and Rage builds from the damage he deals" },
 	mage = { id = "cooldown", why = "her spells are her damage: the sooner they're back, the more she casts" },
+	death_knight = { id = "size", why = "his Blackwake, Doomfall and the King of the Grave all grow with Ability Size" },
 	summoner = { id = "cooldown", why = "her beasts come back sooner, and a full pack on the field hits far harder" },
 	rogue = { id = "precision", why = "her strikes and blades crit more often, and crits are where her damage lives" },
 	cleric = { id = "cooldown", why = "her heals and smites come back sooner" },

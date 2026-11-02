@@ -24,6 +24,7 @@ local RogueScarf = require(script.Parent:WaitForChild("RogueScarf"))
 local MageLook = require(Shared:WaitForChild("MageLook"))
 local MartialLook = require(Shared:WaitForChild("MartialLook"))
 local SummonerLook = require(Shared:WaitForChild("SummonerLook"))
+local DeathKnightLook = require(Shared:WaitForChild("DeathKnightLook"))
 local Players = game:GetService("Players")
 local WeaponSling = require(Shared:WaitForChild("WeaponSling"))
 local GearLook = require(Shared:WaitForChild("GearLook"))
@@ -64,6 +65,7 @@ local function buildWeapon(classId: string): Tool?
 	if classId == "berserker" then return BerserkerLook.BuildGreatsword() end
 	if classId == "rogue" then return RogueLook.BuildDagger() end
 	if classId == "summoner" then return SummonerLook.BuildStaff() end
+	if classId == "death_knight" then return DeathKnightLook.BuildGraveblade() end
 	local name = WEAPONS[classId]
 	local template = name and findTool(name)
 	return if template then template:Clone() else nil
@@ -79,6 +81,9 @@ function ClassLook.Clear(character: Model)
 	if not Players:GetPlayerFromCharacter(character) then
 		MageLook.Undress(character)
 		MartialLook.Undress(character)
+		-- (a copy of a Death Knight comes with the server's plate on it: off,
+		-- and on again below only if that's the class being shown)
+		DeathKnightLook.Undress(character)
 	end
 end
 
@@ -94,7 +99,7 @@ export type Options = {
 }
 
 -- Swords: slung across the back when their hero sits down.
-ClassLook.SWORD_CLASSES = { heavy_knight = true, swordsman = true, berserker = true } :: { [string]: boolean }
+ClassLook.SWORD_CLASSES = { heavy_knight = true, swordsman = true, berserker = true, death_knight = true } :: { [string]: boolean }
 
 -- (Where it sits slung across the back: WeaponSling, shared with the lobby's
 -- real characters.)
@@ -133,6 +138,13 @@ function ClassLook.Apply(character: Model, classId: string, opts: Options?)
 	-- The Martial Artist's gi, sash and headband.
 	if classId == "martial_artist" and copy and o.armor then
 		MartialLook.Dress(character)
+	end
+	-- The Death Knight's plate (before the weapon, so a slung Graveblade
+	-- clears it) and his tattered black cape.
+	if classId == "death_knight" and copy and o.armor then
+		DeathKnightLook.Dress(character)
+		local cape = ClothCape.Attach(character, TAG, ClothCape.DEATH_KNIGHT)
+		if cape then cape:SetAttribute(TAG, true) end
 	end
 	local backWeld: Weld? = nil -- a slung weapon, eased out past the armor once it's on
 

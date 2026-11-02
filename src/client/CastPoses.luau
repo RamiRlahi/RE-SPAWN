@@ -50,6 +50,7 @@ local JOINTS = {
 -- body) is applied before W (the torso on top of it).
 local ORDER = { "Root", "W", "N", "RS", "LS", "RE", "LE", "RW", "LW", "RH", "LH", "RK", "LK" }
 local LEGS = { RH = true, LH = true, RK = true, LK = true }
+local UPPER = { N = true, RS = true, LS = true, RE = true, LE = true, RW = true, LW = true }
 
 -- Secondary motion per joint. `carry`: the share of a sudden change in speed
 -- the joint keeps (how far it swings past a hit / lags into a move);
@@ -164,6 +165,7 @@ type State = {
 	curveVel: { [string]: Vec },
 	seq: Seq?,
 	weight: number,
+	upper: { [Motor6D]: boolean }, -- the joints a move takes over from the animation
 	rate: number, -- playback speed (hit-stop)
 	rateUntil: number?,
 }
@@ -232,9 +234,16 @@ local function newState(char: Model): State
 		sx = {}, sv = {}, curve = {}, curveVel = {},
 		seq = nil,
 		weight = 0,
+		upper = {},
 		rate = 1,
 		rateUntil = nil,
 	}
+	-- The arms and head (and on R15 the waist: on R6 it's the root joint, the
+	-- legs with it) are the move's alone while it plays: a run's arm swing
+	-- never mixes into an attack. The legs keep the animation (running on).
+	for key, m in pairs(motors) do
+		if UPPER[key] or (key == "W" and not S.r6) then S.upper[m.motor] = true end
+	end
 	for key in pairs(motors) do
 		S.sx[key] = table.clone(ZERO)
 		S.sv[key] = table.clone(ZERO)
@@ -283,15 +292,14 @@ local function step()
 				S.curve[key], S.curveVel[key] = keyed(seq, key, idx, a)
 			end
 			wob = st.wobble and st.wobble(elapsed) or nil
-			if seq.absolute then
-				-- Absolute: the pose replaces the animation, blended in over the
-				-- first stage and back out to the animation over the recovery.
-				local e = ease(st.style or Enum.EasingStyle.Cubic, a)
-				if idx == 1 then
-					w = seq.w0 + (1 - seq.w0) * e
-				elseif idx == #seq.stages then
-					w = 1 - e
-				end
+			-- The pose's hold on the animation (every joint for an absolute move,
+			-- the upper body for the rest), blended in over the first stage and
+			-- back out to the animation over the recovery.
+			local e = ease(st.style or Enum.EasingStyle.Cubic, a)
+			if idx == 1 then
+				w = seq.w0 + (1 - seq.w0) * e
+			elseif idx == #seq.stages then
+				w = 1 - e
 			end
 			S.weight = w
 		else
@@ -349,7 +357,11 @@ local function step()
 			end
 		else
 			for motor, cf in pairs(combined) do
-				motor.Transform = motor.Transform * cf
+				if seq and S.upper[motor] then
+					motor.Transform = motor.Transform:Lerp(cf, w)
+				else
+					motor.Transform = motor.Transform * cf
+				end
 			end
 		end
 
@@ -445,8 +457,8 @@ function CastPoses.play(char: Model?, stages: { Stage }, recover: number?, absol
 		total = total,
 		idx = 0,
 		absolute = absolute == true,
-		-- An absolute move interrupting another carries on from its weight.
-		w0 = if prev and prev.absolute then s.weight else 0,
+		-- A move interrupting another carries on from its weight.
+		w0 = if prev then s.weight else 0,
 		plant = not (opts and opts.plant == false),
 		carry = opts and opts.carry or 1,
 	}

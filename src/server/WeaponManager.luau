@@ -20,6 +20,7 @@ local SwordModel = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild
 local BerserkerLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("BerserkerLook"))
 local RogueLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RogueLook"))
 local SummonerLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SummonerLook"))
+local DeathKnightLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("DeathKnightLook"))
 local WeaponSling = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("WeaponSling"))
 local GearLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GearLook"))
 
@@ -54,6 +55,10 @@ local WEAPON_CONFIG: { [string]: { toolName: string, leftHand: boolean?, build: 
 	summoner = {
 		toolName = "Bondstaff",
 		build = SummonerLook.BuildStaff,
+	},
+	death_knight = {
+		toolName = "Graveblade",
+		build = DeathKnightLook.BuildGraveblade,
 	},
 }
 

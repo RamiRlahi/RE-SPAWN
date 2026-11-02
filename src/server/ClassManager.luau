@@ -8,6 +8,14 @@ local ClassManager = {}
 type PlayerCallback = (player: Player, classId: string) -> ()
 local onClassSelectedCallbacks: { PlayerCallback } = {}
 local gate: ((player: Player, classId: string) -> boolean)? = nil
+-- owns(player, classId): set by init (GachaManager.OwnsClass). Without it
+-- every playable class is allowed.
+local owns: ((player: Player, classId: string) -> boolean)? = nil
+
+-- A finished kit the player owns (locked classes are unlocked at the Altar).
+local function allowed(player: Player, classId: string): boolean
+	return ClassData.IsPlayable(classId) and (owns == nil or owns(player, classId))
+end
 
 function ClassManager.Init()
 	local selectClassRemote = Network.GetRemoteEvent(Network.Remotes.SelectClass)
@@ -25,7 +33,7 @@ function ClassManager.Init()
 		end
 
 		-- Assign class attributes to Player
-		if not ClassData.IsPlayable(classId) then
+		if not allowed(player, classId) then
 			warn(`[ClassManager] {player.Name} tried to pick locked class '{classId}'`)
 			return
 		end
@@ -53,12 +61,16 @@ end
 -- campfire). Returns false for an unknown or locked class.
 function ClassManager.SetClass(player: Player, classId: string): boolean
 	local classInfo = ClassData.GetClass(classId)
-	if not classInfo or not ClassData.IsPlayable(classId) then return false end
+	if not classInfo or not allowed(player, classId) then return false end
 	player:SetAttribute("SelectedClass", classId)
 	player:SetAttribute("ClassName", classInfo.name)
 	player:SetAttribute("ClassRole", classInfo.role)
 	if player.Character then player.Character:SetAttribute("Class", classId) end
 	return true
+end
+
+function ClassManager.SetOwnership(fn: (player: Player, classId: string) -> boolean)
+	owns = fn
 end
 
 -- gate(player, classId) -> true when it will call Enter itself later.
@@ -70,6 +82,10 @@ end
 -- (which fades into the game) and runs every listener (weapon, teleport, run
 -- start). Also used to respawn after a death.
 function ClassManager.Enter(player: Player, classId: string)
+	if not allowed(player, classId) then
+		warn(`[ClassManager] {player.Name} can't enter as locked class '{classId}'`)
+		return
+	end
 	local character = player.Character
 	if character then character:SetAttribute("Class", classId) end
 	Network.GetRemoteEvent(Network.Remotes.ClassConfirmed):FireClient(player, classId)

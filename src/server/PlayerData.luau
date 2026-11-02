@@ -33,6 +33,8 @@ export type Profile = {
 	},
 	equipped: { relics: { string }, variants: { [string]: string }, armor: { [string]: string } }, -- classId → VFX variant id / armor id
 	pity: { [string]: { sinceEpic: number, sinceLegendary: number, guaranteedFeatured: boolean } },
+	classes: { [string]: boolean },                    -- classes owned (unlocked for good: GachaManager)
+	history: { { any } },                             -- the last summons, newest last: { id, rarity, banner, time }
 	stats: { [string]: number },                      -- lifetime counters (pulls, kills…)
 	purchases: { [string]: boolean },                 -- processed receipt ids (idempotent grants)
 	account: { level: number, xp: number },           -- account level 1..100 (AccountManager)
@@ -56,6 +58,8 @@ local function newProfile(): Profile
 		collection = { characters = {}, relics = {}, cosmetics = {} },
 		equipped = { relics = {}, variants = {}, armor = {} },
 		pity = {},
+		classes = {},
+		history = {},
 		stats = {},
 		purchases = {},
 		account = { level = 1, xp = 0 },
@@ -122,9 +126,12 @@ function PlayerData.Await(player: Player, timeout: number?): Profile?
 	return profiles[player]
 end
 
-function PlayerData.Save(player: Player)
+-- Returns whether the profile is stored (true without a DataStore, e.g. in
+-- Studio without API access: there is nothing more to wait for).
+function PlayerData.Save(player: Player): boolean
 	local p = profiles[player]
-	if not p or not store then return end
+	if not p then return false end
+	if not store then return true end
 	local ok, err = pcall(function()
 		(store :: DataStore):SetAsync(key(player), p)
 	end)
@@ -133,6 +140,7 @@ function PlayerData.Save(player: Player)
 	else
 		warn("[PlayerData] Save failed for", player.Name, err)
 	end
+	return ok
 end
 
 function PlayerData.MarkDirty(player: Player)

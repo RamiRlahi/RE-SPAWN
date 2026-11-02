@@ -157,6 +157,20 @@ end
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Blue Star Death VFX (client-only, so bursts do not replicate as world instances)
 -- ─────────────────────────────────────────────────────────────────────────────
+-- A kill's Pull Ticket drop tier (GachaConfig.TicketDrops): nothing from a
+-- summoned add or a tutorial run.
+local function ticketTier(mobModel: Model, isBoss: boolean): string
+	local rid = mobModel:GetAttribute("RunId")
+	if mobModel:GetAttribute("Summoned") == true or mobModel:GetAttribute("IslandEnemy") == "boss_minion"
+		or (typeof(rid) == "string" and RunScope.Get(rid, "Tutorial") == true) then
+		return "none"
+	end
+	if isBoss then return "boss" end
+	if mobModel:GetAttribute("Behemoth") == true then return "miniboss" end
+	if mobModel:GetAttribute("IsElite") == true then return "elite" end
+	return "normal"
+end
+
 local function triggerBlueStarDeathVFX(position: Vector3, isBoss: boolean?)
 	pcall(function()
 		local deathRemote = Network.GetRemoteEvent(Network.Remotes.MobDeathVFX)
@@ -938,7 +952,7 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 			-- Gold funds the shop and the gambling den.
 			PlayerStats.AwardGold(player, if isBoss then math.random(60, 90) elseif mobModel:GetAttribute("IsElite") == true then math.random(15, 25) else math.random(3, 7))
 			TalentManager.OnMobKilled(player, isBoss)
-			GachaManager.OnMobKilled(player, isBoss)
+			GachaManager.OnMobKilled(player, ticketTier(mobModel, isBoss))
 		end
 		LootManager.OnMobKilled(mobModel, isBoss, nearby)
 
@@ -1269,7 +1283,7 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 			-- Gold funds the shop and the gambling den.
 			PlayerStats.AwardGold(player, if isBoss then math.random(60, 90) elseif mobModel:GetAttribute("IsElite") == true then math.random(15, 25) else math.random(3, 7))
 			TalentManager.OnMobKilled(player, isBoss)
-			GachaManager.OnMobKilled(player, isBoss)
+			GachaManager.OnMobKilled(player, ticketTier(mobModel, isBoss))
 		end
 		LootManager.OnMobKilled(mobModel, isBoss, nearby)
 
@@ -1652,6 +1666,7 @@ local function activateMob(record: MobRecord)
 		-- (the risen dead climb out of the floor, the first time)
 		if record.summoned and record.kind == "risen" and record.health == math.huge then model:SetAttribute("Rising", true) end
 	end
+	if record.summoned then model:SetAttribute("Summoned", true) end
 	if record.isElite and not record.isBoss then
 		model:SetAttribute("HealthMult", (model:GetAttribute("HealthMult") or 1) * ELITE_HEALTH)
 		model:SetAttribute("DamageMult", (model:GetAttribute("DamageMult") or 1) * ELITE_DAMAGE)
@@ -1918,6 +1933,7 @@ function MobManager.SpawnMinion(pos: Vector3): Model?
 	model:SetAttribute("IsElite", false)
 	model:SetAttribute("XPMult", (model:GetAttribute("XPMult") or 1) * 0.4)
 	model:SetAttribute("FloorY", surfaceY(pos))
+	model:SetAttribute("Summoned", true)
 	local rid = runAt(pos)
 	if rid then model:SetAttribute("RunId", rid) end
 	model.Parent = activeMobsFolder
@@ -2204,7 +2220,7 @@ local function grantBossRewards(model: Model, pos: Vector3, xpReward: number)
 	for _, player in ipairs(nearby) do
 		PlayerStats.AwardGold(player, math.random(90, 130))
 		TalentManager.OnMobKilled(player, true)
-		GachaManager.OnMobKilled(player, true)
+		GachaManager.OnMobKilled(player, "boss")
 	end
 	LootManager.OnMobKilled(model, true, nearby)
 end

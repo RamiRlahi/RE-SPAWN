@@ -44,6 +44,7 @@ local MageController = require(script.Parent:WaitForChild("MageController"))
 local MartialController = require(script.Parent:WaitForChild("MartialController"))
 local SummonerController = require(script.Parent:WaitForChild("SummonerController"))
 local BerserkerController = require(script.Parent:WaitForChild("BerserkerController"))
+local DeathKnightController = require(script.Parent:WaitForChild("DeathKnightController"))
 local FireKnightController = require(script.Parent:WaitForChild("FireKnightController"))
 
 local DivineAscentCutscene = require(script.Parent:WaitForChild("DivineAscentCutscene"))
@@ -3949,6 +3950,7 @@ function SkillController.UseSkill(skillIndex: number)
 		if RogueController.TryRecast(skillIndex, char, rootPart) then return end
 	end
 	if classId == "berserker" and not BerserkerController.CanCast(skillIndex) then return end
+	if classId == "death_knight" and not DeathKnightController.CanCast(skillIndex) then return end
 	if classId == "heavy_knight" and not FireKnightController.CanCast(skillIndex) then return end
 	if classId == "mage" and not MageController.CanCast(skillIndex) then return end
 	if classId == "martial_artist" and not MartialController.CanCast(skillIndex) then return end
@@ -4210,6 +4212,9 @@ function SkillController.UseSkill(skillIndex: number)
 	elseif classId == "berserker" then
 		skillTargetPosition = BerserkerController.OnCast(skillIndex, char, rootPart, aimDir, config, cursorPosition) or skillTargetPosition
 		if skillIndex == 4 then BerserkerController.PlayUltCutscene(char, aimDir) end
+	elseif classId == "death_knight" then
+		skillTargetPosition = DeathKnightController.OnCast(skillIndex, char, rootPart, aimDir, config, cursorPosition) or skillTargetPosition
+		if skillIndex == 4 then DeathKnightController.PlayUltCutscene(char, aimDir) end
 	elseif classId == "ice_mage" then
 		local areaMult = player:GetAttribute("Stat_size") or 1
 		local function releaseCast(after: number)
@@ -4482,6 +4487,12 @@ local function performBasicAttack()
 		if root then BerserkerController.Basic(char, root) end
 		return
 	end
+	-- The Death Knight's Graveblade chain.
+	if player:GetAttribute("SelectedClass") == "death_knight" then
+		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if root then DeathKnightController.Basic(char, root) end
+		return
+	end
 	-- The Fire Knight's Emberblade combo.
 	if player:GetAttribute("SelectedClass") == "heavy_knight" then
 		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
@@ -4715,6 +4726,11 @@ function SkillController.Init()
 		fovPunch = triggerFOVPunch,
 		getAim = getAimDirection,
 	})
+	DeathKnightController.Init({
+		shake = triggerCameraShake,
+		fovPunch = triggerFOVPunch,
+		getAim = getAimDirection,
+	})
 	IceMageVFX.Init(triggerCameraShake)
 	DashController.Init(getAimDirection)
 	ClericFlair.watchHalos()
@@ -4881,6 +4897,8 @@ function SkillController.Init()
 			SwordsmanController.PlayStormCutscene(char, direction)
 		elseif classId == "berserker" then
 			BerserkerController.PlayUltCutscene(char, direction)
+		elseif classId == "death_knight" then
+			DeathKnightController.PlayUltCutscene(char, direction)
 		elseif classId == "heavy_knight" then
 			FireKnightController.PlayUltCutscene(char, direction)
 		elseif classId == "cleric" then

@@ -6,8 +6,9 @@
 	  top      title, back button, currency pills
 	  left     featured banner panel + Rates & Pity (odds disclosure generated
 	           from GachaConfig, so it always matches the server)
-	  right    Collection / Shop panel
-	  bottom   the daily wish + SUMMON ×1 / ×10
+	  right    Collection (classes owned / locked) / Shop (direct class unlocks,
+	           the Essence Shop, Pull Ticket packs) / History panel
+	  bottom   the daily wish + SUMMON ×1 / ×10 / ×25 (Pull Tickets only)
 
 	The banner panel shows pity as meters (the Legendary guarantee, with the
 	point where its odds start rising) and the banner's Starlight, which the
@@ -64,7 +65,6 @@ local SummonScreen = {}
 local state: any = { currencies = {}, collection = { characters = {}, relics = {}, cosmetics = {} }, equipped = { relics = {}, variants = {} }, pity = {}, products = {} }
 local gui: ScreenGui? = nil
 local refreshers: { () -> () } = {}
-local payWith = "tickets"
 local pulling = false
 -- The banner the page shows (its tabs switch it); each has its own pity.
 local currentBanner = GachaConfig.DefaultBanner
@@ -150,6 +150,7 @@ end
 local function owned(id: string): boolean
 	local r = GachaRewards.Get(id)
 	if not r then return false end
+	if r.type == "class" then return (state.classes or {})[r.classId] == true end
 	if r.type == "character" or r.type == "variant" then return state.collection.characters[id] ~= nil end
 	if r.type == "relic" then return state.collection.relics[id] ~= nil end
 	if r.type == "cosmetic" or r.type == "armor" or r.type == "wings" or r.type == "mount" then return state.collection.cosmetics[id] == true end
@@ -245,7 +246,7 @@ local function build(): ScreenGui
 	crl.Padding = UDim.new(0, 8)
 	crl.Parent = currencyRow
 	local pills: { [string]: TextLabel } = {}
-	for _, key in ipairs({ "tickets", "crystals", "soulShards", "relicDust" }) do
+	for _, key in ipairs({ "tickets", "soulEssence", "soulShards", "relicDust" }) do
 		local pill = panel(currencyRow, { Size = UDim2.fromOffset(100, 44) })
 		pills[key] = label(pill, { Font = F.Header, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Center, Size = UDim2.fromScale(1, 1) })
 	end
@@ -256,7 +257,10 @@ local function build(): ScreenGui
 	end)
 
 	-- ── Left: featured banner ──
-	local featured = GachaRewards.Get(banner.featured)
+	local featuredId = GachaConfig.FeaturedFor(currentBanner)
+	local featured = featuredId and GachaRewards.Get(featuredId)
+	local featuredRarity = banner.featuredRarity or "Legendary"
+	local SPARK = GachaConfig.SparkFor(currentBanner)
 	local fColor = featured and (featured.accent or rarityColor(featured.rarity)) or C.Gold
 	local left, leftStroke = panel(sg, { Position = UDim2.fromOffset(24, 124), Size = UDim2.new(0, 340, 1, -240) })
 	leftStroke.Color = fColor
@@ -272,7 +276,8 @@ local function build(): ScreenGui
 		label(left, { Text = `[{string.upper(featured.rarity)}]`, Font = F.Tag, TextSize = 12, TextColor3 = rarityColor(featured.rarity), Size = UDim2.new(1, 0, 0, 16), LayoutOrder = 4 })
 		label(left, { Text = featured.description, TextSize = 13, TextColor3 = C.TextSecondary, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 5 })
 		sectionTag(left, "Rate-Up", { LayoutOrder = 6 })
-		label(left, { Text = `When you summon a Legendary it is {featured.name} {math.floor(banner.featuredRate * 100)}% of the time. If it isn't, your next Legendary is guaranteed to be.`,
+		local rotates = if banner.featuredRotation then ` Rotates in {math.ceil(GachaConfig.RotationIn() / 86400)} day(s).` else ""
+		label(left, { Text = `When you summon {if featuredRarity == "Epic" then "an" else "a"} {featuredRarity} it is {featured.name} {math.floor(banner.featuredRate * 100)}% of the time. If it isn't, your next {featuredRarity} is guaranteed to be.{rotates}`,
 			TextSize = 12, TextColor3 = C.TextMuted, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 7 })
 	end
 	-- A progress meter: a trough, a fill, its count on top, and an optional
@@ -319,11 +324,12 @@ local function build(): ScreenGui
 		local since = pity.sinceLegendary or 0
 		TweenService:Create(legFill, TweenInfo.new(0.4), { Size = UDim2.fromScale(math.clamp(since / P.legendaryHard, 0, 1), 1) }):Play()
 		legText.Text = `{since} / {P.legendaryHard}{if since >= P.legendarySoftStart then "  ·  ODDS RISING" else ""}`
-		pityText.Text = `Epic or better within {math.max(0, P.epicEvery - (pity.sinceEpic or 0))} summons.{if pity.guaranteedFeatured then "\nYour next Legendary is the featured one." else ""}`
+		local mythicLine = if P.mythicHard then `\nMythic guaranteed within {math.max(0, P.mythicHard - (pity.sinceMythic or 0))} summons.` else ""
+		pityText.Text = `Epic or better within {math.max(0, P.epicEvery - (pity.sinceEpic or 0))} summons.{mythicLine}{if pity.guaranteedFeatured then `\nYour next {featuredRarity} is the featured one.` else ""}`
 		local sl = pity.starlight or 0
-		local cost = GachaConfig.Spark.cost
+		local cost = SPARK.cost
 		TweenService:Create(sparkFill, TweenInfo.new(0.4), { Size = UDim2.fromScale(math.clamp(sl / cost, 0, 1), 1) }):Play()
-		sparkText.Text = `{sl} / {cost}  ·  +{GachaConfig.Spark.perPull} PER SUMMON`
+		sparkText.Text = `{sl} / {cost}  ·  +{SPARK.perPull} PER SUMMON`
 		sparkBtn.TextColor3 = if sl >= cost then C.GoldLight else C.TextMuted
 	end)
 
@@ -339,8 +345,8 @@ local function build(): ScreenGui
 			b.TextColor3 = if n == name then C.Gold else C.TextPrimary
 		end
 	end
-	for i, name in ipairs({ "Collection", "Shop" }) do
-		rightTabs[name] = secondaryButton(right, string.upper(name), { Position = UDim2.new((i - 1) * 0.5, if i == 2 then 4 else 0, 0, 0), Size = UDim2.new(0.5, -4, 0, 34) }, function()
+	for i, name in ipairs({ "Collection", "Shop", "History" }) do
+		rightTabs[name] = secondaryButton(right, string.upper(name), { Position = UDim2.new((i - 1) / 3, if i > 1 then 3 else 0, 0, 0), Size = UDim2.new(1 / 3, -4, 0, 34) }, function()
 			showRight(name)
 		end)
 		local pg = Instance.new("ScrollingFrame")
@@ -395,6 +401,25 @@ local function build(): ScreenGui
 		local function tag(text: string)
 			order += 1
 			sectionTag(pg, text, { LayoutOrder = order, Size = UDim2.new(1, 0, 0, 22) })
+		end
+		-- Classes: every one, owned or locked (unlocked at the Altar of Souls).
+		tag("Classes")
+		for _, classId in ipairs(ClassData.Order) do
+			local info = ClassData.GetClass(classId)
+			if info and ClassData.IsPlayable(classId) then
+				local have = (state.classes or {})[classId] == true
+				local starter = table.find(ClassData.Starter, classId) ~= nil
+				local cr
+				for _, r in ipairs(GachaRewards.All) do
+					if r.type == "class" and r.classId == classId then cr = r end
+				end
+				order += 1
+				itemRow(pg, order, { glyph = if cr then cr.glyph else string.upper(string.sub(info.name, 1, 2)), name = info.name,
+					rarity = if cr then cr.rarity else "Common",
+					description = if have then "Yours for good. Pick it at class selection." else "Locked. Summon it at the Altar of Souls, or unlock it in the Shop." },
+					if starter then "STARTER CLASS" elseif have then `{string.upper(cr and cr.rarity or "")} · OWNED` else `{string.upper(cr and cr.rarity or "")} · LOCKED`,
+					nil, nil, have)
+			end
 		end
 		tag("Sets")
 		for _, set in ipairs(GachaRewards.Sets) do
@@ -505,8 +530,39 @@ local function build(): ScreenGui
 			return order
 		end
 
-		-- Direct purchases (fixed price, not random).
-		sectionTag(pg, "Featured", { LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 22) })
+		-- Direct class unlocks (fixed price, not random): Soul Essence or Robux.
+		sectionTag(pg, "Unlock a Class", { LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 22) })
+		label(pg, { Text = "Not random. Soul Essence comes from duplicate classes and the altar's commons.",
+			TextSize = 12, TextColor3 = C.TextMuted, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = nextOrder() })
+		local anyLocked = false
+		for _, r in ipairs(GachaRewards.All) do
+			if r.type == "class" and not owned(r.id) then
+				anyLocked = true
+				itemRow(pg, nextOrder(), r, string.upper(r.rarity))
+				local price = GachaConfig.ClassEssencePrice[r.rarity]
+				local have = state.currencies.soulEssence or 0
+				if price then
+					secondaryButton(pg, `UNLOCK · {price} ESSENCE  (you have {have})`,
+						{ Size = UDim2.new(1, -6, 0, 36), LayoutOrder = nextOrder(), TextColor3 = if have >= price then C.Gold else C.TextMuted }, function()
+							SoundManager.PlayConfirm()
+							act({ kind = "unlockClass", classId = r.classId })
+						end)
+				end
+				local robux = (state.classProducts or {})[r.classId]
+				if robux then
+					secondaryButton(pg, `UNLOCK · R$ {robux}`, { Size = UDim2.new(1, -6, 0, 36), LayoutOrder = nextOrder(), TextColor3 = C.Gold }, function()
+						SoundManager.PlayConfirm()
+						act({ kind = "buyClassRobux", classId = r.classId })
+					end)
+				end
+			end
+		end
+		if not anyLocked then
+			label(pg, { Text = "Every class is yours.", TextSize = 12, TextColor3 = C.Gold, Size = UDim2.new(1, 0, 0, 20), LayoutOrder = nextOrder() })
+		end
+
+		-- The Essence Shop (fixed price, not random).
+		sectionTag(pg, "Essence Shop", { LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 22) })
 		for _, item in ipairs(GachaConfig.ShopItems) do
 			local r = GachaRewards.Get(item.id)
 			if r then
@@ -515,7 +571,7 @@ local function build(): ScreenGui
 					label(pg, { Text = "OWNED — equip it in the Collection.", Font = F.Tag, TextSize = 11, TextColor3 = C.Gold,
 						Size = UDim2.new(1, 0, 0, 22), LayoutOrder = nextOrder() })
 				else
-					for _, currency in ipairs({ "crystals", "relicDust" }) do
+					for _, currency in ipairs({ "soulEssence", "relicDust" }) do
 						local price = item.price[currency]
 						if price then
 							local have = state.currencies[currency] or 0
@@ -530,18 +586,41 @@ local function build(): ScreenGui
 			end
 		end
 
-		sectionTag(pg, "Crystals", { LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 22) })
-		if #state.products == 0 then
-			label(pg, { Text = "Crystal packs are coming soon.\n\nSummon Tickets are earned from bosses and every few dozen kills.",
+		sectionTag(pg, "Pull Tickets", { LayoutOrder = nextOrder(), Size = UDim2.new(1, 0, 0, 22) })
+		local D = GachaConfig.TicketDrops
+		local earn = `Every kill can drop a Pull Ticket: 1 in {math.floor(1 / D.normal + 0.5)} from a mob, 1 in {math.floor(1 / D.elite + 0.5)} from an elite, 1 in {math.floor(1 / D.miniboss + 0.5)} from a Behemoth, 1 in {math.floor(1 / D.boss + 0.5)} from a boss.`
+		if state.paidRestricted then
+			label(pg, { Text = `Pull Ticket packs aren't available in your region.\n\n{earn}`,
+				TextSize = 13, TextColor3 = C.TextSecondary, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = nextOrder() })
+		elseif #state.products == 0 then
+			label(pg, { Text = `Pull Ticket packs are coming soon.\n\n{earn}`,
 				TextSize = 13, TextColor3 = C.TextSecondary, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = nextOrder() })
 		else
-			label(pg, { Text = "Crystals are premium currency used for summons. See Rates & Pity for the exact odds before summoning.",
+			label(pg, { Text = `1 Pull Ticket = 1 summon on any banner. Summons are random: see Rates & Pity for the exact odds first.\n{earn}`,
 				TextSize = 12, TextColor3 = C.TextMuted, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = nextOrder() })
 			for _, prod in ipairs(state.products) do
-				primaryButton(pg, prod.label, { Size = UDim2.new(1, -6, 0, 44), LayoutOrder = nextOrder() }, function()
+				primaryButton(pg, `{prod.label}  ·  R$ {prod.robux}`, { Size = UDim2.new(1, -6, 0, 44), LayoutOrder = nextOrder() }, function()
 					SoundManager.PlayConfirm()
-					Network.GetRemoteEvent(Network.Remotes.GachaAction):FireServer({ kind = "buyCrystals", id = prod.id })
+					act({ kind = "buyTickets", id = prod.id })
 				end)
+			end
+		end
+	end)
+
+	-- History: the last summons, newest first.
+	table.insert(refreshers, function()
+		local pg = rightPages.History
+		for _, c in ipairs(pg:GetChildren()) do
+			if c:IsA("GuiObject") then c:Destroy() end
+		end
+		local list = state.history or {}
+		sectionTag(pg, `Last {#list} summons · {state.altarPulls or 0} at the altar`, { LayoutOrder = 0, Size = UDim2.new(1, 0, 0, 22) })
+		for i = #list, 1, -1 do
+			local h = list[i]
+			local r = GachaRewards.Get(h.id)
+			if r then
+				local b = GachaConfig.Banners[h.banner]
+				itemRow(pg, #list - i + 1, r, `{string.upper(r.rarity)} · {string.upper(if b then b.name elseif h.banner == "robux" then "Robux unlock" else "")} · {os.date("!%d %b %H:%M", h.time)}`)
 			end
 		end
 	end)
@@ -554,34 +633,26 @@ local function build(): ScreenGui
 	bottom.Size = UDim2.fromOffset(700, 90)
 	bottom.Parent = sg
 	local msg = label(bottom, { TextXAlignment = Enum.TextXAlignment.Center, TextColor3 = C.Danger, TextSize = 13, Size = UDim2.new(1, 0, 0, 18) })
-	local payBtn = secondaryButton(bottom, "", { Position = UDim2.fromOffset(0, 30), Size = UDim2.fromOffset(150, 56) }, function()
-		payWith = if payWith == "tickets" then "crystals" else "tickets"
-		for _, f in ipairs(refreshers) do f() end
-	end)
 	local function doPull(count: number)
 		if pulling then return end
 		pulling = true
 		msg.Text = ""
 		SoundManager.PlayConfirm()
-		Network.GetRemoteEvent(Network.Remotes.Summon):FireServer({ banner = currentBanner, count = count, pay = payWith })
+		Network.GetRemoteEvent(Network.Remotes.Summon):FireServer({ banner = currentBanner, count = count })
 		task.delay(8, function() pulling = false end) -- safety if the server never answers
 	end
-	local pull1 = primaryButton(bottom, "", { Position = UDim2.fromOffset(160, 30), Size = UDim2.fromOffset(260, 56) }, function() doPull(1) end)
-	local pull10 = primaryButton(bottom, "", { Position = UDim2.fromOffset(430, 30), Size = UDim2.fromOffset(270, 56) }, function() doPull(10) end)
+	local pulls: { [number]: TextButton } = {}
+	for i, cost in ipairs({ GachaConfig.Cost.single, GachaConfig.Cost.multi, GachaConfig.Cost.big }) do
+		pulls[cost.count] = primaryButton(bottom, "", { Position = UDim2.fromOffset((i - 1) * 236, 30), Size = UDim2.fromOffset(228, 56) }, function() doPull(cost.count) end)
+	end
 	table.insert(refreshers, function()
 		local free = GachaConfig.FREE_SUMMONS
-		payBtn.Visible = not free
-		if state.paidRestricted and payWith == "crystals" then payWith = "tickets" end
-		local g = GachaConfig.Currencies[payWith].glyph
-		payBtn.Text = `PAY WITH\n{string.upper(GachaConfig.Currencies[payWith].name)}S`
-		pull1.Text = if free then "SUMMON ×1  ·  FREE" else `SUMMON ×1  ·  {GachaConfig.Cost.single[payWith]} {g}`
-		pull10.Text = if free then "SUMMON ×10  ·  FREE" else `SUMMON ×10  ·  {GachaConfig.Cost.multi[payWith]} {g}`
-		if free then
-			pull1.Position, pull10.Position = UDim2.fromOffset(75, 30), UDim2.fromOffset(345, 30)
-		else
-			pull1.Position, pull10.Position = UDim2.fromOffset(160, 30), UDim2.fromOffset(430, 30)
+		local have = state.currencies.tickets or 0
+		for _, cost in ipairs({ GachaConfig.Cost.single, GachaConfig.Cost.multi, GachaConfig.Cost.big }) do
+			local b = pulls[cost.count]
+			b.Text = if free then `SUMMON ×{cost.count}  ·  FREE` else `SUMMON ×{cost.count}  ·  {cost.tickets} TICKET{if cost.tickets == 1 then "" else "S"}`
+			b.TextColor3 = if free or have >= cost.tickets then MC.Parchment else MC.ParchmentMuted
 		end
-		msg.Text = if state.paidRestricted then "Crystal summons are unavailable in your region — Summon Tickets still work." else msg.Text
 	end)
 
 	-- ── The daily wish ──
@@ -643,9 +714,9 @@ local function build(): ScreenGui
 			if c:IsA("GuiObject") then c:Destroy() end
 		end
 		local have = bannerPity().starlight or 0
-		local cost = GachaConfig.Spark.cost
-		sparkSub.Text = `You have {have} Starlight. Every summon on this banner adds {GachaConfig.Spark.perPull}; spend {cost} on any {GachaConfig.Spark.minRarity}-or-better reward you don't own yet.`
-		local minIdx = table.find(GachaConfig.RarityOrder, GachaConfig.Spark.minRarity) or 3
+		local cost = SPARK.cost
+		sparkSub.Text = `You have {have} Starlight. Every summon on this banner adds {SPARK.perPull}; spend {cost} on any {SPARK.minRarity}-or-better reward you don't own yet.`
+		local minIdx = table.find(GachaConfig.RarityOrder, SPARK.minRarity) or 3
 		local order = 0
 		for _, id in ipairs(GachaRewards.Pool(banner.pool)) do
 			local r = GachaRewards.Get(id)
@@ -742,17 +813,26 @@ local function build(): ScreenGui
 		rline("PITY", C.Gold, F.Tag, 12)
 		rline(`• At least one Epic or better within every {P.epicEvery} summons.`)
 		rline(`• From summon #{P.legendarySoftStart} without a Legendary, Legendary odds rise by {P.legendarySoftStep}% per summon; summon #{P.legendaryHard} is a guaranteed Legendary or better.`)
-		rline(`• Every ×10 summon contains at least one {P.multiGuarantee} or better.`)
+		if P.mythicHard then
+			rline(`• Summon #{P.mythicHard} without a Mythic is a guaranteed Mythic.`)
+		end
+		rline(`• Every ×10 summon contains at least one {P.multiGuarantee} or better; every ×25 at least one {P.bigGuarantee} or better.`)
 		if featured then
-			rline(`• A Legendary is {featured.name} {math.floor(banner.featuredRate * 100)}% of the time; if not, the next Legendary is guaranteed to be {featured.name}.`)
+			rline(`• {if featuredRarity == "Epic" then "An" else "A"} {featuredRarity} is {featured.name} {math.floor(banner.featuredRate * 100)}% of the time; if not, the next {featuredRarity} is guaranteed to be {featured.name}.{if banner.featuredRotation then " The featured class changes every Monday 00:00 UTC." else ""}`)
 		end
 		rline("• Pity is tracked per banner and carries over between sessions.")
-		rline(`• Starlight: every summon adds {GachaConfig.Spark.perPull}; {GachaConfig.Spark.cost} buys any {GachaConfig.Spark.minRarity}-or-better reward of this banner you don't own.`)
+		rline(`• Starlight: every summon adds {SPARK.perPull}; {SPARK.cost} buys any {SPARK.minRarity}-or-better reward of this banner you don't own.`)
 		if GachaConfig.DailyFree.enabled then
 			rline("• Daily wish: one free single summon per day (resets at 00:00 UTC). It counts towards pity and Starlight.")
 		end
 		rline("DUPLICATES", C.Gold, F.Tag, 12)
 		local D = GachaConfig.Duplicates
+		if banner.pool == "classes" then
+			rline(`• Classes: the first copy unlocks the class for good; each copy after that becomes Soul Essence (Rare {D.classEssence.Rare}, Epic {D.classEssence.Epic}, Legendary {D.classEssence.Legendary}, Mythic {D.classEssence.Mythic}).`)
+			local ms = {}
+			for _, m in ipairs(GachaConfig.AltarMilestones) do table.insert(ms, `{m.at}: +{m.soulEssence}`) end
+			rline(`• Altar milestones (lifetime summons here, Soul Essence): {table.concat(ms, ", ")}.`)
+		end
 		rline(`• Characters: the first copy Awakens them; further copies become Soul Shards ({D.shardsPerSoul} Shards = 1 Soul).`)
 		rline("• VFX variants: cosmetic only; copies become Soul Shards.")
 		if hasRewardType("relic") then
@@ -767,7 +847,7 @@ local function build(): ScreenGui
 			for _, r in ipairs(list) do total += (r.weight or 1) end
 			for _, r in ipairs(list) do
 				local pct = ODDS[rarity] * (r.weight or 1) / math.max(total, 1)
-				if rarity == "Legendary" and featured and #list > 1 then
+				if rarity == featuredRarity and featured and #list > 1 then
 					pct = ODDS[rarity] * (if r.id == featured.id then banner.featuredRate else (1 - banner.featuredRate) / (#list - 1))
 				end
 				rline(`{displayName(r)} ({rarity}) — {string.format("%.3f", pct)}%`, rarityColor(rarity))

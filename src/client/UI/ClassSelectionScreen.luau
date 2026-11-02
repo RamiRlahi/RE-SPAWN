@@ -910,7 +910,8 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		-- The blond knight hair comes with the knight's armor.
 		tintKnightHair(previewTarget(), if wearsArmor(classId) then classId else "")
 
-		local locked = not ClassData.IsPlayable(classId)
+		-- (locked: an unfinished kit, or a class not unlocked at the Altar yet)
+		local locked = not ClassData.IsOwnedBy(player, classId)
 		local accent = locked and Color3.fromRGB(90, 90, 95) or info.accentColor
 		constellation.Show(classId, accent, locked)
 
@@ -941,7 +942,9 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		descLabel.Text = if locked then "This class is still being forged. Check back soon." else info.description
 		-- Confirm is disabled on locked classes.
 		if confirmLabel then
-			confirmLabel.Text = if locked then "LOCKED" else `CONFIRM {info.name:upper()}`
+			confirmLabel.Text = if not locked then `CONFIRM {info.name:upper()}`
+				elseif ClassData.IsPlayable(classId) then "LOCKED · SUMMON AT THE ALTAR"
+				else "LOCKED"
 			confirmLabel.TextColor3 = if locked then M.ParchmentMuted else M.Parchment
 		end
 
@@ -1180,7 +1183,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 					BackgroundColor3 = accent,
 				}):Play()
 			else
-				local dotLocked = not ClassData.IsPlayable(ClassData.Order[dIdx])
+				local dotLocked = not ClassData.IsOwnedBy(player, ClassData.Order[dIdx])
 				TweenService:Create(dot, UITheme.Tweens.Fast, {
 					Size = UDim2.new(0, 10, 0, 10),
 					BackgroundColor3 = if dotLocked then M.PlaqueDark else M.Plaque,
@@ -1236,7 +1239,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	-- Hook Confirm Button
 	confirmLabel = MenuStyle.PlaqueButton(confirmBtn, "CONFIRM CLASS", { rotation = -2, ribbon = true, ornament = true }, function()
 		local selectedClassId = ClassData.Order[currentIndex]
-		if not ClassData.IsPlayable(selectedClassId) then return end
+		if not ClassData.IsOwnedBy(player, selectedClassId) then return end
 		SoundManager.PlayConfirm()
 		stopPreviewAnimation()
 		callbacks.onConfirmClass(selectedClassId)
@@ -1281,7 +1284,7 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 			navigateCarousel(1)
 		elseif input.KeyCode == Enum.KeyCode.Return or input.KeyCode == Enum.KeyCode.Space or input.KeyCode == Enum.KeyCode.ButtonY or input.KeyCode == Enum.KeyCode.ButtonA then
 			local selectedClassId = ClassData.Order[currentIndex]
-			if not ClassData.IsPlayable(selectedClassId) then return end
+			if not ClassData.IsOwnedBy(player, selectedClassId) then return end
 			SoundManager.PlayConfirm()
 			stopPreviewAnimation()
 			callbacks.onConfirmClass(selectedClassId)
@@ -1308,6 +1311,10 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	-- Initialize to the first (playable) class
 	currentIndex = 1
 	updateCarouselUI(currentIndex, false)
+	-- A class unlocked (or the owned list arriving after load): redraw locks.
+	player:GetAttributeChangedSignal("OwnedClasses"):Connect(function()
+		if container.Visible then updateCarouselUI(currentIndex, false) end
+	end)
 
 	return container
 end

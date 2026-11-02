@@ -1,6 +1,18 @@
 --[[
 	GachaManager.luau
-	Server-authoritative summons, collection and premium currency.
+	Server-authoritative summons, class unlocks, collection and Robux products.
+	The economy's numbers live in GachaConfig; the reasoning is in
+	docs/gacha-economy.md.
+
+	Classes: a profile owns its classes (p.classes). New profiles own the five
+	starters (ClassData.Starter); the rest come from the Altar of Souls (a
+	"class" reward), the Essence Shop or a Robux unlock, and are kept for good.
+	The owned list is mirrored on the player as "OwnedClasses" (",id,id,"),
+	which ClassManager checks before a class can be picked or entered.
+
+	Pull Tickets are the only summoning currency. Kills drop them
+	(OnMobKilled, by tier: GachaConfig.TicketDrops); Robux buys them
+	(TicketProducts). Duplicate classes become Soul Essence.
 
 	Pull (per pull, per banner pity):
 	  1. Mythic is rolled first at its base odds.
@@ -12,8 +24,9 @@
 	     losing that guarantees the featured one on the next Legendary.
 	  5. A 10-pull always contains at least one Rare-or-better.
 
-	Duplicates never waste: characters, VFX variants and armor → Soul Shards,
-	relics → levels (then Relic Dust), cosmetics → Relic Dust.
+	Duplicates never waste: classes → Soul Essence; characters, VFX variants
+	and armor → Soul Shards; relics → levels (then Relic Dust); cosmetics →
+	Relic Dust.
 
 	Around the pulls:
 	  • Daily wish: one free single summon per UTC day ({ free = true }).
@@ -25,9 +38,10 @@
 	  • Summons of GachaConfig.AnnounceRarity or better are announced to
 	    everyone in the server (SummonAnnounce).
 
-	Premium: crystal Developer Products are granted idempotently in
-	ProcessReceipt. Crystal (paid) summons are blocked for players whose
-	PolicyService marks paid random items as restricted; tickets still work.
+	Premium: ticket packs and class unlocks are Developer Products, granted
+	idempotently in ProcessReceipt (saved before PurchaseGranted). Ticket packs
+	can't be bought by players whose PolicyService marks paid random items as
+	restricted; earned tickets and direct (non-random) unlocks still work.
 --]]
 
 local Players = game:GetService("Players")
@@ -47,6 +61,7 @@ local GachaManager = {}
 
 local rng = Random.new()
 local announce: (Player, { any }) -> ()
+local addHistory: (any, any, string) -> ()
 local restricted: { [Player]: boolean } = {}
 local busy: { [Player]: boolean } = {}
 
@@ -54,10 +69,11 @@ local busy: { [Player]: boolean } = {}
 local function pityFor(p: any, bannerId: string)
 	local pity = p.pity[bannerId]
 	if not pity then
-		pity = { sinceEpic = 0, sinceLegendary = 0, guaranteedFeatured = false, starlight = 0 }
+		pity = { sinceEpic = 0, sinceLegendary = 0, sinceMythic = 0, guaranteedFeatured = false, starlight = 0 }
 		p.pity[bannerId] = pity
 	end
 	pity.starlight = pity.starlight or 0
+	pity.sinceMythic = pity.sinceMythic or 0
 	return pity
 end
 
@@ -71,6 +87,7 @@ end
 
 -- ─── Ownership & sets ────────────────────────────────────────────────────────
 local function owns(p: any, r: any): boolean
+	if r.type == "class" then return p.classes[r.classId] == true end
 	if r.type == "character" or r.type == "variant" then return p.collection.characters[r.id] ~= nil end
 	if r.type == "relic" then return p.collection.relics[r.id] ~= nil end
 	if r.type == "cosmetic" or r.type == "armor" or r.type == "wings" or r.type == "mount" then return p.collection.cosmetics[r.id] == true end
@@ -132,23 +149,43 @@ local function refreshRideAttributes(player: Player, p: any)
 	end
 end
 
+-- "OwnedClasses" = ",id,id," (ClassData.IsOwnedBy reads it on both sides).
+local function refreshClassAttribute(player: Player, p: any)
+	local ids = {}
+	for _, classId in ipairs(ClassData.Order) do
+		if p.classes[classId] then table.insert(ids, classId) end
+	end
+	player:SetAttribute("OwnedClasses", "," .. table.concat(ids, ",") .. ",")
+end
+
+local function classReward(classId: string): any
+	for _, r in ipairs(GachaRewards.All) do
+		if r.type == "class" and r.classId == classId then return r end
+	end
+	return nil
+end
+
 local function sync(player: Player)
 	local p = PlayerData.Get(player)
 	if not p then return end
 	refreshVariantAttribute(player)
 	refreshArmorAttributes(player, p)
 	refreshRideAttributes(player, p)
+	refreshClassAttribute(player, p)
 	player:SetAttribute("Tickets", p.currencies.tickets or 0)
-	player:SetAttribute("Crystals", p.currencies.crystals or 0)
 	local setsDone = {}
 	for _, set in ipairs(GachaRewards.Sets) do
 		if p.stats[`set:{set.id}`] then setsDone[set.id] = true end
 	end
 	local products = {}
-	for _, prod in ipairs(GachaConfig.CrystalProducts) do
+	for _, prod in ipairs(GachaConfig.TicketProducts) do
 		if prod.productId and prod.productId > 0 then
-			table.insert(products, { id = prod.id, label = prod.label, crystals = prod.crystals })
+			table.insert(products, { id = prod.id, label = prod.label, tickets = prod.tickets, robux = prod.robux })
 		end
+	end
+	local classProducts = {}
+	for _, prod in ipairs(GachaConfig.ClassProducts) do
+		if prod.productId and prod.productId > 0 then classProducts[prod.classId] = prod.robux end
 	end
 	Network.GetRemoteEvent(Network.Remotes.GachaState):FireClient(player, {
 		currencies = p.currencies,
@@ -166,6 +203,10 @@ local function sync(player: Player)
 		setsDone = setsDone,
 		paidRestricted = restricted[player] == true,
 		products = products,
+		classes = p.classes,
+		classProducts = classProducts,
+		history = p.history,
+		altarPulls = p.stats.altarPulls or 0,
 	})
 end
 GachaManager.Sync = sync
@@ -189,6 +230,7 @@ end
 local function rollRarity(pity: any, bannerId: string): string
 	local odds = GachaConfig.OddsFor(bannerId)
 	local P = GachaConfig.PityFor(bannerId)
+	if P.mythicHard and pity.sinceMythic >= P.mythicHard then return "Mythic" end
 	if rng:NextNumber() * 100 < odds.Mythic then return "Mythic" end
 	if pity.sinceLegendary >= P.legendaryHard then return "Legendary" end
 	local legendary = odds.Legendary
@@ -204,13 +246,14 @@ local function rollRarity(pity: any, bannerId: string): string
 	return "Common"
 end
 
-local function pickReward(banner: any, rarity: string, pity: any): any
+local function pickReward(bannerId: string, banner: any, rarity: string, pity: any): any
 	local list = GachaRewards.InPoolByRarity(banner.pool, rarity)
-	if rarity == "Legendary" and banner.featured then
-		local featured = GachaRewards.Get(banner.featured)
+	local featuredId = GachaConfig.FeaturedFor(bannerId)
+	if featuredId and rarity == (banner.featuredRarity or "Legendary") then
+		local featured = GachaRewards.Get(featuredId)
 		local others = {}
 		for _, r in ipairs(list) do
-			if r.id ~= banner.featured then table.insert(others, r) end
+			if r.id ~= featuredId then table.insert(others, r) end
 		end
 		if featured and (pity.guaranteedFeatured or #others == 0 or rng:NextNumber() < banner.featuredRate) then
 			pity.guaranteedFeatured = false
@@ -232,7 +275,15 @@ end
 -- ─── Granting (duplicates always convert into something useful) ─────────────
 local function grant(p: any, reward: any): (boolean, string)
 	local D = GachaConfig.Duplicates
-	if reward.type == "character" then
+	if reward.type == "class" then
+		if not p.classes[reward.classId] then
+			p.classes[reward.classId] = true
+			return true, "NEW CLASS UNLOCKED"
+		end
+		local essence = D.classEssence[reward.rarity] or 40
+		addCurrency(p, "soulEssence", essence)
+		return false, `+{essence} Soul Essence`
+	elseif reward.type == "character" then
 		local c = p.collection.characters[reward.id]
 		if not c then
 			p.collection.characters[reward.id] = { copies = 1, ascension = 0 }
@@ -301,6 +352,12 @@ local function grant(p: any, reward: any): (boolean, string)
 	return false, ""
 end
 
+-- The last HistoryLength summons (the summon page's History).
+addHistory = function(p: any, reward: any, bannerId: string)
+	table.insert(p.history, { id = reward.id, rarity = reward.rarity, banner = bannerId, time = os.time() })
+	while #p.history > GachaConfig.HistoryLength do table.remove(p.history, 1) end
+end
+
 -- ─── Lobby flex: everyone hears about a Legendary ──────────────────────────
 announce = function(player: Player, results: { any })
 	local top
@@ -325,9 +382,10 @@ local function summon(player: Player, payload: any)
 	local banner = GachaConfig.Banners[bannerId]
 	if not banner then return end
 	local free = payload.free == true
-	local multi = payload.count == 10 and not free
-	local count = multi and GachaConfig.Cost.multi.count or 1
-	local cost = multi and GachaConfig.Cost.multi or GachaConfig.Cost.single
+	local cost = GachaConfig.Cost.single
+	if not free and payload.count == GachaConfig.Cost.multi.count then cost = GachaConfig.Cost.multi end
+	if not free and payload.count == GachaConfig.Cost.big.count then cost = GachaConfig.Cost.big end
+	local count = cost.count
 
 	if free then
 		-- The daily wish: one free single summon a day.
@@ -337,48 +395,61 @@ local function summon(player: Player, payload: any)
 		end
 		p.stats.lastFreeDay = today()
 	elseif not GachaConfig.FREE_SUMMONS then
-		-- Payment (skipped entirely while FREE_SUMMONS is on).
-		local pay = payload.pay == "crystals" and "crystals" or "tickets"
-		if pay == "crystals" and restricted[player] then
-			Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { error = "Crystal summons aren't available in your region. Tickets still work." })
+		-- Payment: Pull Tickets only (skipped entirely while FREE_SUMMONS is on).
+		local price = cost.tickets
+		local have = p.currencies.tickets or 0
+		if have < price then
+			Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { error = `Not enough Pull Tickets ({have}/{price})` })
 			return
 		end
-		local price = cost[pay]
-		if (p.currencies[pay] or 0) < price then
-			Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { error = `Not enough {GachaConfig.Currencies[pay].name}s` })
-			return
-		end
-		p.currencies[pay] -= price
+		p.currencies.tickets = have - price
 	end
 
 	busy[player] = true
 	local pity = pityFor(p, bannerId)
+	local P = GachaConfig.PityFor(bannerId)
+	local spark = GachaConfig.SparkFor(bannerId)
+	-- ×10 / ×25: the last pull is at least this rarity if none was before it.
+	local guarantee = if count == GachaConfig.Cost.big.count then P.bigGuarantee
+		elseif count == GachaConfig.Cost.multi.count then P.multiGuarantee else nil
 	local results = {}
 	local best = "Common"
 	for i = 1, count do
 		pity.sinceEpic += 1
 		pity.sinceLegendary += 1
-		pity.starlight += GachaConfig.Spark.perPull
+		pity.sinceMythic += 1
+		pity.starlight += spark.perPull
 		local rarity = rollRarity(pity, bannerId)
-		local multiGuarantee = GachaConfig.PityFor(bannerId).multiGuarantee
-		-- 10-pull guarantee: the last pull is at least the configured rarity.
-		if multi and i == count then
+		if guarantee and i == count then
 			local gotGuarantee = false
 			for _, r in ipairs(results) do
-				if rarityIndex(r.rarity) >= rarityIndex(multiGuarantee) then gotGuarantee = true end
+				if rarityIndex(r.rarity) >= rarityIndex(guarantee) then gotGuarantee = true end
 			end
-			if not gotGuarantee and rarityIndex(rarity) < rarityIndex(multiGuarantee) then
-				rarity = multiGuarantee
+			if not gotGuarantee and rarityIndex(rarity) < rarityIndex(guarantee) then
+				rarity = guarantee
 			end
 		end
 		if rarityIndex(rarity) >= rarityIndex("Epic") then pity.sinceEpic = 0 end
 		if rarityIndex(rarity) >= rarityIndex("Legendary") then pity.sinceLegendary = 0 end
-		local reward = pickReward(banner, rarity, pity)
+		if rarity == "Mythic" then pity.sinceMythic = 0 end
+		local reward = pickReward(bannerId, banner, rarity, pity)
 		local isNew, note = grant(p, reward)
 		if rarityIndex(reward.rarity) > rarityIndex(best) then best = reward.rarity end
 		table.insert(results, { id = reward.id, rarity = reward.rarity, isNew = isNew, note = note })
+		addHistory(p, reward, bannerId)
 	end
 	p.stats.pulls = (p.stats.pulls or 0) + count
+	if bannerId == GachaConfig.AltarBanner then
+		local before = p.stats.altarPulls or 0
+		p.stats.altarPulls = before + count
+		for _, m in ipairs(GachaConfig.AltarMilestones) do
+			if before < m.at and p.stats.altarPulls >= m.at then
+				addCurrency(p, "soulEssence", m.soulEssence)
+				table.insert(results, { id = "essence_wisp", rarity = "Common", isNew = false,
+					note = `{m.at} SUMMONS: +{m.soulEssence} Soul Essence` })
+			end
+		end
+	end
 	local sets = checkSets(p)
 	PlayerData.MarkDirty(player)
 	sync(player)
@@ -451,7 +522,7 @@ local function action(player: Player, payload: any)
 		local function fail(message: string)
 			Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { error = message })
 		end
-		if p.collection.characters[reward.id] or p.collection.relics[reward.id] or p.collection.cosmetics[reward.id] then
+		if owns(p, reward) then
 			return fail(`You already own {reward.name}.`)
 		end
 		if (p.currencies[payload.pay] or 0) < price then
@@ -469,17 +540,19 @@ local function action(player: Player, payload: any)
 			Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { error = message })
 		end
 		if not banner or not reward or busy[player] then return end
+		local spark = GachaConfig.SparkFor(bannerId)
 		if not table.find(GachaRewards.Pool(banner.pool), reward.id) or reward.type == "material"
-			or rarityIndex(reward.rarity) < rarityIndex(GachaConfig.Spark.minRarity) then
+			or rarityIndex(reward.rarity) < rarityIndex(spark.minRarity) then
 			return fail("That can't be bought with Starlight.")
 		end
 		if owns(p, reward) then return fail(`You already own {reward.name}.`) end
 		local pity = pityFor(p, bannerId)
-		if pity.starlight < GachaConfig.Spark.cost then
-			return fail(`Not enough Starlight ({pity.starlight}/{GachaConfig.Spark.cost}).`)
+		if pity.starlight < spark.cost then
+			return fail(`Not enough Starlight ({pity.starlight}/{spark.cost}).`)
 		end
-		pity.starlight -= GachaConfig.Spark.cost
+		pity.starlight -= spark.cost
 		local isNew, note = grant(p, reward)
+		addHistory(p, reward, bannerId)
 		local sets = checkSets(p)
 		PlayerData.MarkDirty(player)
 		sync(player)
@@ -487,12 +560,45 @@ local function action(player: Player, payload: any)
 		Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { results = results, best = reward.rarity, sets = sets, spark = true })
 		announce(player, results)
 		return
-	elseif kind == "buyCrystals" and typeof(payload.id) == "string" then
-		for _, prod in ipairs(GachaConfig.CrystalProducts) do
+	elseif kind == "buyTickets" and typeof(payload.id) == "string" then
+		-- (tickets only buy random rewards: not where those are restricted)
+		if restricted[player] then
+			Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { error = "Pull Ticket packs aren't available in your region. Tickets from kills still work." })
+			return
+		end
+		for _, prod in ipairs(GachaConfig.TicketProducts) do
 			if prod.id == payload.id and prod.productId > 0 then
 				MarketplaceService:PromptProductPurchase(player, prod.productId)
 			end
 		end
+		return
+	elseif (kind == "unlockClass" or kind == "buyClassRobux") and typeof(payload.classId) == "string" then
+		-- Direct (non-random) unlocks: Soul Essence by rarity, or Robux.
+		local reward = classReward(payload.classId)
+		local function fail(message: string)
+			Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { error = message })
+		end
+		if not reward then return end
+		if p.classes[reward.classId] then return fail(`You already own the {reward.name}.`) end
+		if kind == "buyClassRobux" then
+			for _, prod in ipairs(GachaConfig.ClassProducts) do
+				if prod.classId == reward.classId and prod.productId > 0 then
+					MarketplaceService:PromptProductPurchase(player, prod.productId)
+				end
+			end
+			return
+		end
+		local price = GachaConfig.ClassEssencePrice[reward.rarity]
+		if not price then return end
+		if (p.currencies.soulEssence or 0) < price then
+			return fail(`Not enough Soul Essence ({p.currencies.soulEssence or 0}/{price}).`)
+		end
+		p.currencies.soulEssence -= price
+		local isNew, note = grant(p, reward)
+		local sets = checkSets(p)
+		PlayerData.MarkDirty(player)
+		sync(player)
+		Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { results = { { id = reward.id, rarity = reward.rarity, isNew = isNew, note = note } }, best = reward.rarity, sets = sets, spark = true })
 		return
 	end
 	PlayerData.MarkDirty(player)
@@ -525,6 +631,14 @@ function GachaManager.GetEffects(player: Player, classId: string): { any }
 	return out
 end
 
+-- Whether the player owns `classId` (ClassManager's gate).
+function GachaManager.OwnsClass(player: Player, classId: string): boolean
+	local p = PlayerData.Get(player)
+	-- (still loading: the starters, which every profile owns)
+	if not p then return table.find(ClassData.Starter, classId) ~= nil end
+	return p.classes[classId] == true
+end
+
 -- Equipped VFX variant for a class (nil if none, or no longer owned).
 function GachaManager.GetVariant(player: Player, classId: string): string?
 	local p = PlayerData.Get(player)
@@ -546,18 +660,26 @@ function GachaManager.AwardTickets(player: Player, amount: number, _reason: stri
 	end)
 end
 
-function GachaManager.OnMobKilled(player: Player, isBoss: boolean)
+-- A kill `player` gets credit for: one independent roll at the tier's odds
+-- ("normal" | "elite" | "miniboss" | "boss"; MobManager), collected straight
+-- away. The roll is the server's own; nothing from the client is involved.
+local recentDrops: { [Player]: { number } } = {}
+function GachaManager.OnMobKilled(player: Player, tier: string)
 	local p = PlayerData.Get(player)
 	if not p then return end
-	if isBoss then
-		GachaManager.AwardTickets(player, GachaConfig.TicketRewards.bossKill, "boss")
-		return
-	end
-	p.stats.ticketKills = (p.stats.ticketKills or 0) + 1
-	if p.stats.ticketKills >= GachaConfig.TicketRewards.killsPerTicket then
-		p.stats.ticketKills = 0
-		GachaManager.AwardTickets(player, 1, "kills")
-	end
+	local D = GachaConfig.TicketDrops
+	local chance = D[tier]
+	if typeof(chance) ~= "number" or rng:NextNumber() >= chance then return end
+	-- (the anti-farm cap: drops in the last hour)
+	local now = os.clock()
+	local list = recentDrops[player] or {}
+	recentDrops[player] = list
+	while list[1] and now - list[1] > 3600 do table.remove(list, 1) end
+	if #list >= D.hourlyCap then return end
+	table.insert(list, now)
+	p.stats.ticketDrops = (p.stats.ticketDrops or 0) + 1
+	GachaManager.AwardTickets(player, 1, tier)
+	Network.GetRemoteEvent(Network.Remotes.TicketDrop):FireClient(player, { amount = 1, total = p.currencies.tickets or 0, tier = tier })
 end
 
 -- ─── Premium purchases ──────────────────────────────────────────────────────
@@ -567,16 +689,33 @@ local function processReceipt(info: any): Enum.ProductPurchaseDecision
 	local p = PlayerData.Await(player, 10)
 	if not p then return Enum.ProductPurchaseDecision.NotProcessedYet end
 	if p.purchases[info.PurchaseId] then return Enum.ProductPurchaseDecision.PurchaseGranted end
-	for _, prod in ipairs(GachaConfig.CrystalProducts) do
-		if prod.productId == info.ProductId then
-			addCurrency(p, "crystals", prod.crystals)
-			p.purchases[info.PurchaseId] = true
-			PlayerData.Save(player) -- persist before confirming the purchase
-			sync(player)
-			return Enum.ProductPurchaseDecision.PurchaseGranted
+	local granted = false
+	for _, prod in ipairs(GachaConfig.TicketProducts) do
+		if prod.productId > 0 and prod.productId == info.ProductId then
+			addCurrency(p, "tickets", prod.tickets)
+			granted = true
 		end
 	end
-	return Enum.ProductPurchaseDecision.NotProcessedYet
+	for _, prod in ipairs(GachaConfig.ClassProducts) do
+		local reward = classReward(prod.classId)
+		if not granted and prod.productId > 0 and prod.productId == info.ProductId and reward then
+			-- (already owned, e.g. pulled while the prompt was open: its Essence)
+			grant(p, reward)
+			addHistory(p, reward, "robux")
+			checkSets(p)
+			granted = true
+		end
+	end
+	if not granted then return Enum.ProductPurchaseDecision.NotProcessedYet end
+	p.purchases[info.PurchaseId] = true
+	-- Persist before confirming; if the save fails Roblox retries the receipt
+	-- later, and the PurchaseId above keeps that from granting twice.
+	if not PlayerData.Save(player) then
+		p.purchases[info.PurchaseId] = nil
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	sync(player)
+	return Enum.ProductPurchaseDecision.PurchaseGranted
 end
 
 function GachaManager.Init()
@@ -593,6 +732,7 @@ function GachaManager.Init()
 
 	PlayerData.OnLoaded(function(player, p)
 		-- First-time starting balances.
+		local newProfile = not p.stats.gachaInit
 		if not p.stats.gachaInit then
 			p.stats.gachaInit = 1
 			for k, v in pairs(GachaConfig.StartingCurrencies) do addCurrency(p, k, v) end
@@ -614,6 +754,27 @@ function GachaManager.Init()
 			if not GachaRewards.Get(p.equipped.relics[i]) then table.remove(p.equipped.relics, i); cleaned = true end
 		end
 		if p.currencies.ascension then p.currencies.ascension = nil; cleaned = true end
+		-- Crystals are gone: old balances become Pull Tickets (rounded up).
+		if (p.currencies.crystals or 0) > 0 then
+			addCurrency(p, "tickets", math.ceil(p.currencies.crystals / GachaConfig.CrystalsPerTicket))
+		end
+		if p.currencies.crystals then p.currencies.crystals = nil; cleaned = true end
+		-- Classes: new profiles own the starters. Profiles from before classes
+		-- were locked (they'd been through the gacha set-up) also keep every
+		-- class they had invested in: an Awakened character, or talents.
+		if not p.stats.classInit then
+			p.stats.classInit = 1
+			for _, classId in ipairs(ClassData.Starter) do p.classes[classId] = true end
+			if p.stats.gachaInit and not newProfile then
+				for _, classId in ipairs(ClassData.Order) do
+					local invested = p.collection.characters[`char_{classId}`] ~= nil
+					for _ in pairs(p.unlocked[classId] or {}) do invested = true end
+					if invested and ClassData.IsPlayable(classId) then p.classes[classId] = true end
+				end
+				addCurrency(p, "tickets", GachaConfig.LockGiftTickets)
+			end
+			cleaned = true
+		end
 		-- (sets already complete from before sets existed pay out now)
 		if #checkSets(p) > 0 then cleaned = true end
 		if cleaned then PlayerData.MarkDirty(player) end
@@ -627,6 +788,7 @@ function GachaManager.Init()
 	Players.PlayerRemoving:Connect(function(player)
 		restricted[player] = nil
 		busy[player] = nil
+		recentDrops[player] = nil
 	end)
 	print("[GachaManager] initialized.")
 end

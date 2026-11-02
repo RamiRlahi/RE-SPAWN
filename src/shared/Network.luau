@@ -36,10 +36,11 @@ Network.Remotes = {
 	ChooseTome          = "ChooseTome",      -- client → server: tome id
 	RerollTomes         = "RerollTomes",     -- client → server: reroll the current tome choices
 	GachaState          = "GachaState",      -- server → client: currencies, collection, equipped, pity, policy
-	Summon              = "Summon",          -- client → server: { banner, count = 1|10, pay = "tickets"|"crystals" }
+	Summon              = "Summon",          -- client → server: { banner, count = 1|10|25 } (Pull Tickets) | { banner, free = true }
 	SummonResult        = "SummonResult",    -- server → client: { results = { {id, rarity, isNew, note} }, best } | { error }
 	GachaAction         = "GachaAction",     -- client → server: equipRelic / unequipRelic / equipVariant / refineShards / buyCrystals
 	RequestGacha        = "RequestGacha",    -- client → server: ask for a GachaState sync
+	TicketDrop          = "TicketDrop",      -- server → client: { amount, total, tier } a Pull Ticket dropped from a kill (auto-collected)
 	SummonAnnounce      = "SummonAnnounce",  -- server → all clients: { userId, name, id, rarity } someone wished a Legendary or better
 	TalentState         = "TalentState",     -- server → client: { souls, unlocked = { [classId] = { [nodeId] = true } } }
 	UnlockTalent        = "UnlockTalent",    -- client → server: { classId, nodeId }
@@ -62,6 +63,7 @@ Network.Remotes = {
 	MartialFX           = "MartialFX",       -- server -> clients: the Martial Artist's strikes, Focus Strike, Electric Uppercut, Ground Slam, Crimson Hadouken, Qi Charge
 	MartialInput        = "MartialInput",    -- client -> server: { kind = "release", held, dir } the Focus Strike's key let go
 	SummonerFX          = "SummonerFX",        -- server → clients: the Summoner's beasts: arrivals, attacks, signatures, the Skyrockorn, Bond Bolts, Focus
+	DeathKnightFX       = "DeathKnightFX",   -- server → clients: the Death Knight's swings, Blackwake, Doomfall, Grave Snatch, King of the Grave, Dread
 	RogueFX             = "RogueFX",         -- server → clients: the Rogue's dagger, Shadow Step, dash, invisibility, Shadow Realm, marks
 	BossFX              = "BossFX",          -- server → run's clients: { kind = "signature"|"judgement", ... } boss signature moves, the Fallen Angel's pillars
 	RicochetFX          = "RicochetFX",      -- server → all clients: { from, to, attacker } one ricochet hop

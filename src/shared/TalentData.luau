@@ -446,6 +446,38 @@ TalentData.berserker = {
 	},
 }
 
+-- Death Knight: the Graveblade planted point-down, a chain hanging off
+-- either end of its guard, the crown of spikes over it.
+TalentData.death_knight = {
+	name = "The Graveborn Crown",
+	lines = {
+		{ 0.5, 0.94, 0.43, 0.82 }, { 0.5, 0.94, 0.57, 0.82 },   -- point (down)
+		{ 0.43, 0.82, 0.43, 0.4 }, { 0.57, 0.82, 0.57, 0.4 },   -- blade
+		{ 0.2, 0.4, 0.8, 0.4 },                                 -- guard
+		{ 0.5, 0.4, 0.5, 0.2 },                                 -- grip
+		{ 0.36, 0.2, 0.5, 0.06 }, { 0.5, 0.06, 0.64, 0.2 }, { 0.36, 0.2, 0.64, 0.2 }, -- the crown
+		{ 0.2, 0.4, 0.14, 0.64 }, { 0.8, 0.4, 0.86, 0.64 },     -- the chains
+	},
+	nodes = {
+		{ id = "dread", name = "Dread", glyph = "DR", x = 0.5, y = 0.4, cost = 1,
+			description = "+0.06x Damage", effect = { stat = "damage", operation = "multiplier", value = 0.06 } },
+		{ id = "blackened_plate", name = "Blackened Plate", glyph = "BP", x = 0.5, y = 0.2, cost = 2, requires = "dread",
+			description = "+50 Max HP", effect = { stat = "maxHealth", operation = "add", value = 50 } },
+		{ id = "iron_chains", name = "Iron Chains", glyph = "IC", x = 0.2, y = 0.4, cost = 2, requires = "dread",
+			description = "+15% Knockback", effect = { stat = "knockback", operation = "percent", value = 0.15 } },
+		{ id = "heavy_hand", name = "Heavy Hand", glyph = "HH", x = 0.8, y = 0.4, cost = 2, requires = "dread",
+			description = "+10% Attack Speed", effect = { stat = "basicAttackSpeed", operation = "percent", value = 0.1 } },
+		{ id = "black_mist", name = "Black Mist", glyph = "BM", x = 0.5, y = 0.64, cost = 3, requires = "dread",
+			description = "+10% Ability Size", effect = { stat = "size", operation = "percent", value = 0.1 } },
+		{ id = "grave_hook", name = "Grave Hook", glyph = "GH", x = 0.14, y = 0.64, cost = 4, requires = "iron_chains",
+			description = "-10% Ability Cooldowns", effect = { stat = "abilityCooldown", operation = "percent", value = 0.1 } },
+		{ id = "soul_harvest", name = "Soul Harvest", glyph = "SH", x = 0.86, y = 0.64, cost = 4, requires = "heavy_hand",
+			description = "+5% Lifesteal", effect = { stat = "lifesteal", operation = "percent", value = 0.05 } },
+		{ id = "eternal_rest", name = "Eternal Rest", glyph = "ER", x = 0.5, y = 0.06, cost = 6, requires = "blackened_plate",
+			description = "+15% Ability Duration", effect = { stat = "abilityDuration", operation = "percent", value = 0.15 } },
+	},
+}
+
 local TalentModule = {}
 
 function TalentModule.Get(classId: string): Constellation?

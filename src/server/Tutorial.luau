@@ -15,7 +15,9 @@
 	    picker's TUTORIAL button.
 	  • The first room has straw training dummies (tag "TrainingDummy") to try
 	    your attack and skills on: they take every hit (damage numbers and
-	    all), sway, never fall and heal back up when left alone.
+	    all), are knocked about and hauled off by skills like any mob, rock
+	    back upright, never fall and heal back up when left alone (and go
+	    back to their spot if knocked far off it).
 	  • Popups (TutorialStep { step, room, of }): "Start" (the controls) as
 	    they land, then each room's kind as the party walks into it, and
 	    "<kind>:clear" once a fight room is cleared.
@@ -32,7 +34,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -116,13 +117,16 @@ end
 
 -- ── Straw dummies ───────────────────────────────────────────────────────────
 -- A post in the floor, a crossbar for arms, a stuffed sack of a body with a
--- target painted on, a burlap head. A target like any mob (a Humanoid), but
--- anchored (no knockback, no stagger) and never beaten.
+-- target painted on, a burlap head. A target like any mob (a Humanoid): one
+-- loose body welded to its root, so knockback and displacement move it, kept
+-- upright by a soft AlignOrientation (a hit rocks it), never beaten.
 local STRAW = Color3.fromRGB(214, 178, 96)
 local BURLAP = Color3.fromRGB(176, 140, 92)
 local WOOD = Color3.fromRGB(96, 66, 40)
 local DUMMY_HP = 1e6
 local HEAL_AFTER = 2 -- seconds untouched, then whole again
+local HOME_AFTER = 4 -- seconds untouched, then back to its spot if knocked far off it
+local HOME_DIST = 25
 
 local function dpart(model: Model, props: { [string]: any }): BasePart
 	local p = Instance.new(props.ClassName or "Part") :: BasePart
@@ -172,11 +176,38 @@ local function buildDummy(base: CFrame, parent: Instance): Model
 	hum.MaxHealth = DUMMY_HP
 	hum.Health = DUMMY_HP
 	hum.WalkSpeed = 0
+	hum.PlatformStand = true -- (no legs to stand on: plain physics, held upright below)
 	hum.Parent = m
-	-- a hit: a sway back and forth, and whole again once left alone
+	-- One loose body: everything welded to the root, the stand at its foot
+	-- heavy and grippy (it rocks on it rather than sliding off).
+	for _, p in ipairs(m:GetChildren()) do
+		if p:IsA("BasePart") and p ~= root then
+			local w = Instance.new("WeldConstraint")
+			w.Part0, w.Part1 = root, p
+			w.Parent = p
+		end
+	end
+	local stand = m:FindFirstChild("Stand") :: BasePart
+	stand.CustomPhysicalProperties = PhysicalProperties.new(6, 0.9, 0, 1, 1)
+	local up = Instance.new("Attachment")
+	up.Name = "Upright"
+	up.Parent = root
+	local ao = Instance.new("AlignOrientation")
+	ao.Mode = Enum.OrientationAlignmentMode.OneAttachment
+	ao.Attachment0 = up
+	ao.AlignType = Enum.AlignType.PrimaryAxisParallel
+	ao.PrimaryAxis = Vector3.yAxis
+	up.Axis = Vector3.yAxis
+	up.SecondaryAxis = Vector3.xAxis
+	ao.Responsiveness = 10
+	ao.MaxTorque = 6e4
+	ao.Parent = root
+	for _, p in ipairs(m:GetChildren()) do
+		if p:IsA("BasePart") then p.Anchored = false end
+	end
+	-- whole again once left alone (and home, if knocked far off its spot)
 	local rest = m:GetPivot()
 	local lastHit = 0
-	local swaying = false
 	hum.HealthChanged:Connect(function(h: number)
 		if h >= hum.MaxHealth then return end
 		lastHit = os.clock()
@@ -184,20 +215,18 @@ local function buildDummy(base: CFrame, parent: Instance): Model
 		task.delay(HEAL_AFTER, function()
 			if lastHit == hitAt and hum.Parent then hum.Health = hum.MaxHealth end
 		end)
-		if swaying then return end
-		swaying = true
-		task.spawn(function()
-			local t0 = os.clock()
-			while m.Parent and os.clock() - t0 < 0.6 do
-				local k = (os.clock() - t0) / 0.6
-				m:PivotTo(rest * CFrame.Angles(math.sin(k * math.pi * 3) * (1 - k) * math.rad(14), 0, 0))
-				RunService.Heartbeat:Wait()
+		task.delay(HOME_AFTER, function()
+			if lastHit ~= hitAt or not root.Parent or root.Anchored then return end
+			local off = root.Position - (rest * CFrame.new(0, 3.5, 0)).Position
+			if off.Magnitude > HOME_DIST then
+				m:PivotTo(rest)
+				root.AssemblyLinearVelocity = Vector3.zero
+				root.AssemblyAngularVelocity = Vector3.zero
 			end
-			if m.Parent then m:PivotTo(rest) end
-			swaying = false
 		end)
 	end)
 	m.Parent = parent
+	pcall(function() root:SetNetworkOwner(nil) end)
 	CollectionService:AddTag(m, "TrainingDummy")
 	return m
 end
