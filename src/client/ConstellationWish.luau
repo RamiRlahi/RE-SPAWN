@@ -188,8 +188,14 @@ local function tween(obj: Instance, t: number, props: { [string]: any }, style: 
 	return tw
 end
 
+type AudioSession = { enabled: boolean, sounds: { Sound }, ducked: { [Sound]: number } }
+local activeAudio: AudioSession? = nil
+
 local function sfx(key: string, volume: number, pitch: number?)
-	ClassFX.Sound2D(key, volume, pitch)
+	local session = activeAudio
+	if not session or not session.enabled then return end
+	local sound = ClassFX.Sound2D(key, volume, pitch)
+	if sound then table.insert(session.sounds, sound) end
 end
 
 local function rarityIndex(r: string): number
@@ -223,6 +229,8 @@ end
 
 -- ─── The wish ───────────────────────────────────────────────────────────────
 function ConstellationWish.Play(best: any, all: { any }?, onDone: (() -> ())?)
+	local audioSession: AudioSession = { enabled = true, sounds = {}, ducked = {} }
+	activeAudio = audioSession
 	local camera = Workspace.CurrentCamera
 	local pulls = if all and #all > 0 then all else { best }
 	local bestIndex = rarityIndex(best.rarity)
@@ -252,6 +260,7 @@ function ConstellationWish.Play(best: any, all: { any }?, onDone: (() -> ())?)
 			end
 		end
 	end
+	audioSession.ducked = ducked
 
 	-- ── Overlay ──
 	local gui = Instance.new("ScreenGui")
@@ -940,10 +949,26 @@ function ConstellationWish.Play(best: any, all: { any }?, onDone: (() -> ())?)
 	for s, vol in pairs(ducked) do
 		if s.Parent then tween(s, 0.8, { Volume = vol }) end
 	end
+	if activeAudio == audioSession then activeAudio = nil end
 	for _, l in ipairs({ nameLabel, rarityLabel, continueLabel }) do l.Visible = false end
 	tween(black, 0.4, { BackgroundTransparency = 1 })
 	Debris:AddItem(gui, 0.5)
 	if onDone then onDone() end
+end
+
+function ConstellationWish.StopAudio()
+	local session = activeAudio
+	if not session then return end
+	session.enabled = false
+	activeAudio = nil
+	for _, sound in ipairs(session.sounds) do
+		if sound.Parent then sound:Stop(); sound:Destroy() end
+	end
+	table.clear(session.sounds)
+	for sound, volume in pairs(session.ducked) do
+		if sound.Parent then sound.Volume = volume end
+	end
+	table.clear(session.ducked)
 end
 
 return ConstellationWish

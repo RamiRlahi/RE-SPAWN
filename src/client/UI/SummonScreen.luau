@@ -1023,6 +1023,7 @@ end
 
 function SummonScreen.Close()
 	isOpen = false
+	ConstellationWish.StopAudio()
 	if areaCheckThread and areaCheckThread ~= coroutine.running() then
 		task.cancel(areaCheckThread)
 		areaCheckThread = nil

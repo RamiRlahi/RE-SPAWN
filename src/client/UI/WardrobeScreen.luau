@@ -113,12 +113,6 @@ function WardrobeScreen.Open(kind: string, state: any, act: (any) -> ())
 		{ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromOffset(W / 2, 70), Size = UDim2.fromOffset(1100, 84) })
 	new("UIGradient", { Color = ColorSequence.new(S.GOLD_L, S.GOLD), Rotation = 90 }, title)
 	ornament(stage, 166, 600)
-	text(stage, if isArmor then "DRESS EACH CLASS" elseif isWings then "CHOOSE YOUR WINGS" else "CHOOSE YOUR MOUNT", 28, S.GOLD_L,
-		{ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromOffset(W / 2, 184), Size = UDim2.fromOffset(700, 32) })
-	local note = text(stage, if isArmor then "Each class wears its own outfit (found in summons). Without it: your own avatar."
-		elseif isWings then "Worn everywhere." else "Press B to ride: faster than running. A hit throws you off.", 20,
-		Color3.fromRGB(200, 200, 220), { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromOffset(W / 2, 222), Size = UDim2.fromOffset(900, 24) })
-	note.TextTransparency = 0.2
 	-- the tabs: the Wardrobe's three sections
 	for i, tab in ipairs({ { "armor", "ARMOR" }, { "wings", "WINGS" }, { "mount", "MOUNTS" } }) do
 		local on = tab[1] == kind
@@ -168,14 +162,14 @@ function WardrobeScreen.Open(kind: string, state: any, act: (any) -> ())
 			local col = rarityColor(r.rarity)
 			local bright = col:Lerp(Color3.new(1, 1, 1), 0.35)
 			local x0 = W / 2 - total / 2 + k * (CARD_W + GAP)
-			local card = new("TextButton", { Position = UDim2.fromOffset(x0, 262), Size = UDim2.fromOffset(CARD_W, 520), BackgroundTransparency = 1,
+			local card = new("TextButton", { Position = UDim2.fromOffset(x0, 230), Size = UDim2.fromOffset(CARD_W, 552), BackgroundTransparency = 1,
 				Text = "", AutoButtonColor = false, ZIndex = 42 }, row)
 			local sc = new("UIScale", {}, card)
 			if mine then
 				glow(card, UDim2.fromOffset(CARD_W / 2, 330), UDim2.fromOffset(CARD_W * 0.6, 320), col, 0.5)
 			end
 			-- the model on its pedestal
-			local vp = new("ViewportFrame", { Size = UDim2.fromOffset(CARD_W, 340), BackgroundTransparency = 1,
+			local vp = new("ViewportFrame", { Size = UDim2.fromOffset(CARD_W, 420), BackgroundTransparency = 1,
 				Ambient = Color3.fromRGB(150, 150, 170), LightColor = Color3.new(1, 1, 1), LightDirection = Vector3.new(-0.6, -1, -0.8), ZIndex = 43 }, card)
 			local world = new("WorldModel", {}, vp)
 			local cam = new("Camera", { FieldOfView = 32 }, vp)
@@ -212,7 +206,7 @@ function WardrobeScreen.Open(kind: string, state: any, act: (any) -> ())
 				table.insert(shown, { rig = rig, cam = cam, owned = mine })
 			end
 			-- the card
-			local plate = new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromOffset(CARD_W / 2, 350), Size = UDim2.fromOffset(CARD_W - 10, 150),
+			local plate = new("Frame", { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromOffset(CARD_W / 2, 420), Size = UDim2.fromOffset(CARD_W - 10, 108),
 				BackgroundColor3 = S.PANEL, BackgroundTransparency = 0.08, ZIndex = 43 }, card)
 			new("UICorner", { CornerRadius = UDim.new(0, 4) }, plate)
 			local stroke = new("UIStroke", { Color = if mine then col else Color3.fromRGB(80, 80, 95), Thickness = if worn then 4 else 2,
@@ -221,20 +215,22 @@ function WardrobeScreen.Open(kind: string, state: any, act: (any) -> ())
 				{ Position = UDim2.fromOffset(8, 12), Size = UDim2.new(1, -16, 0, 26), TextScaled = true, ZIndex = 45 })
 			new("UITextSizeConstraint", { MaxTextSize = 22, MinTextSize = 12 }, nameL)
 			local cls = isArmor and ClassData.GetClass(r.classId)
-			text(plate, (if cls then string.upper(cls.name) .. "  ·  " else "") .. string.upper(r.rarity), 18, col,
-				{ Position = UDim2.fromOffset(0, 46), Size = UDim2.new(1, 0, 0, 22), ZIndex = 45 })
-			local status = if worn then (if kind == "mount" then "RIDING" else "WEARING") elseif mine then "EQUIP" else "NOT OWNED"
-			local statusL = text(plate, status, 20, if worn then S.GOLD_L elseif mine then Color3.new(1, 1, 1) else Color3.fromRGB(120, 120, 135),
-				{ Position = UDim2.fromOffset(0, 96), Size = UDim2.new(1, 0, 0, 24), ZIndex = 45 })
+			if cls then
+				text(plate, string.upper(cls.name), 14, col,
+					{ Position = UDim2.fromOffset(0, 42), Size = UDim2.new(1, 0, 0, 18), ZIndex = 45 })
+			end
+			local status = if worn then "◆" elseif mine then "◇" else "×"
+			local statusL = text(plate, status, 22, if worn then S.GOLD_L elseif mine then Color3.new(1, 1, 1) else Color3.fromRGB(120, 120, 135),
+				{ Position = UDim2.new(0, 0, 1, -34), Size = UDim2.new(1, 0, 0, 24), ZIndex = 45 })
 			if worn then
-				diamond(plate, UDim2.new(0.5, -70, 0, 108), 10, S.GOLD_L)
-				diamond(plate, UDim2.new(0.5, 70, 0, 108), 10, S.GOLD_L)
+				diamond(plate, UDim2.new(0.5, -38, 1, -23), 7, S.GOLD_L)
+				diamond(plate, UDim2.new(0.5, 38, 1, -23), 7, S.GOLD_L)
 			end
 			if mine then
 				card.MouseEnter:Connect(function()
 					TweenService:Create(sc, TweenInfo.new(0.15), { Scale = 1.05 }):Play()
 					stroke.Color = bright
-					statusL.Text = if worn then "TAKE OFF" elseif kind == "mount" then "RIDE" else "WEAR"
+					statusL.Text = if worn then "−" elseif kind == "mount" then "▶" else "+"
 				end)
 				card.MouseLeave:Connect(function()
 					TweenService:Create(sc, TweenInfo.new(0.15), { Scale = 1 }):Play()
