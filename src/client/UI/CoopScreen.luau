@@ -90,7 +90,7 @@ local function inviteFriend()
 		return SocialService:CanSendGameInviteAsync(player)
 	end)
 	if not ok or not canSend then
-		flash("Friend invites aren't available here — they work in the published game.")
+		flash("Invites only work in the published game.")
 		return
 	end
 	local options = Instance.new("ExperienceInviteOptions")
@@ -230,7 +230,7 @@ local function build(): ScreenGui
 	MenuStyle.Label(panel, "CO-OP PARTY", 32, M.BrassLight, { Size = UDim2.new(1, 0, 0, 40), Position = UDim2.fromOffset(0, 16),
 		TextStrokeColor3 = Color3.fromRGB(36, 8, 3), TextStrokeTransparency = 0.1 })
 	MenuStyle.Rule(panel, 60, 0.4)
-	MenuStyle.Label(panel, "Everyone in your party shares all XP earned in the dungeon.", 15, M.Parchment,
+	MenuStyle.Label(panel, "Your party shares XP.", 15, M.Parchment,
 		{ Size = UDim2.new(1, 0, 0, 20), Position = UDim2.fromOffset(0, 74) })
 
 	local slots = Instance.new("Frame")

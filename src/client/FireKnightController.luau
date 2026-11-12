@@ -81,6 +81,10 @@ local deps: Deps
 local localStep = 0
 local lastSwing = 0
 local busyUntil = 0
+-- (a dash cuts the move short: free to cast again at once)
+(require(script.Parent:WaitForChild("DashController")) :: any).OnCancel(function(c: Model)
+	if c == game:GetService("Players").LocalPlayer.Character then busyUntil = 0 end
+end)
 local rootToken = 0
 local rng = Random.new()
 
@@ -1277,7 +1281,17 @@ end
 -- mobs and effects; else on the take-off's floor height.
 local cursorParams = RaycastParams.new()
 cursorParams.FilterType = Enum.RaycastFilterType.Exclude
+local cursorGroundRaw: (number) -> Vector3
+-- (never behind you on the classic camera when you look up: AimInput.Ahead)
 local function cursorGround(floorY: number): Vector3
+	local p = cursorGroundRaw(floorY)
+	local char = Players.LocalPlayer.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root then return p end
+	local a = AimInput.Ahead(root.Position, p)
+	return Vector3.new(a.X, p.Y, a.Z)
+end
+cursorGroundRaw = function(floorY: number): Vector3
 	local cam = Workspace.CurrentCamera
 	local m = AimInput.ScreenPoint() -- (the mouse, or a controller's aim)
 	local ray = cam:ViewportPointToRay(m.X, m.Y)

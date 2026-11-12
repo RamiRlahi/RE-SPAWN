@@ -85,7 +85,13 @@ local PLANT = 0.8
 -- plus rz toward the other side (right arm -rz, left arm +rz); ry on a
 -- lowered arm only rolls it about its own length (turning a held blade).
 type Pose = { [string]: { number } }
-type Stage = { dur: number, pose: Pose, style: Enum.EasingStyle?, wobble: ((t: number) -> Pose)? }
+-- `release` (0-1): how far the arms and legs are handed back to the animation
+-- playing under the pose (an absolute move), eased in over the stage: a walk
+-- track can carry the limbs while the pose still carries the body. `keep`:
+-- limbs the pose holds on to anyway (an arm with a sword in it).
+type Stage = { dur: number, pose: Pose, style: Enum.EasingStyle?, wobble: ((t: number) -> Pose)?, release: number?,
+	keep: { [string]: boolean }? }
+local LIMBS = { RS = true, LS = true, RH = true, LH = true, RE = true, LE = true, RK = true, LK = true, RW = true, LW = true }
 type Vec = { number }
 
 local ZERO: Vec = { 0, 0, 0, 0, 0, 0 }
@@ -165,6 +171,8 @@ type State = {
 	curveVel: { [string]: Vec },
 	seq: Seq?,
 	weight: number,
+	release: number?,
+	keep: { [string]: boolean }?,
 	upper: { [Motor6D]: boolean }, -- the joints a move takes over from the animation
 	rate: number, -- playback speed (hit-stop)
 	rateUntil: number?,
@@ -302,7 +310,12 @@ local function step()
 				w = 1 - e
 			end
 			S.weight = w
+			local prevRel = if idx > 1 then seq.stages[idx - 1].release or 0 else 0
+			S.release = prevRel + ((st.release or 0) - prevRel) * e
+			S.keep = st.keep
 		else
+			S.release = 0
+			S.keep = nil
 			for key in pairs(S.motors) do
 				S.curve[key], S.curveVel[key] = ZERO, ZERO
 			end
@@ -352,8 +365,16 @@ local function step()
 			combined[m.motor] = (combined[m.motor] or CFrame.identity) * local_
 		end
 		if seq and seq.absolute then
+			local rel = S.release or 0
+			local freed: { [Motor6D]: boolean } = {}
+			if rel > 0 then
+				for key in pairs(LIMBS) do
+					local m = S.motors[key]
+					if m and not (S.keep and S.keep[key]) then freed[m.motor] = true end
+				end
+			end
 			for motor, cf in pairs(combined) do
-				motor.Transform = motor.Transform:Lerp(cf, w)
+				motor.Transform = motor.Transform:Lerp(cf, if freed[motor] then w * (1 - rel) else w)
 			end
 		else
 			for motor, cf in pairs(combined) do
@@ -906,6 +927,10 @@ local SCEPTER_POSE: Pose = { W = { 2, 0, 0 }, N = { 4, 0, 0 }, RS = { 60, 0, -40
 local function rangerAim(yaw: number): Pose
 	local twist = -62 + yaw * 0.6
 	local p = figure(-10, twist, 30, 30, { 95, 52 + yaw, 0 }, { 92, yaw - 4, 0 }, 4)
+	-- the drawing hand at her chin, in front of her: the right arm raised and
+	-- turned in across the chest in the torso's own frame (aimed in the
+	-- world, side on, it went back into her chest)
+	p.RS = { 118, 0, -52 }
 	p.N = { 8, (yaw - twist) * 0.95, 0 }
 	return p
 end
@@ -1253,6 +1278,107 @@ PREVIEWS.berserker = function(ctx: PreviewCtx): Preview
 		end,
 	}
 end
+
+-- ── Death Knight ────────────────────────────────────────────────────────────
+-- He sits slumped on a black stone throne, head bowed, the maul leaning
+-- against the throne at his right (UltPreviewFX builds both). He lifts his
+-- head to you, reaches out and takes the maul by the haft, rises with it and
+-- steps forward off the throne, settling into his dungeon hold: the maul
+-- across his body, feet planted wide.
+-- (+Z is back: the seat is behind where he ends up standing.)
+local DK_HOLD: Pose = { Root = { 0, 0, 0, 0, -0.17, 0 }, W = { 0, 15, 0 }, N = { 0, -10, 0 },
+	RS = { 85, 65, -55 }, LS = { 130, -50, 130 }, RH = { 0, -15, 24 }, LH = { 0, -15, -24 } }
+PREVIEWS.death_knight = (function(): Preview
+	local seated: Pose = { Root = { 0, 0, 0, 0, -1.1, 1.1 }, W = { 6, 0, 0 }, N = { -18, 0, 0 },
+		RS = { 40, 0, 8 }, LS = { 40, 0, -8 }, RH = { 72, 0, 6 }, LH = { 72, 0, -6 } }
+	local looking = with(seated, { N = { 6, 0, 0 } })
+	local reach = with(seated, { Root = { 0, 0, -8, 0, -1.1, 1.1 }, W = { 2, -22, 0 }, N = { -4, -34, 0 }, RS = { 24, 0, 88 }, LS = { 36, 0, -6 } })
+	local grip = with(reach, { RS = { 22, 0, 70 }, W = { 0, -18, 0 } })
+	local rising: Pose = { Root = { 0, 0, 0, 0, -0.45, 0.7 }, W = { -22, -10, 0 }, N = { 14, 0, 0 },
+		RS = { 55, 0, 35 }, LS = { 50, 0, -25 }, RH = { 22, 0, 6 }, LH = { 12, 0, -6 } }
+	local stepping: Pose = { Root = { 0, 0, 0, 0, -0.1, 0.25 }, W = { -8, 5, 0 }, N = { 4, 0, 0 },
+		RS = { 70, 30, -20 }, LS = { 100, -30, 80 }, RH = { -14, 0, 8 }, LH = { 20, 0, -8 } }
+	return {
+		intro = {
+			{ dur = 0.05, pose = seated },
+			{ dur = 1.25, pose = seated, wobble = function(t)
+				return { W = { math.sin(t * 1.8) * 1.2, 0, 0 } }
+			end },
+			{ dur = 0.45, style = SINE, pose = looking },
+			{ dur = 0.35, style = SINE, pose = reach },
+			{ dur = 0.15, style = QUART, pose = grip },
+			{ dur = 0.5, style = SINE, pose = rising },
+			{ dur = 0.35, style = SINE, pose = stepping },
+			{ dur = 0.4, style = BACK, pose = DK_HOLD },
+		},
+		pose = DK_HOLD,
+		-- (`grab`: the maul leaves the throne for his hand; `ready`: the hold lands)
+		beats = { look = 1.3, grab = 2.25, rise = 2.4, ready = 3.15 },
+		idle = function(t)
+			local b = math.sin(t * 1.4)
+			return { W = { b * 1.2, 0, 0 }, N = { math.sin(t * 0.5) * 3, math.sin(t * 0.35) * 5, 0 } }
+		end,
+	}
+end)()
+
+-- ── Ronin ───────────────────────────────────────────────────────────────────
+-- A storm rift tears open behind the dais (UltPreviewFX) and stays open; he
+-- walks out of it, katana already drawn in his right hand, and settles at ease.
+-- (at ease: straight legs, the drawn katana hanging low in his right hand,
+-- out from the leg and tipped down ahead of him, the left hand loose)
+local RONIN_IDLE: Pose = { N = { -3, 6, 0 }, W = { 0, 0, 0 }, RS = { 6, 0, 14 }, LS = { -2, 0, -6 }, RH = { 0, 0, 0 }, LH = { 0, 0, 0 } }
+local RONIN_WALK_FROM, RONIN_WALK = 4.8, 1.6
+PREVIEWS.ronin = function(ctx: PreviewCtx): Preview
+	local yaw = yawFor(ctx.toward)
+	local from = -ctx.toward * RONIN_WALK_FROM
+	-- (on the walk the sword arm stays low and out, the blade trailing level)
+	local carry: Pose = { RH = { 0, 0, 0 }, LH = { 0, 0, 0 }, N = { -4, 0, 0 }, RS = { -4, 0, 16 } }
+	local keep = { RS = true }
+	-- (while he walks the other limbs are the Fire Knight's walk track, which
+	-- UltPreviewFX plays under the pose: `release`)
+	return {
+		intro = {
+			{ dur = 0.05, pose = placed(carry, from, yaw) },
+			{ dur = 0.55, pose = placed(carry, from, yaw), release = 1, keep = keep },
+			{ dur = RONIN_WALK, style = LINEAR, pose = placed(carry, Vector3.zero, yaw), release = 1, keep = keep },
+			{ dur = 0.5, style = SINE, pose = RONIN_IDLE },
+		},
+		pose = RONIN_IDLE,
+		-- (`walk`..`out`: the walk out of the rift; `ready`: he's settled)
+		beats = { open = 0, reveal = 0.45, walk = 0.6, out = 0.6 + RONIN_WALK, ready = 0.6 + RONIN_WALK + 0.5 },
+		idle = function(t)
+			local b = math.sin(t * 1.4)
+			return { W = { b * 1.2, 0, 0 }, N = { -b * 1, math.sin(t * 0.4) * 4, 0 }, RS = { b * 1.5, 0, 0 }, LS = { -b * 1.5, 0, 0 } }
+		end,
+	}
+end
+
+-- ── Summoner ────────────────────────────────────────────────────────────────
+-- She raises her gauntlet high and calls, her free hand thrown out to each beast
+-- as it arrives (UltPreviewFX brings them in), then lowers it and
+-- stands among them.
+local SUMMONER_POSE: Pose = { W = { 2, -8, 0 }, N = { 6, 10, 0 }, RS = { 42, 0, 14 }, LS = { 30, 0, -22 },
+	RH = { 3, 0, 8 }, LH = { -3, 0, -8 } }
+PREVIEWS.summoner = (function(): Preview
+	local call: Pose = { W = { 10, 0, 0 }, N = { 20, 0, 0 }, RS = { 168, 0, 10 }, LS = { 70, 0, -55 },
+		RH = { 4, 0, 10 }, LH = { -4, 0, -10 } }
+	local toLeft = with(call, { W = { 8, 18, 0 }, N = { 12, 30, 0 }, LS = { 85, 30, -70 } })
+	local toRight = with(call, { W = { 8, -18, 0 }, N = { 8, -34, 0 }, LS = { 90, 0, 20 } })
+	return {
+		intro = {
+			{ dur = 0.3, style = SINE, pose = call },
+			{ dur = 0.35, style = SINE, pose = toLeft },
+			{ dur = 0.45, style = SINE, pose = toRight },
+			{ dur = 0.5, style = SINE, pose = toLeft },
+			{ dur = 0.35, style = BACK, pose = SUMMONER_POSE },
+		},
+		pose = SUMMONER_POSE,
+		idle = function(t)
+			local b = math.sin(t * 1.5)
+			return { W = { b * 1, 0, 0 }, N = { 0, math.sin(t * 0.45) * 12, 0 }, LS = { b * 3, 0, 0 } }
+		end,
+	}
+end)()
 
 local function resolvePreview(classId: string, ctx: PreviewCtx): Preview?
 	local def = PREVIEWS[classId]

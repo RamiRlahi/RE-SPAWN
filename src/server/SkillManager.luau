@@ -34,6 +34,7 @@ local MartialServer = require(script.Parent:WaitForChild("MartialServer"))
 local SummonerServer = require(script.Parent:WaitForChild("SummonerServer"))
 local BerserkerServer = require(script.Parent:WaitForChild("BerserkerServer"))
 local DeathKnightServer = require(script.Parent:WaitForChild("DeathKnightServer"))
+local RoninServer = require(script.Parent:WaitForChild("RoninServer"))
 local FireKnightServer = require(script.Parent:WaitForChild("FireKnightServer"))
 local MountManager = require(script.Parent:WaitForChild("MountManager"))
 
@@ -266,7 +267,10 @@ local IMPACT_PROFILES: { [string]: ImpactProfile } = {
 	["SWORD COMBO"]        = { kb = 0,  lift = 0,  stagger = 0.25, style = "slash" },
 	["SWORD FINISHER"]     = { kb = 22, lift = 6,  stagger = 0.4,  style = "slash", heavy = true },
 	["SWORD RUSH"]         = { kb = 4,  lift = 0,  stagger = 0.35, style = "slash", heavy = true },
-	["COUNTER SLASH"]      = { kb = 10, lift = 40, stagger = 1.2,  style = "slash", heavy = true },
+	["PIERCING JUDGEMENT"]  = { kb = 4,  lift = 0,  stagger = 0.45, style = "slash", heavy = true },
+	["PIERCING JUDGEMENT!"] = { kb = 10, lift = 2,  stagger = 0.8,  style = "slash", heavy = true },
+	["JUDGEMENT ECHO"]     = { kb = 0,  lift = 0,  stagger = 0.2,  style = "slash" },
+	["POMMEL STRIKE"]      = { kb = 18, lift = 3,  stagger = 1.4,  style = "fist", heavy = true },
 	["WHIRL CUT"]          = { kb = 0,  lift = 0,  stagger = 0.2,  style = "slash" },
 	["WHIRL FINISH"]       = { kb = 34, lift = 10, stagger = 0.5,  style = "slash", heavy = true },
 	["BLADE STORM"]        = { kb = 6,  lift = 4,  stagger = 0.5,  style = "slash", heavy = true },
@@ -303,6 +307,15 @@ local IMPACT_PROFILES: { [string]: ImpactProfile } = {
 	["SPECTRAL SWEEP"]     = { kb = 0,  lift = 0,  stagger = 0.5,  style = "slash", heavy = true },
 	["GRAVE MARK"]         = { kb = 14, lift = 14, stagger = 0.6,  style = "slash", heavy = true },
 	["KING OF THE GRAVE"]  = { kb = 40, lift = 34, stagger = 1.0,  style = "slash", heavy = true },
+	-- Ronin
+	["RONIN CUT"]          = { kb = 4,  lift = 0,  stagger = 0.25, style = "slash" },
+	["RONIN FINISH"]       = { kb = 6,  lift = 18, stagger = 0.45, style = "slash" },
+	["DISTANT CUT"]        = { kb = 0,  lift = 0,  stagger = 0.35, style = "slash" },
+	["RISING CUT"]         = { kb = 4,  lift = 42, stagger = 0.8,  style = "slash", heavy = true },
+	["AIR CUT"]            = { kb = 2,  lift = 4,  stagger = 0.4,  style = "slash" },
+	["HEAVEN FALL"]        = { kb = 18, lift = 0,  stagger = 0.9,  style = "slash", heavy = true },
+	["SWORD STORM"]        = { kb = 0,  lift = 0,  stagger = 0.3,  style = "slash" },
+	["THOUSAND CUTS"]      = { kb = 26, lift = 20, stagger = 1.2,  style = "slash", heavy = true },
 	-- the Rogue's Shadow Execution
 	["SHADOW SLASH"]       = { kb = 2,  lift = 0,  stagger = 0.35, style = "slash" },
 	["SHADOW DETONATION"]  = { kb = 10, lift = 8,  stagger = 0.6,  style = "slash", heavy = true },
@@ -430,6 +443,13 @@ local function applyImpact(player: Player, target: { character: Model, humanoid:
 	})
 end
 
+-- Each player's running average hit (dealDamage: a hit this many times it is
+-- a big one).
+local hitAverage: { [Player]: number } = {}
+Players.PlayerRemoving:Connect(function(p) hitAverage[p] = nil end)
+local HIT_AVG_RATE = 0.1
+local BIG_HIT, HUGE_HIT = 2.5, 5
+
 -- Keep combat authoritative while giving the attacking player immediate, exact
 -- feedback about the damage that was actually applied to a target.
 -- opts.forceCrit makes the hit a guaranteed critical (e.g. a Deadeye shot).
@@ -498,11 +518,32 @@ local function dealDamage(player: Player, target: { character: Model, humanoid: 
 		end
 	end
 
+	-- How big a hit it was, for the attacker's feedback (BigHitFX): against
+	-- their own running average hit (so it means the same on a minion as on
+	-- a boss, early or late in a run): 1 = big (BIG_HIT x), 2 = huge
+	-- (HUGE_HIT x). (Only the numbers and effects; damage is untouched.)
+	local big: number? = nil
+	if finalAmount > 0 then
+		local avg = hitAverage[player]
+		if avg then
+			big = if finalAmount >= avg * HUGE_HIT then 2 elseif finalAmount >= avg * BIG_HIT then 1 else nil
+			-- (burn ticks and chip damage, under a third of it, don't count: they'd
+			-- drag it down till every ordinary blow looked huge)
+			if finalAmount >= avg * 0.3 then
+				hitAverage[player] = avg + (finalAmount - avg) * HIT_AVG_RATE
+			end
+		else
+			hitAverage[player] = finalAmount
+		end
+	end
 	Network.GetRemoteEvent(Network.Remotes.DamageDealt):FireClient(player, {
 		position = target.rootPart.Position + Vector3.new(0, 2.5, 0),
 		amount = finalAmount,
 		source = if shielded and finalAmount <= 0 then "SHIELD" else source,
 		crit = isCrit,
+		big = big,
+		model = if big then target.character else nil,
+		killed = if big then killed else nil,
 	})
 	return finalAmount, isCrit
 end
@@ -1695,6 +1736,8 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	if classId == "martial_artist" and not MartialServer.CanUseSkill(player, skillIndex) then return end
 	-- Death Knight: nothing mid-move (a leap, a snatch, the King of the Grave).
 	if classId == "death_knight" and not DeathKnightServer.CanUseSkill(player, skillIndex) then return end
+	-- Ronin: one draw at a time.
+	if classId == "ronin" and not RoninServer.CanUseSkill(player, skillIndex) then return end
 	-- Summoner: nothing mid-fusion; E / F / Q with that beast out is its
 	-- signature move (its own recharge, not the skill's cooldown).
 	if classId == "summoner" then
@@ -1810,6 +1853,9 @@ function SkillManager.HandleSkillUse(player: Player, payload: any)
 	elseif classId == "death_knight" then
 		DeathKnightServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig,
 			if typeof(targetPosition) == "Vector3" then targetPosition else nil)
+	elseif classId == "ronin" then
+		RoninServer.OnSkill(player, char, skillIndex, origin, direction, effectiveConfig,
+			if typeof(targetPosition) == "Vector3" then targetPosition else nil)
 	elseif classId == "ice_mage" then
 		if skillIndex == 1 then
 			-- Hits line up with the cast pose's impact frame (castDelay).
@@ -1884,6 +1930,7 @@ ultCutscene = function(classId: string, config: any): number
 	if classId == "summoner" then return SummonerServer.ULT_WINDUP end -- the beasts gathering to fuse
 	if classId == "berserker" then return BerserkerServer.GATHER_TIME end -- the Beast Awakening
 	if classId == "death_knight" then return DeathKnightServer.ULT_WINDUP end -- the blade planted, the chains rising
+	if classId == "ronin" then return RoninServer.ULT_WINDUP end -- the stillness and the held draw
 	if classId == "heavy_knight" then return FireKnightServer.AWAKEN end
 	return 1.6 -- Ranger: the summon and the release (RangerFlair)
 end
@@ -1938,6 +1985,11 @@ function SkillManager.HandleBasicAttack(player: Player, payload: any)
 	-- The Death Knight's Graveblade chain and Dread.
 	if player:GetAttribute("SelectedClass") == "death_knight" then
 		DeathKnightServer.OnBasic(player, char, rootPart, payload)
+		return
+	end
+	-- The Ronin's Edge.
+	if player:GetAttribute("SelectedClass") == "ronin" then
+		RoninServer.OnBasic(player, char, rootPart, payload)
 		return
 	end
 	-- The Fire Knight's Emberblade combo, Heat and Scorch.
@@ -2099,6 +2151,10 @@ function SkillManager.Init()
 		dealDamage = dealDamage,
 		lineReach = lineReach,
 		addIncomingHook = MobManager.AddIncomingHook,
+	})
+	RoninServer.Init({
+		getPotentialTargets = getPotentialTargets,
+		dealDamage = dealDamage,
 	})
 	FireKnightServer.Init({
 		getPotentialTargets = getPotentialTargets,

@@ -1381,7 +1381,7 @@ local function startGrab(token: number, shield: BasePart, grabTime: number)
 	sub.TextSize = 20
 	sub.TextColor3 = Color3.fromRGB(255, 235, 215)
 	sub.TextStrokeTransparency = 0.3
-	sub.Text = "Ignarath is charging its beam at you. Reach the shield!"
+	sub.Text = "Beam incoming. Reach the shield!"
 	sub.Parent = gui
 	local back = Instance.new("Frame")
 	back.Name = "Bar"

@@ -10,12 +10,20 @@
 
 	  AimInput.ScreenPoint() → Vector2   (the mouse, or the controller's aim, in viewport pixels)
 	  AimInput.UsingGamepad() → boolean  (the last input was a controller's)
+	  AimInput.Ahead(origin, point) → Vector3  (a cursor point never behind you on the classic camera)
+	  AimInput.PointerPoint() → Vector2  (the mouse or controller aim itself, ignoring a hard lock: for the cursor)
+
+	A hard lock (LockOn: the middle mouse button, or the right stick click)
+	overrides all of it: while one is on, ScreenPoint is the locked mob, as
+	seen from the camera, so every class's aim goes to it.
 --]]
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
+
+local LockOn = require(script.Parent:WaitForChild("LockOn"))
 
 local AimInput = {}
 
@@ -54,6 +62,12 @@ local aimDir = Vector3.new(0, 0, -1)
 local lockTarget: BasePart? = nil
 local lockAt = 0
 local point = Vector2.zero
+local lockedPoint: Vector2? = nil -- (the hard lock's mob on the screen, this frame)
+
+-- a controller's right stick click: a hard lock from where it aims
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if input.KeyCode == Enum.KeyCode.ButtonR3 and not gameProcessed then LockOn.Toggle(point) end
+end)
 
 -- The enemy nearest the aim line, within reach (Workspace.Mobs, never the
 -- whole Workspace).
@@ -77,6 +91,15 @@ local function findLock(origin: Vector3, dir: Vector3): BasePart?
 end
 
 RunService:BindToRenderStep("AimInput", Enum.RenderPriority.Input.Value + 1, function()
+	-- (a hard lock: where its mob is on the screen)
+	local lp = LockOn.Point()
+	local cam0 = Workspace.CurrentCamera
+	if lp and cam0 then
+		local v = cam0:WorldToViewportPoint(lp)
+		lockedPoint = if v.Z > 0 then Vector2.new(v.X, v.Y) else nil
+	else
+		lockedPoint = nil
+	end
 	if not gamepad then
 		point = UserInputService:GetMouseLocation()
 		return
@@ -111,9 +134,45 @@ RunService:BindToRenderStep("AimInput", Enum.RenderPriority.Input.Value + 1, fun
 	point = Vector2.new(v.X, v.Y)
 end)
 
-function AimInput.ScreenPoint(): Vector2
+function AimInput.PointerPoint(): Vector2
 	if not gamepad then return UserInputService:GetMouseLocation() end
 	return point
+end
+
+function AimInput.ScreenPoint(): Vector2
+	if lockedPoint and LockOn.Point() then return lockedPoint end
+	return AimInput.PointerPoint()
+end
+
+-- The hard-locked mob's position, or nil (aim straight at it, past any wall
+-- the screen point's ray would meet first).
+function AimInput.LockPoint(): Vector3?
+	return LockOn.Point()
+end
+
+-- On the classic camera (Settings > Gameplay) you aim where the camera looks,
+-- the crosshair in the middle of the screen. Read off the crosshair's ray, the
+-- point is wrong two ways: looking up, Roblox swings the camera down behind
+-- you, so the ray climbs past you from below and crosses your height (or
+-- meets a low ceiling) BEHIND you, and an aim read off it fires backwards;
+-- and the camera sits out over your shoulder, so a point on the floor just
+-- ahead lies well off to the side (aimed at, the body swings round 50°+). So
+-- here the aim always runs the way the camera faces, as far out as the ray's
+-- point was ahead of you (at least 4 studs; 40 if it was behind you), at its
+-- height. On the top-down camera every point on the floor is a real aim:
+-- untouched.
+function AimInput.Ahead(origin: Vector3, at: Vector3): Vector3
+	if LockOn.Point() then return at end -- (a hard lock aims at its mob on any camera)
+	if player:GetAttribute("Setting_classicCamera") ~= true then return at end
+	local cam = Workspace.CurrentCamera
+	if not cam then return at end
+	local look = cam.CFrame.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 0.05 then return at end
+	flat = flat.Unit
+	local along = Vector3.new(at.X - origin.X, 0, at.Z - origin.Z):Dot(flat)
+	local reach = if along > 0.5 then math.max(along, 4) else 40
+	return Vector3.new(origin.X, at.Y, origin.Z) + flat * reach
 end
 
 return AimInput

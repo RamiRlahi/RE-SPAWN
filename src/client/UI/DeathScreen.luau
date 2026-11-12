@@ -259,7 +259,7 @@ local function showPanel()
 	if revivesLeft > 0 then
 		subtitle.Text = if #alive > 0 then "Your allies fight on. One revive left." else "The dungeon claims another soul. One revive left."
 	elseif #alive > 0 then
-		subtitle.Text = "No revives left. Your allies fight on: reach the next floor and you rise."
+		subtitle.Text = "No revives left. You return when your party reaches the next floor."
 	else
 		subtitle.Text = "No revives left. The run is over."
 	end

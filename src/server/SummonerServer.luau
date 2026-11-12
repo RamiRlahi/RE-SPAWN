@@ -6,7 +6,7 @@
 	hit is decided here; clients draw them from Workspace.Summons and the
 	moments sent over SummonerFX. Tuning: SummonerData.
 
-	  M1 Bond Bolt      a spirit bolt from the staff; whatever it hits becomes
+	  M1 Bond Bolt      a spirit bolt from the gauntlet; whatever it hits becomes
 	                    every beast's Focus for a few seconds.
 	  Passive Pack Bond each other beast on the field makes every beast hit
 	                    harder.
@@ -1281,6 +1281,13 @@ function SummonerServer.Reset(player: Player)
 end
 
 function SummonerServer.Init(helpers: any)
+	-- (a dash cuts the move short: free to act again, and what was left of it doesn't land)
+	(require(script.Parent:WaitForChild("Dash")) :: any).OnDash(function(p: Player)
+		local st = states[p] :: any
+		if not st then return end
+		st.busyUntil = 0
+		if type(st.token) == "number" then st.token += 1 end
+	end)
 	H = helpers
 	folder = Workspace:FindFirstChild("Summons") :: Folder
 	if not folder then

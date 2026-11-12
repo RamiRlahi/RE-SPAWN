@@ -667,7 +667,8 @@ local function stationBase(m: Model, pos: Vector3, facePos: Vector3, w: number, 
 	return face, at
 end
 
--- The ARMORY: a timber forge shop, weapon racks, an anvil and its fire.
+-- The FORGE: a timber forge shop, weapon racks, an anvil and its fire (the
+-- Armory itself is opened anywhere in the lobby with E).
 local function buildArmory(m: Model, pos: Vector3, C: Vector3)
 	local face, at = stationBase(m, pos, C, 20, 14)
 	for _, x in ipairs({ -9.4, 9.4 }) do
@@ -721,11 +722,11 @@ local function buildArmory(m: Model, pos: Vector3, C: Vector3)
 	end
 	local sign = part(m, { Name = "ArmorySign", Size = Vector3.new(9, 2.4, 0.4), CFrame = at(0, 12.4, -7) * CFrame.Angles(0, math.pi, 0), Color = WOOD_DARK, Material = Enum.Material.Wood })
 	boardText(sign, Vector2.new(450, 120), function(sg)
-		textLabel(sg, "ARMORY", { Size = UDim2.fromScale(1, 0.82), Position = UDim2.fromScale(0, 0.09) })
+		textLabel(sg, "FORGE", { Size = UDim2.fromScale(1, 0.82), Position = UDim2.fromScale(0, 0.09) })
 	end)
 	local counter = part(m, { Name = "ArmoryCounter", Size = Vector3.new(10, 3, 2.4), CFrame = at(-2, 1.9, -4.6), Color = WOOD, Material = Enum.Material.WoodPlanks })
-	stationLabel(counter, "ARMORY", "A", 16)
-	screenPrompt(counter, "Browse gear", "Armory", "armory", 14)
+	stationLabel(counter, "FORGE", "F", 16)
+	screenPrompt(counter, "Forge gear", "Forge", "forge", 14)
 end
 
 -- The WARDROBE: a red-canopied booth, mannequins in outfits, racks of cloth.

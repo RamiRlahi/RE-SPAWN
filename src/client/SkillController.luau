@@ -45,10 +45,12 @@ local MartialController = require(script.Parent:WaitForChild("MartialController"
 local SummonerController = require(script.Parent:WaitForChild("SummonerController"))
 local BerserkerController = require(script.Parent:WaitForChild("BerserkerController"))
 local DeathKnightController = require(script.Parent:WaitForChild("DeathKnightController"))
+local RoninController = require(script.Parent:WaitForChild("RoninController"))
 local FireKnightController = require(script.Parent:WaitForChild("FireKnightController"))
 
 local DivineAscentCutscene = require(script.Parent:WaitForChild("DivineAscentCutscene"))
 local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
+local BigHitFX = require(script.Parent:WaitForChild("BigHitFX"))
 
 -- Procedural cast animation for classes without uploaded skill animations.
 -- Runs for the caster and for other players' characters on replication.
@@ -334,8 +336,16 @@ end
 -- Auto-fire aims here instead of at the cursor (set only while it shoots).
 local aimOverride: Vector3? = nil
 
+local cursorWorldRaw: (BasePart) -> Vector3
 local function getCursorWorldPosition(rootPart: BasePart): Vector3
 	if aimOverride then return aimOverride end
+	-- (a hard lock: straight at the locked mob)
+	local locked = AimInput.LockPoint()
+	if locked then return locked end
+	-- (never behind you on the classic camera when you look up: AimInput.Ahead)
+	return AimInput.Ahead(rootPart.Position, cursorWorldRaw(rootPart))
+end
+cursorWorldRaw = function(rootPart: BasePart): Vector3
 	local mousePos = AimInput.ScreenPoint() -- (the mouse, or a controller's aim)
 	local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
 	local raycastParams = RaycastParams.new()
@@ -3951,6 +3961,7 @@ function SkillController.UseSkill(skillIndex: number)
 	end
 	if classId == "berserker" and not BerserkerController.CanCast(skillIndex) then return end
 	if classId == "death_knight" and not DeathKnightController.CanCast(skillIndex) then return end
+	if classId == "ronin" and not RoninController.CanCast(skillIndex) then return end
 	if classId == "heavy_knight" and not FireKnightController.CanCast(skillIndex) then return end
 	if classId == "mage" and not MageController.CanCast(skillIndex) then return end
 	if classId == "martial_artist" and not MartialController.CanCast(skillIndex) then return end
@@ -4215,6 +4226,8 @@ function SkillController.UseSkill(skillIndex: number)
 	elseif classId == "death_knight" then
 		skillTargetPosition = DeathKnightController.OnCast(skillIndex, char, rootPart, aimDir, config, cursorPosition) or skillTargetPosition
 		if skillIndex == 4 then DeathKnightController.PlayUltCutscene(char, aimDir) end
+	elseif classId == "ronin" then
+		skillTargetPosition = RoninController.OnCast(skillIndex, char, rootPart, aimDir, config, cursorPosition) or skillTargetPosition
 	elseif classId == "ice_mage" then
 		local areaMult = player:GetAttribute("Stat_size") or 1
 		local function releaseCast(after: number)
@@ -4355,7 +4368,11 @@ local function showDamageNumber(payload: any)
 	end
 	local crit = payload.crit == true
 	local immune = payload.source == "IMMUNE" -- a boss that can't be hurt right now
-	if not immune and (#liveNumbers >= MAX_NUMBERS or not FxBudget.Allow(if crit then "dmgNumCrit" else "dmgNum", if crit then 15 else 25)) then
+	-- (a big hit, SkillManager's `big` 1..2: its own number, bigger, never
+	-- folded into another; its own budget)
+	local big = math.clamp(tonumber(payload.big) or 0, 0, 2)
+	if big > 0 and not FxBudget.Allow("dmgNumBig", 10) then big = 0 end
+	if not immune and big == 0 and (#liveNumbers >= MAX_NUMBERS or not FxBudget.Allow(if crit then "dmgNumCrit" else "dmgNum", if crit then 15 else 25)) then
 		-- Over budget: add it onto the freshest number close by (or let it go).
 		for i = #liveNumbers, 1, -1 do
 			local n = liveNumbers[i]
@@ -4382,7 +4399,7 @@ local function showDamageNumber(payload: any)
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "DamageNumber"
 	billboard.Adornee = anchor
-	billboard.Size = UDim2.fromOffset(124, 40)
+	billboard.Size = if big > 0 then UDim2.fromOffset(220, 72) else UDim2.fromOffset(124, 40)
 	billboard.AlwaysOnTop = true
 	billboard.LightInfluence = 0
 	billboard.StudsOffsetWorldSpace = Vector3.new(math.random(-7, 7) / 10, 0, 0)
@@ -4393,18 +4410,30 @@ local function showDamageNumber(payload: any)
 	number.BackgroundTransparency = 1
 	number.Font = Enum.Font.Arcade
 	number.Text = if immune then "IMMUNE" else `-{math.floor(payload.amount)}`
-	number.TextSize = 30
-	-- White for normal hits, red for critical hits, gold for IMMUNE.
-	number.TextColor3 = if immune then Color3.fromRGB(255, 215, 110) elseif payload.crit == true then Color3.fromRGB(255, 52, 52) else Color3.new(1, 1, 1)
+	number.TextSize = if big == 2 then 56 elseif big == 1 then 42 else 30
+	-- White for normal hits, red for critical hits, gold for IMMUNE; a big
+	-- hit burns orange (a big crit stays red), with an exclamation.
+	number.TextColor3 = if immune then Color3.fromRGB(255, 215, 110) elseif payload.crit == true then Color3.fromRGB(255, 52, 52)
+		elseif big > 0 then Color3.fromRGB(255, 170, 60) else Color3.new(1, 1, 1)
+	if big > 0 and not immune then number.Text ..= "!" end
 	number.TextStrokeColor3 = Color3.fromRGB(38, 10, 5)
 	number.TextStrokeTransparency = 0
 	number.Parent = billboard
-	if not immune then table.insert(liveNumbers, { label = number, amount = payload.amount, pos = payload.position, at = now }) end
+	if not immune and big == 0 then table.insert(liveNumbers, { label = number, amount = payload.amount, pos = payload.position, at = now }) end
 
-	local fadeInfo = TweenInfo.new(0.72, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-	TweenService:Create(billboard, fadeInfo, { StudsOffsetWorldSpace = billboard.StudsOffsetWorldSpace + Vector3.new(0, 3.2, 0) }):Play()
-	TweenService:Create(number, fadeInfo, { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
-	Debris:AddItem(anchor, 0.8)
+	-- (a big one punches in from twice its size, then hangs a beat longer)
+	local life = if big > 0 then 1.05 else 0.72
+	if big > 0 then
+		local pop = Instance.new("UIScale")
+		pop.Scale = 2.1
+		pop.Parent = number
+		TweenService:Create(pop, TweenInfo.new(0.16, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()
+	end
+	local fadeInfo = TweenInfo.new(life, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	TweenService:Create(billboard, fadeInfo, { StudsOffsetWorldSpace = billboard.StudsOffsetWorldSpace + Vector3.new(0, if big > 0 then 4.2 else 3.2, 0) }):Play()
+	local fadeOut = if big > 0 then TweenInfo.new(life * 0.55, Enum.EasingStyle.Quad, Enum.EasingDirection.In, 0, false, life * 0.45) else fadeInfo
+	TweenService:Create(number, fadeOut, { TextTransparency = 1, TextStrokeTransparency = 1 }):Play()
+	Debris:AddItem(anchor, life + 0.08)
 end
 
 local function cloneKeybinds(keybinds: { [string]: string }?)
@@ -4491,6 +4520,12 @@ local function performBasicAttack()
 	if player:GetAttribute("SelectedClass") == "death_knight" then
 		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 		if root then DeathKnightController.Basic(char, root) end
+		return
+	end
+	-- The Ronin's Edge.
+	if player:GetAttribute("SelectedClass") == "ronin" then
+		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if root then RoninController.Basic(char, root) end
 		return
 	end
 	-- The Fire Knight's Emberblade combo.
@@ -4731,6 +4766,11 @@ function SkillController.Init()
 		fovPunch = triggerFOVPunch,
 		getAim = getAimDirection,
 	})
+	RoninController.Init({
+		shake = triggerCameraShake,
+		fovPunch = triggerFOVPunch,
+		getAim = getAimDirection,
+	})
 	IceMageVFX.Init(triggerCameraShake)
 	DashController.Init(getAimDirection)
 	ClericFlair.watchHalos()
@@ -4739,6 +4779,8 @@ function SkillController.Init()
 	HitFX.Init()
 	local damageRemote = Network.GetRemoteEvent(Network.Remotes.DamageDealt)
 	damageRemote.OnClientEvent:Connect(showDamageNumber)
+	-- (a big hit: hit stop, a shake, a shockwave: BigHitFX)
+	damageRemote.OnClientEvent:Connect(BigHitFX.OnDamage)
 	-- (and a sound for it landing, for the classes that had none: ClassFX)
 	damageRemote.OnClientEvent:Connect(function(payload: any)
 		if typeof(payload) ~= "table" or typeof(payload.position) ~= "Vector3" or (tonumber(payload.amount) or 0) <= 0 then return end
@@ -4778,12 +4820,18 @@ function SkillController.Init()
 	UserInputService.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton2 then attackHeld.right = nil end
 		if inputMatchesAction(input, "PrimaryAttack") then attackHeld.primary = nil end
-		-- (the Martial Artist's Focus Strike charges while its key is held)
+		-- (the Martial Artist's Focus Strike and the Swordsman's Piercing
+		-- Judgement charge while their keys are held)
 		if inputMatchesAction(input, "Skill1") then MartialController.Release(1) end
+		if inputMatchesAction(input, "Skill3") then SwordsmanController.Release(3) end
+		-- (and the Ronin's Rising Cut)
+		if inputMatchesAction(input, "Skill2") then RoninController.Release(2) end
 	end)
 	UserInputService.WindowFocusReleased:Connect(function()
 		table.clear(attackHeld)
 		MartialController.Release(1)
+		SwordsmanController.Release(3)
+		RoninController.Release(2)
 	end)
 	player.CharacterAdded:Connect(function() table.clear(attackHeld) end)
 
@@ -4913,6 +4961,8 @@ function SkillController.Init()
 			})
 		elseif classId == "ranger" then
 			RangerFlair.PlayCamera(char, direction)
+		elseif classId == "ronin" then
+			-- (the storm's own camera: RoninStorm, started on the ult's freeze beat)
 		else
 			UltimateCameraChoreography.PlayCloseUp(char, direction, 1.0)
 		end

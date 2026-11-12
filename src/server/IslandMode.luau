@@ -32,9 +32,10 @@
 
 	Levels: the island's own (a dungeon levels on its rooms; here there are
 	none). Every XP award (kills, discoveries, the ritual: PlayerStats.OnXP,
-	after the Fortune Tome's xpGain) fills the run's bar; each level is a tome
-	choice the usual way (PlayerStats.LevelUp: three tomes, the run paused
-	while they choose). Shown as IslandLevel / IslandXP / IslandXPNext.
+	after the Fortune Tome's xpGain) fills the run's bar; each level past the
+	first gives LEVEL_BONUS more damage and max health (no tomes on the isle:
+	its gear and perks are its build). Shown as IslandLevel / IslandXP /
+	IslandXPNext.
 
 	Asks from the island HUD come in on one remote (IslandAction), each
 	routed to the system that owns it (IslandMode.Handle) only for a player
@@ -318,6 +319,8 @@ local function spawnStep(st: RunState)
 end
 
 -- ── Levels ──────────────────────────────────────────────────────────────────
+local LEVEL_BONUS = 0.04 -- damage and max health per island level
+
 local function addXP(player: Player, gain: number)
 	local runId = player:GetAttribute("RunId")
 	local st = if typeof(runId) == "string" then runs[runId] else nil
@@ -331,8 +334,14 @@ local function addXP(player: Player, gain: number)
 		lv.xp -= xpFor(lv.level)
 		lv.level += 1
 		ups += 1
-		-- a tome choice, the usual way (the run pauses while they choose)
-		pcall(PlayerStats.LevelUp, player, nil)
+	end
+	-- (no tomes on the isle: each level is a little more damage and health)
+	if ups > 0 then
+		local bonus = LEVEL_BONUS * (lv.level - 1)
+		pcall(PlayerStats.SetExtraEffects, player, "isleLevel", {
+			{ stat = "damage", operation = "percent", value = bonus },
+			{ stat = "maxHealth", operation = "percent", value = bonus },
+		})
 	end
 	player:SetAttribute("IslandLevel", lv.level)
 	player:SetAttribute("IslandXP", math.floor(lv.xp))

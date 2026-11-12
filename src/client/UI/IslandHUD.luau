@@ -14,8 +14,9 @@
 	  • the boss's bar while a ritual boss fights
 	  • the ritual panel (examining the altar): what it is, whether it's
 	    ready, and BEGIN THE RITUAL
-	  • the gear panel (G): what they wear, their bag, an item against what
-	    it would replace, EQUIP / SALVAGE / UNEQUIP
+	  • the gear screen (G, EquipmentScreen): their character wearing it, the
+	    slots and the bag as brick models in their grades, EQUIP / SALVAGE /
+	    UNEQUIP
 	  • markers: a chest within an Oracle's Veil's reach, the Elite Hunt's
 	    beast, the Cursed Treasure, the Ancient Echo's shrine
 	  • the sky: the Rift Surge's violet, the Blood Moon's red, the ritual's
@@ -36,6 +37,7 @@ local Network = require(Shared:WaitForChild("Network"))
 local RunScope = require(Shared:WaitForChild("RunScope"))
 local IslandConfig = require(Shared:WaitForChild("IslandConfig"))
 local EquipmentData = require(Shared:WaitForChild("EquipmentData"))
+local EquipmentScreen = require(script.Parent:WaitForChild("EquipmentScreen"))
 
 local player = Players.LocalPlayer
 
@@ -86,12 +88,6 @@ local function gradeBiome(id: string?)
 	local goal = (id and BIOME_GRADES[id]) or { TintColor = Color3.new(1, 1, 1), Saturation = 0, Contrast = 0, Brightness = 0 }
 	TweenService:Create(biomeGrade :: ColorCorrectionEffect, TweenInfo.new(2.5), goal):Play()
 end
-local STAT_NAMES: { [string]: string } = {
-	damage = "Damage", maxHealth = "Max Health", armor = "Armor", evasion = "Evasion", critChance = "Crit Chance",
-	critDamage = "Crit Damage", abilityDamage = "Ability Damage", abilityCooldown = "Cooldowns", movementSpeed = "Speed",
-	basicAttackSpeed = "Attack Speed", luck = "Luck", killHeal = "Heal on Kill", lifesteal = "Lifesteal", goldGain = "Gold",
-	healthRegenPerMinute = "Regen / min", knockback = "Knockback", xpGain = "XP", shield = "Shield",
-}
 
 -- (the chests' own sounds: IslandChests)
 local SFX = {
@@ -154,38 +150,9 @@ local function button(parent: Instance, text: string, color: Color3, props: { [s
 	return b
 end
 
-local function pct(v: number): string
-	local p = v * 100
-	return if math.abs(p - math.floor(p + 0.5)) < 0.05 then tostring(math.floor(p + 0.5)) else string.format("%.1f", p)
-end
-
--- One tome effect in words ("+8% Damage", "+40 Max Health").
-local function effectText(stat: string, op: string, value: number): string
-	local name = STAT_NAMES[stat] or stat
-	local sign = if value >= 0 then "+" else "-"
-	local v = math.abs(value)
-	if op == "add" and v >= 1 then return `{sign}{math.floor(v + 0.5)} {name}` end
-	if stat == "abilityCooldown" then return `-{pct(v)}% {name}` end
-	return `{sign}{pct(v)}% {name}`
-end
-
--- An item's effects summed by stat (and how each is shown).
-local function totals(item: EquipmentData.Item?): { [string]: { op: string, value: number } }
-	local out = {}
-	if not item then return out end
-	for _, e in ipairs(item.stats) do
-		local t = out[e.stat] or { op = e.operation, value = 0 }
-		t.value += e.value
-		out[e.stat] = t
-	end
-	return out
-end
-
 -- ── State ───────────────────────────────────────────────────────────────────
 local gui: ScreenGui
 local onIsland = false
-local bag: { { uid: number, id: string } } = {}
-local equipped: { [string]: { uid: number, id: string } } = {}
 local eventEnds = 0
 local eventName = ""
 
@@ -365,13 +332,13 @@ local function showRitual(msg: any)
 	local ready = msg.state == "ready"
 	local status
 	if msg.state == "dormant" then
-		status = `<font color="#9d93a8">DORMANT</font> — the island hasn't stirred enough yet (wave {msg.wave} of {msg.minWave})`
+		status = `<font color="#9d93a8">DORMANT</font> — wave {msg.wave}/{msg.minWave}`
 	elseif msg.state == "cooldown" then
-		status = `<font color="#9d93a8">RESTING</font> — the altar wakes again in {msg.cooldown}s`
+		status = `<font color="#9d93a8">RESTING</font> — {msg.cooldown}s`
 	elseif msg.state == "summoning" or msg.state == "fighting" then
-		status = `<font color="#ff6a5a">AWAKE</font> — a ritual is already under way`
+		status = `<font color="#ff6a5a">AWAKE</font> — ritual in progress`
 	else
-		status = `<font color="#c9a4ff">READY</font> — one of {msg.bosses} sovereigns will answer. Beware: it fights until it falls.`
+		status = `<font color="#c9a4ff">READY</font> — summons 1 of {msg.bosses} bosses`
 	end
 	ritualStatus.Text = status
 	ritualSlain.Text = if (msg.slain or 0) > 0 then `Sovereigns slain this run: {msg.slain}` else ""
@@ -380,148 +347,15 @@ local function showRitual(msg: any)
 	ritualOpenAt = root and root.Position or nil
 end
 
--- ── The gear panel ──────────────────────────────────────────────────────────
-local gearPanel: Frame
-local slotsFrame: Frame
-local bagFrame: Frame
-local detail: Frame
-local detailTitle: TextLabel
-local detailBody: TextLabel
-local detailA: TextButton
-local detailB: TextButton
-local selected: { kind: string, uid: number?, slot: string? }? = nil
-local renderGear: () -> ()
-
+-- ── The gear panel (EquipmentScreen) ───────────────────────────────────────
 local function itemColor(item: EquipmentData.Item?): Color3
 	local r = item and EquipmentData.Rarities[item.rarity]
 	return if r then r.color else C.dim
 end
 
--- The item it would replace (what's in its slot; for an accessory, the
--- first of the two that's empty, else the first).
-local function replaces(item: EquipmentData.Item): EquipmentData.Item?
-	local fits = EquipmentData.SlotFits[item.slot] or { item.slot }
-	for _, s in ipairs(fits) do
-		if not equipped[s] then return nil end
-	end
-	local o = equipped[fits[1]]
-	return o and EquipmentData.Get(o.id)
-end
-
-local function describe(item: EquipmentData.Item, against: EquipmentData.Item?): string
-	local lines = {}
-	local rar = EquipmentData.Rarities[item.rarity]
-	table.insert(lines, `<font color="#{(rar and rar.color or C.dim):ToHex()}">{item.rarity}</font> · {EquipmentData.SlotNames[item.slot] or item.slot} · <i>{item.role}</i>`)
-	local mine, theirs = totals(item), totals(against)
-	local seen = {}
-	for stat, t in pairs(mine) do
-		seen[stat] = true
-		local diff = ""
-		if against then
-			local d = t.value - (if theirs[stat] then theirs[stat].value else 0)
-			if math.abs(d) > 1e-6 then
-				diff = if d > 0 then `  <font color="#78e68c">({effectText(stat, t.op, d)})</font>` else `  <font color="#ff7a6a">({effectText(stat, t.op, d)})</font>`
-			end
-		end
-		table.insert(lines, effectText(stat, t.op, t.value) .. diff)
-	end
-	if against then
-		for stat, t in pairs(theirs) do
-			if not seen[stat] then table.insert(lines, `<font color="#ff7a6a">({effectText(stat, t.op, -t.value)})</font>`) end
-		end
-	end
-	table.insert(lines, `<font color="#ffde8c">PERK: {item.perk.text}</font>`)
-	if against then
-		table.insert(lines, `<font color="#9d93a8">Replaces {against.name} (PERK: {against.perk.text})</font>`)
-	end
-	return table.concat(lines, "\n")
-end
-
-local function selectItem(sel: { kind: string, uid: number?, slot: string? }?)
-	selected = sel
-	if not sel then
-		detail.Visible = false
-		return
-	end
-	local owned: { uid: number, id: string }? = nil
-	if sel.kind == "bag" then
-		for _, o in ipairs(bag) do
-			if o.uid == sel.uid then owned = o end
-		end
-	else
-		owned = if sel.slot then equipped[sel.slot] else nil
-	end
-	local item = owned and EquipmentData.Get(owned.id)
-	if not item or not owned then
-		detail.Visible = false
-		return
-	end
-	detail.Visible = true
-	detailTitle.Text = item.name
-	detailTitle.TextColor3 = itemColor(item)
-	local salvage = EquipmentData.Rarities[item.rarity] and EquipmentData.Rarities[item.rarity].salvage or 0
-	if sel.kind == "bag" then
-		detailBody.Text = describe(item, replaces(item))
-		detailA.Text = "EQUIP"
-		detailA.Visible = true
-		detailB.Text = `SALVAGE ({salvage}g)`
-		detailB.Visible = true
-	else
-		detailBody.Text = describe(item, nil)
-		detailA.Text = "UNEQUIP"
-		detailA.Visible = true
-		detailB.Visible = false
-	end
-end
-
-local function cell(parent: Instance, item: EquipmentData.Item?, caption: string, order: number, onClick: () -> ()): TextButton
-	local b = new("TextButton", { Name = "Cell" .. order, BackgroundColor3 = C.stone2, BorderSizePixel = 0, Text = "", LayoutOrder = order,
-		Size = UDim2.fromOffset(86, 58), AutoButtonColor = true }, parent)
-	new("UICorner", { CornerRadius = UDim.new(0, 4) }, b)
-	new("UIStroke", { Color = itemColor(item), Thickness = if item then 1.6 else 1, Transparency = if item then 0 else 0.6,
-		ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, b)
-	label(b, { Text = caption, Size = UDim2.new(1, -6, 0, 14), Position = UDim2.fromOffset(3, 2), TextSize = 10, TextColor3 = C.dim,
-		TextXAlignment = Enum.TextXAlignment.Center })
-	label(b, { Text = if item then item.name else "—", Size = UDim2.new(1, -6, 1, -18), Position = UDim2.fromOffset(3, 16), TextSize = 11,
-		FontFace = SERIF_BOLD, TextColor3 = if item then itemColor(item) else C.dim, TextWrapped = true,
-		TextXAlignment = Enum.TextXAlignment.Center })
-	b.MouseButton1Click:Connect(onClick)
-	return b
-end
-
-renderGear = function()
-	for _, c in ipairs(slotsFrame:GetChildren()) do
-		if c:IsA("TextButton") then c:Destroy() end
-	end
-	for _, c in ipairs(bagFrame:GetChildren()) do
-		if c:IsA("TextButton") then c:Destroy() end
-	end
-	for i, slot in ipairs(EquipmentData.Slots) do
-		local o = equipped[slot]
-		local item = o and EquipmentData.Get(o.id)
-		cell(slotsFrame, item, EquipmentData.SlotNames[slot] or slot, i, function()
-			if item then selectItem({ kind = "slot", slot = slot }) else selectItem(nil) end
-		end)
-	end
-	for i = 1, EquipmentData.BAG do
-		local o = bag[i]
-		local item = o and EquipmentData.Get(o.id)
-		cell(bagFrame, item, if item then EquipmentData.SlotNames[item.slot] or item.slot else "empty", i, function()
-			if o then selectItem({ kind = "bag", uid = o.uid }) else selectItem(nil) end
-		end)
-	end
-	if selected then selectItem(selected) end
-end
-
-local function toggleGear(open: boolean?)
-	local want = if open == nil then not gearPanel.Visible else open
-	gearPanel.Visible = want and onIsland
-	if gearPanel.Visible then
-		ask("gear")
-		renderGear()
-	else
-		selectItem(nil)
-	end
+local function toggleGear(want: boolean?)
+	if want == nil then want = not EquipmentScreen.IsOpen() end
+	if want and onIsland then EquipmentScreen.Open() else EquipmentScreen.Close() end
 end
 
 -- ── Building it ─────────────────────────────────────────────────────────────
@@ -541,7 +375,7 @@ local function build()
 		Size = UDim2.fromOffset(800, 120), Visible = false }, gui)
 	label(titleFrame, { Text = "THE FORGOTTEN ISLE", Size = UDim2.new(1, 0, 0, 64), FontFace = SERIF_BOLD, TextSize = 52,
 		TextColor3 = C.goldBright, TextXAlignment = Enum.TextXAlignment.Center })
-	label(titleFrame, { Text = "Survive the island. Grow stronger. Wake the altar at its heart.", Size = UDim2.new(1, 0, 0, 26),
+	label(titleFrame, { Text = "Survive, level up, then start the ritual.", Size = UDim2.new(1, 0, 0, 26),
 		Position = UDim2.fromOffset(0, 70), TextSize = 18, TextColor3 = C.white, TextXAlignment = Enum.TextXAlignment.Center })
 
 	-- top right
@@ -591,7 +425,7 @@ local function build()
 		TextSize = 26, TextColor3 = C.violet, TextXAlignment = Enum.TextXAlignment.Center })
 	ritualLore = label(ritualPanel, { Text = "", Size = UDim2.new(1, -48, 0, 60), Position = UDim2.fromOffset(24, 56), TextSize = 14,
 		TextColor3 = C.white, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Center, TextYAlignment = Enum.TextYAlignment.Top })
-	label(ritualPanel, { Text = "Eight statues. One altar. Six sovereigns: the Drowned Sovereign, the Ashen Colossus, the Hollow Saint, the Thorn Matriarch, the Riftbound Knight, the Eclipse Wyrm.",
+	label(ritualPanel, { Text = "Bosses: Drowned Sovereign, Ashen Colossus, Hollow Saint, Thorn Matriarch, Riftbound Knight, Eclipse Wyrm.",
 		Size = UDim2.new(1, -48, 0, 40), Position = UDim2.fromOffset(24, 116), TextSize = 12, TextColor3 = C.dim, TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Center })
 	ritualStatus = label(ritualPanel, { Text = "", Size = UDim2.new(1, -48, 0, 40), Position = UDim2.fromOffset(24, 164), TextSize = 14,
@@ -607,42 +441,6 @@ local function build()
 		ritualPanel.Visible = false
 	end)
 	leave.MouseButton1Click:Connect(function() ritualPanel.Visible = false end)
-
-	-- the gear panel
-	gearPanel = plate(gui, { Name = "GearPanel", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(680, 470),
-		Visible = false, BackgroundTransparency = 0.05 })
-	label(gearPanel, { Text = "ISLAND GEAR", Size = UDim2.new(1, 0, 0, 30), Position = UDim2.fromOffset(0, 10), FontFace = SERIF_BOLD,
-		TextSize = 22, TextColor3 = C.goldBright, TextXAlignment = Enum.TextXAlignment.Center })
-	label(gearPanel, { Text = "Worn for this run only: lost when it ends.", Size = UDim2.new(1, 0, 0, 16), Position = UDim2.fromOffset(0, 40),
-		TextSize = 12, TextColor3 = C.dim, TextXAlignment = Enum.TextXAlignment.Center })
-	local close = button(gearPanel, "X", C.dim, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 10), Size = UDim2.fromOffset(28, 28) })
-	close.MouseButton1Click:Connect(function() toggleGear(false) end)
-	label(gearPanel, { Text = "EQUIPPED", Size = UDim2.fromOffset(200, 16), Position = UDim2.fromOffset(20, 64), TextSize = 12, TextColor3 = C.gold })
-	slotsFrame = new("Frame", { Name = "Slots", BackgroundTransparency = 1, Position = UDim2.fromOffset(20, 82), Size = UDim2.new(1, -40, 0, 60) }, gearPanel)
-	new("UIGridLayout", { CellSize = UDim2.fromOffset(86, 58), CellPadding = UDim2.fromOffset(6, 6), SortOrder = Enum.SortOrder.LayoutOrder }, slotsFrame)
-	label(gearPanel, { Text = `BAG (holds {EquipmentData.BAG}: more is salvaged for gold)`, Size = UDim2.fromOffset(400, 16), Position = UDim2.fromOffset(20, 152),
-		TextSize = 12, TextColor3 = C.gold })
-	bagFrame = new("Frame", { Name = "Bag", BackgroundTransparency = 1, Position = UDim2.fromOffset(20, 170), Size = UDim2.new(1, -40, 0, 124) }, gearPanel)
-	new("UIGridLayout", { CellSize = UDim2.fromOffset(118, 58), CellPadding = UDim2.fromOffset(6, 6), SortOrder = Enum.SortOrder.LayoutOrder }, bagFrame)
-	detail = new("Frame", { Name = "Detail", BackgroundColor3 = C.stone2, BorderSizePixel = 0, Position = UDim2.fromOffset(20, 302), Size = UDim2.new(1, -40, 0, 154),
-		Visible = false }, gearPanel)
-	new("UICorner", { CornerRadius = UDim.new(0, 4) }, detail)
-	detailTitle = label(detail, { Text = "", Size = UDim2.new(1, -170, 0, 22), Position = UDim2.fromOffset(10, 6), FontFace = SERIF_BOLD, TextSize = 17 })
-	detailBody = label(detail, { Text = "", Size = UDim2.new(1, -170, 1, -32), Position = UDim2.fromOffset(10, 30), TextSize = 13, RichText = true,
-		TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top })
-	detailA = button(detail, "EQUIP", C.green, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 14), Size = UDim2.fromOffset(145, 36) })
-	detailB = button(detail, "SALVAGE", C.red, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 58), Size = UDim2.fromOffset(145, 36) })
-	detailA.MouseButton1Click:Connect(function()
-		local sel = selected
-		if not sel then return end
-		if sel.kind == "bag" then ask("equip", { uid = sel.uid }) else ask("unequip", { slot = sel.slot }) end
-		selectItem(nil)
-	end)
-	detailB.MouseButton1Click:Connect(function()
-		local sel = selected
-		if sel and sel.kind == "bag" then ask("salvage", { uid = sel.uid }) end
-		selectItem(nil)
-	end)
 end
 
 -- ── Messages ────────────────────────────────────────────────────────────────
@@ -658,9 +456,7 @@ local function onMessage(msg: any)
 	if typeof(msg) ~= "table" then return end
 	local kind = msg.kind
 	if kind == "gear" then
-		bag = msg.bag or {}
-		equipped = msg.equipped or {}
-		if gearPanel.Visible then renderGear() end
+		EquipmentScreen.SetState(msg.bag, msg.equipped)
 	elseif kind == "discover" then
 		toast(`Discovered: {msg.name}`, REGION_COLORS[msg.region] or C.goldBright, if (msg.xp or 0) > 0 then `+{msg.xp} XP` else nil)
 	elseif kind == "loot" then
@@ -671,7 +467,6 @@ local function onMessage(msg: any)
 			local c = EquipmentData.Consumables[msg.consumable]
 			if c then table.insert(parts, `<font color="#{c.color:ToHex()}">{c.name}</font>`) end
 		end
-		if msg.tome then table.insert(parts, `<font color="#c9a4ff">{msg.tome}</font>`) end
 		toast(CHEST_TITLES[msg.chest] or "Chest", C.goldBright, table.concat(parts, "  ·  "))
 		-- a Legendary gets a banner of its own
 		for _, id in ipairs(msg.items or {}) do
@@ -685,7 +480,7 @@ local function onMessage(msg: any)
 		local it = EquipmentData.Get(msg.id)
 		toast(if msg.auto then "Bag full: salvaged" else "Salvaged", C.dim, `{it and it.name or msg.id}  →  {msg.gold} gold`)
 	elseif kind == "level" then
-		toast(`LEVEL {msg.level}`, C.xp, "Choose a tome")
+		toast(`LEVEL {msg.level}`, C.xp, "+4% damage and health")
 	elseif kind == "wave" then
 		toast(`WAVE {msg.wave}`, C.red, "The island stirs: more of them, and stronger")
 	elseif kind == "behemoth" then
@@ -693,7 +488,7 @@ local function onMessage(msg: any)
 	elseif kind == "perk" then
 		toast(msg.text, C.goldBright)
 	elseif kind == "cursed" then
-		toast("The seal breaks", C.red, `{msg.by} woke {msg.count} of the dead: clear them to open the chest`)
+		toast("The seal breaks", C.red, `Clear {msg.count} enemies to open the chest`)
 	elseif kind == "ritual_info" then
 		showRitual(msg)
 	elseif kind == "ritual_ready" then
@@ -710,13 +505,13 @@ local function onMessage(msg: any)
 		setBoss(msg.model, msg.name, msg.title, msg.color)
 	elseif kind == "ritual_victory" then
 		setBoss(nil)
-		banner("SOVEREIGN SLAIN", C.goldBright, `{msg.name} has fallen. A Ritual Chest rises at the altar.`, 4)
+		banner("SOVEREIGN SLAIN", C.goldBright, `{msg.name} defeated! Chest at the altar.`, 4)
 		sfx(SFX.burst, 0.8)
 	elseif kind == "isle_unlocked" then
 		banner(`LEVEL {msg.level} · {string.upper(msg.name or "")}`, REGION_COLORS[msg.region] or C.goldBright, "A new isle rises. Its guardian waits at its summit.", 4.5)
 		sfx(SFX.chime, 0.7)
 	elseif kind == "isle_soon" then
-		toast("The isle trembles", C.goldBright, `Open the Ritual Chest: in {msg.seconds or 20}s the next isle rises`)
+		toast("The isle trembles", C.goldBright, `Open the chest. Next isle in {msg.seconds or 20}s`)
 	elseif kind == "isle_leaving" then
 		banner("THE ISLE GIVES WAY", REGION_COLORS[msg.region] or C.goldBright, `{msg.name} rises in its place`, 2.5)
 		tremor(2.5, 0.8)
@@ -725,7 +520,7 @@ local function onMessage(msg: any)
 	elseif kind == "ritual_failed" then
 		setBoss(nil)
 		setTint(if currentEvent then EVENT_TINTS[currentEvent] else nil, 2)
-		banner("THE RITUAL BREAKS", C.dim, "Everyone left the circle. The sovereign sinks back into the stone.", 3.5)
+		banner("THE RITUAL BREAKS", C.dim, "Everyone left. The boss is gone.", 3.5)
 	elseif kind == "event" then
 		currentEvent = msg.id
 		eventEnds = os.clock() + (msg.duration or 0)
@@ -750,7 +545,7 @@ local function onMessage(msg: any)
 	elseif kind == "echo" then
 		clearMarker("echo")
 		if msg.blessed then
-			banner("A BLESSING", Color3.fromRGB(255, 230, 140), `{msg.by} communed with the shrine: {msg.line} for {msg.seconds}s`, 4)
+			banner("A BLESSING", Color3.fromRGB(255, 230, 140), `Shrine: {msg.line} for {msg.seconds}s`, 4)
 		else
 			banner("A CURSE", C.red, `{msg.by} woke something angry: {msg.line}`, 4)
 		end
@@ -779,7 +574,7 @@ local function step()
 			showTitle()
 			ask("gear")
 		else
-			gearPanel.Visible = false
+			toggleGear(false)
 			ritualPanel.Visible = false
 			setBoss(nil)
 			setTint(nil, 1)
@@ -864,6 +659,7 @@ end
 
 function IslandHUD.Init()
 	build()
+	EquipmentScreen.Init(ask)
 	remote("IslandEvent").OnClientEvent:Connect(function(msg)
 		local ok, err = pcall(onMessage, msg)
 		if not ok then warn("[IslandHUD]", err) end
@@ -886,7 +682,7 @@ function IslandHUD.Init()
 	RunService:BindToRenderStep("IsleTremor", Enum.RenderPriority.Camera.Value + 2, tremorStep)
 	-- (a panel open: the mouse is freed from the crosshair to click it; IsometricCamera)
 	RunService.Heartbeat:Connect(function()
-		local want = onIsland and (gearPanel.Visible or ritualPanel.Visible)
+		local want = onIsland and (EquipmentScreen.IsOpen() or ritualPanel.Visible)
 		if (player:GetAttribute("UIFreeMouse") == true) ~= want then player:SetAttribute("UIFreeMouse", if want then true else nil) end
 	end)
 	task.spawn(function()

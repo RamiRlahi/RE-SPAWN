@@ -49,6 +49,18 @@ local CLASS_ANIMATIONS = {
 		run = "rbxassetid://131143543582644",
 		idle = "rbxassetid://79280836238386",
 	},
+	-- the Ronin runs like the Fire Knight
+	ronin = {
+		walk = "rbxassetid://109247200419554",
+		run = "rbxassetid://131143543582644",
+		idle = "rbxassetid://86968114690424",
+	},
+	-- the Sword Master runs like the Fire Knight
+	swordsman = {
+		walk = "rbxassetid://109247200419554",
+		run = "rbxassetid://131143543582644",
+		idle = "rbxassetid://86968114690424",
+	},
 }
 
 -- Uploaded attack combos per class. None right now: the Fire Knight's

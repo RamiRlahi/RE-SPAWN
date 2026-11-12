@@ -4,7 +4,8 @@
 	The dash: the "Dash" keybind (right click by default; SkillController
 	hears it). A quick burst along the way you're moving (or toward the cursor
 	standing still) that dodges whatever was about to land: the server gives a
-	moment of i-frames (Dash.luau). Once every COOLDOWN seconds; not while
+	moment of i-frames (Dash.luau). MAX_CHARGES dashes held, each coming back
+	COOLDOWN seconds after the one before it refilled; not while
 	riding, sat down, held still (a tome choice, a tutorial popup) or in an
 	ultimate.
 
@@ -14,9 +15,14 @@
 	prop at full force the body was flung into the air. Never leaves you
 	rising either. Afterimages trail it (budgeted: FxBudget).
 
+	A dash cancels whatever skill or attack is playing (not an ultimate): the
+	pose lets go, whatever holds the body still lets go, and you're free to act.
+	Hits the move already started on the server still land.
+
 	  DashController.Init(getAim)   getAim(root) → the flat aim direction
 	  DashController.Dash()         try to dash now
-	  DashController.Ready() → 0..1 how far the cooldown has come back
+	  DashController.Ready() → 0..1 how far the next charge has come back (1: one's ready)
+	  DashController.Charges() → (stock, max)  stock 0..max, fractional while one refills
 --]]
 
 local Players = game:GetService("Players")
@@ -31,10 +37,13 @@ local Network = require(Shared:WaitForChild("Network"))
 local RunScope = require(Shared:WaitForChild("RunScope"))
 local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
 local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
+local CastPoses = require(script.Parent:WaitForChild("CastPoses"))
 
 local DashController = {}
 
-local COOLDOWN = 1.1 -- (Dash.COOLDOWN on the server)
+local COOLDOWN = 1.1 -- seconds for one charge to come back (Dash.COOLDOWN on the server)
+local MAX_CHARGES = 3 -- (Dash.CHARGES on the server)
+local GAP = 0.22      -- at least this long between two dashes (no double-tap blur)
 local DASH_TIME = 0.16
 local SPEED = 100 -- studs a second: ~16 studs a dash
 local RADIUS = 1.4 -- (the body's width, for the look ahead)
@@ -45,7 +54,13 @@ local GHOST_COLOR = Color3.fromRGB(190, 225, 255)
 
 local player = Players.LocalPlayer
 local lastDash = -math.huge
+local stock, stockAt = MAX_CHARGES, os.clock()
+local function refill(now: number)
+	stock = math.min(MAX_CHARGES, stock + (now - stockAt) / COOLDOWN)
+	stockAt = now
+end
 local getAim: ((BasePart) -> Vector3)? = nil
+local cancelHooks: { (Model) -> () } = {}
 
 local function fxFolder(): Instance
 	local f = Workspace:FindFirstChild("DashTrails")
@@ -83,13 +98,38 @@ local function canDash(char: Model, hum: Humanoid, root: BasePart): boolean
 	return true
 end
 
+-- What a skill holds the body with (on the root): let go so the dash can move it.
+local HOLDS = { AlignPosition = true, AlignOrientation = true, LinearVelocity = true, BodyVelocity = true,
+	BodyPosition = true, BodyGyro = true, VectorForce = true }
+
+-- Out of whatever skill or attack is playing: the pose, the held body, the
+-- cast flags, any action animation on the Animator.
+local function cancelMove(char: Model, hum: Humanoid, root: BasePart)
+	CastPoses.stop(char)
+	for _, d in ipairs(root:GetChildren()) do
+		if HOLDS[d.ClassName] then d:Destroy() end
+	end
+	local animator = hum:FindFirstChildOfClass("Animator")
+	if animator then
+		for _, tr in ipairs(animator:GetPlayingAnimationTracks()) do
+			if tr.Priority.Value >= Enum.AnimationPriority.Action.Value then tr:Stop(0.08) end
+		end
+	end
+	if hum.PlatformStand then hum.PlatformStand = false end
+	hum.AutoRotate = true
+	char:SetAttribute("IsSkillCasting", false)
+	char:SetAttribute("AllowSkillMovement", false)
+	for _, fn in ipairs(cancelHooks) do task.spawn(fn, char) end
+end
+
 function DashController.Dash()
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
 	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not char or not hum or not root then return end
 	local now = os.clock()
-	if now - lastDash < COOLDOWN or not canDash(char, hum, root) then return end
+	refill(now)
+	if stock < 1 or now - lastDash < GAP or not canDash(char, hum, root) then return end
 	-- which way: where you're walking, else toward the cursor
 	local dir = Vector3.new(hum.MoveDirection.X, 0, hum.MoveDirection.Z)
 	if dir.Magnitude < 0.1 and getAim then dir = (getAim :: (BasePart) -> Vector3)(root) end
@@ -98,6 +138,8 @@ function DashController.Dash()
 	if dir.Magnitude < 0.1 then return end
 	dir = dir.Unit
 	lastDash = now
+	stock -= 1
+	cancelMove(char, hum, root)
 	Network.GetRemoteEvent(Network.Remotes.Dash):FireServer()
 
 	-- how far the way is clear (walls, props, mobs: not ourselves, not effects)
@@ -152,11 +194,27 @@ function DashController.Dash()
 end
 
 function DashController.Ready(): number
-	return math.clamp((os.clock() - lastDash) / COOLDOWN, 0, 1)
+	refill(os.clock())
+	return if stock >= 1 then 1 else stock
+end
+
+-- `fn(char)` runs when a dash cuts a move short (a class controller drops
+-- what it was holding: its busy timer, its body mover).
+function DashController.OnCancel(fn: (Model) -> ())
+	table.insert(cancelHooks, fn)
+end
+
+function DashController.Charges(): (number, number)
+	refill(os.clock())
+	return stock, MAX_CHARGES
 end
 
 function DashController.Init(aim: (BasePart) -> Vector3)
 	getAim = aim
+	-- (a fresh body starts with every charge)
+	player.CharacterAdded:Connect(function()
+		stock, stockAt = MAX_CHARGES, os.clock()
+	end)
 end
 
 return DashController

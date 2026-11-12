@@ -73,10 +73,12 @@ local UPPER = { crouch = 0.05, dash = 0.14, swing = 0.08, rise = 0.08, hang = 0.
 -- (dash), then a dive in a straight line down onto the spot (fall).
 local ASCENT = { rise = 0.3, dash = 0.08, fall = 0.22 }
 local ASCENT_HEIGHT = 14
--- Crimson Hadouken (matches MartialServer): the charge (the ult's
--- cinematic), then the thrust, held a beat; the sphere leaves the palms at
--- `v0` and surges up to the server's speed (`ramp`: how quickly).
-local HADO = { charge = 1.3, hold = 0.45, v0 = 18, ramp = 0.3 }
+-- Dragon Soul (matches MartialServer): the summoning (the ult's cinematic,
+-- `rise` seconds); then strikes come `speed`x faster and the dragon lashes
+-- out `reach` studs along each (out in `lash` seconds, back in `back`).
+-- Between strikes it coils round him (`orbit` studs out, `height` up,
+-- `spin` radians a second).
+local DRAGON = { rise = 1.1, speed = 1.6, reach = 15, lash = 0.14, back = 0.3, orbit = 4.2, height = 3, spin = 2.6 }
 -- The chain (matches MartialServer): how far each strike reaches (its blast
 -- of air is drawn that far), how far it pushes him in behind it, and how
 -- long his feet stay planted for it (at 1× attack speed).
@@ -112,6 +114,10 @@ local deps: Deps
 local lastSwing = 0
 local step = 0
 local busyUntil = 0
+-- (a dash cuts the move short: free to cast again at once)
+(require(script.Parent:WaitForChild("DashController")) :: any).OnCancel(function(c: Model)
+	if c == game:GetService("Players").LocalPlayer.Character then busyUntil = 0 end
+end)
 
 local function isMartial(p: Player?): boolean
 	return (p or player):GetAttribute("SelectedClass") == "martial_artist"
@@ -260,7 +266,7 @@ local function streak(a: Vector3, b: Vector3, width: number, life: number, color
 	SwordFX.Streak(a, b, width, color or CRIMSON, life, nil, HOT)
 end
 
--- The world dimmed and reddened a little (the Crimson Hadouken).
+-- The world dimmed and reddened a little (the Dragon Soul's summoning).
 local function tint(seconds: number)
 	local cc = Instance.new("ColorCorrectionEffect")
 	cc.Name = "MartialHado"
@@ -308,12 +314,6 @@ end
 local function fistOf(char: Model, side: string): Vector3?
 	local arm = char:FindFirstChild(side) :: BasePart?
 	return if arm then (arm.CFrame * CFrame.new(0, -1.15, 0)).Position else nil
-end
-
--- Between his two hands (the Hadouken's sphere).
-local function handsOf(char: Model): Vector3?
-	local r, l = fistOf(char, "Right Arm"), fistOf(char, "Left Arm")
-	return if r and l then (r + l) / 2 else nil
 end
 
 -- A bolt of lightning from `a` to `b`: a jagged line (wildest in the middle)
@@ -1170,28 +1170,22 @@ local function ascentPose(char: Model)
 	task.delay(T.rise * 0.3, function() fistStreak(char, "R", T.rise + T.dash + T.fall) end)
 end
 
--- Crimson Hadouken (after the pose sheet, checked on an R6 rig: both feet
--- flat on the floor, the hands meeting round the sphere):
--- 1 · Charge: a wide low split stance, the right leg bent forward taking
--- the weight, the left stretched back; both arms brought in round the
--- sphere in front of the belly, the right a little higher and closer, the
--- left in front of it; head slightly down, eyes forward; the arms trembling
--- as it builds (no twist through the waist: on R6 that turns the legs too).
--- 2 · Thrust: both palms driven out together ahead, the body lunging in
--- behind them on the same stance → held.
-local function hadoPose(char: Model)
-	local cup = { Root = { 0, 0, 0, 0, -0.58, -0.15 }, W = { -4, -8, 0 }, N = { 12, 8, 0 }, RS = { 75, 0, -45 }, LS = { 65, 0, 40 },
-		RH = { 44, 0, 30 }, LH = { -42, 0, -26 } }
-	local thrust = { Root = { 0, 0, 0, 0, -0.46, -0.45 }, W = { -10, 4, 0 }, N = { 4, 0, 0 }, RS = { 88, 0, -40 }, LS = { 88, 0, 40 },
-		RH = { 48, 0, 26 }, LH = { -29, 0, -24 } }
+-- Dragon Soul: crouched low, fists drawn in to the chest, trembling as the
+-- dragon spirals up round him; then the roar: arms flung up and wide, head
+-- thrown back, held a beat.
+local function roarPose(char: Model)
+	local gather = { Root = { 0, 0, 0, 0, -0.55, 0 }, W = { 22, 0, 0 }, N = { 18, 0, 0 }, RS = { 40, 0, 44 }, LS = { 40, 0, -44 },
+		RH = { 34, 0, 8 }, LH = { -24, 0, -8 } }
+	local roar = { Root = { 0, 0, 0, 0, -0.1, 0 }, W = { -14, 0, 0 }, N = { -32, 0, 0 }, RS = { 158, 0, 34 }, LS = { 158, 0, -34 },
+		RH = { 4, 0, 10 }, LH = { -4, 0, -10 } }
 	CastPoses.play(char, {
-		{ dur = 0.22, pose = cup },
-		{ dur = HADO.charge - 0.22, pose = cup, wobble = function(t: number)
-			local s = math.sin(t * 50) * (0.6 + 2.2 * math.min(t / HADO.charge, 1))
+		{ dur = 0.2, pose = gather },
+		{ dur = DRAGON.rise - 0.3, pose = gather, wobble = function(t: number)
+			local s = math.sin(t * 50) * (0.6 + 2.4 * math.min(t / DRAGON.rise, 1))
 			return { RS = { s, 0, 0 }, LS = { -s, 0, 0 } }
 		end },
-		{ dur = 0.07, style = Enum.EasingStyle.Quart, pose = thrust },
-		{ dur = HADO.hold, pose = thrust },
+		{ dur = 0.1, style = Enum.EasingStyle.Quart, pose = roar },
+		{ dur = 0.45, pose = roar },
 	}, 0.35)
 end
 
@@ -2603,19 +2597,13 @@ local function onUppercutHit(msg: any)
 	if #hits > 0 and msg.attacker == player and deps then deps.shake(0.25, 0.1) end
 end
 
--- ── R: Crimson Hadouken ─────────────────────────────────────────────────────
--- 1 · Charge: crouched and wound away, the sphere forming in his right hand
--- (fire and black ink round a white-hot core, red lightning cracking off
--- it), red energy and ink swirling in to it, and the air going wild round
--- him: a column of wind spinning up off the floor, air drawn in to him in
--- streaks from all round, pressure pulsing out over the floor, a crimson
--- circle burning in round an ink pool, the rubble lifting. 2 · Thrust: both
--- palms driven forward, an air blast off them, the rubble thrown after it.
--- 3 · Projectile: one big sphere after the pack's Ball-01 (its fire, black
--- ash and embers round a white-hot heart), its tail streaming out behind
--- it, rings of air and streaks of wind thrown off it, dust torn up off the
--- floor, red lightning lashing off it, the floor scorched under it;
--- everyone it passes through bursts in ink; it explodes where it ends.
+-- ── R: Dragon Soul ─────────────────────────────────────────────────────────
+-- 1 · The summoning (the ult's cinematic): a crimson circle burns into the
+-- floor, the rubble lifts, the world reddens, and a crimson Qi dragon
+-- spirals up out of the floor round him to roar over his head; then it
+-- bursts out (the server's roar). 2 · For the buff: the dragon coils round
+-- him and, with every strike he throws, lashes out along it, jaws open, and
+-- curls back.
 
 -- A circle of crimson burning into the floor round `pos` for `dur` (two
 -- rings, the spokes between them, turning), round a ring of ink.
@@ -2654,358 +2642,165 @@ local function sigil(pos: Vector3, dur: number)
 	end)
 end
 
--- 1 · The charge round `char` (facing `dir`) for `charge` seconds.
-local function hadoChargeFx(char: Model, dir: Vector3, charge: number, mine: boolean)
+-- Is `p`'s dragon out (the buff running)?
+local function dragonActive(p: Player): boolean
+	return (tonumber(p:GetAttribute("MA_DragonUntil")) or 0) > Workspace:GetServerTimeNow()
+end
+
+-- 1 · The summoning round `char` (facing `dir`) for `rise` seconds.
+local function summonFx(char: Model, dir: Vector3, rise: number, mine: boolean)
 	local root = rootOf(char)
 	if not root then return end
 	local pos = onGround(root.Position)
-	-- (the sphere cupped between his hands in front of his belly)
-	local function hands(): Vector3?
-		return if char.Parent then handsOf(char) else nil
-	end
-	local function body(): Vector3?
-		return if root.Parent then root.Position else nil
-	end
-	if mine or near(pos, 90) then tint(charge + 0.7) end
-	sigil(pos, charge + 0.5)
-	PackFX.Burst("Anime/Blood-01", CFrame.new(pos + Vector3.new(0, 0.1, 0)), { color = INK, scale = 3, light = 0 })
+	if mine or near(pos, 90) then tint(rise + 0.7) end
+	sigil(pos, rise + 0.5)
 	PackFX.Burst("Big/Big-Crack-01", CFrame.new(pos + Vector3.new(0, 0.1, 0)), { color = CRIMSON, scale = 0.9 })
 	PackFX.Burst("Anime/Smoke-01", CFrame.new(pos + Vector3.new(0, 0.6, 0)), { color = Color3.fromRGB(120, 112, 118), scale = 1.3 })
-	local rocks = rubble(pos, 12, 11, 3.5)
-	task.delay(charge, function() rocks.throw(dir) end)
-	-- the air: a column of wind spinning up off the floor round him (the
-	-- pack's tornado, turned over to rise from his feet)
-	PackFX.Run("Big/Tornado-01", CFrame.new(pos + Vector3.new(0, 0.4, 0)) * CFrame.Angles(math.pi, 0, 0), charge, { scale = 0.55 })
-	-- light and ink rushing in to him from all round
-	local gather = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 18, CFrame = CFrame.new(pos + Vector3.new(0, 2.5, 0)), Transparency = 1 })
-	local inward = emitter(gather, { Texture = TEX_SPARKLE, Color = ColorSequence.new(HOT, CRIMSON), LightEmission = 1,
-		Shape = Enum.ParticleEmitterShape.Sphere, ShapeInOut = Enum.ParticleEmitterShapeInOut.Inward,
-		ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface, Orientation = Enum.ParticleOrientation.VelocityParallel,
-		Lifetime = NumberRange.new(0.4), Speed = NumberRange.new(20, 23), Size = nseq(0, 0.5, 1, 0.1), Transparency = nseq(0, 0.6, 1, 0), Rate = 70 })
-	local inkward = emitter(gather, { Texture = TEX_INK, FlipbookLayout = Enum.ParticleFlipbookLayout.Grid4x4,
-		FlipbookMode = Enum.ParticleFlipbookMode.OneShot, Color = ColorSequence.new(INK), LightEmission = 0,
-		Shape = Enum.ParticleEmitterShape.Sphere, ShapeInOut = Enum.ParticleEmitterShapeInOut.Inward,
-		ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface, Lifetime = NumberRange.new(0.45), Speed = NumberRange.new(18, 20),
-		Size = nseq(0, 1.2, 1, 2.2), Transparency = nseq(0, 0.7, 0.4, 0.1, 1, 0.5), Rotation = NumberRange.new(0, 360),
-		RotSpeed = NumberRange.new(-100, 100), Rate = 26 })
-	task.delay(charge, function()
-		inward.Enabled, inkward.Enabled = false, false
-		Debris:AddItem(gather, 0.6)
+	local rocks = rubble(pos, 10, 9, 3)
+	task.delay(rise, function() rocks.throw(dir) end)
+	ClassFX.Sound("wind", pos, 0.7, 0.7, rise)
+	-- the dragon spirals up round him, tightening, and rears over his head
+	local dragon = newDragon(1.1, pos + Vector3.new(6, 0, 0), Vector3.yAxis, 0.5)
+	animate(rise, function(a)
+		if not root.Parent then
+			dragon.destroy()
+			return true
+		end
+		local c = root.Position
+		local ang = a * math.pi * 3.5
+		local r = 6.5 - 3.5 * easeOut(a)
+		local h = -2.5 + 10 * easeOut(a)
+		local p = c + Vector3.new(math.cos(ang) * r, h, math.sin(ang) * r)
+		local tangent = Vector3.new(-math.sin(ang), 0.6, math.cos(ang))
+		-- (at the top it turns to look down the aim)
+		local look = tangent:Lerp(dir + Vector3.new(0, -0.3, 0), math.clamp((a - 0.75) / 0.25, 0, 1))
+		dragon.move(p, look)
+		dragon.set(math.min(a / 0.15, 1))
+		dragon.jaw(math.clamp((a - 0.7) / 0.3, 0, 1))
+		if a >= 1 then dragon.destroy() end
+		return nil
 	end)
-	-- the sphere forming between his hands
-	local at = hands() or root.Position
-	local core = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 0.3, Color = HOT, CFrame = CFrame.new(at) })
-	local glow = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 0.5, Color = CRIMSON, Transparency = 0.55, CFrame = CFrame.new(at) })
-	local field = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 0.9, Color = CRIMSON, Material = Enum.Material.ForceField,
-		Transparency = 0.1, CFrame = CFrame.new(at) })
-	local fire = emitter(core, { Texture = TEX_FLAME, FlipbookLayout = Enum.ParticleFlipbookLayout.Grid4x4,
-		FlipbookMode = Enum.ParticleFlipbookMode.OneShot, Color = ColorSequence.new(CRIMSON), LightEmission = 0.3,
-		Size = nseq(0, 0.6, 0.3, 1.2, 1, 0), Lifetime = NumberRange.new(0.3, 0.45), Speed = NumberRange.new(1, 3),
-		SpreadAngle = Vector2.new(180, 180), Rotation = NumberRange.new(0, 360), Rate = 30, LockedToPart = true, ZOffset = 0.3 })
-	local ash = emitter(core, { Texture = TEX_INK, FlipbookLayout = Enum.ParticleFlipbookLayout.Grid4x4,
-		FlipbookMode = Enum.ParticleFlipbookMode.OneShot, Color = ColorSequence.new(INK), LightEmission = 0,
-		Size = nseq(0, 0.6, 0.3, 1.2, 1, 0), Lifetime = NumberRange.new(0.3, 0.45), Speed = NumberRange.new(1, 3),
-		SpreadAngle = Vector2.new(180, 180), Rotation = NumberRange.new(0, 360), Rate = 18, LockedToPart = true, ZOffset = 0.2 })
-	PackFX.Burst("Anime/Charge-01", CFrame.new(at), { color = CRIMSON, scale = 1.2 })
-	ClassFX.Sound("charge", at, 0.7, 0.75, charge)
-	ClassFX.Sound("fireWhoosh", pos, 0.6, 0.6)
-	ClassFX.Sound("wind", pos, 0.6, 1.2, charge)
-	local t0 = os.clock()
-	local nextBolt, nextSwirl, nextAir, nextPulse, lastStep = 0, 0, 0, 0.15, -1
-	animate(charge, function(a)
-		local h = hands()
-		if not h then
-			a = 1
-		else
-			local t = os.clock() - t0
-			local u = easeOut(a)
-			local pulse = 1 + math.sin(t * 22) * 0.1
-			local c = CFrame.new(h)
-			core.CFrame, glow.CFrame = c, c
-			field.CFrame = c * CFrame.Angles(t * 4, t * 9, 0)
-			core.Size = Vector3.one * (0.3 + 0.7 * u) * pulse
-			glow.Size = Vector3.one * (0.5 + 1.0 * u) * pulse
-			field.Size = Vector3.one * (0.9 + 1.4 * u)
-			local stepK = math.floor(u * 4)
-			if stepK ~= lastStep then
-				lastStep = stepK
-				local q = stepK / 4
-				fire.Size = nseq(0, 0.6 + 0.6 * q, 0.3, 1.2 + 1.4 * q, 1, 0)
-				ash.Size = nseq(0, 0.6 + 0.5 * q, 0.3, 1.2 + 1.2 * q, 1, 0)
+	-- 2 · the roar: it bursts out round him
+	task.delay(rise, function()
+		local at = if root.Parent then root.Position else pos
+		local g = onGround(at)
+		flare(at + Vector3.new(0, 2, 0), 16, 0.35, HOT)
+		shell(at, 2, 28, 0.45, CRIMSON)
+		floorRing(g, 14, 0.5, CRIMSON, 1.2)
+		task.delay(0.08, function() floorRing(g, 18, 0.5, HOT, 0.6) end)
+		PackFX.Burst("Anime/Charge-01", CFrame.new(at), { color = CRIMSON, scale = 1.6 })
+		PackFX.Burst("Big/Big-Crack-01", CFrame.new(g + Vector3.new(0, 0.1, 0)), { color = CRIMSON, scale = 1.3 })
+		SwordFX.Rays(g + Vector3.new(0, 0.3, 0), 20, 16, CRIMSON, 0.35)
+		sparks(at, 36, 32, HOT)
+		ClassFX.Sound("fireBurst", at, 1, 0.6)
+		ClassFX.Sound("boom", at, 0.9, 0.8)
+		ClassFX.Sound("quake", at, 0.5, 1.1)
+		if mine and deps then
+			deps.shake(0.7, 0.3)
+			deps.fovPunch(8, 0.3)
+			flash(0.22, 0.65)
+		elseif near(at, 50) and deps then
+			deps.shake(0.3, 0.15)
+		end
+	end)
+end
+
+-- 2 · The coiling dragon, one per Martial Artist whose buff is running.
+type Coil = { dragon: Dragon, angle: number, alpha: number, lashAt: number, lashDir: Vector3, lashReach: number,
+	lashFrom: Vector3, at: Vector3 }
+local coils: { [Player]: Coil } = {}
+
+-- Send `p`'s dragon lashing out along `dir`.
+local function lash(p: Player, dir: Vector3, reach: number)
+	local c = coils[p]
+	if not c then return end
+	c.lashAt = os.clock()
+	c.lashDir = flat(dir)
+	c.lashReach = reach
+	c.lashFrom = c.at
+	local root = rootOf(charOf(p))
+	if root and FxBudget.Allow("maDragonLash", 10) then
+		local d = c.lashDir
+		local tip = root.Position + d * reach + Vector3.new(0, 1, 0)
+		task.delay(DRAGON.lash, function()
+			flare(tip, 5, 0.2, HOT)
+			sparks(tip, 10, 18, CRIMSON)
+			if FxBudget.Allow("maDragonLashPack", 4) then
+				PackFX.Burst("Anime/Punch-03", CFrame.lookAt(tip, tip + d), { color = CRIMSON, scale = 1.1 })
 			end
-			-- red energy swirling in to his hand from all round him, and ink
-			if t >= nextSwirl then
-				nextSwirl = t + 0.06
-				inkCurl(hands, 3.5 + math.random() * 3, 0.3 + 0.35 * u, 0.42, if math.random() < 0.75 then "energy" else nil)
-			end
-			-- air drawn in to him in long streaks from all round, faster as it builds
-			if t >= nextAir then
-				nextAir = t + 0.07 - 0.03 * u
-				inkCurl(body, 7 + math.random() * 4, 0.22 + 0.2 * u, 0.5, "air")
-			end
-			-- pressure pulsing out of him over the floor, harder each time
-			if t >= nextPulse then
-				nextPulse = t + 0.3 - 0.12 * u
-				floorRing(pos, 3 + 2 * u, 0.4, WHITE, 0.25 + 0.3 * u)
-				if FxBudget.Allow("maHadoPulse", 8) then
-					PackFX.Burst("Anime/Wind-02", CFrame.new(pos + Vector3.new(0, 0.4, 0)), { scale = 0.7 + 0.6 * u })
+		end)
+		if p == player then ClassFX.Sound("whoosh", root, 0.5, 0.8) end
+	end
+end
+
+local function stepCoils(dt: number)
+	local now = os.clock()
+	local cam = Workspace.CurrentCamera
+	for _, p in ipairs(Players:GetPlayers()) do
+		local root = rootOf(charOf(p))
+		local want = root ~= nil and isMartial(p) and dragonActive(p)
+			and (cam == nil or (cam.CFrame.Position - (root :: BasePart).Position).Magnitude < 180)
+		local c = coils[p]
+		if want and not c and root then
+			local start = root.Position + Vector3.new(DRAGON.orbit, DRAGON.height, 0)
+			c = { dragon = newDragon(0.8, start, Vector3.zAxis, 0.45), angle = 0, alpha = 0, lashAt = -1, lashDir = Vector3.zAxis,
+				lashReach = DRAGON.reach, lashFrom = start, at = start }
+			coils[p] = c
+		end
+		if c then
+			c.alpha = math.clamp(c.alpha + (if want then dt * 3 else -dt * 2.5), 0, 1)
+			if c.alpha <= 0 and not want then
+				c.dragon.destroy()
+				coils[p] = nil
+			elseif root then
+				c.angle += DRAGON.spin * dt
+				local center = root.Position
+				local a = c.angle
+				local orbitAt = center + Vector3.new(math.cos(a) * DRAGON.orbit, DRAGON.height + math.sin(now * 3) * 0.5, math.sin(a) * DRAGON.orbit)
+				local orbitLook = Vector3.new(-math.sin(a), math.cos(now * 3) * 0.15, math.cos(a))
+				local t = now - c.lashAt
+				local pos, look, jaw = orbitAt, orbitLook, 0.25
+				local tip = center + c.lashDir * c.lashReach + Vector3.new(0, 1, 0)
+				if t >= 0 and t < DRAGON.lash then
+					pos = c.lashFrom:Lerp(tip, easeOut(t / DRAGON.lash))
+					look = c.lashDir
+					jaw = 1
+				elseif t >= DRAGON.lash and t < DRAGON.lash + DRAGON.back then
+					local k = (t - DRAGON.lash) / DRAGON.back
+					k = k * k * (3 - 2 * k)
+					pos = tip:Lerp(orbitAt, k)
+					look = c.lashDir * (1 - k) + orbitLook * k
+					jaw = 1 - k
 				end
-				if mine and deps then deps.shake(0.06 + 0.12 * u, 0.12) end
-			end
-			-- red lightning cracking between his hands and off the sphere
-			if t >= nextBolt then
-				nextBolt = t + 0.05
-				local r, l = fistOf(char, "Right Arm"), fistOf(char, "Left Arm")
-				if r and l then bolt(r, l, 0.09, 0.06, CRIMSON, 3) end
-				local out = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5).Unit
-				bolt(h + out * 0.6 * u, h + out * (1.5 + 2 * u), 0.1, 0.07, if math.random() < 0.3 then HOT else CRIMSON, 3)
+				c.at = pos
+				c.dragon.move(pos, look)
+				c.dragon.jaw(jaw)
+				c.dragon.set(c.alpha)
 			end
 		end
-		if a >= 1 then
-			fire.Enabled, ash.Enabled = false, false
-			for _, p in ipairs({ core, glow, field }) do
-				TweenService:Create(p, TweenInfo.new(0.1), { Transparency = 1 }):Play()
-				Debris:AddItem(p, 0.5)
-			end
-			return true
-		end
-		return nil
-	end)
-end
-
--- 2 · The thrust: an air blast off his palms, a wave of dust over the floor.
-local function hadoThrust(char: Model?, pos: Vector3, dir: Vector3, mine: boolean)
-	local h = (char and handsOf(char)) or (pos + dir * 2 + Vector3.new(0, 0.2, 0))
-	local at = h + dir * 1.5
-	local g = onGround(pos)
-	local side = Vector3.new(-dir.Z, 0, dir.X)
-	flare(at, 9, 0.25, HOT)
-	shell(at, 1, 9, 0.28, CRIMSON)
-	PackFX.Burst("Anime/Shoot-01", CFrame.lookAt(at, at + dir), { color = CRIMSON, scale = 1.4 })
-	PackFX.Burst("Anime/Wind-02", CFrame.lookAt(at, at + dir), { scale = 1.6 })
-	PackFX.Burst("Anime/Wind-02", CFrame.new(g + Vector3.new(0, 0.4, 0)), { scale = 1.4 })
-	punchRing(at + dir, dir, 2.4, 0.3, CRIMSON)
-	task.delay(0.05, function() punchRing(at + dir * 3.5, dir, 3.6, 0.35, WHITE) end)
-	task.delay(0.1, function() punchRing(at + dir * 6.5, dir, 5, 0.4, HOT) end)
-	floorRing(g, 6, 0.45, WHITE, 0.6)
-	-- streaks of air blasted out ahead of him
-	for _ = 1, 10 do
-		local off = side * (math.random() - 0.5) * 6 + Vector3.new(0, (math.random() - 0.5) * 4, 0)
-		SwordFX.Streak(at + off * 0.3, at + off + dir * (12 + math.random() * 8), 0.18, WHITE, 0.08, 1, WHITE)
 	end
-	sparks(at, 30, 30, CRIMSON)
-	ClassFX.Sound("fireBurst", at, 1, 0.7)
-	ClassFX.Sound("boom", at, 0.8, 1.1)
-	ClassFX.Sound("whoosh", at, 0.9, 0.55)
-	ClassFX.Sound("wind", at, 0.7, 1.6, 0.4)
-	if mine and deps then
-		deps.shake(0.7, 0.3)
-		deps.fovPunch(8, 0.3)
-		flash(0.22, 0.65)
+	for p, c in pairs(coils) do
+		if not p.Parent then
+			c.dragon.destroy()
+			coils[p] = nil
+		end
 	end
 end
 
--- How far the sphere has flown `t` seconds after the thrust (matches
--- MartialServer): off the palms at HADO.v0, surging up to `speed`.
-local function hadoDist(t: number, speed: number): number
-	return speed * t - (speed - HADO.v0) * HADO.ramp * (1 - math.exp(-t / HADO.ramp))
-end
-
--- The sphere itself, after the pack's Ball-01 (its fire, its black ash, its
--- embers, its red): a dense ball of them churning round a white-hot heart,
--- `s` big. Some of the fire and ash is left hanging in the air as it goes,
--- so its tail streams out behind it along its path whichever way it flies.
--- move(pos) it each frame; stop() lets it burn out.
-local BALL_RED = Color3.fromRGB(255, 52, 11)   -- (Ball-01's own red,
-local SPECK_RED = Color3.fromRGB(206, 57, 15)  -- and its embers')
-local TEX_SPECK = "rbxassetid://11187840108"   -- (the pack's ember)
-type FireBall = { move: (Vector3) -> (), stop: () -> () }
-local function fireBall(at: Vector3, s: number): FireBall
-	local head = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 3.6 * s, Transparency = 1, CFrame = CFrame.new(at) })
-	local heart = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 2 * s, Color = WHITE, Transparency = 0.05, CFrame = CFrame.new(at) })
-	local function flame(props: { [string]: any }): ParticleEmitter
-		props.FlipbookLayout = Enum.ParticleFlipbookLayout.Grid4x4
-		props.FlipbookMode = Enum.ParticleFlipbookMode.OneShot
-		props.Shape = Enum.ParticleEmitterShape.Sphere
-		props.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
-		props.Rotation = NumberRange.new(-360, 360)
-		return emitter(head, props)
-	end
-	-- the ball: fire and ash churning, held to it (three times the pack's emission)
-	flame({ Texture = TEX_FLAME, Color = ColorSequence.new(BALL_RED), LightEmission = 0.15, LockedToPart = true,
-		Size = nseq(0, 1.8 * s, 0.28, 3.4 * s, 1, 0), Lifetime = NumberRange.new(0.45, 0.65), Speed = NumberRange.new(2, 5), Rate = 450, ZOffset = 0.5 })
-	flame({ Texture = TEX_INK, Color = ColorSequence.new(INK), LightEmission = 0, LockedToPart = true,
-		Size = nseq(0, 1.8 * s, 0.28, 3.4 * s, 1, 0), Lifetime = NumberRange.new(0.45, 0.65), Speed = NumberRange.new(2, 5), Rate = 300, ZOffset = 0.45 })
-	-- the tail: the same fire and ash, left hanging where it was as the ball goes on
-	flame({ Texture = TEX_FLAME, Color = ColorSequence.new(BALL_RED), LightEmission = 0.15, Size = nseq(0, 3 * s, 1, 0),
-		Lifetime = NumberRange.new(0.35, 0.5), Speed = NumberRange.new(0, 1), Rate = 360, ZOffset = 0.3 })
-	flame({ Texture = TEX_INK, Color = ColorSequence.new(INK), LightEmission = 0, Size = nseq(0, 2.6 * s, 1, 0),
-		Lifetime = NumberRange.new(0.3, 0.45), Speed = NumberRange.new(0, 1), Rate = 240, ZOffset = 0.25 })
-	-- embers thrown off it
-	emitter(head, { Texture = TEX_SPECK, Color = ColorSequence.new(SPECK_RED), LightEmission = 0, Size = nseq(0, 0, 0.26, 1.2 * s, 1, 0),
-		Lifetime = NumberRange.new(0.5, 0.75), Speed = NumberRange.new(6, 14), SpreadAngle = Vector2.new(180, 180), Drag = 2, Rate = 120 })
-	local stopped = false
-	return {
-		move = function(p: Vector3)
-			if stopped then return end
-			head.CFrame = CFrame.new(p)
-			heart.CFrame = CFrame.new(p)
-		end,
-		stop = function()
-			if stopped then return end
-			stopped = true
-			for _, e in ipairs(head:GetChildren()) do
-				if e:IsA("ParticleEmitter") then e.Enabled = false end
-			end
-			Debris:AddItem(head, 0.8)
-			TweenService:Create(heart, TweenInfo.new(0.12), { Size = heart.Size * 2.2, Transparency = 1 }):Play()
-			Debris:AddItem(heart, 0.15)
-		end,
-	}
-end
-
--- 3 · The sphere in flight: from `origin` along `d` for `length`, up to
--- `speed`, `s` its size (the Size stat grows it).
-local function hadoShot(origin: Vector3, d: Vector3, length: number, speed: number, s: number)
-	local side = d:Cross(Vector3.yAxis)
-	side = if side.Magnitude > 0.05 then side.Unit else Vector3.xAxis
-	local up = side:Cross(d).Unit
-	-- (big: it should fill the screen from the game camera)
-	local ball = fireBall(origin, 1.6 * s)
-	-- the floor scorched under it: a flat trail of red into black
-	local gy = groundY(origin)
-	local floorAt = Vector3.new(origin.X, gy + 0.12, origin.Z)
-	local scorch = carrier(CFrame.lookAt(floorAt, floorAt + d))
-	local s0, s1 = Instance.new("Attachment"), Instance.new("Attachment")
-	s0.Position, s1.Position = Vector3.new(2.6 * s, 0, 0), Vector3.new(-2.6 * s, 0, 0)
-	s0.Parent, s1.Parent = scorch, scorch
-	local burn = Instance.new("Trail")
-	burn.Attachment0, burn.Attachment1 = s0, s1
-	burn.Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, CRIMSON), ColorSequenceKeypoint.new(0.25, BLOOD), ColorSequenceKeypoint.new(1, INK) })
-	burn.Transparency = nseq(0, 0.2, 0.6, 0.5, 1, 1)
-	burn.LightEmission, burn.LightInfluence = 0.4, 0
-	burn.Lifetime = 0.9
-	burn.MinLength = 0.1
-	burn.Parent = scorch
-	local t0 = os.clock()
-	local nextArc, nextFloor, nextRing, nextWind, nextDust = 0, 0, 0, 0, 0
-	local rings = 0
-	animate((length + (speed - HADO.v0) * HADO.ramp) / speed + 0.5, function(a)
-		local t = os.clock() - t0
-		local dist = math.min(hadoDist(t, speed), length)
-		local p = origin + d * dist
-		ball.move(p)
-		if t >= nextFloor then
-			nextFloor = t + 0.1
-			gy = groundY(p)
-		end
-		local fp = Vector3.new(p.X, gy + 0.12, p.Z)
-		scorch.CFrame = CFrame.lookAt(fp, fp + d)
-		-- rings of air thrown off it, white and crimson by turns
-		if t >= nextRing and FxBudget.Allow("maHadoRing", 16) then
-			nextRing = t + 0.07
-			rings += 1
-			punchRing(p - d * 2.4 * s, d, 2.6 * s, 0.3, if rings % 2 == 0 then WHITE else CRIMSON)
-		end
-		-- streaks of wind tearing past it
-		if t >= nextWind and FxBudget.Allow("maHadoWind", 30) then
-			nextWind = t + 0.04
-			local off = (side * (math.random() - 0.5) + up * (math.random() - 0.5)).Unit * (3 + math.random() * 2) * s
-			SwordFX.Streak(p + off - d * 9 * s, p + off - d * s, 0.12 * s, WHITE, 0.04, 1, WHITE)
-		end
-		-- dust torn up off the floor under it
-		if t >= nextDust and FxBudget.Allow("maHadoDust", 8) then
-			nextDust = t + 0.12
-			PackFX.Burst("Anime/Wind-02", CFrame.new(fp + Vector3.new(0, 0.3, 0)), { scale = 0.8 })
-		end
-		-- red lightning lashing off it, back along its path
-		if t >= nextArc and FxBudget.Allow("maHadoArc", 40) then
-			nextArc = t + 0.05
-			local out = (side * (math.random() - 0.5) + up * (math.random() - 0.5)).Unit
-			bolt(p + out * 2.5 * s, p - d * (4 + math.random() * 5) * s + out * (2.5 + math.random() * 2) * s, 0.16 * s, 0.08,
-				if math.random() < 0.3 then HOT else CRIMSON, 4)
-		end
-		if a >= 1 or dist >= length then
-			ball.stop()
-			Debris:AddItem(scorch, 1)
-			return true
-		end
-		return nil
-	end)
-end
-
--- When ours was cast (our charge started on our screen, not the server's word).
-local hadoCastAt = 0
-
-local function onHado(msg: any)
+-- Another Martial Artist's summoning (ours is drawn as it's cast).
+local function onDragonSoul(msg: any)
 	local owner = msg.attacker :: Player
+	if owner == player then return end
 	local char = charOf(owner)
-	local dir = flat(msg.dir :: Vector3)
-	local mine = owner == player
-	local charge = tonumber(msg.charge) or HADO.charge
-	local after = charge
-	if mine then
-		after = math.max(0, charge - (os.clock() - hadoCastAt))
-	elseif char then
-		hadoPose(char)
-		hadoChargeFx(char, dir, charge, false)
-	end
-	local from = msg.from :: Vector3
-	local speed = tonumber(msg.speed) or 60
-	local scale = tonumber(msg.scale) or 1
-	local length = tonumber(msg.length) or 70
-	task.delay(after, function()
-		hadoThrust(char, msg.pos :: Vector3, dir, mine)
-		hadoShot(from + dir * 2.5, dir, length, speed, scale)
-	end)
+	if not char then return end
+	roarPose(char)
+	summonFx(char, flat(msg.dir :: Vector3), tonumber(msg.rise) or DRAGON.rise, false)
 end
 
--- Everyone it passes through bursts in ink.
-local function onHadoHit(msg: any)
-	local d = flat((msg.dir :: Vector3?) or Vector3.new(0, 0, -1))
-	for i, p in ipairs(msg.hits or {}) do
-		if i > 5 or not FxBudget.Allow("maHadoInk", 14) then break end
-		local at = (p :: Vector3) + Vector3.new(0, 0.6, 0)
-		PackFX.Burst("Anime/Blood-Punch-01", CFrame.lookAt(at, at + d), { color = INK, scale = 1.1, light = 0 })
-		flare(at, 4, 0.16, HOT)
-		sparks(at, 12, 22, CRIMSON)
-		if FxBudget.Allow("maPunchPack", 6) then
-			PackFX.Burst("Anime/Punch-03", CFrame.lookAt(at, at + d), { color = CRIMSON, scale = 1 })
-		end
-	end
-	if msg.attacker == player and deps then deps.shake(0.2, 0.08) end
-end
-
--- It bursts where it ends.
-local function onHadoEnd(msg: any)
-	local pos = msg.pos :: Vector3
-	local r = tonumber(msg.radius) or 12
-	local d = flat((msg.dir :: Vector3?) or Vector3.new(0, 0, -1))
-	local mine = msg.attacker == player
-	local g = onGround(pos)
-	PackFX.Burst("Big/Explosion-01", CFrame.new(pos), { color = CRIMSON, scale = r / 12 })
-	PackFX.Burst("Big/Big-Crack-01", CFrame.new(g + Vector3.new(0, 0.1, 0)), { color = CRIMSON, scale = r / 10 })
-	PackFX.Burst("Anime/Blood-Punch-01", CFrame.lookAt(pos, pos + d), { color = INK, scale = 2.4, light = 0 })
-	PackFX.Burst("Anime/Blood-01", CFrame.new(g + Vector3.new(0, 0.1, 0)), { color = INK, scale = r / 3, light = 0 })
-	shell(pos, 2, r * 2.2, 0.4, CRIMSON)
-	flare(pos, r * 1.4, 0.3, HOT)
-	SwordFX.Rays(g + Vector3.new(0, 0.3, 0), r * 1.6, 16, CRIMSON, 0.35)
-	floorRing(g, r, 0.5, CRIMSON, 1.2)
-	task.delay(0.08, function() floorRing(g, r * 1.4, 0.5, HOT, 0.6) end)
-	if FxBudget.Allow("maHadoEnd", 4) then
-		inkDrops(pos, 18, r, d)
-		chunks(g, 12, 30)
-		PackFX.Burst("Anime/Smoke-01", CFrame.new(g + Vector3.new(0, 1, 0)), { color = Color3.fromRGB(70, 40, 44), scale = 1.4 })
-	end
-	ClassFX.Sound("boom", pos, 1, 0.8)
-	ClassFX.Sound("quake", pos, 0.5, 1.1)
-	ClassFX.Sound("fireBurst", pos, 0.7, 0.6)
-	if mine and deps then
-		deps.shake(0.8, 0.3)
-		deps.fovPunch(6, 0.3)
-	elseif near(pos, 50) and deps then
-		deps.shake(0.4, 0.2)
-	end
+local function onDragonLash(msg: any)
+	local owner = msg.attacker :: Player
+	if owner == player then return end
+	lash(owner, msg.dir :: Vector3, tonumber(msg.reach) or DRAGON.reach)
 end
 
 -- ── Qi Charge: full, spent ──────────────────────────────────────────────────
@@ -3039,9 +2834,8 @@ local HANDLERS: { [string]: (any) -> () } = {
 	uppercut = onUppercut,
 	uppercutHit = onUppercutHit,
 	ascent = onAscent,
-	hado = onHado,
-	hadoHit = onHadoHit,
-	hadoEnd = onHadoEnd,
+	dragonSoul = onDragonSoul,
+	dragonLash = onDragonLash,
 	chargeFull = onChargeFull,
 	empowered = onEmpowered,
 }
@@ -3200,7 +2994,9 @@ end
 
 -- ── Public: basic attack ────────────────────────────────────────────────────
 local function attackSpeed(): number
-	return math.max(tonumber(player:GetAttribute("Stat_basicAttackSpeed")) or 1, 0.1)
+	local s = math.max(tonumber(player:GetAttribute("Stat_basicAttackSpeed")) or 1, 0.1)
+	-- (the Dragon Soul's haste)
+	return if dragonActive(player) then s * DRAGON.speed else s
 end
 
 -- Feet planted: a Rooted character can't walk (AnimationController holds it
@@ -3273,6 +3069,8 @@ function MartialController.Basic(char: Model, root: BasePart): boolean
 		palm = if step == 6 then at + dir * PALM_AT elseif step == COMBO_STEPS then at + dir * 2.5 else nil,
 		radius = (if step == COMBO_STEPS then FINISH_RADIUS else PALM_RADIUS) * size })
 	if step == COMBO_STEPS then step = 0 end
+	-- (the Dragon Soul: it lashes out along the strike)
+	if dragonActive(player) then lash(player, dir, DRAGON.reach * size) end
 	Network.GetRemoteEvent(Network.Remotes.PerformAttack):FireServer({ direction = dir })
 	return true
 end
@@ -3335,11 +3133,10 @@ function MartialController.OnCast(skillIndex: number, char: Model, root: BasePar
 		return ascentFly(char, root, dir, cursor, config.range or 26)
 	elseif skillIndex == 4 then
 		char:SetAttribute("AllowSkillMovement", false)
-		busyUntil = os.clock() + HADO.charge + HADO.hold
-		hadoCastAt = os.clock()
-		hadoPose(char)
-		hadoChargeFx(char, dir, HADO.charge, true)
-		releaseAfter(char, HADO.charge + HADO.hold)
+		busyUntil = os.clock() + DRAGON.rise
+		roarPose(char)
+		summonFx(char, dir, DRAGON.rise, true)
+		releaseAfter(char, DRAGON.rise + 0.1)
 		return nil
 	end
 	return nil
@@ -3387,11 +3184,10 @@ function MartialController.Release(skillIndex: number)
 	focusReleaseFx(from, dir, c, full, lunge, splash, true)
 end
 
--- The ult's cinematic (ours): only the charge. The pose sheet's view: low
--- from his front-right, the whole stance in frame with the sphere between
--- his hands, drifting a little round him and pushing in as it builds, the
--- shake growing; on the thrust it hands straight back to the game camera to
--- watch the sphere fly.
+-- The ult's cinematic (ours): the summoning. Low from his front-right, the
+-- whole stance in frame, tilting up after the dragon as it spirals up round
+-- him and pushing in as it builds, the shake growing; on the roar it hands
+-- straight back to the game camera.
 function MartialController.PlayUltCutscene(char: Model, dir: Vector3)
 	local root = rootOf(char)
 	local hum = char:FindFirstChildOfClass("Humanoid")
@@ -3423,7 +3219,7 @@ function MartialController.PlayUltCutscene(char: Model, dir: Vector3)
 	local conn: RBXScriptConnection
 	conn = RunService.RenderStepped:Connect(function()
 		local t = os.clock() - t0
-		if not char.Parent or hum.Health <= 0 or t >= HADO.charge then
+		if not char.Parent or hum.Health <= 0 or t >= DRAGON.rise then
 			conn:Disconnect()
 			if wasIso and iso then
 				iso.Resume(0.35)
@@ -3434,11 +3230,10 @@ function MartialController.PlayUltCutscene(char: Model, dir: Vector3)
 			end
 			return
 		end
-		local u = easeOut(t / HADO.charge)
-		local orb = handsOf(char) or base
-		local off = CFrame.Angles(0, math.rad(10 * u), 0):VectorToWorldSpace(right * 6.2 + d * 5.4) * (1 - 0.15 * u)
+		local u = easeOut(t / DRAGON.rise)
+		local off = CFrame.Angles(0, math.rad(10 * u), 0):VectorToWorldSpace(right * 7.5 + d * 6.5) * (1 - 0.1 * u)
 		local p = base + off
-		local look = orb:Lerp(base, 0.35)
+		local look = base + Vector3.new(0, 1 + 4 * u, 0)
 		local at = clear(look, Vector3.new(p.X, floor + 2, p.Z))
 		local quake = 0.05 + 0.4 * u * u
 		local n = os.clock() * 22
@@ -3455,6 +3250,7 @@ function MartialController.Init(d: Deps)
 	RunService.RenderStepped:Connect(function(dt)
 		stepBurning()
 		stepAnims(dt)
+		stepCoils(dt)
 	end)
 	-- (the tails sway after the animation and poses have written the frame)
 	CastPoses.addPostHook(stepRigs)

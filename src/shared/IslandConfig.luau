@@ -179,16 +179,16 @@ IslandConfig.Chests = {
 -- own roll: no one takes another's). gear: the chance of a piece of
 -- equipment (extra: a second); rarity: its odds (Luck and the island's
 -- events tip them toward the rarer); gold: a range; consumable: the chance
--- of a draught or tonic; tome: the chance of a tome (PlayerStats.GrantTome);
+-- of a draught or tonic (no tomes on the isle);
 -- bossItem: the chance the gear is the boss's own (a Ritual Chest).
-export type LootTable = { gear: number, extra: number?, rarity: { [string]: number }, gold: { number }, consumable: number, tome: number, bossItem: number? }
+export type LootTable = { gear: number, extra: number?, rarity: { [string]: number }, gold: { number }, consumable: number, bossItem: number? }
 IslandConfig.Loot = {
 	tables = {
-		common = { gear = 0.2, rarity = { Rare = 1 }, gold = { 25, 45 }, consumable = 0.65, tome = 0.08 },
-		rare = { gear = 0.8, rarity = { Rare = 0.6, Epic = 0.34, Legendary = 0.06 }, gold = { 50, 90 }, consumable = 0.5, tome = 0.2 },
-		cursed = { gear = 1, rarity = { Rare = 0.2, Epic = 0.55, Legendary = 0.25 }, gold = { 90, 150 }, consumable = 0.6, tome = 0.4 },
-		elite = { gear = 1, rarity = { Rare = 0.45, Epic = 0.45, Legendary = 0.1 }, gold = { 60, 110 }, consumable = 0.4, tome = 0.25 },
-		ritual = { gear = 1, extra = 1, rarity = { Epic = 0.5, Legendary = 0.5 }, gold = { 220, 340 }, consumable = 1, tome = 1, bossItem = 0.6 },
+		common = { gear = 0.2, rarity = { Rare = 1 }, gold = { 25, 45 }, consumable = 0.65 },
+		rare = { gear = 0.8, rarity = { Rare = 0.6, Epic = 0.34, Legendary = 0.06 }, gold = { 50, 90 }, consumable = 0.5 },
+		cursed = { gear = 1, rarity = { Rare = 0.2, Epic = 0.55, Legendary = 0.25 }, gold = { 90, 150 }, consumable = 0.6 },
+		elite = { gear = 1, rarity = { Rare = 0.45, Epic = 0.45, Legendary = 0.1 }, gold = { 60, 110 }, consumable = 0.4 },
+		ritual = { gear = 1, extra = 1, rarity = { Epic = 0.5, Legendary = 0.5 }, gold = { 220, 340 }, consumable = 1, bossItem = 0.6 },
 	} :: { [string]: LootTable },
 	shareRadius = 70,          -- players this near a chest when it opens each get its loot
 	eliteChestChance = 0.3,    -- an elite leaves an Elite Chest (a Behemoth always does)

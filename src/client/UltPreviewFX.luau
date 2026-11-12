@@ -36,6 +36,8 @@ local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local CastPoses = require(script.Parent:WaitForChild("CastPoses"))
+local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
+local RoninLook = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("RoninLook"))
 
 local TEX_SPARKLE = "rbxasset://textures/particles/sparkles_main.dds"
 local TEX_SMOKE = "rbxasset://textures/particles/smoke_main.dds"
@@ -1348,6 +1350,552 @@ ENTRANCES.berserker = function(c)
 end
 
 -- ─── Public ─────────────────────────────────────────────────────────────────
+-- Hides `model`'s visible parts (LocalTransparencyModifier) until the returned
+-- function is called (or the preview ends).
+local function hideModel(c: Ctx, model: Instance?): () -> ()
+	local saved: { [Instance]: number } = {}
+	local function hide(d: Instance)
+		if (d:IsA("BasePart") or d:IsA("Decal")) and saved[d] == nil then
+			saved[d] = (d :: any).LocalTransparencyModifier;
+			(d :: any).LocalTransparencyModifier = 1
+		end
+	end
+	for _, d in ipairs(if model then model:GetDescendants() else {}) do hide(d) end
+	-- (and what's dressed on after: the weapon can arrive a frame later)
+	local added = if model then model.DescendantAdded:Connect(hide) else nil
+	local function show()
+		if added then
+			added:Disconnect()
+			added = nil
+		end
+		for d, v in pairs(saved) do
+			if d.Parent then (d :: any).LocalTransparencyModifier = v end
+		end
+		table.clear(saved)
+	end
+	c.onCleanup(show)
+	return show
+end
+
+local function smooth(u: number): number
+	u = math.clamp(u, 0, 1)
+	return u * u * (3 - 2 * u)
+end
+
+-- ── Death Knight: the throne ─────────────────────────────────────────────────
+-- A black stone throne behind him with pale soul-light in its seams, the
+-- maul leaning against it at his right. At `grab` the maul goes from the
+-- throne to his hand; at `ready` a ring of soul-light rolls off the dais.
+local DK_BLUE = Color3.fromRGB(112, 201, 245)
+local DK_STONE = Color3.fromRGB(62, 60, 72)
+ENTRANCES.death_knight = function(c)
+	local g = c.ground
+	local look = CFrame.lookAt(g, g + c.fwd) -- x: his right, y: up, z: behind him
+	local function stone(size: Vector3, x: number, y: number, z: number, rot: CFrame?): BasePart
+		local p = part(c.folder, { Size = size, CFrame = look * CFrame.new(x, y, z) * (rot or CFrame.identity), Color = DK_STONE,
+			Material = Enum.Material.Slate, CastShadow = true })
+		p:SetAttribute("VfxToned", true) -- (solid stone, not an effect: VfxDetail leaves it opaque)
+		return p
+	end
+	local function seam(size: Vector3, x: number, y: number, z: number, rot: CFrame?): BasePart
+		return part(c.folder, { Size = size, CFrame = look * CFrame.new(x, y, z) * (rot or CFrame.identity), Color = DK_BLUE })
+	end
+	local diamond = CFrame.Angles(0, 0, math.rad(45))
+	stone(Vector3.new(4.2, 0.3, 2.9), 0, 0.15, 1.8) -- plinth
+	stone(Vector3.new(3.2, 0.45, 1.9), 0, 0.52, 1.6) -- seat
+	stone(Vector3.new(3.6, 5.6, 0.5), 0, 3.1, 2.65) -- back
+	stone(Vector3.new(2.3, 2.3, 0.5), 0, 5.9, 2.65, diamond) -- the pointed top
+	for _, s in ipairs({ -1, 1 }) do
+		stone(Vector3.new(0.65, 6.6, 0.65), s * 1.95, 3.3, 2.65) -- pillar
+		stone(Vector3.new(0.6, 0.6, 0.6), s * 1.95, 6.85, 2.65, diamond) -- finial
+		stone(Vector3.new(0.2, 1.1, 0.2), s * 1.95, 7.5, 2.65) -- spike
+		stone(Vector3.new(0.45, 0.28, 1.9), s * 1.75, 1.3, 1.55) -- armrest
+		stone(Vector3.new(0.34, 0.9, 0.34), s * 1.75, 0.75, 0.8) -- its post
+		seam(Vector3.new(0.12, 4.3, 0.06), s * 1.3, 3.15, 2.38)
+		seam(Vector3.new(0.1, 6, 0.06), s * 1.95, 3.3, 2.31)
+	end
+	seam(Vector3.new(2.7, 0.12, 0.06), 0, 5.3, 2.38)
+	seam(Vector3.new(2.7, 0.12, 0.06), 0, 1.0, 2.38)
+	seam(Vector3.new(3.2, 0.08, 0.08), 0, 0.76, 0.66) -- the seat's front edge
+	local gem = part(c.folder, { Shape = Enum.PartType.Ball, Size = Vector3.one * 0.7, CFrame = look * CFrame.new(0, 5.9, 2.36), Color = DK_BLUE })
+	local gemAtt = Instance.new("Attachment")
+	gemAtt.Parent = gem
+	emitter(gemAtt, { Texture = TEX_SPARKLE, Color = ColorSequence.new(Color3.new(1, 1, 1), DK_BLUE), LightEmission = 1,
+		Size = seq(0, 0.3, 1, 0), Lifetime = NumberRange.new(1, 1.8), Speed = NumberRange.new(0.5, 1.5), SpreadAngle = Vector2.new(180, 180),
+		Acceleration = Vector3.new(0, 1, 0), Rate = 10 })
+	-- cold mist pooling off the seat
+	local mistAt = anchorAt(c.folder, look * CFrame.new(0, 0.5, 1.6))
+	emitter(mistAt, { Texture = TEX_SMOKE, Color = ColorSequence.new(Color3.fromRGB(40, 60, 90)), LightEmission = 0.2,
+		Size = seq(0, 1, 1, 3), Transparency = seq(0, 1, 0.2, 0.55, 1, 1), Lifetime = NumberRange.new(2, 3),
+		Speed = NumberRange.new(0.3, 0.9), SpreadAngle = Vector2.new(80, 80), Rate = 6 })
+
+	-- The maul: the one in his hand stays hidden until he takes it; a copy
+	-- leans head-down against the throne at his right.
+	local held = c.char:FindFirstChild("Look_death_knight")
+	local showHeld = hideModel(c, held)
+	local copy: Model? = nil
+	local okLook, DKLook = pcall(function()
+		return require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("DeathKnightLook")) :: any
+	end)
+	local okTool, tool = false, nil
+	if okLook then okTool, tool = pcall(DKLook.BuildGraveblade) end
+	if okTool and tool then
+		local m = Instance.new("Model")
+		for _, d in ipairs(tool:GetDescendants()) do
+			if d:IsA("LuaSourceContainer") then d:Destroy() end
+		end
+		for _, ch in ipairs(tool:GetChildren()) do ch.Parent = m end
+		tool:Destroy()
+		local parts = {}
+		for _, d in ipairs(m:GetDescendants()) do
+			if d:IsA("BasePart") then
+				d.Anchored, d.CanCollide, d.CanTouch, d.CanQuery = true, false, false, false
+				table.insert(parts, d)
+			end
+		end
+		local cf, size = m:GetBoundingBox()
+		local axes = { { cf.RightVector, size.X }, { cf.UpVector, size.Y }, { cf.LookVector, size.Z } }
+		table.sort(axes, function(a, b) return a[2] > b[2] end)
+		local axis, long = axes[1][1], axes[1][2]
+		local handle = m:FindFirstChild("Handle", true) :: BasePart?
+		-- (`axis` ends up pointing from the head to the far end of the haft:
+		-- the Handle sits up by the head, the haft runs away from it)
+		if handle and (handle.Position - cf.Position):Dot(axis) > 0 then axis = -axis end
+		-- haft up, leaning in toward the throne, the head on the dais
+		local upDir = (Vector3.yAxis * math.cos(math.rad(22)) - c.right * math.sin(math.rad(22))).Unit
+		local turnAxis = axis:Cross(upDir)
+		local rot = if turnAxis.Magnitude > 1e-3 then CFrame.fromAxisAngle(turnAxis.Unit, math.acos(math.clamp(axis:Dot(upDir), -1, 1))) else CFrame.identity
+		local restAt = look:PointToWorldSpace(Vector3.new(3.1, 0, 1.3)) + upDir * (long / 2)
+		local move = CFrame.new(restAt) * rot * CFrame.new(-cf.Position)
+		for _, p in ipairs(parts) do p.CFrame = move * p.CFrame end
+		m.Parent = c.folder
+		copy = m
+	end
+	c.at(c.beats.grab or 2.25, function()
+		if copy then
+			local at = copy:GetBoundingBox().Position
+			copy:Destroy()
+			burst(c, CFrame.new(at), Vector3.new(0.6, 2, 0.6), 14, { Texture = TEX_SPARKLE, Color = ColorSequence.new(DK_BLUE),
+				LightEmission = 1, Size = seq(0, 0.25, 1, 0), Lifetime = NumberRange.new(0.3, 0.6), Speed = NumberRange.new(2, 5),
+				SpreadAngle = Vector2.new(180, 180) })
+		end
+		showHeld()
+	end)
+	c.at(c.beats.ready or 3.15, function()
+		ringOut(c, c.ground, 0.8, 7, 0.6, DK_BLUE, 0.25)
+		flare(c, c.ground + Vector3.new(0, 1, 0), 4, 0.35, DK_BLUE)
+		burst(c, CFrame.new(c.ground + Vector3.new(0, 0.3, 0)), Vector3.new(4, 0.2, 4), 18, { Texture = TEX_SMOKE,
+			Color = ColorSequence.new(Color3.fromRGB(60, 90, 130)), LightEmission = 0.3, Size = seq(0, 1, 1, 2.5),
+			Transparency = seq(0, 0.4, 1, 1), Lifetime = NumberRange.new(0.8, 1.4), Speed = NumberRange.new(1, 3),
+			SpreadAngle = Vector2.new(60, 60), EmissionDirection = Enum.NormalId.Top })
+	end)
+end
+
+-- ── Ronin: the storm rift ───────────────────────────────────────────────────
+-- A huge torn rift rips open behind the dais and stays open: a dark violet
+-- void full of drifting specks, its ragged edge burning white into blue and
+-- violet, wrapped in lit storm cloud, lightning crackling off it. He's behind
+-- it (the void is opaque) and walks out through it on the Fire Knight's walk.
+local RIFT_BLUE = Color3.fromRGB(70, 140, 255)
+local RIFT_WHITE = Color3.fromRGB(228, 236, 255)
+local RIFT_VIOLET = Color3.fromRGB(118, 82, 255)
+local RIFT_HALF_W, RIFT_HALF_H, RIFT_N = 8.5, 9, 56
+-- (the twinkle's pinch: 1 = a lens, higher = longer, sharper points and deeper
+-- curved sides between them)
+local STAR_PINCH = 2.4
+-- The katana in his hand: the game's own katana (RoninLook.BuildKatana),
+-- held the way Roblox holds an equipped tool (the R6 RightGrip offset and the
+-- tool's Grip), exactly as in a run and as every other class's weapon is held
+-- in class select.
+local R6_RIGHT_GRIP = CFrame.new(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, -1, 0)
+-- (the Fire Knight's own walk: AnimationController heavy_knight)
+local WALK_ANIM = "rbxassetid://110753782425862"
+local WALK_RATE = 0.8
+
+-- Fills triangle a-b-c with two wedges (thickness `thick`).
+local function wedgeTri(w1: BasePart, w2: BasePart, a: Vector3, b: Vector3, c: Vector3, thick: number)
+	local ab, ac, bc = b - a, c - a, c - b
+	local abd, acd, bcd = ab:Dot(ab), ac:Dot(ac), bc:Dot(bc)
+	if abd > acd and abd > bcd then
+		c, a = a, c
+	elseif acd > bcd and acd > abd then
+		a, b = b, a
+	end
+	ab, ac, bc = b - a, c - a, c - b
+	local cross = ac:Cross(ab)
+	if cross.Magnitude < 1e-4 or bc.Magnitude < 1e-4 then
+		w1.Transparency, w2.Transparency = 1, 1
+		return
+	end
+	local right = cross.Unit
+	local up = bc:Cross(right).Unit
+	local back = bc.Unit
+	local height = math.abs(ab:Dot(up))
+	w1.Size = Vector3.new(thick, math.max(height, 0.01), math.max(math.abs(ab:Dot(back)), 0.01))
+	w1.CFrame = CFrame.fromMatrix((a + b) / 2, right, up, back)
+	w2.Size = Vector3.new(thick, math.max(height, 0.01), math.max(math.abs(ac:Dot(back)), 0.01))
+	w2.CFrame = CFrame.fromMatrix((a + c) / 2, -right, up, -back)
+end
+
+ENTRANCES.ronin = function(c)
+	local b = c.beats
+	local reveal, walkAt, out, ready = b.reveal or 0.45, b.walk or 0.6, b.out or 2.2, b.ready or 2.9
+	c.at(reveal, hideModel(c, c.char))
+	local rng = Random.new()
+	local pressure = FxBudget.Pressure()
+
+	-- The outline: a four-pointed twinkle (where a vertical and a horizontal
+	-- cut cross), long sharp points up, down and to the sides, curved sides
+	-- between them, the edge torn a little all round.
+	local base: { Vector2 } = {}
+	local p1, p2 = rng:NextNumber(0, 6.28), rng:NextNumber(0, 6.28)
+	for i = 1, RIFT_N do
+		local th = (i - 1) / RIFT_N * math.pi * 2
+		local cx, sy = math.cos(th), math.sin(th)
+		local x = math.sign(cx) * math.abs(cx) ^ STAR_PINCH
+		local y = math.sign(sy) * math.abs(sy) ^ STAR_PINCH
+		local m = 1 + 0.03 * math.sin(5 * th + p1) + 0.02 * math.sin(9 * th + p2)
+		if i % 2 == 0 then m += rng:NextNumber(0.01, 0.06) end -- (teeth)
+		base[i] = Vector2.new(x * RIFT_HALF_W * m, y * RIFT_HALF_H * m)
+	end
+	local function ragged(scale: number, rough: number): { Vector2 }
+		local res = {}
+		for i, v in ipairs(base) do
+			res[i] = v * (scale * (1 + rng:NextNumber(-rough, rough)))
+		end
+		return res
+	end
+	-- (back to front: the cold glow, the blue edge, the white-hot rim, the violet
+	-- void, and the near-black heart of it)
+	local layerSpecs = {
+		{ pts = ragged(1.15, 0.06), z = 0.45, color = RIFT_BLUE, mat = Enum.Material.Neon, tr = 0.78 },
+		{ pts = ragged(1.06, 0.05), z = 0.32, color = RIFT_VIOLET, mat = Enum.Material.Neon, tr = 0.5 },
+		{ pts = ragged(1.03, 0.08), z = 0.26, color = Color3.fromRGB(170, 195, 255), mat = Enum.Material.Neon, tr = 0.35 },
+		{ pts = ragged(1.0, 0.035), z = 0.2, color = RIFT_WHITE, mat = Enum.Material.Neon, tr = 0 },
+		{ pts = ragged(0.975, 0.025), z = 0.08, color = Color3.fromRGB(38, 18, 70), mat = Enum.Material.SmoothPlastic, tr = 0 },
+		{ pts = ragged(0.66, 0.1), z = 0, color = Color3.fromRGB(7, 5, 18), mat = Enum.Material.SmoothPlastic, tr = 0 },
+	}
+	local rift = Instance.new("Model")
+	rift.Name = "StormRift"
+	rift.Parent = c.folder
+	type Layer = { pts: { Vector2 }, z: number, wedges: { BasePart }, tr: number }
+	local layers: { Layer } = {}
+	for _, spec in ipairs(layerSpecs) do
+		local wedges = {}
+		for i = 1, RIFT_N * 2 do
+			local w = part(rift, { ClassName = "WedgePart", Size = Vector3.one * 0.1, Color = spec.color, Material = spec.mat,
+				Transparency = 1 })
+			-- (the void stays solid in Low Detail: it's what hides him)
+			if spec.mat ~= Enum.Material.Neon then w:SetAttribute("VfxToned", true) end
+			wedges[i] = w
+		end
+		table.insert(layers, { pts = spec.pts, z = spec.z, wedges = wedges, tr = spec.tr })
+	end
+
+	-- The twinkle's four short strokes in the diagonals, off the curved sides
+	-- (a white-hot core in a blue glow, pointed at both ends).
+	type Dash = { core: BasePart, glow: BasePart, dir: Vector2 }
+	local dashes: { Dash } = {}
+	for k = 0, 3 do
+		local a = math.rad(45 + 90 * k)
+		local function lensPart(color: Color3): BasePart
+			local p = part(rift, { Size = Vector3.one * 0.1, Color = color, Transparency = 1 })
+			local mesh = Instance.new("SpecialMesh")
+			mesh.MeshType = Enum.MeshType.Sphere
+			mesh.Parent = p
+			return p
+		end
+		table.insert(dashes, { core = lensPart(RIFT_WHITE), glow = lensPart(RIFT_BLUE),
+			dir = Vector2.new(math.cos(a) * RIFT_HALF_W, math.sin(a) * RIFT_HALF_H) })
+	end
+
+	local face = CFrame.new()
+	local built = false
+	local function draw(sx: number, sy: number)
+		for _, d in ipairs(dashes) do
+			local s = math.min(sx, sy)
+			local from = Vector2.new(d.dir.X * sx, d.dir.Y * sy) * 0.64
+			local to = Vector2.new(d.dir.X * sx, d.dir.Y * sy) * 0.98
+			local a = face * Vector3.new(from.X, from.Y, 0.1)
+			local z = face * Vector3.new(to.X, to.Y, 0.1)
+			local len = math.max((z - a).Magnitude, 0.05)
+			local cf = CFrame.lookAt((a + z) / 2, z, face.LookVector)
+			d.core.Size = Vector3.new(0.22 * s + 0.03, 0.22 * s + 0.03, len)
+			d.glow.Size = Vector3.new(0.6 * s + 0.05, 0.6 * s + 0.05, len * 1.08)
+			d.core.CFrame, d.glow.CFrame = cf, cf * CFrame.new(0, 0, 0)
+			d.core.Transparency = if s > 0.05 then 0 else 1
+			d.glow.Transparency = if s > 0.05 then 0.6 else 1
+		end
+		for _, l in ipairs(layers) do
+			local mid = face * Vector3.new(0, 0, l.z)
+			for i = 1, RIFT_N do
+				local a, bb = l.pts[i], l.pts[i % RIFT_N + 1]
+				local pa = face * Vector3.new(a.X * sx, a.Y * sy, l.z)
+				local pb = face * Vector3.new(bb.X * sx, bb.Y * sy, l.z)
+				local w1, w2 = l.wedges[i * 2 - 1], l.wedges[i * 2]
+				w1.Transparency, w2.Transparency = l.tr, l.tr
+				wedgeTri(w1, w2, mid, pa, pb, 0.05)
+			end
+		end
+	end
+
+	-- Lightning: jagged neon bolts off the rim, each living a flicker, then
+	-- struck again somewhere else.
+	local BOLTS, SEGS = math.floor(22 * (1 - 0.5 * pressure)), 7
+	type Bolt = { core: { BasePart }, glow: { BasePart }, life: number, gap: number }
+	local bolts: { Bolt } = {}
+	for i = 1, BOLTS do
+		local core, glow = {}, {}
+		for s = 1, SEGS do
+			core[s] = part(rift, { Size = Vector3.one * 0.1, Color = RIFT_WHITE, Transparency = 1 })
+			glow[s] = part(rift, { Size = Vector3.one * 0.1, Color = RIFT_BLUE, Transparency = 1 })
+		end
+		bolts[i] = { core = core, glow = glow, life = 0, gap = rng:NextNumber(0, 0.4) }
+	end
+	local openness = 0
+	local function strike(bolt: Bolt)
+		local k = rng:NextInteger(1, RIFT_N)
+		local rim = base[k] * openness
+		local radial = if rim.Magnitude > 0.01 then rim.Unit else Vector2.new(0, 1)
+		local tangent = Vector2.new(-radial.Y, radial.X)
+		local dir: Vector2
+		local roll = rng:NextNumber()
+		local len = rng:NextNumber(2.5, 7.5)
+		if roll < 0.55 then
+			local a = rng:NextNumber(-0.7, 0.7)
+			dir = radial * math.cos(a) + tangent * math.sin(a) -- (out into the storm)
+		elseif roll < 0.85 then
+			dir = tangent * (if rng:NextNumber() < 0.5 then 1 else -1) + radial * 0.25 -- (crawling along the edge)
+			len *= 0.8
+		else
+			dir = -radial + tangent * rng:NextNumber(-0.5, 0.5) -- (a crack into the void)
+			len *= 0.45
+		end
+		dir = dir.Unit
+		local perp = Vector2.new(-dir.Y, dir.X)
+		local pts = { rim }
+		for s = 1, SEGS do
+			local along = rim + dir * (len * s / SEGS)
+			local off = if s < SEGS then rng:NextNumber(-1, 1) * len * 0.11 else rng:NextNumber(-1, 1) * len * 0.05
+			pts[s + 1] = along + perp * off
+		end
+		local thick = rng:NextNumber(0.07, 0.15)
+		local color = if rng:NextNumber() < 0.7 then RIFT_WHITE else Color3.fromRGB(170, 195, 255)
+		for s = 1, SEGS do
+			local a = face * Vector3.new(pts[s].X, pts[s].Y, -0.12)
+			local z = face * Vector3.new(pts[s + 1].X, pts[s + 1].Y, -0.12)
+			local d = (z - a).Magnitude
+			-- (thinning toward the tip)
+			local taper = 1 - (s - 1) / SEGS * 0.6
+			local cf = CFrame.lookAt((a + z) / 2, z)
+			local core, glow = bolt.core[s], bolt.glow[s]
+			core.Size = Vector3.new(thick * taper, thick * taper, d + thick * 0.5)
+			core.CFrame = cf
+			core.Color = color
+			core.Transparency = 0
+			glow.Size = Vector3.new(thick * 3.5 * taper, thick * 3.5 * taper, d + thick)
+			glow.CFrame = cf * CFrame.new(0, 0, 0)
+			glow.Transparency = 0.72
+		end
+		bolt.life = rng:NextNumber(0.06, 0.2)
+	end
+	local function hideBolt(bolt: Bolt)
+		for s = 1, SEGS do
+			bolt.core[s].Transparency = 1
+			bolt.glow[s].Transparency = 1
+		end
+	end
+
+	-- Storm cloud lit along the edge, sparks spitting off it, specks drifting in the void.
+	local clouds: { ParticleEmitter } = {}
+	local cloudAtts: { { att: Attachment, v: Vector2 } } = {}
+	local center = Vector3.zero
+	local holder = part(rift, { Size = Vector3.one, Transparency = 1 })
+	local specks = emitter(holder, { Texture = TEX_SPARKLE, Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(190, 170, 255)),
+		LightEmission = 1, Size = seq(0, 0.14, 0.5, 0.2, 1, 0), Transparency = seq(0, 1, 0.2, 0.1, 0.8, 0.2, 1, 1),
+		Squash = seq(0, 1.6, 1, 1.6), Orientation = Enum.ParticleOrientation.VelocityParallel, Lifetime = NumberRange.new(1.2, 2.6),
+		Speed = NumberRange.new(0.4, 1.8), SpreadAngle = Vector2.new(180, 180), Rate = 0, Shape = Enum.ParticleEmitterShape.Box,
+		ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume })
+	local SPECK_RATE = 55 * (1 - 0.5 * pressure)
+	for i = 1, RIFT_N, 2 do
+		local att = Instance.new("Attachment")
+		att.Parent = holder
+		table.insert(cloudAtts, { att = att, v = base[i] })
+		table.insert(clouds, emitter(att, { Texture = TEX_SMOKE, Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(205, 220, 255)), ColorSequenceKeypoint.new(0.4, Color3.fromRGB(110, 130, 255)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 50, 170)) }), LightEmission = 0.4, Size = seq(0, 3.5, 1, 7),
+			Transparency = seq(0, 1, 0.25, 0.35, 1, 1), Lifetime = NumberRange.new(1.4, 2.4), Speed = NumberRange.new(0.3, 1.2),
+			SpreadAngle = Vector2.new(180, 180), Rotation = NumberRange.new(0, 360), RotSpeed = NumberRange.new(-20, 20), Rate = 0,
+			ZOffset = -1 }))
+		table.insert(clouds, emitter(att, { Texture = TEX_SPARKLE, Color = ColorSequence.new(Color3.new(1, 1, 1), RIFT_BLUE),
+			LightEmission = 1, Size = seq(0, 0.3, 1, 0), Lifetime = NumberRange.new(0.3, 0.7), Speed = NumberRange.new(2, 6),
+			SpreadAngle = Vector2.new(180, 180), Rate = 0 }))
+	end
+	local CLOUD_RATE = 3.2 * (1 - 0.5 * pressure)
+
+	local function place()
+		-- (at his starting spot, just in front of him, facing the camera)
+		local start, way = nil, c.toward
+		local torso = torsoOf(c)
+		if torso then
+			start = Vector3.new(torso.Position.X, c.ground.Y, torso.Position.Z)
+			local goal = Vector3.new(c.root.Position.X, c.ground.Y, c.root.Position.Z)
+			if (goal - start).Magnitude > 0.5 then way = (goal - start).Unit end
+		end
+		local foot = (start or (c.ground - c.toward * 4.8)) + way * 0.8
+		center = foot + Vector3.new(0, 3.6, 0)
+		face = CFrame.lookAt(center, center + c.toward)
+		holder.CFrame = face * CFrame.new(0, 0, -0.3)
+		-- (the specks only in the star's fat middle, not out in the sky between its points)
+		holder.Size = Vector3.new(RIFT_HALF_W * 0.55, RIFT_HALF_H * 0.55, 0.2)
+		for _, ca in ipairs(cloudAtts) do
+			ca.att.WorldCFrame = face * CFrame.new(ca.v.X * 1.04, ca.v.Y * 1.04, -0.2)
+		end
+		if FxBudget.Light() then light(holder, Color3.fromRGB(120, 150, 255), 1.1, 16) end
+	end
+
+	local T0 = 0.06
+	local last = 0
+	local settled = false
+	c.onStep(function(t)
+		local dt = math.clamp(t - last, 0, 0.1)
+		last = t
+		if t < T0 then return end
+		if not built then
+			built = true
+			place()
+			burst(c, face, Vector3.new(0.3, RIFT_HALF_H * 1.6, 0.3), 40, { Texture = TEX_SPARKLE,
+				Color = ColorSequence.new(Color3.new(1, 1, 1), RIFT_BLUE), LightEmission = 1, Size = seq(0, 0.4, 1, 0),
+				Lifetime = NumberRange.new(0.3, 0.7), Speed = NumberRange.new(4, 10), SpreadAngle = Vector2.new(180, 180) })
+		end
+		-- tears open like the two cuts that make it: a white line straight down,
+		-- then wrenched wide across into the star
+		local u = t - T0
+		local sy = 0.15 + 0.85 * smooth(u / 0.2)
+		local sx = 0.04 + 0.96 * smooth((u - 0.16) / 0.34)
+		if u > 0.16 and u - dt <= 0.16 then
+			burst(c, face, Vector3.new(RIFT_HALF_W * 1.6, 0.3, 0.3), 40, { Texture = TEX_SPARKLE,
+				Color = ColorSequence.new(Color3.new(1, 1, 1), RIFT_BLUE), LightEmission = 1, Size = seq(0, 0.4, 1, 0),
+				Lifetime = NumberRange.new(0.3, 0.7), Speed = NumberRange.new(4, 10), SpreadAngle = Vector2.new(180, 180) })
+		end
+		openness = math.min(sx, sy)
+		if not settled then
+			draw(sx, sy)
+			if u > 0.55 then
+				settled = true
+				openness = 1
+				draw(1, 1)
+				for _, e in ipairs(clouds) do
+					e.Rate = if e.Texture == TEX_SMOKE then CLOUD_RATE else 1.5
+				end
+				specks.Rate = SPECK_RATE
+			end
+		end
+		for _, bolt in ipairs(bolts) do
+			if bolt.life > 0 then
+				bolt.life -= dt
+				if bolt.life <= 0 then
+					hideBolt(bolt)
+					bolt.gap = rng:NextNumber(0.05, 0.5)
+				end
+			else
+				bolt.gap -= dt
+				if bolt.gap <= 0 and openness > 0.3 then strike(bolt) end
+			end
+		end
+	end)
+	-- (a crack of lightning all round as it rips wide)
+	c.at(T0 + 0.35, function()
+		for _, e in ipairs(clouds) do e:Emit(if e.Texture == TEX_SMOKE then 2 else 4) end
+	end)
+
+	-- The katana's out the whole time: in his right hand, the scabbard at his
+	-- hip empty. (Parented to him now, so it's hidden with him until `reveal`.)
+	local arm = c.char:FindFirstChild("Right Arm") :: BasePart?
+	if arm then
+		local tool = RoninLook.BuildKatana()
+		local handle = tool:FindFirstChild("Handle") :: BasePart?
+		if handle then
+			local katana = Instance.new("Model")
+			katana.Name = "PreviewKatana"
+			for _, d in ipairs(tool:GetChildren()) do
+				if d:IsA("BasePart") then
+					d.Anchored = false
+					d.CanCollide, d.CanTouch, d.CanQuery = false, false, false
+					d.Massless = true
+					d.Parent = katana
+				end
+			end
+			local w = Instance.new("Weld")
+			w.Part0 = arm
+			w.Part1 = handle
+			w.C0 = R6_RIGHT_GRIP
+			w.C1 = tool.Grip
+			w.Parent = handle
+			katana.Parent = c.char
+			c.onCleanup(function() katana:Destroy() end)
+		end
+		tool:Destroy()
+	end
+	local SHEATHED = { SheathedHilt = true, Pommel = true, Guard = true, Blade1 = true, Blade2 = true, Blade3 = true,
+		Edge1 = true, Edge2 = true, Edge3 = true, KatanaMesh = true }
+	local emptied: { [BasePart]: number } = {}
+	local scabbardDone = false
+	c.onStep(function()
+		if scabbardDone then return end
+		local scabbard = c.char:FindFirstChild("RoninScabbard")
+		if not scabbard then return end
+		scabbardDone = true
+		for _, p in ipairs(scabbard:GetChildren()) do
+			if p:IsA("BasePart") and SHEATHED[p.Name] then
+				emptied[p] = p.Transparency
+				p.Transparency = 1
+			end
+		end
+	end)
+	c.onCleanup(function()
+		for p, tr in pairs(emptied) do
+			if p.Parent then p.Transparency = tr end
+		end
+	end)
+
+	-- The walk out: the Fire Knight's walk track carries his legs and left arm
+	-- (the pose hands them over: CastPoses `release`) while the pose moves him.
+	local track: AnimationTrack? = nil
+	c.at(walkAt, function()
+		local hum = c.char:FindFirstChildOfClass("Humanoid")
+		if not hum then return end
+		local animator = hum:FindFirstChildOfClass("Animator")
+		if not animator then
+			animator = Instance.new("Animator")
+			animator.Parent = hum
+		end
+		local anim = Instance.new("Animation")
+		anim.AnimationId = WALK_ANIM
+		local ok, tr = pcall(function() return (animator :: Animator):LoadAnimation(anim) end)
+		if not ok or not tr then return end
+		tr.Looped = true
+		-- (over the menu idle, which plays at Action)
+		tr.Priority = Enum.AnimationPriority.Action2
+		tr:Play(0.2)
+		tr:AdjustSpeed(WALK_RATE)
+		track = tr
+	end)
+	c.at(out, function()
+		if track then track:Stop(0.35) end
+	end)
+	c.onCleanup(function()
+		if track then
+			track:Stop(0)
+			track:Destroy()
+			track = nil
+		end
+	end)
+	c.at(ready, function()
+		ringOut(c, c.ground, 0.6, 6, 0.45, RIFT_BLUE, 0.2)
+	end)
+end
+
 function UltPreviewFX.Stop()
 	local cur = current
 	if not cur then return end

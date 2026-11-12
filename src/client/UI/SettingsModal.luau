@@ -525,7 +525,7 @@ function SettingsModal.Create(parent: GuiObject, currentSettings: any, callbacks
 	end)
 	toggleRow(gfx, 1, "Shadows", "shadows")
 	toggleRow(gfx, 2, "Bloom & Glow", "bloom")
-	toggleRow(gfx, 3, "Low Detail VFX", "lowDetailVFX", "Fewer particles, and no scenery fires or dust, for better performance.")
+	toggleRow(gfx, 3, "Low Detail VFX", "lowDetailVFX", "Fewer effects, better performance.")
 
 	-- ── Audio ──
 	sliderRow(pages.Audio, 1, "Master Volume", "masterVolume")
@@ -609,8 +609,8 @@ function SettingsModal.Create(parent: GuiObject, currentSettings: any, callbacks
 	toggleRow(gp, 2, "Damage Numbers", "damageNumbers", "Floating combat damage.")
 	toggleRow(gp, 3, "Toggle Sprint", "toggleSprint", "Press to start / stop sprinting (off: hold).")
 	toggleRow(gp, 5, "Classic Camera", "classicCamera", "A third-person shift-lock camera instead of top-down.")
-	toggleRow(gp, 4, "Teammate Cinematics", "teammateCinematics", "Show teammates' ultimate cutscenes (off: your camera stays put).")
-	toggleRow(gp, 6, "Auto-Fire", "autoFire", "Ranged classes shoot the nearest enemy in the room by themselves (off: click to shoot).")
+	toggleRow(gp, 4, "Teammate Cinematics", "teammateCinematics", "Show teammates' ultimate cutscenes.")
+	toggleRow(gp, 6, "Auto-Fire", "autoFire", "Ranged classes auto-shoot the nearest enemy.")
 
 	-- Reset to defaults, quietly under the tabs.
 	local reset = Instance.new("TextButton")

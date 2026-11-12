@@ -166,7 +166,7 @@ local function build()
 	local arm = inv:Clone()
 	arm.Name = "Armory"
 	arm.LayoutOrder = 4
-	arm.Text = "ARMORY"
+	arm.Text = "ARMORY  [E]"
 	arm.BackgroundColor3 = Color3.fromRGB(86, 58, 24)
 	arm.Parent = panel
 	arm.MouseButton1Click:Connect(function() Armory.Open() end)
@@ -186,7 +186,7 @@ local function build()
 	gld.BackgroundColor3 = Color3.fromRGB(30, 52, 70)
 	gld.Parent = panel
 	gld.MouseButton1Click:Connect(function() GuildScreen.Open() end)
-	label(panel, "Walk up to a player and press E to meet them.\n1-5: emotes (wave, cheer, point, laugh, dance).\n/ to chat.\nAt the DUNGEON gate (or the QUESTS board) press F\nto choose where to go (the leader chooses).\nAt the GACHA tent: summon.\nCtrl: shift lock on / off (off to click INVITE FRIENDS).\nM: settings.", 14, PARCH,
+	label(panel, "E: the Armory (near a player: meet them)\nF at the FORGE: forge gear\n1-5: emotes\n/: chat\nF at the DUNGEON gate: pick a map\nGACHA tent: summon\nCtrl: shift lock\nM: settings", 14, PARCH,
 		{ Size = UDim2.new(1, 0, 0, 156), LayoutOrder = 8, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, TextTransparency = 0.15 })
 
 	-- Notices (centre, below the top)
@@ -221,7 +221,7 @@ local function openPicker()
 		dim.MouseButton1Click:Connect(closePicker)
 		label(g, "CHOOSE YOUR DUNGEON", 40, GOLD, { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0.06, 0),
 			Size = UDim2.fromOffset(900, 50), TextXAlignment = Enum.TextXAlignment.Center })
-		label(g, "Your whole party goes together. Only the party leader chooses.", 18, PARCH, { AnchorPoint = Vector2.new(0.5, 0),
+		label(g, "The party leader chooses.", 18, PARCH, { AnchorPoint = Vector2.new(0.5, 0),
 			Position = UDim2.new(0.5, 0, 0.06, 50), Size = UDim2.fromOffset(900, 24), TextXAlignment = Enum.TextXAlignment.Center })
 		do
 			-- this week's omen (WeeklyModifiers): every run this week has it
@@ -280,16 +280,77 @@ local function openPicker()
 			label(band, "RANK " .. tostring(map.rank), 22, PARCH, { Position = UDim2.fromOffset(16, 12), Size = UDim2.new(1, -32, 0, 26) })
 			label(band, map.name, 30, Color3.new(1, 1, 1), { Position = UDim2.fromOffset(16, 46), Size = UDim2.new(1, -32, 0, 64), TextWrapped = true })
 			label(card, map.subtitle, 19, map.color, { Position = UDim2.fromOffset(16, 132), Size = UDim2.new(1, -32, 0, 26) })
-			local desc = label(card, map.description, 17, PARCH, { Position = UDim2.fromOffset(16, 166), Size = UDim2.new(1, -32, 0, 150), TextWrapped = true, TextScaled = true,
+			local desc = label(card, map.description, 17, PARCH, { Position = UDim2.fromOffset(16, 166), Size = UDim2.new(1, -32, 0, 56), TextWrapped = true, TextScaled = true,
 				TextYAlignment = Enum.TextYAlignment.Top })
 			local cap = Instance.new("UITextSizeConstraint")
 			cap.MaxTextSize = 17
 			cap.Parent = desc
-			local go = label(card, "ENTER", 24, GOLD, { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -16), Size = UDim2.new(1, -32, 0, 40),
-				TextXAlignment = Enum.TextXAlignment.Center, BackgroundTransparency = 0.3, BackgroundColor3 = Color3.fromRGB(60, 40, 30) })
-			local gc = Instance.new("UICorner")
-			gc.CornerRadius = UDim.new(0, 6)
-			gc.Parent = go
+			-- The difficulty modes (MapData.MODES), one button each: its name and
+			-- the POWER it asks for, green when yours is enough, amber when close,
+			-- red when you're under-geared. Clicking one enters on that mode.
+			local go = Instance.new("Frame")
+			go.Name = "Modes"
+			go.AnchorPoint = Vector2.new(0.5, 1)
+			go.Position = UDim2.new(0.5, 0, 1, -12)
+			go.Size = UDim2.new(1, -24, 0, 150)
+			go.BackgroundTransparency = 1
+			go.Parent = card
+			local ml = Instance.new("UIListLayout")
+			ml.SortOrder = Enum.SortOrder.LayoutOrder
+			ml.Padding = UDim.new(0, 6)
+			ml.Parent = go
+			label(go, "RECOMMENDED POWER", 13, PARCH, { LayoutOrder = 0, Size = UDim2.new(1, 0, 0, 14), TextXAlignment = Enum.TextXAlignment.Center,
+				TextTransparency = 0.25 })
+			local powerLabels: { { label: TextLabel, need: number } } = {}
+			for mi, mode in ipairs(MapData.MODES) do
+				local b = Instance.new("TextButton")
+				b.Name = "Mode_" .. mode.id
+				b.LayoutOrder = mi
+				b.Text = ""
+				b.AutoButtonColor = false
+				b.Size = UDim2.new(1, 0, 0, 38)
+				b.BackgroundColor3 = Color3.fromRGB(46, 32, 26)
+				b.BackgroundTransparency = 0.15
+				b.Parent = go
+				local bcr = Instance.new("UICorner")
+				bcr.CornerRadius = UDim.new(0, 6)
+				bcr.Parent = b
+				local bst = Instance.new("UIStroke")
+				bst.Color = mode.color
+				bst.Thickness = 1.5
+				bst.Transparency = 0.4
+				bst.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+				bst.Parent = b
+				label(b, mode.name, 20, mode.color, { Position = UDim2.fromOffset(12, 0), Size = UDim2.new(0.55, 0, 1, 0) })
+				local need = MapData.RecommendedPower(map, mode.id)
+				local pl = label(b, `◆ {need}`, 18, PARCH, { AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -12, 0, 0), Size = UDim2.new(0.45, 0, 1, 0),
+					TextXAlignment = Enum.TextXAlignment.Right })
+				table.insert(powerLabels, { label = pl, need = need })
+				b.MouseEnter:Connect(function()
+					TweenService:Create(bst, TweenInfo.new(0.1), { Transparency = 0, Thickness = 2.5 }):Play()
+					TweenService:Create(b, TweenInfo.new(0.1), { BackgroundTransparency = 0 }):Play()
+				end)
+				b.MouseLeave:Connect(function()
+					TweenService:Create(bst, TweenInfo.new(0.1), { Transparency = 0.4, Thickness = 1.5 }):Play()
+					TweenService:Create(b, TweenInfo.new(0.1), { BackgroundTransparency = 0.15 }):Play()
+				end)
+				if not map.sealed then
+					b.MouseButton1Click:Connect(function()
+						closePicker()
+						Network.GetRemoteEvent(Network.Remotes.LobbyAction):FireServer({ kind = "pick", mapId = map.id, mode = mode.id })
+					end)
+				end
+			end
+			local function colorPower()
+				local mine = tonumber(player:GetAttribute("Power")) or 0
+				for _, e in ipairs(powerLabels) do
+					e.label.TextColor3 = if mine >= e.need then Color3.fromRGB(140, 230, 140)
+						elseif mine >= e.need * 0.75 then Color3.fromRGB(255, 200, 90)
+						else Color3.fromRGB(255, 110, 110)
+				end
+			end
+			colorPower()
+			player:GetAttributeChangedSignal("Power"):Connect(colorPower)
 			card.MouseEnter:Connect(function()
 				TweenService:Create(st, TweenInfo.new(0.12), { Transparency = 0, Thickness = 3 }):Play()
 			end)
@@ -298,12 +359,12 @@ local function openPicker()
 			end)
 			-- (a map locked until you've been deep enough)
 			if map.unlockFloor then
-				local lock = label(card, "", 15, Color3.fromRGB(255, 120, 120), { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -62),
-					Size = UDim2.new(1, -24, 0, 34), TextXAlignment = Enum.TextXAlignment.Center, TextWrapped = true })
+				local lock = label(card, "", 15, Color3.fromRGB(255, 120, 120), { Position = UDim2.fromOffset(12, 222),
+					Size = UDim2.new(1, -24, 0, 22), TextXAlignment = Enum.TextXAlignment.Center, TextWrapped = true })
 				local function upd()
 					local best = player:GetAttribute("BestFloor") or 0
 					local open = best >= map.unlockFloor
-					lock.Text = if open then "" else `LOCKED · Reach floor {map.unlockFloor} to open (best: {best})`
+					lock.Text = if open then "" else `LOCKED · Floor {map.unlockFloor} (best: {best})`
 					lock.TextColor3 = if open then Color3.fromRGB(210, 170, 255) else Color3.fromRGB(255, 120, 120)
 				end
 				upd()
@@ -396,11 +457,6 @@ local function openPicker()
 				local sealedLabel = label(card, "SEALED", 30, Color3.fromRGB(190, 225, 255), { AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -18),
 					Size = UDim2.new(1, -32, 0, 40), TextXAlignment = Enum.TextXAlignment.Center, TextStrokeTransparency = 0.2 })
 				sealedLabel.ZIndex = 11
-			else
-				card.MouseButton1Click:Connect(function()
-					closePicker()
-					Network.GetRemoteEvent(Network.Remotes.LobbyAction):FireServer({ kind = "pick", mapId = map.id })
-				end)
 			end
 		end
 		local close = Instance.new("TextButton")
@@ -685,10 +741,19 @@ function LobbyHUD.Init(UIManager: any)
 		local ok, err = pcall(lockStep, dt)
 		if not ok then warn("[LobbyHUD] shift lock:", err) end
 	end)
+	-- E: the Armory, anywhere in the lobby (not while a prompt is up: E is
+	-- theirs then, talking to a player or using a station)
+	local promptsUp = 0
+	ProximityPromptService.PromptShown:Connect(function() promptsUp += 1 end)
+	ProximityPromptService.PromptHidden:Connect(function() promptsUp = math.max(0, promptsUp - 1) end)
 	UserInputService.InputBegan:Connect(function(input, processed)
 		if processed or player:GetAttribute("InHub") ~= true then return end
 		if input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.RightControl then
 			lockWanted = not lockWanted
+		end
+		if input.KeyCode == Enum.KeyCode.E and promptsUp == 0 and player:GetAttribute("Forging") ~= true
+			and UserInputService:GetFocusedTextBox() == nil then
+			Armory.Toggle()
 		end
 	end)
 	build()
@@ -699,6 +764,7 @@ function LobbyHUD.Init(UIManager: any)
 		local screen = prompt:GetAttribute("OpenScreen")
 		if player:GetAttribute("InHub") ~= true or typeof(screen) ~= "string" then return end
 		if screen == "armory" then Armory.Open()
+		elseif screen == "forge" then Armory.OpenForge()
 		elseif screen == "wardrobe" then WardrobeScreen.OpenLobby("armor")
 		elseif screen == "codex" then BuildCodex.Open()
 		elseif screen == "guild" then GuildScreen.Open()
@@ -752,9 +818,9 @@ function LobbyHUD.Init(UIManager: any)
 					local opts = Instance.new("ExperienceInviteOptions")
 					opts.PromptMessage = "Meet me at the Crossroads!"
 					local shown = pcall(function() SocialService:PromptGameInvite(player, opts) end)
-					if not shown then notice("Couldn't open the invite window. Try again in a moment.") end
+					if not shown then notice("Couldn't open invites. Try again.") end
 				else
-					notice("Invites can't be sent from here (Studio, or your privacy settings).")
+					notice("Invites unavailable here.")
 				end
 				busy = false
 			end)
@@ -800,12 +866,14 @@ function LobbyHUD.Init(UIManager: any)
 		local pg = player:FindFirstChildOfClass("PlayerGui")
 		local summon = pg and pg:FindFirstChild("SummonScreen")
 		local busy = (summon ~= nil and summon:IsA("ScreenGui") and summon.Enabled) or player:GetAttribute("SettingsOpen") == true
+			or player:GetAttribute("Forging") == true -- (the forge's minigame: ForgeMinigame)
 		if gui then gui.Enabled = here and not busy end
 		if not here then closePicker() end
 		if MenuBackdrop and MenuBackdrop.SetInHub then MenuBackdrop.SetInHub(here) end
 		refreshPrompts()
 	end
 	player:GetAttributeChangedSignal("InHub"):Connect(sync)
+	player:GetAttributeChangedSignal("Forging"):Connect(sync)
 	task.spawn(function()
 		while true do
 			task.wait(1)

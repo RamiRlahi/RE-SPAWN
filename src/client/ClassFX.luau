@@ -432,8 +432,8 @@ CAST.swordsman = {
 		play(SFX.swordIn, c.root, 0.7, 0.9)
 	end,
 	[3] = function(c)
-		-- Phantom Thrust: one sharp lunge (the echoes' hits sound from SwordsmanFX).
-		play(SFX.whoosh, c.root, 0.9, 1.4)
+		-- Piercing Judgement: the guard taken (the thrust sounds on release).
+		play(SFX.swordIn, c.root, 0.6, 1.4)
 	end,
 	[4] = function(c)
 		play(SFX.swordIn, c.root, 1, 0.7)
@@ -522,6 +522,7 @@ local HIT_SOUND: { [string]: { any } } = {
 	ranger = { "arrowHit", 0.55, 1.05 },
 	-- (a hammer: a heavy blunt thud, and no bright crit ding over it)
 	death_knight = { "punch", 0.6, 0.7, true },
+	ronin = { "swordHit", 0.5, 1.3 },
 }
 local QUIET_SOURCES = { BLEED = true, BURN = true, BURNING = true, POISON = true, VENOM = true, THORNS = true, ["FIRE LINE"] = true, BLIZZARD = true, ["GRAVE MIST"] = true }
 function ClassFX.HitSound(classId: string, at: Vector3, crit: boolean, source: string?)

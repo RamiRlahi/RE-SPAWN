@@ -1,17 +1,18 @@
 --!strict
 --[[
 	MenuBackdrop.luau
-	The title screen's living sky kingdom, composed after the RE:SPAWN key art:
-	  • foreground (lower right): a dark mossy hero platform with your
-	    character idling beside a burning brazier and a planted sword, ruined
-	    walls framing the left behind the menu, grass, embers, warm fire light
-	  • the massive floating capital right of centre: gothic towers with
-	    pointed roofs, pinnacles, buttresses and glowing windows, a pillar of
-	    light and two counter-spinning runic halo rings
-	  • keeps, ruins and groves on the user's "floating island" model (with
-	    their "waterfall" asset), small spiked shards drifting through the sky
-	  • a sunset grade (violet sky, warm horizon, dark foreground) applied
+	The title screen: a low-poly forest clearing at golden hour (pieces in
+	MenuForest):
+	  • foreground: a grassy rise with your character by a campfire (a pot of
+	    stew on a spit), the party's seats around it (a stone, the grass, a
+	    log bench), ferns and flowering bushes, a fallen log, two big faceted
+	    trees framing the shot and pines round the edge
+	  • beyond it a misty valley of round trees and a ruined castle on a hill,
+	    ridges fading into golden haze, the low sun beside the castle
+	  • a golden-hour grade (warm fill, thick gold haze, a plain sky) applied
 	    while the menu is up and restored afterwards
+	The lobby plaza's sky (BuildHubSky) is still the floating kingdom (its
+	islands, halo and sunset helpers below).
 
 	Opening sequence: the loading screen fades onto the finished scene (every
 	island and castle already in place and loaded) → the beam ignites → logo →
@@ -29,17 +30,17 @@ local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 
 local ClassData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ClassData"))
+local MenuForest = require(script.Parent:WaitForChild("MenuForest"))
 
 local MenuBackdrop = {}
 
 local rng = Random.new(7)
 
--- The exact title shot, set in Studio: the camera stands at CAM_FROM and
--- looks at CAM_TO. The scene is laid out around this view.
+-- The exact title shot: the camera stands at CAM_FROM and looks at CAM_TO,
+-- tipped ~12° down into the valley (horizon in the upper third). The scene
+-- is laid out around this view.
 local CAM_FROM = Vector3.new(399.016, 860.579, -104.064)
-local CAM_TO = Vector3.new(-305.941, 890.45, 233.328)
--- The lobby spawn: nothing is placed near it (class select shows you there).
-local LOBBY_SPAWN = Vector3.new(643.96, 857.16, -202.35)
+local CAM_TO = Vector3.new(-305.941, 694.6, 233.328)
 local folder: Folder? = nil
 local conn: RBXScriptConnection? = nil
 
@@ -89,7 +90,6 @@ end
 
 local GOLD = Color3.fromRGB(255, 214, 130)
 local MOSS = Color3.fromRGB(66, 88, 54)
-local RUIN = Color3.fromRGB(58, 48, 72)
 local TEX_SMOKE = "rbxasset://textures/particles/smoke_main.dds"
 local TEX_SPARK = "rbxasset://textures/particles/sparkles_main.dds"
 -- The game's default idle (character AnimationController, R6).
@@ -285,12 +285,16 @@ end
 -- ── One floating island (top surface at y = 0, centred on the origin) ──────
 -- kind: "spire" (the capital), "keep" (walled castle), "ruin" (broken
 -- arches + statue), "grove" (trees + rune stones).
-local function buildIsland(kind: string, width: number): Model
+-- `grounded`: just the buildings, no island under them (the title's
+-- castle stands on a hill).
+local function buildIsland(kind: string, width: number, grounded: boolean?): Model
 	local m = Instance.new("Model")
 	m.Name = "SkyIsland"
 	m.Parent = folder -- in the world, so the surface raycast can hit it
 	local tpl = getTemplate()
-	if tpl then
+	if grounded then
+		-- (nothing under it)
+	elseif tpl then
 		islandBase(tpl, width, m)
 	else
 		cyl(m, Vector3.new(0, -width * 0.2, 0), width / 2, width * 0.2, Color3.fromRGB(84, 68, 96))
@@ -344,7 +348,7 @@ local function buildIsland(kind: string, width: number): Model
 	end
 	-- Waterfalls from the user's asset, pouring off the rim.
 	local fallTpl = MenuBackdrop.SceneModel("waterfall")
-	if fallTpl and fallTpl:IsA("Model") and kind ~= "grove" then
+	if fallTpl and fallTpl:IsA("Model") and kind ~= "grove" and not grounded then
 		for i = 1, if kind == "spire" then 3 else 1 do
 			local fall = fallTpl:Clone()
 			for _, d in ipairs(fall:GetDescendants()) do
@@ -489,14 +493,27 @@ end
 
 -- The grade's Lighting values (re-asserted by EnsureGrade if anything resets
 -- them while the menu is up).
+-- The title's: golden hour, a warm amber fill (the low sun is ahead, so the
+-- faces turned to the camera live on it) and a gold key on the tops.
 local GRADE = {
-	Ambient = Color3.fromRGB(58, 48, 86), -- cool, dim fill: the foreground reads dark violet
-	OutdoorAmbient = Color3.fromRGB(92, 72, 124),
-	ColorShift_Top = Color3.fromRGB(150, 112, 96), -- warm key light (stronger blew the lit sides out to white)
-	ColorShift_Bottom = Color3.fromRGB(60, 40, 100),
-	Brightness = 1.15,
-	ExposureCompensation = -0.2,
-	EnvironmentDiffuseScale = 0.3,
+	Ambient = Color3.fromRGB(78, 70, 60),          -- (darker shadows in the foreground)
+	OutdoorAmbient = Color3.fromRGB(104, 96, 80),
+	ColorShift_Top = Color3.fromRGB(236, 184, 128), -- warm sun on the tops
+	ColorShift_Bottom = Color3.fromRGB(58, 64, 44),  -- green bounce under the trees
+	Brightness = 1.7,
+	ExposureCompensation = -0.1,
+	EnvironmentDiffuseScale = 0.35,
+}
+-- The haze each scene wants: the title valley drowns in golden air (it's
+-- only ~165 studs deep, so the haze is thick to read as miles); the plaza
+-- keeps its thin violet dusk.
+local TITLE_ATM = {
+	Color = Color3.fromRGB(240, 214, 182), Decay = Color3.fromRGB(196, 146, 104),
+	Density = 0.33, Haze = 2, Glare = 0.8, Offset = 0.05,
+}
+local HUB_ATM = {
+	Color = Color3.fromRGB(230, 150, 150), Decay = Color3.fromRGB(80, 56, 124),
+	Density = 0.07, Haze = 0.4, Glare = 0.35, Offset = 0.2,
 }
 -- The lobby plaza's: the same dusk, lifted (you walk about in it, among
 -- lanterns and strings of lights): a warmer, brighter fill, the far blur
@@ -515,6 +532,14 @@ local function activeGrade(): { [string]: any }
 	return if onPlaza then HUB_GRADE else GRADE
 end
 local gradeSun: { ClockTime: number, GeographicLatitude: number }? = nil
+local menuSky: Sky? = nil
+local menuAtm: Atmosphere? = nil
+local stashedSkies: { Instance } = {}
+local function restoreSkies()
+	if menuSky then menuSky.Parent = nil end
+	for _, s in ipairs(stashedSkies) do s.Parent = Lighting end
+	table.clear(stashedSkies)
+end
 
 local function setGrade()
 	for k, v in pairs(activeGrade()) do (Lighting :: any)[k] = v end
@@ -523,38 +548,69 @@ local function setGrade()
 		Lighting.GeographicLatitude = gradeSun.GeographicLatitude
 	end
 	local atm = Lighting:FindFirstChildOfClass("Atmosphere")
+	if not atm then
+		-- (the place has none: the menu brings its own, removed with the grade)
+		local a = Instance.new("Atmosphere")
+		a.Name = "MenuAtmosphere"
+		a.Parent = Lighting
+		menuAtm = a
+		atm = a
+	end
 	if atm then
-		-- Thin, coloured depth haze: far islands soften, nothing washes out.
-		atm.Color = Color3.fromRGB(230, 150, 150)
-		atm.Decay = Color3.fromRGB(80, 56, 124)
-		atm.Density = 0.07
-		atm.Haze = 0.4
-		atm.Glare = 0.35
-		atm.Offset = 0.2
+		for k, v in pairs(if onPlaza then HUB_ATM else TITLE_ATM) do (atm :: any)[k] = v end
+	end
+	-- The title wants a plain sky the haze can turn gold (the place keeps
+	-- several skyboxes, and Roblox shows any one of them): the others are put
+	-- aside while the title is up, and come back on the plaza or in a run.
+	if not onPlaza then
+		for _, s in ipairs(Lighting:GetChildren()) do
+			if s:IsA("Sky") and s ~= menuSky then
+				table.insert(stashedSkies, s)
+				s.Parent = nil
+			end
+		end
+		if not menuSky then
+			local sky = Instance.new("Sky")
+			sky.Name = "MenuSky"
+			sky.StarCount = 0
+			sky.SunAngularSize = 14
+			sky.MoonAngularSize = 0
+			menuSky = sky
+		end
+		(menuSky :: Sky).Parent = Lighting
+	else
+		restoreSkies()
 	end
 	for _, e in ipairs(gradeFx) do e:Destroy() end
 	table.clear(gradeFx)
 	local cc = Instance.new("ColorCorrectionEffect")
-	cc.TintColor = Color3.fromRGB(255, 236, 228)
-	cc.Saturation = 0.08
-	cc.Contrast = 0.08
-	cc.Brightness = -0.03
+	cc.TintColor = if onPlaza then Color3.fromRGB(255, 236, 228) else Color3.fromRGB(255, 246, 236)
+	cc.Saturation = if onPlaza then 0.08 else 0.04
+	cc.Contrast = if onPlaza then 0.08 else 0.14
+	cc.Brightness = if onPlaza then -0.03 else 0
 	local bloom = Instance.new("BloomEffect")
 	-- (the plaza is full of lamps and bulbs: a big soft bloom smears them
 	-- into one glow there, so it's kept small and only on the brightest)
 	bloom.Intensity = if onPlaza then 0.25 else 0.6
 	bloom.Size = if onPlaza then 12 else 30
 	bloom.Threshold = if onPlaza then 1.6 else 0.95
-	bloom.Enabled = false -- (no bloom anywhere)
+	-- (only a touch on the title, for the fire, lantern and beam; none on
+	-- the plaza)
+	bloom.Enabled = not onPlaza
+	if not onPlaza then
+		bloom.Intensity = 0.3
+		bloom.Size = 20
+		bloom.Threshold = 1.2
+	end
 	local rays = Instance.new("SunRaysEffect")
-	rays.Intensity = 0.1
+	rays.Intensity = if onPlaza then 0.1 else 0.13
 	rays.Spread = 0.55
-	-- Hero sharpest, castle soft, far islands softer.
+	-- The circle sharp, the valley a touch soft.
 	local dof = Instance.new("DepthOfFieldEffect")
 	dof.FocusDistance = if onPlaza then 40 else 25
-	dof.InFocusRadius = if onPlaza then 60 else 12
-	dof.FarIntensity = if onPlaza then 0.08 else 0.16
-	dof.NearIntensity = if onPlaza then 0 else 0.25
+	dof.InFocusRadius = if onPlaza then 60 else 30
+	dof.FarIntensity = if onPlaza then 0.08 else 0.1
+	dof.NearIntensity = 0
 	for _, e in ipairs({ cc, bloom, rays, dof } :: { Instance }) do
 		e.Name = "MenuGrade"
 		e.Parent = Lighting
@@ -591,7 +647,8 @@ function MenuBackdrop.EnsureGrade()
 		if e.Parent ~= Lighting then ok = false end
 	end
 	local atm = Lighting:FindFirstChildOfClass("Atmosphere")
-	if atm and math.abs(atm.Density - 0.07) > 0.001 then ok = false end
+	if atm and math.abs(atm.Density - (if onPlaza then HUB_ATM else TITLE_ATM).Density) > 0.001 then ok = false end
+	if not onPlaza and (not menuSky or menuSky.Parent ~= Lighting) then ok = false end
 	if not ok then setGrade() end
 end
 
@@ -633,6 +690,8 @@ local function clearGrade()
 	for _, e in ipairs(gradeFx) do e:Destroy() end
 	table.clear(gradeFx)
 	gradeSun = nil
+	restoreSkies()
+	if menuAtm then menuAtm:Destroy() menuAtm = nil end
 	local sv = savedLighting
 	if not sv then return end
 	savedLighting = nil
@@ -725,7 +784,7 @@ type SeatDef = { x: number, z: number, pose: string, ledge: number?, edge: numbe
 local SEATS: { SeatDef } = {
 	{ x = 4.6, z = -15.0, pose = "rock" },                         -- right of the fire, on a stone
 	{ x = 1.2, z = -18.4, pose = "cross" },                        -- behind the fire, cross-legged
-	{ x = -8.2, z = -20.8, pose = "ledge", ledge = 3.6, edge = 1.0 }, -- on the ruined wall, legs dangling
+	{ x = -8.2, z = -20.8, pose = "ledge", ledge = 1.4, edge = 0.3 }, -- on the log bench
 	{ x = -5.4, z = -11.8, pose = "lean" },                        -- front left, leaning back on the hands
 }
 local PORTAL_SPOT = { x = -3.5, z = -23 }
@@ -753,6 +812,11 @@ local poseConn: RBXScriptConnection? = nil
 local portalConn: RBXScriptConnection? = nil
 local portalRunning = false
 local campfirePush = 0
+-- Ambient motion in the title scene (driven by the render loop): trees
+-- swaying from the foot, the fire's light flickering.
+local swayers: { { model: Model, base: CFrame, amt: number, phase: number } } = {}
+local fireLight: PointLight? = nil
+local castleDir: Vector3? = nil -- (where your hero glances now and then)
 
 local heroGround: CFrame? = nil
 local heroHome: Instance? = nil
@@ -847,6 +911,30 @@ local function cloneHero()
 	h.Parent = heroHome
 	hero = h
 	playAnim(hum, HERO_IDLE)
+	-- Presentation: a soft contact shadow, a violet rim light from behind and
+	-- a few magic motes drifting round you.
+	local feet = (heroGround :: CFrame).Position
+	part(h, { Name = "ContactShadow", Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.05, 3.6, 3.2),
+		CFrame = CFrame.new(feet + Vector3.new(0, 0.06, 0)) * UP, Color = Color3.fromRGB(20, 16, 12), Material = Enum.Material.SmoothPlastic, Transparency = 0.55 })
+	local back = part(h, { Name = "RimLight", Size = Vector3.one * 0.2, Transparency = 1,
+		CFrame = (heroGround :: CFrame) * CFrame.new(0, 4, 3.5) })
+	local rim = Instance.new("PointLight")
+	rim.Color = Color3.fromRGB(170, 110, 255)
+	rim.Range = 8
+	rim.Brightness = 1.6
+	rim.Parent = back
+	local motes = Instance.new("ParticleEmitter")
+	motes.Texture = TEX_SPARK
+	motes.Color = ColorSequence.new(Color3.fromRGB(200, 150, 255), Color3.fromRGB(140, 90, 255))
+	motes.LightEmission = 1
+	motes.LightInfluence = 0
+	motes.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.3, 0.18), NumberSequenceKeypoint.new(1, 0) })
+	motes.Lifetime = NumberRange.new(2.5, 4)
+	motes.Speed = NumberRange.new(0.3, 0.8)
+	motes.SpreadAngle = Vector2.new(180, 180)
+	motes.Acceleration = Vector3.new(0, 0.5, 0)
+	motes.Rate = 4
+	motes.Parent = root -- (spawning through the root's box, round the body)
 	-- Dressed as your chosen class (class select previews over this).
 	local player = Players.LocalPlayer
 	local classId = player:GetAttribute("SelectedClass")
@@ -965,7 +1053,7 @@ local function seatMember(userId: number, idx: number, classId: string?)
 	h:PivotTo(facing * CFrame.new(0, lift - def.drop, 0))
 	h.Parent = info.fg
 	local rock = if seat.pose == "rock" then part(info.fg, { Size = Vector3.new(1.9, 1.3, 1.6), CFrame = facing * CFrame.new(0, 0.65, 0.25),
-		Color = Color3.fromRGB(62, 54, 78), Material = Enum.Material.Slate }) else nil
+		Color = Color3.fromRGB(128, 118, 104), Material = Enum.Material.SmoothPlastic }) else nil
 	-- Their class: weapon in hand, and armor if they own and wear it.
 	if ClassLook and classId then
 		-- Swords are slung across the back while they sit; anything else
@@ -1078,7 +1166,12 @@ function MenuBackdrop.HeroView(): CFrame?
 	local base = if root then root.Position elseif heroGround then (heroGround :: CFrame).Position + Vector3.new(0, 3, 0) else nil
 	if not base then return nil end
 	local toCam = Vector3.new(v.Position.X - base.X, 0, v.Position.Z - base.Z).Unit
-	return CFrame.lookAt(base + toCam * 11 + Vector3.new(0, 1.2, 0), base + Vector3.new(0, 0.5, 0))
+	-- (far enough back for the whole figure and the pedestal under it, the
+	-- figure a little above the middle of the screen, clear of the buttons)
+	-- Low, about waist height, so the pedestal reads as a dais, not a plate.
+	-- Far enough back that a raised weapon still fits above the head.
+	-- (from above head height, looking a little down on the figure)
+	return CFrame.lookAt(base + toCam * 19 + Vector3.new(0, 4, 0), base + Vector3.new(0, -1.4, 0))
 end
 
 -- The camera shot while gathered: a little closer and lower than the title
@@ -1086,7 +1179,7 @@ end
 function MenuBackdrop.CampfireView(): CFrame?
 	local v = vista
 	if not v then return nil end
-	return v * CFrame.new(0.4 - 0.6 * campfirePush, -1.4, -5 - 1.5 * campfirePush) * CFrame.Angles(math.rad(-7), 0, 0)
+	return v * CFrame.new(0.4 - 0.6 * campfirePush, -1.4, -5 - 1.5 * campfirePush) * CFrame.Angles(math.rad(4), 0, 0)
 end
 
 -- ── The red portal ─────────────────────────────────────────────────────────
@@ -1272,38 +1365,94 @@ local function buildForeground(parent: Instance, cam: CFrame)
 	fg.Parent = parent
 	local flatCam = CFrame.new(cam.Position) * CFrame.Angles(0, select(2, cam:ToEulerAnglesYXZ()), 0)
 
-	-- The hero platform: a dark rock shelf floored with ruined flagstones,
-	-- moss showing through the gaps, stepping down at the front edge. Its
-	-- surface is at y = -6 in the camera frame.
+	-- The clearing (after the golden-hour key art): a faceted grass floor on
+	-- a rise above the valley with patches, earth and a stone path, trees
+	-- framing the shot (broadleaf and pine), ferns and flowers, and a campsite
+	-- round the fire. Its surface is at y = -6 in the camera frame.
 	local ledge = Instance.new("Model")
 	ledge.Name = "HeroPlatform"
 	ledge.Parent = fg
 	local G = CFrame.new((cam * CFrame.new(0, -6, 0)).Position) * flatCam.Rotation
-	local ROCK = Color3.fromRGB(44, 38, 58)
-	for _ = 1, 7 do
-		local h = rng:NextNumber(8, 12)
-		part(ledge, { Size = Vector3.new(rng:NextNumber(10, 16), h, rng:NextNumber(8, 14)),
-			CFrame = G * CFrame.new(rng:NextNumber(-16, 18), -h / 2 - 0.3, rng:NextNumber(-30, -13)) * CFrame.Angles(0, rng:NextNumber(-0.4, 0.4), 0),
-			Color = ROCK, Material = Enum.Material.Slate })
+	local fire = Vector3.new(0.5, 0, -13.5) -- (x, -, z) in the camera frame
+	local TREE_L, TREE_R = Vector2.new(-17, -19), Vector2.new(22, -14)
+
+	-- Ground height (camera frame): flat round the camp, gently rolling
+	-- beyond, rising at the sides and rolling down toward the valley at the back.
+	local function smooth(e0: number, e1: number, x: number): number
+		local t = math.clamp((x - e0) / (e1 - e0), 0, 1)
+		return t * t * (3 - 2 * t)
 	end
-	-- Two broken steps down at the front edge.
-	part(ledge, { Size = Vector3.new(26, 1.2, 3), CFrame = G * CFrame.new(3, -0.9, -10.3) * CFrame.Angles(0, 0.04, 0), Color = ROCK, Material = Enum.Material.Slate })
-	part(ledge, { Size = Vector3.new(22, 1.2, 3), CFrame = G * CFrame.new(4, -2.1, -8.2) * CFrame.Angles(0, -0.05, 0), Color = ROCK, Material = Enum.Material.Slate })
-	part(ledge, { Size = Vector3.new(36, 0.4, 20), CFrame = G * CFrame.new(1, -0.25, -21), Color = MOSS, Material = Enum.Material.Grass })
-	for gx = -16, 17, 3.6 do
-		for gz = -12, -29, -3.6 do
-			if rng:NextNumber() > 0.16 then
-				local k = rng:NextNumber()
-				local tilt = if rng:NextNumber() < 0.12 then rng:NextNumber(0.08, 0.2) else 0
-				part(ledge, { Size = Vector3.new(rng:NextNumber(3, 3.5), 0.5, rng:NextNumber(3, 3.5)),
-					CFrame = G * CFrame.new(gx + rng:NextNumber(-0.2, 0.2), rng:NextNumber(-0.08, 0.1) + tilt, gz + rng:NextNumber(-0.2, 0.2))
-						* CFrame.Angles(tilt, rng:NextNumber(-0.08, 0.08), tilt * 0.5),
-					Color = Color3.fromRGB(66 + 20 * k, 58 + 18 * k, 82 + 18 * k), Material = Enum.Material.Slate })
+	local function lift(x: number, z: number): number
+		local dc = Vector2.new(x - fire.X, z - fire.Z).Magnitude
+		local roll = (math.noise(x / 9, z / 9, 1.7) * 1.3 + math.noise(x / 4, z / 4, 4.2) * 0.3) * smooth(8, 17, dc)
+		local sides = smooth(16, 32, math.abs(x - 2)) * 1.6
+		local back = math.max(0, -z - 27) * 0.35
+		return roll + sides - back
+	end
+
+	-- The palette (the art's greens, yellow only as an accent).
+	local GRASS = Color3.fromRGB(105, 123, 61)      -- #697B3D
+	local GRASS_DARK = Color3.fromRGB(57, 77, 45)   -- #394D2D
+	local EARTH = Color3.fromRGB(118, 84, 58)       -- #76543A
+	local STONE = Color3.fromRGB(119, 113, 107)     -- #77716B
+	local WARM = Color3.fromRGB(185, 160, 95)       -- #B9A05F
+	-- The stone path: from the camp out toward the front right.
+	local PATH = { Vector2.new(3.2, -10.6), Vector2.new(5.2, -8.4), Vector2.new(7.6, -6.6), Vector2.new(10.4, -5.2) }
+	local function pathDist(x: number, z: number): number
+		local best = math.huge
+		for i = 1, #PATH - 1 do
+			local a, b = PATH[i], PATH[i + 1]
+			local ab = b - a
+			local t = math.clamp((Vector2.new(x, z) - a):Dot(ab) / ab:Dot(ab), 0, 1)
+			best = math.min(best, (Vector2.new(x, z) - (a + ab * t)).Magnitude)
+		end
+		return best
+	end
+
+	-- The grass floor: faceted, in irregular patches of light and dark grass,
+	-- worn to earth round the fire and along the path, darker under the trees.
+	do
+		local NX, NZ = 24, 12
+		local X0, X1, Z0, Z1 = -38, 40, -3, -33
+		local pts: { { Vector3 } } = {}
+		for j = 0, NZ do
+			local row: { Vector3 } = {}
+			for i = 0, NX do
+				local x = X0 + (X1 - X0) * i / NX + (if i > 0 and i < NX then rng:NextNumber(-1, 1) else 0)
+				local z = Z0 + (Z1 - Z0) * j / NZ + (if j > 0 and j < NZ then rng:NextNumber(-1, 1) else 0)
+				row[i] = (G * CFrame.new(x, rng:NextNumber(-0.08, 0.08) + lift(x, z), z)).Position
+			end
+			pts[j] = row
+		end
+		local function col(a: Vector3, b: Vector3, c: Vector3): Color3
+			local m = G:PointToObjectSpace((a + b + c) / 3)
+			local x, z = m.X, m.Z
+			local patch = math.noise(x / 7, z / 7, 5.3)
+			local cc = GRASS:Lerp(GRASS_DARK, math.clamp(-patch * 2.2, 0, 0.8))
+			local warm = math.noise(x / 5, z / 5, 9.1)
+			if warm > 0.25 then cc = cc:Lerp(WARM, math.clamp((warm - 0.25) * 1.6, 0, 0.45)) end
+			-- shade under the two big crowns
+			for _, t in ipairs({ TREE_L, TREE_R }) do
+				local d = (Vector2.new(x, z) - t).Magnitude
+				if d < 8 then cc = cc:Lerp(GRASS_DARK, (1 - d / 8) * 0.6) end
+			end
+			local toFire = Vector2.new(x - fire.X, z - fire.Z).Magnitude
+			if toFire < 6 then cc = cc:Lerp(EARTH, math.clamp((1 - toFire / 6) * 1.3, 0, 0.9)) end
+			local pd = pathDist(x, z)
+			if pd < 1.6 then cc = cc:Lerp(EARTH, (1 - pd / 1.6) * 0.7) end
+			return cc:Lerp(Color3.new(0, 0, 0), rng:NextNumber(0, 0.08))
+		end
+		for j = 0, NZ - 1 do
+			for i = 0, NX - 1 do
+				local a, b, c, d = pts[j][i], pts[j][i + 1], pts[j + 1][i], pts[j + 1][i + 1]
+				MenuForest.Tri(ledge, a, b, c, col(a, b, c))
+				MenuForest.Tri(ledge, b, d, c, col(b, d, c))
 			end
 		end
-	end
-	for _, d in ipairs(ledge:GetDescendants()) do
-		if d:IsA("BasePart") then d.CanQuery = true end
+		-- (the floor is what props are stood on)
+		for _, d in ipairs(ledge:GetDescendants()) do
+			if d:IsA("BasePart") then d.CanQuery = true end
+		end
 	end
 	local rp = RaycastParams.new()
 	rp.FilterType = Enum.RaycastFilterType.Include
@@ -1315,97 +1464,380 @@ local function buildForeground(parent: Instance, cam: CFrame)
 		local g = if hit then hit.Position.Y else fallbackY
 		return CFrame.new(p.X, g + (y + 9), p.Z) * flatCam.Rotation * CFrame.Angles(0, yaw or 0, 0)
 	end
-	local function block(x: number, z: number, sx: number, sy: number, sz: number, yaw: number, lift: number?)
-		part(fg, { Size = Vector3.new(sx, sy, sz), CFrame = upright(x, -9 + sy / 2 + (lift or 0), z, yaw) * CFrame.Angles(0, 0, rng:NextNumber(-0.05, 0.05)),
-			Color = RUIN, Material = Enum.Material.Slate })
+	local function ground(x: number, z: number): Vector3
+		return upright(x, -9, z).Position
+	end
+	local function nearSeat(x: number, z: number, r: number): boolean
+		if (Vector2.new(x - fire.X, z - fire.Z)).Magnitude < r + 4 then return true end
+		for _, s in ipairs(SEATS) do
+			if (Vector2.new(x - s.x, z - s.z)).Magnitude < r + 1.8 then return true end
+		end
+		if pathDist(x, z) < r + 0.6 then return true end
+		return (Vector2.new(x - PORTAL_SPOT.x, z - PORTAL_SPOT.z)).Magnitude < r + 3
 	end
 
-	-- Ruined walls framing the left, a dark silhouette behind the menu.
-	block(-13.5, -23, 3, 11, 2.4, 0.3)
-	block(-12.5, -22.4, 6, 1.3, 2.6, 0.3, 11)
-	block(-10.4, -21.6, 2.6, 7, 2.2, 0.3)
-	block(-8.2, -20.8, 2.2, 3.6, 2.1, 0.3)
-	block(-16.5, -24, 2.6, 6, 2.2, 0.35)
-	for _, spot in ipairs({ { -6.5, -18 }, { 13, -21 }, { 0.5, -22 } }) do
-		local s = rng:NextNumber(0.8, 1.3)
-		block(spot[1], spot[2], s * 1.3, s, s, rng:NextNumber(0, 6.28))
+	-- The stone path: flat slabs set in the earth.
+	for i = 1, #PATH - 1 do
+		local a, b = PATH[i], PATH[i + 1]
+		local n = math.max(1, math.floor((b - a).Magnitude / 1.5))
+		for k = 0, n - 1 do
+			local p = a + (b - a) * ((k + rng:NextNumber(0.3, 0.7)) / n)
+			local s = rng:NextNumber(0.9, 1.25)
+			part(fg, { Size = Vector3.new(s * 1.3, 0.22, s), CFrame = upright(p.X + rng:NextNumber(-0.3, 0.3), -9 + 0.06, p.Y, rng:NextNumber(0, 6.28))
+				* CFrame.Angles(rng:NextNumber(-0.04, 0.04), 0, rng:NextNumber(-0.04, 0.04)),
+				Color = STONE:Lerp(WARM, rng:NextNumber(0, 0.15)):Lerp(Color3.new(0, 0, 0), rng:NextNumber(0, 0.12)), Material = Enum.Material.SmoothPlastic })
+		end
+	end
+	-- Rocks along the clearing's lip and a few in the grass.
+	for i = 0, 13 do
+		local x = -30 + i * 5 + rng:NextNumber(-1.5, 1.5)
+		if math.abs(x - PORTAL_SPOT.x) > 4 then
+			local s = rng:NextNumber(1.4, 2.8)
+			MenuForest.Blob(fg, ground(x, -31 + rng:NextNumber(-1, 1)) + Vector3.new(0, s * 0.2, 0), Vector3.new(s * 1.4, s * 0.8, s), STONE, rng, { jitter = 0.14 })
+		end
+	end
+	for _ = 1, 10 do
+		local x, z = rng:NextNumber(-22, 26), rng:NextNumber(-28, -6)
+		if not nearSeat(x, z, 1) then
+			local s = rng:NextNumber(0.5, 1.2)
+			MenuForest.Blob(fg, ground(x, z) + Vector3.new(0, s * 0.1, 0), Vector3.new(s * 1.3, s * 0.6, s), STONE, rng, { jitter = 0.12 })
+		end
 	end
 
-	-- The brazier: an iron bowl on a tripod, a living fire, embers, warm light.
-	local IRON = Color3.fromRGB(40, 30, 28)
-	local bowlCF = upright(0.5, -6.4, -13.5)
-	part(fg, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.9, 2.8, 2.8), CFrame = bowlCF * UP, Color = IRON, Material = Enum.Material.Metal })
-	part(fg, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.2, 3.1, 3.1), CFrame = bowlCF * CFrame.new(0, 0.45, 0) * UP, Color = IRON, Material = Enum.Material.Metal })
-	local coals = part(fg, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.3, 2.3, 2.3),
-		CFrame = bowlCF * CFrame.new(0, 0.4, 0) * UP, Color = Color3.fromRGB(255, 120, 40), Material = Enum.Material.Neon })
-	for i = 0, 2 do
-		local a = i * 2.094
-		part(fg, { Size = Vector3.new(0.22, 2.9, 0.22), CFrame = bowlCF * CFrame.Angles(0, a, 0) * CFrame.new(0, -1.3, 0.75) * CFrame.Angles(math.rad(-18), 0, 0),
-			Color = IRON, Material = Enum.Material.Metal })
+	-- The trees. Two broadleaf trees frame the shot (kept clear of the logo
+	-- and pulled back from the camp), pines of different heights and girths
+	-- and a few smaller broadleafs round the edge; the middle stays open on
+	-- the valley and the castle.
+	local function sway(m: Model, amt: number)
+		table.insert(swayers, { model = m, base = m:GetPivot(), amt = amt, phase = rng:NextNumber(0, 6.28) })
 	end
-	local fire = Instance.new("Fire")
-	fire.Color = Color3.fromRGB(255, 150, 50)
-	fire.SecondaryColor = Color3.fromRGB(220, 50, 10)
-	fire.Size = 4
-	fire.Heat = 9
-	fire.Parent = coals
-	local glow = Instance.new("PointLight")
-	glow.Color = Color3.fromRGB(255, 150, 70)
-	glow.Range = 16
-	glow.Brightness = 1.3
-	glow.Parent = coals
-	local sparkAtt = Instance.new("Attachment")
-	sparkAtt.Parent = coals
+	sway(MenuForest.Tree(fg, ground(TREE_L.X, TREE_L.Y), 17, rng, { crown = 8.6, reach = Vector3.new(3, 0, -1), blobs = 6, shadow = true }), 1)
+	sway(MenuForest.Tree(fg, ground(TREE_R.X, TREE_R.Y), 18, rng,
+		{ crown = 9.4, reach = Vector3.new(-4, 0, -2), blobs = 7, color = Color3.fromRGB(78, 94, 44), shadow = true }), 1)
+	sway(MenuForest.Tree(fg, ground(27, -27), 14, rng, { crown = 5, blobs = 4, octa = true, color = Color3.fromRGB(88, 100, 46) }), 0.7)
+	sway(MenuForest.Tree(fg, ground(-25, -29), 15, rng, { crown = 5.5, blobs = 4, octa = true, color = Color3.fromRGB(64, 84, 42) }), 0.7)
+	MenuForest.Tree(fg, ground(12, -31), 10, rng, { crown = 3.6, blobs = 3, octa = true, color = Color3.fromRGB(96, 104, 50) })
+	for _, t in ipairs({ { -21, -24, 15 }, { -11, -29, 10 }, { -28, -18, 18 }, { -15.5, -32, 13 }, { 31, -19, 17 }, { 17, -30, 9 }, { 33, -27, 12 }, { -6, -31.5, 7 } }) do
+		sway(MenuForest.Pine(fg, ground(t[1], t[2]), t[3] * rng:NextNumber(0.9, 1.1), rng, { shadow = t[3] > 14 }), 0.6)
+	end
+
+	-- Small vegetation: ferns, bushes, flowers and grass clusters, in clumps
+	-- (never on the camp, the seats or the path).
+	local FERN = Color3.fromRGB(86, 112, 44)
+	local function fern(x: number, z: number, s: number)
+		local base = ground(x, z)
+		local n = rng:NextInteger(6, 8)
+		local spin = rng:NextNumber(0, 6.28)
+		for i = 1, n do
+			local a = spin + i / n * math.pi * 2 + rng:NextNumber(-0.25, 0.25)
+			local dir = Vector3.new(math.cos(a), 0, math.sin(a))
+			local side = Vector3.new(-dir.Z, 0, dir.X)
+			local len = s * rng:NextNumber(0.75, 1.2)
+			local tip = base + dir * len + Vector3.new(0, s * rng:NextNumber(0.2, 0.45), 0)
+			local mid = base + dir * len * 0.45 + Vector3.new(0, s * 0.55, 0)
+			local c = FERN:Lerp(GRASS_DARK, rng:NextNumber(0, 0.4))
+			MenuForest.Tri(fg, base, mid + side * s * 0.18, tip, c)
+			MenuForest.Tri(fg, base, mid - side * s * 0.18, tip, c:Lerp(Color3.new(0, 0, 0), 0.2))
+		end
+	end
+	local FLOWER = { Color3.fromRGB(250, 238, 232), Color3.fromRGB(240, 186, 196), Color3.fromRGB(196, 170, 236), Color3.fromRGB(250, 214, 120) }
+	local function flowers(c: Vector3, r: number, stems: boolean?)
+		local tint = FLOWER[rng:NextInteger(1, #FLOWER)]
+		for _ = 1, rng:NextInteger(3, 6) do
+			local a = rng:NextNumber(0, 6.28)
+			local p = c + Vector3.new(math.cos(a) * r * rng:NextNumber(0.2, 0.9), (if stems then 0 else r * rng:NextNumber(0.3, 0.8)), math.sin(a) * r * rng:NextNumber(0.2, 0.9))
+			if stems then
+				local h = rng:NextNumber(0.5, 0.9)
+				part(fg, { Size = Vector3.new(0.06, h, 0.06), CFrame = CFrame.new(p + Vector3.new(0, h / 2, 0)), Color = GRASS_DARK, Material = Enum.Material.SmoothPlastic })
+				p += Vector3.new(0, h, 0)
+			end
+			part(fg, { Shape = Enum.PartType.Ball, Size = Vector3.one * rng:NextNumber(0.26, 0.4), CFrame = CFrame.new(p),
+				Color = tint, Material = Enum.Material.SmoothPlastic })
+		end
+	end
+	local function bush(x: number, z: number, s: number, bloom: boolean?)
+		local c = ground(x, z) + Vector3.new(0, s * 0.32, 0)
+		MenuForest.Blob(fg, c, Vector3.new(s * 1.45, s * rng:NextNumber(0.85, 1.1), s * 1.3),
+			Color3.fromRGB(72, 94, 44):Lerp(GRASS_DARK, rng:NextNumber(0, 0.5)), rng, { octa = true })
+		if bloom then flowers(c, s * 0.7) end
+	end
+	local function tuft(x: number, z: number, s: number)
+		local base = ground(x, z)
+		for _ = 1, rng:NextInteger(3, 5) do
+			local a = rng:NextNumber(0, 6.28)
+			local off = Vector3.new(math.cos(a), 0, math.sin(a)) * s * 0.16
+			local lean = Vector3.new(rng:NextNumber(-0.35, 0.35), 0, rng:NextNumber(-0.35, 0.35)) * s
+			MenuForest.Tri(fg, base + off, base - off, base + lean + Vector3.new(0, s * rng:NextNumber(0.7, 1.3), 0),
+				GRASS:Lerp(GRASS_DARK, rng:NextNumber(0, 0.6)):Lerp(WARM, rng:NextNumber(0, 0.15)))
+		end
+	end
+	-- the back edge, behind the circle: bushes and ferns, some in flower
+	for x = -16, 8, 2.6 do
+		local z = -26.5 + rng:NextNumber(-1.5, 1.5)
+		if not nearSeat(x, z, 1.5) then
+			if rng:NextNumber() < 0.5 then bush(x, z, rng:NextNumber(1.6, 2.5), rng:NextNumber() < 0.5) else fern(x, z, rng:NextNumber(1.8, 2.7)) end
+		end
+	end
+	-- the near corners frame the bottom of the shot
+	for _, b in ipairs({ { 14, -7.5, 2.4, true }, { 19, -9.5, 2.9, false }, { 23.5, -8, 3, true }, { -8, -7, 2.1, false } }) do
+		bush(b[1], b[2], b[3], b[4])
+	end
+	for _, f in ipairs({ { -12, -9.5 }, { 11.5, -7 }, { 17, -24 }, { -18, -12 }, { 9, -27 }, { 16.5, -6.5 }, { -3.5, -7 }, { 20, -11.5 }, { -14, -24 } }) do
+		fern(f[1], f[2], rng:NextNumber(1.7, 2.7))
+	end
+	-- flower patches and grass clusters, in clumps
+	for _ = 1, 9 do
+		local x, z = rng:NextNumber(-20, 26), rng:NextNumber(-27, -7)
+		if not nearSeat(x, z, 1) then flowers(ground(x, z), 1.1, true) end
+	end
+	for _ = 1, 22 do
+		local cx, cz = rng:NextNumber(-22, 28), rng:NextNumber(-28, -6)
+		for _ = 1, rng:NextInteger(2, 5) do
+			local x, z = cx + rng:NextNumber(-1.6, 1.6), cz + rng:NextNumber(-1.2, 1.2)
+			if not nearSeat(x, z, 0.4) then tuft(x, z, rng:NextNumber(0.6, 1.15)) end
+		end
+	end
+
+	-- Logs: the bench at seat 3 and a fallen trunk across the right of the
+	-- clearing.
+	local LOG = Color3.fromRGB(104, 72, 46)
+	local CUT = Color3.fromRGB(196, 158, 108)
+	local function log(a: Vector3, b: Vector3, w: number)
+		MenuForest.Post(fg, a, b, w, LOG:Lerp(Color3.fromRGB(70, 48, 32), rng:NextNumber(0, 0.4)), true)
+		for _, e in ipairs({ a, b }) do -- (pale cut ends)
+			local dir = (b - a).Unit
+			local p = e + (if e == a then -dir else dir) * 0.03
+			part(fg, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.06, w * 1.05, w * 1.05), CFrame = CFrame.lookAt(p, p + dir) * CFrame.Angles(0, math.rad(90), 0),
+				Color = CUT, Material = Enum.Material.SmoothPlastic })
+		end
+	end
+	local s3 = SEATS[3]
+	log(ground(s3.x - 3, s3.z - 0.6) + Vector3.new(0, 0.7, 0), ground(s3.x + 2.6, s3.z + 0.8) + Vector3.new(0, 0.7, 0), 1.4)
+	log(ground(10, -25) + Vector3.new(0, 0.8, 0), ground(21, -19.5) + Vector3.new(0, 0.9, 0), 1.6)
+	MenuForest.Post(fg, ground(15.5, -22.2) + Vector3.new(0, 1, 0), ground(17.5, -25) + Vector3.new(0, 2.8, 0), 0.5, LOG, true) -- (a broken branch)
+
+	-- ── The campsite ─────────────────────────────────────────────────────
+	local bowlCF = upright(fire.X, -8.7, fire.Z) -- (the coals, just above the ground)
+	-- The firepit: an ash bed inside two rings of stones.
+	part(fg, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.1, 3.4, 3.4), CFrame = bowlCF * CFrame.new(0, -0.25, 0) * UP,
+		Color = Color3.fromRGB(58, 52, 50), Material = Enum.Material.SmoothPlastic })
+	for i = 0, 10 do
+		local a = i / 11 * math.pi * 2 + rng:NextNumber(-0.08, 0.08)
+		local s = rng:NextNumber(0.62, 0.85)
+		MenuForest.Blob(fg, (bowlCF * CFrame.new(math.cos(a) * 1.85, 0.05, math.sin(a) * 1.85)).Position, Vector3.new(s * 1.2, s * 0.85, s),
+			STONE:Lerp(Color3.fromRGB(70, 64, 60), rng:NextNumber(0, 0.4)), rng, { octa = true })
+	end
+	for i = 0, 13 do
+		local a = (i + 0.5) / 14 * math.pi * 2 + rng:NextNumber(-0.08, 0.08)
+		local s = rng:NextNumber(0.45, 0.65)
+		MenuForest.Blob(fg, (bowlCF * CFrame.new(math.cos(a) * 2.45, -0.15, math.sin(a) * 2.45)).Position, Vector3.new(s * 1.2, s * 0.7, s),
+			STONE:Lerp(WARM, rng:NextNumber(0, 0.2)), rng, { octa = true })
+	end
+	local coals = part(fg, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.25, 2.3, 2.3),
+		CFrame = bowlCF * UP, Color = Color3.fromRGB(255, 110, 35), Material = Enum.Material.Neon })
+	for i = 0, 4 do
+		local a = i * 2 * math.pi / 5 + 0.3
+		part(fg, { Size = Vector3.new(2.5, 0.42, 0.42),
+			CFrame = bowlCF * CFrame.Angles(0, a, 0) * CFrame.new(0.55, 0.65, 0) * CFrame.Angles(0, 0, math.rad(-45)),
+			Color = LOG:Lerp(Color3.fromRGB(34, 20, 14), rng:NextNumber(0.3, 0.7)), Material = Enum.Material.SmoothPlastic })
+	end
+	-- Layered flames: the Fire, a bright core and licking tongues.
+	local flame = Instance.new("Fire")
+	flame.Color = Color3.fromRGB(255, 160, 60)
+	flame.SecondaryColor = Color3.fromRGB(230, 70, 20)
+	flame.Size = 3
+	flame.Heat = 6
+	flame.Parent = coals
+	local flameAtt = Instance.new("Attachment")
+	flameAtt.Position = Vector3.new(0.2, 0, 0) -- (the cylinder's axis is X: a little above the coals)
+	flameAtt.Parent = coals
+	local function flameLayer(size: number, life: number, speed: number, rate: number, c0: Color3, c1: Color3)
+		local e = Instance.new("ParticleEmitter")
+		e.Texture = "rbxasset://textures/particles/fire_main.dds"
+		e.Color = ColorSequence.new(c0, c1)
+		e.LightEmission = 1
+		e.LightInfluence = 0
+		e.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, size), NumberSequenceKeypoint.new(0.4, size * 0.8), NumberSequenceKeypoint.new(1, 0) })
+		e.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.6), NumberSequenceKeypoint.new(0.2, 0.15), NumberSequenceKeypoint.new(1, 1) })
+		e.Lifetime = NumberRange.new(life * 0.7, life)
+		e.Speed = NumberRange.new(speed * 0.6, speed)
+		e.SpreadAngle = Vector2.new(14, 14)
+		e.Rotation = NumberRange.new(-20, 20)
+		e.RotSpeed = NumberRange.new(-40, 40)
+		e.EmissionDirection = Enum.NormalId.Right -- (up, along the cylinder's axis)
+		e.Rate = rate
+		e.Parent = flameAtt
+	end
+	flameLayer(1.6, 0.7, 2.6, 14, Color3.fromRGB(255, 236, 160), Color3.fromRGB(255, 150, 50))
+	flameLayer(1.1, 1.0, 3.6, 10, Color3.fromRGB(255, 170, 70), Color3.fromRGB(220, 60, 20))
+	-- Embers rising, and a thin smoke trailing off.
 	local embers = Instance.new("ParticleEmitter")
 	embers.Texture = TEX_SPARK
 	embers.Color = ColorSequence.new(Color3.fromRGB(255, 220, 140), Color3.fromRGB(255, 90, 30))
 	embers.LightEmission = 1
-	embers.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.25), NumberSequenceKeypoint.new(1, 0) })
-	embers.Lifetime = NumberRange.new(1.2, 2.4)
+	embers.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.22), NumberSequenceKeypoint.new(1, 0) })
+	embers.Lifetime = NumberRange.new(1.6, 3)
 	embers.Speed = NumberRange.new(2, 4)
 	embers.SpreadAngle = Vector2.new(25, 25)
-	embers.Acceleration = Vector3.new(1.5, 2, 0)
-	embers.Rate = 12
-	embers.Parent = sparkAtt
-	-- Floating embers drifting over the whole platform.
-	local drift = part(fg, { Size = Vector3.new(16, 1, 9), CFrame = upright(2, -7, -15), Transparency = 1 })
-	local de = embers:Clone()
-	de.Rate = 5
-	de.Lifetime = NumberRange.new(3, 5)
-	de.Speed = NumberRange.new(0.5, 2)
-	de.Acceleration = Vector3.new(0.8, 1.2, 0)
-	de.SpreadAngle = Vector2.new(60, 60)
-	de.Parent = drift
+	embers.Acceleration = Vector3.new(1.2, 1.5, 0)
+	embers.EmissionDirection = Enum.NormalId.Right
+	embers.Rate = 9
+	embers.Parent = flameAtt
+	local smoke = Instance.new("ParticleEmitter")
+	smoke.Texture = TEX_SMOKE
+	smoke.Color = ColorSequence.new(Color3.fromRGB(120, 112, 108), Color3.fromRGB(190, 182, 172))
+	smoke.LightInfluence = 0.7
+	smoke.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 5) })
+	smoke.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.2, 0.82), NumberSequenceKeypoint.new(1, 1) })
+	smoke.Lifetime = NumberRange.new(5, 7)
+	smoke.Speed = NumberRange.new(2, 3)
+	smoke.Acceleration = Vector3.new(0.6, 0.2, 0)
+	smoke.SpreadAngle = Vector2.new(8, 8)
+	smoke.EmissionDirection = Enum.NormalId.Right
+	smoke.Rate = 1.5
+	smoke.Parent = flameAtt
+	-- The fire's warm light (flickered in the render loop).
+	local glow = Instance.new("PointLight")
+	glow.Color = Color3.fromRGB(255, 150, 70)
+	glow.Range = 18
+	glow.Brightness = 1.6
+	glow.Shadows = true
+	glow.Parent = coals
+	fireLight = glow
 
-	-- The longsword, planted point-down beside the fire, leaning slightly.
-	pcall(function()
-		local SwordModel = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SwordModel") :: any)
-		local tool = SwordModel.Build()
-		local bladeUp = tool:GetAttribute("BladeAxis") == "+Y"
-		local sword = Instance.new("Model")
-		sword.Name = "PlantedSword"
-		local handle = tool:FindFirstChild("Handle") :: BasePart?
-		for _, d in ipairs(tool:GetDescendants()) do
-			if d:IsA("BasePart") then
-				d.Anchored = true
-				d.CanCollide = false
+	-- The cooking tripod: three poles lashed at the top, a chain down to the
+	-- pot of stew.
+	local STICK = Color3.fromRGB(96, 66, 42)
+	local IRON = Color3.fromRGB(44, 36, 34)
+	local apex = (bowlCF * CFrame.new(0, 4.6, 0)).Position
+	for i = 0, 2 do
+		local a = i / 3 * math.pi * 2 + 0.5
+		local foot = (bowlCF * CFrame.new(math.cos(a) * 2.2, -0.35, math.sin(a) * 2.2)).Position
+		MenuForest.Post(fg, foot, apex + (apex - foot).Unit * 0.5, 0.22, STICK:Lerp(Color3.fromRGB(70, 46, 30), rng:NextNumber(0, 0.3)), true)
+	end
+	part(fg, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.4, 0.34, 0.34), CFrame = CFrame.new(apex) * UP, Color = Color3.fromRGB(150, 120, 80), Material = Enum.Material.SmoothPlastic }) -- (the lashing)
+	local potCF = bowlCF * CFrame.new(0, 2.05, 0)
+	for k = 0, 4 do -- the chain
+		part(fg, { Size = Vector3.new(0.1, 0.42, 0.18), CFrame = CFrame.new(apex - Vector3.new(0, 0.3 + k * 0.4, 0)) * CFrame.Angles(0, (k % 2) * math.pi / 2, 0),
+			Color = IRON, Material = Enum.Material.Metal })
+	end
+	part(fg, { Size = Vector3.new(0.08, 0.5, 0.08), CFrame = potCF * CFrame.new(0, 0.95, 0), Color = IRON, Material = Enum.Material.Metal })
+	part(fg, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(1.15, 1.5, 1.5), CFrame = potCF * UP, Color = IRON, Material = Enum.Material.Metal })
+	part(fg, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.3, 1.25, 1.25), CFrame = potCF * CFrame.new(0, -0.65, 0) * UP, Color = IRON, Material = Enum.Material.Metal })
+	part(fg, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.16, 1.64, 1.64), CFrame = potCF * CFrame.new(0, 0.58, 0) * UP, Color = IRON, Material = Enum.Material.Metal })
+	for _, sx in ipairs({ -0.82, 0.82 }) do
+		part(fg, { Size = Vector3.new(0.18, 0.18, 0.3), CFrame = potCF * CFrame.new(sx, 0.4, 0), Color = IRON, Material = Enum.Material.Metal })
+	end
+	local stew = part(fg, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.05, 1.3, 1.3), CFrame = potCF * CFrame.new(0, 0.6, 0) * UP,
+		Color = Color3.fromRGB(150, 60, 34), Material = Enum.Material.SmoothPlastic })
+	local steamAtt = Instance.new("Attachment")
+	steamAtt.Parent = stew
+	local steam = Instance.new("ParticleEmitter")
+	steam.Texture = TEX_SMOKE
+	steam.Color = ColorSequence.new(Color3.fromRGB(240, 232, 224))
+	steam.LightInfluence = 0.6
+	steam.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.5), NumberSequenceKeypoint.new(1, 2.6) })
+	steam.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.15, 0.75), NumberSequenceKeypoint.new(1, 1) })
+	steam.Lifetime = NumberRange.new(2.5, 4)
+	steam.Speed = NumberRange.new(1, 1.6)
+	steam.Acceleration = Vector3.new(0.6, 0.3, 0)
+	steam.SpreadAngle = Vector2.new(10, 10)
+	steam.Rate = 2
+	steam.Parent = steamAtt
+
+	-- Four logs round the fire (in the gaps between the seats), cut ends up.
+	for _, a in ipairs({ 40, 125, 205, 262 }) do
+		local r = math.rad(a)
+		local c = Vector2.new(fire.X + math.cos(r) * 3.6, fire.Z + math.sin(r) * 3.6)
+		local t = Vector2.new(-math.sin(r), math.cos(r)) * 0.95
+		log(ground(c.X - t.X, c.Y - t.Y) + Vector3.new(0, 0.34, 0), ground(c.X + t.X, c.Y + t.Y) + Vector3.new(0, 0.34, 0), 0.68)
+	end
+
+	-- Camp supplies, kept to the edges of the circle.
+	local WOOD = Color3.fromRGB(150, 108, 68)
+	local function crate(at: Vector3, s: number, yaw: number): CFrame
+		local cf = CFrame.new(at + Vector3.new(0, s / 2, 0)) * flatCam.Rotation * CFrame.Angles(0, yaw, 0)
+		part(fg, { Size = Vector3.one * s, CFrame = cf, Color = WOOD:Lerp(Color3.fromRGB(110, 76, 46), rng:NextNumber(0, 0.4)), Material = Enum.Material.SmoothPlastic })
+		for _, face in ipairs({ Vector3.new(0, 0, 1), Vector3.new(0, 0, -1), Vector3.new(1, 0, 0), Vector3.new(-1, 0, 0) }) do
+			local side = Vector3.new(face.Z, 0, -face.X)
+			for _, y in ipairs({ -0.42, 0.42 }) do -- (dark frame boards)
+				part(fg, { Size = Vector3.new(math.abs(side.X) * s * 1.02 + 0.08, s * 0.12, math.abs(side.Z) * s * 1.02 + 0.08),
+					CFrame = cf * CFrame.new(face * s * 0.5 + Vector3.new(0, y * s, 0)), Color = Color3.fromRGB(92, 62, 38), Material = Enum.Material.SmoothPlastic })
 			end
 		end
-		for _, c in ipairs(tool:GetChildren()) do
-			if c:IsA("BasePart") then c.Parent = sword end
+		return cf
+	end
+	local c1 = crate(ground(14.5, -17.5), 1.7, 0.3)
+	crate(ground(16.2, -16.8), 1.4, -0.2)
+	crate((c1 * CFrame.new(0, 0.85, 0)).Position + Vector3.new(0, 0.05, 0), 1.2, 0.7)
+	-- The lantern on the top crate: a warm glass in a dark cage.
+	local lan = c1 * CFrame.new(0.1, 0.85 + 1.25, 0.1)
+	part(fg, { Size = Vector3.new(0.7, 0.12, 0.7), CFrame = lan * CFrame.new(0, -0.45, 0), Color = IRON, Material = Enum.Material.Metal })
+	part(fg, { Size = Vector3.new(0.48, 0.66, 0.48), CFrame = lan, Color = Color3.fromRGB(255, 200, 110), Material = Enum.Material.Neon })
+	for _, c in ipairs({ { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 } }) do
+		part(fg, { Size = Vector3.new(0.07, 0.8, 0.07), CFrame = lan * CFrame.new(c[1] * 0.28, 0, c[2] * 0.28), Color = IRON, Material = Enum.Material.Metal })
+	end
+	MenuForest.Blob(fg, (lan * CFrame.new(0, 0.48, 0)).Position, Vector3.new(0.85, 0.35, 0.85), IRON, rng, { octa = true, jitter = 0 })
+	part(fg, { Size = Vector3.new(0.06, 0.4, 0.4), CFrame = lan * CFrame.new(0, 0.8, 0), Color = IRON, Material = Enum.Material.Metal })
+	-- Two small stools.
+	local function stool(x: number, z: number)
+		local at = ground(x, z)
+		part(fg, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.22, 1.1, 1.1), CFrame = CFrame.new(at + Vector3.new(0, 0.95, 0)) * UP,
+			Color = WOOD, Material = Enum.Material.SmoothPlastic })
+		for i = 0, 2 do
+			local a = i / 3 * math.pi * 2 + rng:NextNumber(0, 1)
+			local foot = at + Vector3.new(math.cos(a) * 0.55, 0, math.sin(a) * 0.55)
+			MenuForest.Post(fg, foot, at + Vector3.new(math.cos(a) * 0.25, 0.9, math.sin(a) * 0.25), 0.13, Color3.fromRGB(96, 66, 42))
 		end
-		tool:Destroy()
-		if handle then
-			sword.PrimaryPart = handle
-			-- Point the blade down, a little tilted: the asset's blade runs up
-			-- the handle's +Y, the built fallback's along -Z.
-			local down = if bladeUp then CFrame.Angles(math.rad(180 - 12), 0, math.rad(8))
-				else CFrame.Angles(math.rad(-90 + 12), 0, math.rad(8))
-			sword:PivotTo(upright(6.7, -3.4, -14.2, 0.5) * down) -- beside seat 1, clear of the circle
-			pcall(function() sword:ScaleTo(1.6) end)
+	end
+	stool(11.8, -15.6)
+	stool(-4.5, -18.6)
+	-- The adventurer's pack against the fallen trunk: a body, a flap, a
+	-- rolled blanket on top and two straps.
+	do
+		local at = ground(12.6, -21.8)
+		local cf = CFrame.new(at + Vector3.new(0, 0.85, 0)) * flatCam.Rotation * CFrame.Angles(math.rad(-12), 0.5, 0)
+		local LEATHER = Color3.fromRGB(122, 80, 50)
+		part(fg, { Size = Vector3.new(1.5, 1.7, 0.9), CFrame = cf, Color = LEATHER, Material = Enum.Material.SmoothPlastic })
+		part(fg, { Size = Vector3.new(1.55, 0.7, 0.95), CFrame = cf * CFrame.new(0, 0.62, 0.04), Color = LEATHER:Lerp(Color3.new(0, 0, 0), 0.2), Material = Enum.Material.SmoothPlastic })
+		part(fg, { Size = Vector3.new(1.1, 0.6, 0.25), CFrame = cf * CFrame.new(0, -0.35, 0.52), Color = LEATHER:Lerp(Color3.new(0, 0, 0), 0.1), Material = Enum.Material.SmoothPlastic })
+		part(fg, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(1.9, 0.62, 0.62), CFrame = cf * CFrame.new(0, 1.15, 0), Color = Color3.fromRGB(150, 60, 50), Material = Enum.Material.SmoothPlastic })
+		for _, sx in ipairs({ -0.4, 0.4 }) do
+			part(fg, { Size = Vector3.new(0.14, 1.8, 0.05), CFrame = cf * CFrame.new(sx, 0.05, 0.47), Color = Color3.fromRGB(70, 46, 30), Material = Enum.Material.SmoothPlastic })
 		end
-		sword.Parent = fg
-	end)
+	end
+	-- A sword planted in the ground beside the crates (well clear of the
+	-- hero, so it never reads as a weapon slipping from your hand in class
+	-- select): a low-poly blade leaning a little, a crossguard, a wrapped
+	-- grip and a pommel.
+	do
+		local at = ground(18.8, -16.8)
+		local cf = CFrame.new(at) * flatCam.Rotation * CFrame.Angles(0, 0.6, 0) * CFrame.Angles(math.rad(8), 0, math.rad(-10))
+		local STEEL = Color3.fromRGB(196, 200, 206)
+		part(fg, { Size = Vector3.new(0.42, 3.2, 0.1), CFrame = cf * CFrame.new(0, 1.2, 0), Color = STEEL, Material = Enum.Material.Metal })
+		part(fg, { Size = Vector3.new(0.14, 3.2, 0.12), CFrame = cf * CFrame.new(0, 1.2, 0), Color = STEEL:Lerp(Color3.new(1, 1, 1), 0.3), Material = Enum.Material.Metal }) -- (the fuller's ridge)
+		part(fg, { Size = Vector3.new(1.5, 0.2, 0.24), CFrame = cf * CFrame.new(0, 2.88, 0), Color = Color3.fromRGB(150, 116, 60), Material = Enum.Material.Metal })
+		part(fg, { Size = Vector3.new(0.2, 0.95, 0.2), CFrame = cf * CFrame.new(0, 3.45, 0), Color = Color3.fromRGB(72, 44, 30), Material = Enum.Material.SmoothPlastic })
+		MenuForest.Blob(fg, (cf * CFrame.new(0, 4.0, 0)).Position, Vector3.new(0.34, 0.34, 0.34), Color3.fromRGB(170, 134, 70), rng, { octa = true, jitter = 0 })
+		MenuForest.Blob(fg, at + Vector3.new(0, 0.05, 0), Vector3.new(1.1, 0.25, 0.9), EARTH, rng, { octa = true }) -- (turned earth at the blade)
+	end
+
+	-- Fireflies drifting round the camp at dusk.
+	local ffBox = part(fg, { Size = Vector3.new(26, 4, 16), CFrame = upright(3, -6.5, -17), Transparency = 1 })
+	local ff = Instance.new("ParticleEmitter")
+	ff.Texture = TEX_SPARK
+	ff.Color = ColorSequence.new(Color3.fromRGB(230, 255, 140))
+	ff.LightEmission = 1
+	ff.LightInfluence = 0
+	ff.Size = NumberSequence.new(0.22)
+	ff.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.3, 0.1), NumberSequenceKeypoint.new(0.5, 0.6),
+		NumberSequenceKeypoint.new(0.7, 0.05), NumberSequenceKeypoint.new(1, 1) })
+	ff.Lifetime = NumberRange.new(5, 8)
+	ff.Speed = NumberRange.new(0.3, 0.8)
+	ff.SpreadAngle = Vector2.new(180, 180)
+	ff.Acceleration = Vector3.new(0, 0.08, 0)
+	ff.Rate = 2.5
+	ff.Parent = ffBox
 
 	-- The campfire circle: your hero waits standing at your seat (three-
 	-- quarters to the camera) until you sit; the party sits around the fire.
@@ -1414,13 +1846,6 @@ local function buildForeground(parent: Instance, cam: CFrame)
 	heroGround = standSpot(1)
 	heroShowcase()
 	refreshCampfire()
-	-- A cool rim light from behind the circle.
-	local rim = part(fg, { Size = Vector3.one, CFrame = upright(6.4, -4, -18.5), Transparency = 1 })
-	local rl = Instance.new("PointLight")
-	rl.Color = Color3.fromRGB(160, 140, 255)
-	rl.Range = 9
-	rl.Brightness = 1.4
-	rl.Parent = rim
 end
 
 -- ── Opening sequence ────────────────────────────────────────────────────────
@@ -1477,45 +1902,32 @@ function MenuBackdrop.Build(_focus: Vector3?)
 	local function dirAt(yawDeg: number): Vector3 -- + = left of centre, - = right
 		return CFrame.Angles(0, math.rad(yawDeg), 0) * fwd
 	end
-	-- Keep clear of the camera and the lobby spawn (class select shows you there).
-	local keepClear = { camPos, LOBBY_SPAWN }
-	local function clear(pos: Vector3, radius: number): boolean
-		for _, p in ipairs(keepClear) do
-			if (Vector3.new(pos.X - p.X, 0, pos.Z - p.Z)).Magnitude < radius then return false end
-		end
-		return true
-	end
-	-- Everything generated claims a footprint (centre + radius, measured flat
-	-- so tall castles can't poke into islands above/below); nothing overlaps.
-	local occupied: { { p: Vector3, r: number } } = {}
-	local function free(pos: Vector3, r: number): boolean
-		for _, o in ipairs(occupied) do
-			if (Vector3.new(pos.X - o.p.X, 0, pos.Z - o.p.Z)).Magnitude < r + o.r + 12 then return false end
-		end
-		return true
-	end
-	local function claim(pos: Vector3, r: number)
-		table.insert(occupied, { p = pos, r = r })
-	end
 
-	-- Sunset grade, the real sun low on the horizon to the right.
-	local sunDir = (dirAt(-40) + Vector3.new(0, 0.1, 0)).Unit
+	-- Golden hour: the real sun low over the valley, a little left of the
+	-- castle, so the haze glows round it and the crowns are rim-lit.
+	local sunDir = (dirAt(9) + Vector3.new(0, 0.13, 0)).Unit
 	applyGrade(sunDir)
-	sunset(f, camPos + sunDir * 2600)
 
-	-- The capital: right of centre, far off and massive. Kept within ~600
-	-- studs (farther parts drop out at lower graphics settings); its size
-	-- does the work.
-	local capScale = 3.4
-	local spireFar = camPos + dirAt(-19) * 600 + Vector3.new(0, -20, 0)
-	place("spire", spireFar, capScale)
-	claim(spireFar, 68 * capScale / 2 + 30)
-	-- Where it's actually built (see compress), for the beam and the halo.
-	local spirePos, ck = compress(spireFar)
-	local s = 68 * capScale * ck / 44
+	-- Level frames (the title shot looks down into the valley; the scene is
+	-- laid out level so the clearing's seats stay where they were).
+	local flat = CFrame.new(camPos) * CFrame.lookAt(Vector3.zero, fwd).Rotation
+	-- The far view: a misty valley of round trees, the ruined castle on its
+	-- hill, ridges fading into the haze.
+	local site = MenuForest.Valley(f, flat, rng)
+	-- The capital on its hilltop: the gothic castle on a faceted crown of
+	-- rock and grass.
+	-- (low enough that the pillar of light and the halo show above it; the
+	-- mound runs down into the hill so nothing floats)
+	local capW = 34
+	MenuForest.Blob(f, site.Position - Vector3.new(0, 10, 0), Vector3.new(capW * 1.35, 20, capW * 1.25),
+		Color3.fromRGB(104, 110, 58), rng, { jitter = 0.05 })
+	local capital = buildIsland("spire", capW, true)
+	capital:PivotTo(site * CFrame.Angles(0, math.rad(25), 0))
+	local spirePos = site.Position
+	local s = capW / 44
 	-- The pillar of light rising from the great spire's tip.
 	local tip = spirePos + Vector3.new(0, 45 * s, 0)
-	local beamLen = 2048 * ck
+	local beamLen = 600
 	beamCore = part(f, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(beamLen, 1.4 * s, 1.4 * s),
 		CFrame = CFrame.new(tip + Vector3.new(0, beamLen / 2, 0)) * UP, Color = GOLD, Material = Enum.Material.Neon, Transparency = 1 })
 	beamSheath = part(f, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(beamLen, 4.5 * s, 4.5 * s),
@@ -1526,7 +1938,7 @@ function MenuBackdrop.Build(_focus: Vector3?)
 	rise.LightEmission = 1
 	rise.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.6 * s), NumberSequenceKeypoint.new(1, 0) })
 	rise.Lifetime = NumberRange.new(4, 7)
-	rise.Speed = NumberRange.new(30 * ck, 60 * ck)
+	rise.Speed = NumberRange.new(6, 12)
 	rise.EmissionDirection = Enum.NormalId.Right
 	rise.Rate = 25
 	rise.Enabled = false
@@ -1534,69 +1946,37 @@ function MenuBackdrop.Build(_focus: Vector3?)
 	beamRise = rise
 	-- The runic halo above the castle, two counter-spinning rings.
 	local tilt = CFrame.Angles(math.rad(10), 0, math.rad(-4))
-	runeRing(f, CFrame.new(spirePos + Vector3.new(0, 40 * s, 0)) * tilt, 34 * s, 96, Color3.fromRGB(110, 150, 255), 0.08, ck)
-	runeRing(f, CFrame.new(spirePos + Vector3.new(0, 42 * s, 0)) * tilt, 30 * s, 84, Color3.fromRGB(170, 130, 255), -0.12, ck)
-
-	-- Foreground: the hero platform just ahead of and below the camera.
-	buildForeground(f, vista :: CFrame * CFrame.new(0, -3, -10))
-	claim((vista :: CFrame * CFrame.new(4, 0, -30)).Position, 45)
-
-	-- Mid-distance islands spread across the view, out of the line to the
-	-- capital; the farther ones are bigger so none shrink to specks.
-	local kinds = { "keep", "ruin", "keep", "ruin", "keep", "ruin", "keep", "ruin", "keep" }
-	local placed = 0
-	local tries = 0
-	while placed < #kinds and tries < 800 do
-		tries += 1
-		local yaw = rng:NextNumber(-44, 22) -- right of the menu (it covers ~+19° to +45°)
-		local dist = rng:NextNumber(220, 560)
-		local pos = camPos + dirAt(yaw) * dist + Vector3.new(0, rng:NextNumber(-0.19, 0.03) * dist, 0)
-		local scale = rng:NextNumber(1.6, 3.2) * dist / 450
-		local R = 22 * scale
-		local footprint = R
-		if clear(pos, 150 + R) and math.abs(yaw + 19) > 13 and free(pos, footprint) then
-			claim(pos, footprint)
-			placed += 1
-			place(kinds[placed], pos, scale)
-		end
-	end
-
-	-- Small spiked shards drifting high and low through the sky.
-	local shards = 0
-	for _ = 1, 60 do
-		if shards >= 12 then break end
-		local dist = rng:NextNumber(260, 620)
-		local pos = camPos + dirAt(rng:NextNumber(-46, 16)) * dist + Vector3.new(0, rng:NextNumber(-0.05, 0.4) * dist, 0)
-		local w = rng:NextNumber(10, 24) * dist / 500
-		if clear(pos, 150) and free(pos, w * 0.6) then
-			claim(pos, w * 0.6)
-			shard(pos, w)
-			shards += 1
-		end
-	end
-
-	-- A cloud sea well below the islands, and a few banks far behind them.
-	for i = 1, 8 do
-		local yaw = -90 + (i - 1) * (180 / 7)
-		cloudBank(f, camPos + dirAt(yaw) * 460 + Vector3.new(0, -260, 0), 420, 170, 1.0)
-	end
+	runeRing(f, CFrame.new(spirePos + Vector3.new(0, 40 * s, 0)) * tilt, 34 * s, 96, Color3.fromRGB(110, 150, 255), 0.08, 0.21)
+	runeRing(f, CFrame.new(spirePos + Vector3.new(0, 42 * s, 0)) * tilt, 30 * s, 84, Color3.fromRGB(170, 130, 255), -0.12, 0.21)
+	-- Foreground: the clearing with the campfire, just ahead of and below
+	-- the camera.
+	buildForeground(f, flat * CFrame.new(0, -3, -6))
+	castleDir = Vector3.new(spirePos.X - camPos.X, 0, spirePos.Z - camPos.Z).Unit
+	-- Soft clouds drifting slowly across the sky band (particle banks: lit
+	-- by the sky, not shaded like solid parts).
 	for i = 1, 4 do
-		local yaw = -60 + (i - 1) * 40
-		cloudBank(f, camPos + dirAt(yaw) * 780 + Vector3.new(0, -120, 0), 260, 200, 0.4)
+		local bank = part(f, { Size = Vector3.new(60, 6, 10), Transparency = 1,
+			CFrame = flat * CFrame.new(-110 + (i - 1) * 70 + rng:NextNumber(-10, 10), rng:NextNumber(20, 34), -rng:NextNumber(135, 160)) })
+		local cl = Instance.new("ParticleEmitter")
+		cl.Texture = TEX_SMOKE
+		cl.Color = ColorSequence.new(Color3.fromRGB(255, 244, 228), Color3.fromRGB(250, 222, 196))
+		cl.LightInfluence = 0.15
+		cl.LightEmission = 0.1
+		cl.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 16), NumberSequenceKeypoint.new(1, 24) })
+		cl.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.25, 0.55), NumberSequenceKeypoint.new(0.75, 0.6), NumberSequenceKeypoint.new(1, 1),
+		})
+		cl.Lifetime = NumberRange.new(40, 55)
+		cl.Speed = NumberRange.new(0.6, 1)
+		cl.EmissionDirection = Enum.NormalId.Right
+		cl.SpreadAngle = Vector2.new(3, 3)
+		cl.Rotation = NumberRange.new(0, 360)
+		cl.RotSpeed = NumberRange.new(-1, 1)
+		cl.Rate = 0.25
+		cl.Parent = bank
+		cl:Emit(8)
 	end
-	-- Stars twinkling in the upper sky.
-	local starPos, sk = compress(camPos + fwd * 650 + Vector3.new(0, 420, 0))
-	local starField = part(f, { Size = Vector3.new(1400 * sk, 1, 500 * sk), CFrame = CFrame.new(starPos), Transparency = 1 })
-	local stars = Instance.new("ParticleEmitter")
-	stars.Texture = TEX_SPARK
-	stars.Color = ColorSequence.new(Color3.fromRGB(220, 230, 255))
-	stars.LightEmission = 1
-	stars.Size = NumberSequence.new(3 * sk)
-	stars.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.5, 0.1), NumberSequenceKeypoint.new(1, 1) })
-	stars.Lifetime = NumberRange.new(2, 4)
-	stars.Speed = NumberRange.new(0)
-	stars.Rate = 30
-	stars.Parent = starField
+
 	-- Golden motes drifting across in front of the camera.
 	local motes = part(f, { Size = Vector3.new(120, 2, 120), CFrame = CFrame.new(camPos + fwd * 70 - Vector3.new(0, 30, 0)), Transparency = 1 })
 	local e = Instance.new("ParticleEmitter")
@@ -1662,6 +2042,37 @@ function MenuBackdrop.Build(_focus: Vector3?)
 				if w.Parent then w.Transparency = rng:NextNumber(0, 0.45) end
 			end
 		end
+		-- The campfire's light flickers.
+		if fireLight then
+			fireLight.Brightness = 1.5 + math.noise(t * 3.1, 0.5) * 0.5 + math.noise(t * 9.7, 2.5) * 0.2
+			fireLight.Range = 17 + math.noise(t * 2.3, 7.5) * 1.5
+		end
+		-- Trees sway gently from the foot (staggered: every third frame each).
+		for i, sw in ipairs(swayers) do
+			if (i + frame) % 3 == 0 and sw.model.Parent then
+				local a = sw.amt * 0.012
+				sw.model:PivotTo(sw.base * CFrame.Angles(math.sin(t * 0.7 + sw.phase) * a * 0.6, 0, math.sin(t * 0.55 + sw.phase * 1.3) * a))
+			end
+		end
+		-- Your hero glances off toward the castle now and then.
+		local h = hero
+		if h and castleDir then
+			local torso = h:FindFirstChild("Torso")
+			local neck = torso and torso:FindFirstChild("Neck")
+			local root = h.PrimaryPart
+			if neck and neck:IsA("Motor6D") and root then
+				local base = neck:GetAttribute("BaseC0")
+				if typeof(base) ~= "CFrame" then
+					base = neck.C0
+					neck:SetAttribute("BaseC0", base)
+				end
+				local cyc = t % 11
+				local w = if cyc > 6.5 and cyc < 9.5 then math.sin(math.pi * (cyc - 6.5) / 3) else 0
+				local rel = root.CFrame:VectorToObjectSpace(castleDir)
+				local yaw = w * 0.42 * (if rel.X > 0 then -1 else 1) + math.sin(t * 0.4) * 0.04
+				neck.C0 = (base :: CFrame) * CFrame.Angles(0, 0, yaw)
+			end
+		end
 	end)
 end
 
@@ -1683,6 +2094,8 @@ function MenuBackdrop.Destroy()
 	portalRunning = false
 	campfirePush = 0
 	table.clear(floaters)
+	table.clear(swayers)
+	fireLight, castleDir = nil, nil
 	table.clear(windows)
 	table.clear(haloRings)
 	table.clear(ringParts)

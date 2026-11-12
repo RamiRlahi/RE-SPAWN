@@ -435,6 +435,7 @@ local function parried(targetChar: Model, attacker: Model?): boolean
 	end
 	return false
 end
+MobManager.Parried = parried -- (DevHooks: an attack into the guard, on demand)
 
 -- Incoming damage to a player (e.g. the Fire Knight's guard soaking hits into
 -- Heat): each hook may return a reduced amount. It's also told who hit
@@ -945,14 +946,16 @@ local function configureAnimatedMob(mobModel: Model, humanoid: Humanoid, targetC
 				table.insert(nearby, player)
 			end
 		end
+		-- (the run's difficulty mode pays more: MapData.MODES)
+		local rewardMult = DifficultyManager.RewardMult(RunScope.Of(mobModel))
 		for _, player in ipairs(PartyManager.XPRecipients(nearby)) do
-			PlayerStats.AwardXP(player, xpReward)
+			PlayerStats.AwardXP(player, xpReward * rewardMult)
 		end
 		for _, player in ipairs(nearby) do
 			-- Gold funds the shop and the gambling den.
-			PlayerStats.AwardGold(player, if isBoss then math.random(60, 90) elseif mobModel:GetAttribute("IsElite") == true then math.random(15, 25) else math.random(3, 7))
-			TalentManager.OnMobKilled(player, isBoss)
-			GachaManager.OnMobKilled(player, ticketTier(mobModel, isBoss))
+			PlayerStats.AwardGold(player, (if isBoss then math.random(60, 90) elseif mobModel:GetAttribute("IsElite") == true then math.random(15, 25) else math.random(3, 7)) * rewardMult)
+			TalentManager.OnMobKilled(player, isBoss, rewardMult)
+			GachaManager.OnMobKilled(player, ticketTier(mobModel, isBoss), pos)
 		end
 		LootManager.OnMobKilled(mobModel, isBoss, nearby)
 
@@ -1276,14 +1279,16 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 				table.insert(nearby, player)
 			end
 		end
+		-- (the run's difficulty mode pays more: MapData.MODES)
+		local rewardMult = DifficultyManager.RewardMult(RunScope.Of(mobModel))
 		for _, player in ipairs(PartyManager.XPRecipients(nearby)) do
-			PlayerStats.AwardXP(player, xpReward)
+			PlayerStats.AwardXP(player, xpReward * rewardMult)
 		end
 		for _, player in ipairs(nearby) do
 			-- Gold funds the shop and the gambling den.
-			PlayerStats.AwardGold(player, if isBoss then math.random(60, 90) elseif mobModel:GetAttribute("IsElite") == true then math.random(15, 25) else math.random(3, 7))
-			TalentManager.OnMobKilled(player, isBoss)
-			GachaManager.OnMobKilled(player, ticketTier(mobModel, isBoss))
+			PlayerStats.AwardGold(player, (if isBoss then math.random(60, 90) elseif mobModel:GetAttribute("IsElite") == true then math.random(15, 25) else math.random(3, 7)) * rewardMult)
+			TalentManager.OnMobKilled(player, isBoss, rewardMult)
+			GachaManager.OnMobKilled(player, ticketTier(mobModel, isBoss), pos)
 		end
 		LootManager.OnMobKilled(mobModel, isBoss, nearby)
 
@@ -1739,8 +1744,8 @@ local function eliteChanceFor(tier: number): number
 	return math.min(ELITE_BASE_CHANCE + tier * ELITE_CHANCE_PER_TIER, ELITE_MAX_CHANCE)
 end
 
-local DRAGON_FIRST_FLOOR = 3
-local DRAGON_EVERY = 3
+local DRAGON_FIRST_FLOOR = 2
+local DRAGON_EVERY = 2 -- (the extraction floors: DungeonGenerator.EXTRACT_EVERY)
 
 local function planRoom(group: RoomMobGroup)
 	if group.planned then return end
@@ -1755,9 +1760,9 @@ local function planRoom(group: RoomMobGroup)
 	local maxZ = (room.gz + room.d - 1) * FLOOR_SIZE - 4
 	local remaining = mobCountFor(tier)
 
-	-- The dragon is floor 3's boss (the first floor you can extract from), and
-	-- comes back every third floor after it for the greedy who keep going down
-	-- (6, 9, 12...).
+	-- The dragon is floor 2's boss (the first floor you can extract from), and
+	-- comes back every extraction floor after it for the greedy who keep going down
+	-- (4, 6, 8...).
 	local level = RunScope.Get(group.runId, "RunLevel") or 1
 	local dragonHere = level >= DRAGON_FIRST_FLOOR and level % DRAGON_EVERY == 0
 	if room.roomType == "Boss" and DragonBoss.Available() and dragonHere then
@@ -2220,7 +2225,7 @@ local function grantBossRewards(model: Model, pos: Vector3, xpReward: number)
 	for _, player in ipairs(nearby) do
 		PlayerStats.AwardGold(player, math.random(90, 130))
 		TalentManager.OnMobKilled(player, true)
-		GachaManager.OnMobKilled(player, "boss")
+		GachaManager.OnMobKilled(player, "boss", pos)
 	end
 	LootManager.OnMobKilled(model, true, nearby)
 end

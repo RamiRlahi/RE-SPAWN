@@ -187,6 +187,56 @@ local function showQuitConfirm()
 	end
 end
 
+-- CREDITS: one name, over the title screen. Click anywhere to close.
+local creditsDialog: GuiObject? = nil
+local function showCredits()
+	if creditsDialog then
+		creditsDialog.Visible = true
+		return
+	end
+	local overlay = Instance.new("TextButton")
+	overlay.Name = "Credits"
+	overlay.Text = ""
+	overlay.AutoButtonColor = false
+	overlay.Size = UDim2.fromScale(1, 1)
+	overlay.BackgroundColor3 = Color3.fromRGB(4, 3, 8)
+	overlay.BackgroundTransparency = 0.35
+	overlay.ZIndex = 50
+	overlay.Parent = screenGui
+	overlay.Activated:Connect(function() overlay.Visible = false end)
+	creditsDialog = overlay
+
+	local panel = Instance.new("Frame")
+	panel.AnchorPoint = Vector2.new(0.5, 0.5)
+	panel.Position = UDim2.fromScale(0.5, 0.5)
+	panel.Size = UDim2.fromOffset(380, 220)
+	panel.BackgroundColor3 = Color3.fromRGB(16, 11, 20)
+	panel.BackgroundTransparency = 0.1
+	panel.ZIndex = 51
+	panel.Parent = overlay
+	UITheme.AddCorner(panel, 6)
+	UITheme.AddStroke(panel, Color3.fromRGB(194, 132, 52), 1.5, 0.2)
+
+	local bold = Font.new("rbxasset://fonts/families/Merriweather.json", Enum.FontWeight.Bold)
+	local function text(s: string, y: number, h: number, size: number, color: Color3, transp: number)
+		local l = Instance.new("TextLabel")
+		l.BackgroundTransparency = 1
+		l.Position = UDim2.fromOffset(0, y)
+		l.Size = UDim2.new(1, 0, 0, h)
+		l.FontFace = bold
+		l.TextSize = size
+		l.TextColor3 = color
+		l.TextTransparency = transp
+		l.Text = s
+		l.ZIndex = 52
+		l.Parent = panel
+	end
+	text("CREDITS", 22, 30, 22, Color3.fromRGB(255, 213, 128), 0)
+	text("CREATED BY", 82, 18, 13, Color3.fromRGB(194, 132, 52), 0.1)
+	text("Birgsin", 104, 40, 32, Color3.fromRGB(232, 222, 204), 0)
+	text("click anywhere to close", 176, 18, 11, Color3.fromRGB(190, 160, 120), 0.4)
+end
+
 -- ── The ready phase owns the screen ─────────────────────────────────────────
 -- While the campfire (ready up) is showing, it's the only UI: every other
 -- ScreenGui is held off, and the Roblox player list, health bar and emote
@@ -274,6 +324,7 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 			onOpenSettings = function()
 				UIManager.ShowSettings()
 			end,
+			onOpenCredits = showCredits,
 			onQuit = showQuitConfirm,
 		})
 	end
@@ -319,6 +370,9 @@ function UIManager.Init(onGameStartRequested: (classId: string) -> ())
 		classSelectGroup = ClassSelectionScreen.Create(screenGui, {
 			onBackToTitle = function()
 				UIManager.ShowTitle()
+			end,
+			onOpenSettings = function()
+				UIManager.ShowSettings()
 			end,
 			onConfirmClass = function(classId: string)
 				local selectRemote = Network.GetRemoteEvent(Network.Remotes.SelectClass)
@@ -405,6 +459,7 @@ function UIManager.ShowTitle()
 	end
 end
 
+local settingsFromClassSelect = false -- the menu settings were opened from class select
 local inGameSettings = false -- opened with Escape during a run (the menu UI is off)
 
 function UIManager.ShowSettings()
@@ -424,6 +479,14 @@ function UIManager.ShowSettings()
 	if menuSettingsStale or not menuSettingsGroup then buildMenuSettings() end
 	local menuGroup = menuSettingsGroup
 	if not menuGroup then return end
+	-- (opened from class select: hide it, and come back to it on close)
+	settingsFromClassSelect = classSelectGroup ~= nil and classSelectGroup.Visible
+	if settingsFromClassSelect and classSelectGroup then
+		local group = classSelectGroup
+		fadeCanvas(group, 1, 0.15, function()
+			if menuGroup.Visible then group.Visible = false end
+		end)
+	end
 	if titleScreenGroup and titleScreenGroup.Visible then
 		fadeCanvas(titleScreenGroup, 1, 0.15, function()
 			if menuGroup.Visible then
@@ -450,7 +513,11 @@ function UIManager.CloseSettings()
 	if menuGroup then
 		fadeCanvas(menuGroup, 1, 0.2, function()
 			menuGroup.Visible = false
-			if titleScreenGroup then
+			if settingsFromClassSelect and classSelectGroup then
+				settingsFromClassSelect = false
+				classSelectGroup.Visible = true
+				fadeCanvas(classSelectGroup, 0, 0.15)
+			elseif titleScreenGroup then
 				titleScreenGroup.Visible = true
 				fadeCanvas(titleScreenGroup, 0, 0.15)
 			end

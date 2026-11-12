@@ -14,13 +14,18 @@
 	  E Sword Rush    dash through enemies with two strikes; enemies hit by both
 	                  take a heavier second cut. Empowered: longer, wider, a third.
 	  F Parry         a short guard window. An attack landing in it is negated,
-	                  the attacker is stunned, and a huge upward counter slash
-	                  answers. Empowered: longer window, bigger counter.
-	  Q Phantom Thrust a long rapier thrust that nudges him forward, hitting
-	                  everything on the line. Every extra projectile (Projectile
-	                  Count) adds a phantom echo of the thrust down the same
-	                  line a beat later, each one a real hit. Empowered: longer,
-	                  harder, two more echoes.
+	                  the attacker is stunned, and he ripostes: a flick of the
+	                  blade, a dash straight in and the pommel driven into its
+	                  chest (it's thrown back). Empowered: longer window,
+	                  harder strike.
+	  Q Piercing Judgement  held: on guard, the rapier's point gathering
+	                  energy (up to JUDGE.full; let go any time, or it goes by
+	                  itself if held at full too long), then a lunge and a needle
+	                  thrust down a line, longer and harder the more it was
+	                  charged. Every extra projectile (Projectile Count) adds a
+	                  phantom echo down the same line a beat later, each a real
+	                  hit. Empowered: charges faster, longer, harder, two more
+	                  echoes.
 	  R Blade Storm   en garde (mobs freeze for the moment), then flash to
 	                  every enemy in the room, at least 8 cuts (a small room is
 	                  cut more than once), and finish with a giant X that hits
@@ -53,7 +58,17 @@ local STORM_WINDUP = 1.2     -- en garde; matches the client cutscene
 local STORM_STEP = 0.18      -- seconds between Blade Storm dashes
 local STORM_MIN_CUTS = 8     -- a room with fewer enemies is cut more than once
 local STORM_X_RADIUS = 22
-local ECHO_STEP = 0.16       -- seconds between a Phantom Thrust and each echo
+local ECHO_STEP = 0.16       -- seconds between the Judgement's thrust and each echo
+-- Piercing Judgement (mirrored in SwordsmanController): seconds to a full
+-- charge (Empowered: empFull), how long it can be held at full before it
+-- goes by itself, the lunge and the line it pierces (tap → full), the damage
+-- multiplier at full, and when the point lands after the release.
+local JUDGE = { full = 2.4, empFull = 1.4, still = 1.6, lunge = 4, fullLunge = 11,
+	length = 16, fullLength = 32, maxMult = 3, hit = 0.07 }
+local RIPOSTE_HIT = 0.3      -- parry → the pommel lands (SwordsmanController's riposte)
+local RIPOSTE_REACH = 16     -- furthest the riposte's dash carries him
+local RIPOSTE_TIME = 0.8     -- the whole riposte, recovery included
+local POMMEL_SPLASH = 5      -- others this close to the one struck are caught too
 
 type Target = { character: Model, humanoid: Humanoid, rootPart: BasePart }
 type State = {
@@ -63,6 +78,8 @@ type State = {
 	busyUntil: number,
 	parryEmpowered: boolean,
 	parryConfig: any,
+	judge: { t0: number, full: number, config: any, empowered: boolean, token: {} }?,
+	pendingRelease: { at: number, held: number?, dir: Vector3? }?,
 }
 
 local H: any = nil -- helpers from SkillManager
@@ -190,8 +207,9 @@ local function swordRush(player: Player, char: Model, st: State, origin: Vector3
 end
 
 local function parry(player: Player, char: Model, st: State, config: any, empowered: boolean)
-	local window = (config.duration or 0.6) * (if empowered then 1.6 else 1)
+	local window = (config.duration or 1.2) * (if empowered then 1.6 else 1)
 	char:SetAttribute("ParryUntil", os.clock() + window)
+	st.busyUntil = math.max(st.busyUntil, os.clock() + window) -- (committed to the guard)
 	st.parryEmpowered = empowered
 	st.parryConfig = config
 	fx({ kind = "guard", attacker = player, window = window, empowered = empowered })
@@ -205,7 +223,8 @@ local function onParried(targetChar: Model, attacker: Model?): boolean
 	local root = targetChar:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not root then return false end
 	targetChar:SetAttribute("ParryUntil", 0) -- one parry per guard
-	targetChar:SetAttribute("InvulnerableUntil", os.clock() + 0.5)
+	targetChar:SetAttribute("InvulnerableUntil", os.clock() + RIPOSTE_TIME)
+	st.busyUntil = os.clock() + RIPOSTE_TIME
 
 	-- Stun whoever swung.
 	local aRoot = attacker and (attacker:FindFirstChild("HumanoidRootPart") or attacker.PrimaryPart) :: BasePart?
@@ -215,53 +234,106 @@ local function onParried(targetChar: Model, attacker: Model?): boolean
 		attacker:SetAttribute("StunnedUntil", os.clock() + stun)
 	end
 	local toward = if aRoot then flat(aRoot.Position - root.Position) else root.CFrame.LookVector
-	fx({ kind = "parry", attacker = player, pos = root.Position, dir = toward, empowered = st.parryEmpowered })
+	-- (the client dashes in to `target`, if it's within reach)
+	local inReach = aRoot ~= nil and (aRoot.Position - root.Position).Magnitude <= RIPOSTE_REACH + 4
+	fx({ kind = "parry", attacker = player, pos = root.Position, dir = toward, empowered = st.parryEmpowered,
+		target = if inReach then attacker else nil, to = if inReach and aRoot then aRoot.Position else nil })
 	gain(player, st, 3)
 
-	-- The counter: a huge upward slash in front (always catching the attacker).
+	-- The riposte: the pommel lands on the attacker (and anyone pressed close
+	-- to it), or just ahead of him if it was out of reach.
 	local config = st.parryConfig or {}
 	local empowered = st.parryEmpowered
-	task.delay(0.12, function()
+	task.delay(RIPOSTE_HIT, function()
 		if not targetChar.Parent then return end
 		local damage = (config.damage or 90) * (if empowered then 1.6 else 1)
-		local range = (config.range or 14) * (config.areaMultiplier or 1) * (if empowered then 1.3 else 1)
-		local hits = inArc(targetChar, root.Position, toward, range, 0)
-		local gotAttacker = false
-		for _, t in ipairs(hits) do
-			H.dealDamage(player, t, damage, "COUNTER SLASH", { forceCrit = true })
-			if t.character == attacker then gotAttacker = true end
-		end
-		if attacker and not gotAttacker then
-			local hum = attacker:FindFirstChildOfClass("Humanoid")
-			if hum and aRoot and hum.Health > 0 then
-				H.dealDamage(player, { character = attacker, humanoid = hum, rootPart = aRoot }, damage, "COUNTER SLASH", { forceCrit = true })
+		local splash = POMMEL_SPLASH * (config.areaMultiplier or 1) * (if empowered then 1.3 else 1)
+		local at = if inReach and aRoot and aRoot.Parent then aRoot.Position else root.Position + toward * 3
+		local struck = false
+		for _, t in ipairs(H.getPotentialTargets(targetChar)) do
+			local d = t.rootPart.Position - at
+			if Vector3.new(d.X, 0, d.Z).Magnitude <= splash then
+				H.dealDamage(player, t, damage, "POMMEL STRIKE", { forceCrit = true })
+				if t.character == attacker then struck = true end
 			end
 		end
-		fx({ kind = "counter", attacker = player, pos = root.Position, dir = toward, empowered = empowered })
+		if inReach and attacker and not struck then
+			local hum = attacker:FindFirstChildOfClass("Humanoid")
+			if hum and aRoot and hum.Health > 0 then
+				H.dealDamage(player, { character = attacker, humanoid = hum, rootPart = aRoot }, damage, "POMMEL STRIKE", { forceCrit = true })
+			end
+		end
+		fx({ kind = "counter", attacker = player, pos = at, dir = toward, empowered = empowered })
 	end)
 	return true
 end
 
-local function phantomThrust(player: Player, char: Model, st: State, origin: Vector3, dir: Vector3, config: any, empowered: boolean)
-	local length = (config.range or 16) * (config.areaMultiplier or 1) * (if empowered then 1.4 else 1)
-	local width = (config.width or 3.5) * (config.areaMultiplier or 1)
-	local damage = (config.damage or 45) * (if empowered then 1.5 else 1)
-	local echoes = math.max(0, math.floor(stat(player, "projectileCount"))) + (if empowered then 2 else 0)
-	-- (he steps in as he thrusts: the line starts a little ahead)
-	local from = origin + dir * ((config.nudge or 5) * 0.5)
-	st.busyUntil = os.clock() + 0.35
-	fx({ kind = "thrust", attacker = player, from = from, dir = dir, length = length, echoes = echoes,
-		step = ECHO_STEP, empowered = empowered })
+-- ── Q: Piercing Judgement ──────────────────────────────────────────────────
+-- The release: `held` is how long the client says the key was down (never
+-- more than the server has seen), `aim` where the point goes.
+local function judgeRelease(player: Player, held: number?, aim: Vector3?)
+	local st = getState(player)
+	local j = st.judge
+	if not j then return end
+	st.judge = nil
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not (char and root) then
+		st.busyUntil = 0
+		return
+	end
+	local now = os.clock()
+	local elapsed = now - j.t0
+	local h = math.clamp(tonumber(held) or elapsed, 0, elapsed + 0.15)
+	local c = math.clamp(h / j.full, 0, 1)
+	local config = j.config
+	local area = config.areaMultiplier or 1
+	local dir = flat(if typeof(aim) == "Vector3" then aim else root.CFrame.LookVector)
+	local length = (JUDGE.length + (JUDGE.fullLength - JUDGE.length) * c) * area * (if j.empowered then 1.3 else 1)
+	local width = (config.width or 3.5) * area
+	local damage = (config.damage or 45) * (1 + (JUDGE.maxMult - 1) * c) * (if j.empowered then 1.5 else 1)
+	local echoes = math.max(0, math.floor(stat(player, "projectileCount"))) + (if j.empowered then 2 else 0)
+	local from = root.Position
+	st.busyUntil = now + 0.7
+	fx({ kind = "judgeRelease", attacker = player, from = from, dir = dir, charge = c, length = length,
+		lunge = JUDGE.lunge + (JUDGE.fullLunge - JUDGE.lunge) * c, echoes = echoes, step = ECHO_STEP,
+		empowered = j.empowered })
 	for n = 0, echoes do
-		task.delay(0.08 + n * ECHO_STEP, function()
+		task.delay(JUDGE.hit + n * ECHO_STEP, function()
 			if not char.Parent then return end
 			local hits = onLine(char, from, dir, length, width)
+			local at = {}
 			for _, t in ipairs(hits) do
-				H.dealDamage(player, t, if n == 0 then damage else damage * 0.6, if n == 0 then "PHANTOM THRUST" else "PHANTOM ECHO")
+				H.dealDamage(player, t, if n == 0 then damage else damage * 0.6,
+					if n == 0 then (if c >= 0.999 then "PIERCING JUDGEMENT!" else "PIERCING JUDGEMENT") else "JUDGEMENT ECHO")
+				table.insert(at, t.rootPart.Position)
 			end
 			if #hits > 0 then gain(player, st, 1) end
+			if n == 0 and #at > 0 then fx({ kind = "judgePierced", attacker = player, dir = dir, hits = at, charge = c }) end
 		end)
 	end
+end
+
+local function judgeStart(player: Player, config: any, empowered: boolean)
+	local st = getState(player)
+	local now = os.clock()
+	local full = if empowered then JUDGE.empFull else JUDGE.full
+	local token = {}
+	st.judge = { t0 = now, full = full, config = config, empowered = empowered, token = token }
+	st.busyUntil = math.max(st.busyUntil, now + full + JUDGE.still + 1)
+	fx({ kind = "judgeCharge", attacker = player, full = full, still = JUDGE.still, empowered = empowered })
+	-- (a release that got here ahead of the cast: a tap)
+	local pend = st.pendingRelease
+	st.pendingRelease = nil
+	if pend and now - pend.at < 0.6 then
+		judgeRelease(player, pend.held, pend.dir)
+		return
+	end
+	-- (never let go: it goes by itself; a little grace for the client's own)
+	task.delay(full + JUDGE.still + 0.15, function()
+		local j = st.judge
+		if j and j.token == token then judgeRelease(player, full, nil) end
+	end)
 end
 
 -- Everyone Blade Storm can reach: every enemy in the caster's room (or
@@ -351,7 +423,7 @@ function SwordsmanServer.OnSkill(player: Player, char: Model, skillIndex: number
 	elseif skillIndex == 2 then
 		parry(player, char, st, config, empowered)
 	elseif skillIndex == 3 then
-		phantomThrust(player, char, st, origin, dir, config, empowered)
+		judgeStart(player, config, empowered)
 	elseif skillIndex == 4 then
 		bladeStorm(player, char, st, origin, dir, config, empowered)
 	end
@@ -364,12 +436,33 @@ SwordsmanServer.STORM_WINDUP = STORM_WINDUP
 function SwordsmanServer.Reset(player: Player)
 	local st = getState(player)
 	st.step, st.lastSwing, st.busyUntil = 0, 0, 0
+	st.judge, st.pendingRelease = nil, nil
 	setMomentum(player, st, 0)
 end
 
 function SwordsmanServer.Init(helpers: any)
+	-- (a dash cuts the move short: free to act again, and what was left of it doesn't land)
+	(require(script.Parent:WaitForChild("Dash")) :: any).OnDash(function(p: Player)
+		local st = states[p] :: any
+		if not st then return end
+		st.busyUntil = 0
+		if type(st.token) == "number" then st.token += 1 end
+	end)
 	H = helpers
 	helpers.setParryHook(onParried)
+	-- Piercing Judgement's key let go (or a tap that beat the cast here).
+	Network.GetRemoteEvent(Network.Remotes.SwordsmanInput).OnServerEvent:Connect(function(player: Player, msg: any)
+		if typeof(msg) ~= "table" or msg.kind ~= "release" then return end
+		if player:GetAttribute("SelectedClass") ~= "swordsman" then return end
+		local held = tonumber(msg.held)
+		local dir = if typeof(msg.dir) == "Vector3" then msg.dir else nil
+		local st = getState(player)
+		if st.judge then
+			judgeRelease(player, held, dir)
+		else
+			st.pendingRelease = { at = os.clock(), held = held, dir = dir }
+		end
+	end)
 	Players.PlayerRemoving:Connect(function(p) states[p] = nil end)
 	Players.PlayerAdded:Connect(function(p)
 		p.CharacterAdded:Connect(function()

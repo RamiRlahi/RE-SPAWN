@@ -39,7 +39,7 @@ local SkillData: { [string]: ClassSkills } = {
 			range = 32,
 			dashDistance = 32,
 			width = 6.0,
-			description = "Instantly dash forward, piercing all enemies in your path and leaving a lingering nature energy slash.",
+			description = "Dash forward, hitting every enemy in the path.",
 			animationId = "rbxassetid://139832137467263",
 		},
 		[2] = {
@@ -50,7 +50,7 @@ local SkillData: { [string]: ClassSkills } = {
 			damage = 30,
 			range = 44,
 			duration = 2.6,
-			description = "Fire a special arrow that erupts into grasping vines, rooting all enemies in a small area.",
+			description = "Arrow that roots enemies in a small area.",
 		},
 		[3] = {
 			name = "Seeker Barrage",
@@ -59,7 +59,7 @@ local SkillData: { [string]: ClassSkills } = {
 			cooldown = 12.0,
 			damage = 35,
 			duration = 8.0,
-			description = "Buff: For 8 seconds, each attack launches homing nature missiles from your back that curve and seek out nearby enemies.",
+			description = "For 8s, every attack also fires homing missiles.",
 		},
 		[4] = {
 			name = "Rain of Arrows",
@@ -69,7 +69,7 @@ local SkillData: { [string]: ClassSkills } = {
 			damage = 24,
 			range = 42,
 			duration = 4.0,
-			description = "Slam your bow down: a colossal plant bursts up behind you and spits a great arrow into the sky that shatters into a rain of arrows over a large zone. The plant taunts nearby enemies, sprays them with venom like a flamethrower and lashes any that come close with its tendrils, knocking them back.",
+			description = "Ultimate: summon a giant plant. It rains arrows on a large area, taunts and poisons enemies, and knocks back any that get close.",
 		},
 	},
 	-- The Fire Knight (class id kept as heavy_knight; FireKnightServer).
@@ -80,7 +80,7 @@ local SkillData: { [string]: ClassSkills } = {
 			keybind = "E",
 			cooldown = 9.0,
 			damage = 40, -- each tick inside hits for 32% of this, the burst at the end for 160%
-			description = "Spin with your sword out inside a tornado of fire that follows you as you move: it burns and Scorches everyone inside and drags them round, then bursts and throws them out. Overheated: bigger, longer, and the ground burns in your wake.",
+			description = "A fire tornado follows you, pulling in and Scorching enemies, then bursts. Overheated: bigger, longer, burns the ground.",
 		},
 		[2] = {
 			name = "Phoenix Slam",
@@ -89,7 +89,7 @@ local SkillData: { [string]: ClassSkills } = {
 			cooldown = 9.0,
 			damage = 90, -- the impact (Overheated: flares go off round it too)
 			range = 40, -- how far from where you take off you can land
-			description = "Soar into the air and become a phoenix of fire. Move the marker to pick your landing spot and click (or press F again) to dive: an explosion that leaves the ground burning. Overheated: a bigger impact, more explosions and a lingering inferno.",
+			description = "Fly up, aim the marker, click (or F) to dive. Explodes and burns the ground. Overheated: bigger, more explosions.",
 		},
 		[3] = {
 			name = "Infernal Earthshaker",
@@ -98,7 +98,7 @@ local SkillData: { [string]: ClassSkills } = {
 			cooldown = 11.0,
 			damage = 70,
 			range = 14,
-			description = "Raise the sword and drive it into the ground: a giant explosion, aftershocks traveling outward, and patches of fire left behind. Overheated: three expanding rings of fire.",
+			description = "Big explosion, aftershocks and fire patches. Overheated: 3 fire rings.",
 		},
 		[4] = {
 			name = "Excalibur",
@@ -106,7 +106,7 @@ local SkillData: { [string]: ClassSkills } = {
 			keybind = "R",
 			cooldown = 40.0,
 			damage = 150,
-			description = "Ultimate: raise the sword before you as it fills with golden fire, then bring it down: a vast wave of golden fire runs out down a long line, hitting everything in its path and leaving burning ground. Wider and stronger at 75 Heat; at Overheat it consumes it for the biggest wave.",
+			description = "Ultimate: a fire wave down a long line. Leaves burning ground. Stronger at 75 Heat; at Overheat, uses it all for the biggest wave.",
 		},
 	},
 }
@@ -120,7 +120,7 @@ SkillData.berserker = {
 		cooldown = 8.0,
 		damage = 75,
 		range = 14,
-		description = "Leap to the cursor (up to 17 studs) and crash down with the greatsword: the ground fractures in a crater and a shockwave knocks enemies up.",
+		description = "Leap to the cursor (17 studs) and slam, knocking enemies up.",
 	},
 	[2] = {
 		name = "Bloodstorm",
@@ -129,7 +129,7 @@ SkillData.berserker = {
 		cooldown = 10.0,
 		damage = 30,
 		range = 30,
-		description = "Plant your feet and carve huge crimson crescents in front of you, each blow landing with a jolt, then finish with a spinning cleave that throws enemies away. You take half damage during it.",
+		description = "Slash in front repeatedly, then a spin that knocks back. Take half damage.",
 	},
 	[3] = {
 		name = "Crimson Charge",
@@ -138,7 +138,7 @@ SkillData.berserker = {
 		cooldown = 12.0,
 		damage = 40,
 		range = 28,
-		description = "Charge headlong at the aim, untouchable the whole way: every enemy in your path is cut and thrown aside, and a burst at the end blows everything near away. Your next skill is Empowered.",
+		description = "Charge forward, immune. Hits and tosses everything in the path, then bursts. Empowers your next skill.",
 	},
 	[4] = {
 		name = "Beast Awakening",
@@ -147,7 +147,7 @@ SkillData.berserker = {
 		cooldown = 4.0, -- (it needs a full Rage meter: that's the real wait)
 		damage = 160,
 		duration = 12,
-		description = "Ultimate (full Rage): abandon your humanity. Your body tears open into a monster, the sword cast aside, and a roar blows everything near away. For 12 seconds you fight as the BEAST: claws instead of a sword, and every skill becomes a new one (Beast Slam, Carnage, Beast Charge), harder hitting and twice as fast to recharge.",
+		description = "Ultimate (full Rage): become the Beast for 12s. New skills, more damage, 2x faster cooldowns.",
 	},
 }
 
@@ -160,7 +160,7 @@ SkillData.cleric = {
 		damage = 0,
 		healAmount = 70,
 		maxCharges = 3,
-		description = "Send a bolt of sacred green fire that tracks and heals the lowest ally. Holds 3 charges.",
+		description = "Homing bolt that heals the lowest ally. 3 charges.",
 	},
 	[2] = {
 		name = "Divine Beam",
@@ -171,7 +171,7 @@ SkillData.cleric = {
 		range = 60,
 		width = 4.5,
 		duration = 5.0,
-		description = "Release a concentrated beam of holy light, dealing heavy damage to enemies in a straight line.",
+		description = "Beam that deals heavy damage in a line.",
 	},
 	[3] = {
 		name = "Radiant Ground",
@@ -182,7 +182,7 @@ SkillData.cleric = {
 		range = 16,
 		duration = 5.0,
 		healAmount = 12,
-		description = "Bless the area with holy light, healing allies over time and removing negative effects.",
+		description = "Heals allies over time and removes debuffs.",
 	},
 	[4] = {
 		name = "Divine Ascent",
@@ -194,7 +194,7 @@ SkillData.cleric = {
 		duration = 2.0, -- length of the ascension cinematic
 		reviveTime = 1.2, -- the revival beat of the cinematic (DivineAscentCutscene.REVIVE_AT)
 		healAmount = 100,
-		description = "Ultimate: Kneel in prayer and call down the light. Fallen teammates rise beside you, the party is healed and cleansed, and nearby enemies are smitten.",
+		description = "Ultimate: revive fallen allies, heal and cleanse the party, damage nearby enemies.",
 	},
 }
 
@@ -209,7 +209,7 @@ SkillData.ice_mage = {
 		width = 4.0,
 		projectileSpeed = 95, -- how fast the spike line races across the floor (studs/s)
 		castDelay = 0.16, -- palm-slam frame of the cast pose; spikes + damage start here
-		description = "Send a racing line of crystalline spikes erupting from the floor, piercing and briefly freezing every enemy in its path.",
+		description = "Spikes erupt in a line, freezing everything they hit.",
 	},
 	[2] = {
 		name = "Ice Beam",
@@ -220,7 +220,7 @@ SkillData.ice_mage = {
 		range = 55,
 		width = 3.0,
 		duration = 3.0,
-		description = "Channel a concentrated beam of absolute cold. It stops on the first enemy it touches, freezing and shredding it.",
+		description = "A beam that freezes and damages the first enemy hit.",
 	},
 	[3] = {
 		name = "Ice Clone",
@@ -233,7 +233,7 @@ SkillData.ice_mage = {
 		cloneHealth = 50,
 		castDelay = 0.2, -- clone forms as the cast pose flings the crystal
 		explosionRadius = 14,
-		description = "Summon a crystalline clone (50 HP) that taunts nearby enemies. When destroyed it detonates in a freezing shockwave.",
+		description = "A clone (50 HP) taunts enemies. Explodes and freezes when destroyed.",
 	},
 	[4] = {
 		name = "Blizzard",
@@ -244,7 +244,7 @@ SkillData.ice_mage = {
 		range = 48,
 		duration = 6.0,
 		castDelay = 1.5, -- "frozen one" reveal close-up; the storm breaks as it cuts back
-		description = "Ultimate: Call down a raging blizzard over the battlefield, freezing every enemy and battering those inside with ice.",
+		description = "Ultimate: a blizzard that freezes and damages every enemy inside.",
 	},
 }
 
@@ -256,7 +256,7 @@ SkillData.gunslinger = {
 		cooldown = 6.0,
 		damage = 18, -- per bullet; fires every bullet left in the cylinder
 		range = 34,
-		description = "Rapidly fire every bullet left in the revolver: huge short-range burst, empties the cylinder.",
+		description = "Fire every remaining bullet in a short-range burst.",
 	},
 	[2] = {
 		name = "Gunslinger's Roll",
@@ -266,7 +266,7 @@ SkillData.gunslinger = {
 		damage = 0,
 		dashDistance = 15,
 		duration = 0.26, -- roll time; i-frames last a little longer
-		description = "Roll a short distance with brief invulnerability, leaving a flashbang behind that stuns nearby enemies (not bosses; one more per Projectile Count), then fire one shot toward the cursor.",
+		description = "Invulnerable roll. Drops a flashbang that stuns (not bosses), then shoots at the cursor.",
 	},
 	[3] = {
 		name = "Deadeye Ricochet",
@@ -276,7 +276,7 @@ SkillData.gunslinger = {
 		damage = 26, -- per ricochet projectile
 		range = 24, -- coin throw distance
 		duration = 2.6, -- how long the coin hangs in the air
-		description = "Toss a spinning coin. Shoot it to split the bullet into ricochets that seek every enemy in the room.",
+		description = "Toss a coin. Shoot it to ricochet into every enemy in the room.",
 	},
 	[4] = {
 		name = "High Noon",
@@ -286,7 +286,7 @@ SkillData.gunslinger = {
 		damage = 165, -- per marked target (×3 of the old 55); the execution shot deals far more
 		range = 50,
 		duration = 3.7, -- standoff + volley + execution (mobs are frozen through it)
-		description = "Ultimate: time slows, every enemy in the room is marked, gunned down one by one, and the last is executed with a Deadeye shot.",
+		description = "Ultimate: slow time and shoot every enemy in the room.",
 	},
 }
 
@@ -300,28 +300,27 @@ SkillData.swordsman = {
 		damage = 30, -- per strike; the second strike is stronger on enemies hit by both
 		dashDistance = 20,
 		width = 6.0,
-		description = "Dash forward through enemies with two rapid strikes. Enemies hit by both take extra damage. Empowered: longer dash, wider cut, a third strike.",
+		description = "Dash with 2 strikes. Enemies hit by both take extra damage. Empowered: longer, wider, 3rd strike.",
 	},
 	[2] = {
 		name = "Parry",
 		slot = 2,
 		keybind = "F",
 		cooldown = 8.0,
-		damage = 90, -- the counter slash
-		duration = 0.6, -- parry window
+		damage = 90, -- the riposte's pommel strike
+		duration = 1.2, -- parry window (the guard's flourish; nothing else can be cast over it)
 		range = 14,
-		description = "Guard for a moment. Parry an attack to negate it, stun the attacker and counter with a huge upward slash. Empowered: longer window, bigger counter.",
+		description = "Block an attack, stun the attacker and counter. Empowered: longer window, harder counter.",
 	},
 	[3] = {
-		name = "Phantom Thrust",
+		name = "Piercing Judgement",
 		slot = 3,
 		keybind = "Q",
 		cooldown = 7.0,
-		damage = 45, -- the thrust; each phantom echo deals 60%
-		range = 16, -- length of the thrust line
+		damage = 45, -- the thrust uncharged (x3 fully charged); each phantom echo deals 60%
 		width = 3.5,
-		nudge = 5, -- studs he steps forward
-		description = "A long rapier thrust that carries you forward, piercing everything in line. Each extra projectile adds a phantom echo of the thrust down the same line a beat later. Empowered: longer, harder, two more echoes.",
+		-- (held to charge: the line, lunge and timings are SwordsmanServer's JUDGE)
+		description = "Hold to charge, release to lunge through a line. Longer charge = longer, stronger. Extra projectiles add echoes. Empowered: faster charge, +2 echoes.",
 	},
 	[4] = {
 		name = "Blade Storm",
@@ -330,7 +329,7 @@ SkillData.swordsman = {
 		cooldown = 35.0,
 		damage = 60, -- per dash slash; the final X deals far more
 		range = 45,
-		description = "Ultimate: take guard and slow the world, flash to every enemy in the room in a chain of at least 8 cuts, then carve a giant X that hits the whole room.",
+		description = "Ultimate: slow time, hit every enemy in the room (8+ hits), then a finisher on the whole room.",
 	},
 }
 
@@ -344,7 +343,7 @@ SkillData.rogue = {
 		range = 75, -- how far the dagger flies
 		projectileSpeed = 150,
 		duration = 4.0, -- how long the dagger waits to be stepped to
-		description = "Throw a dagger: it sticks in the first enemy it hits and marks them. Press again to Shadow Step to it, appearing behind a marked enemy for bonus damage. Works while invisible.",
+		description = "Marks the first enemy hit. Press again to teleport behind it for bonus damage. Works while invisible.",
 	},
 	[2] = {
 		name = "Dash",
@@ -355,7 +354,7 @@ SkillData.rogue = {
 		damage = 30,
 		dashDistance = 22,
 		width = 5,
-		description = "Dash instantly in the aimed direction, slashing through every enemy on the way and applying the Shadow Mark. Holds 4 charges.",
+		description = "Dash, hitting and Marking every enemy on the way. 4 charges.",
 	},
 	[3] = {
 		name = "Invisibility",
@@ -364,7 +363,7 @@ SkillData.rogue = {
 		cooldown = 20.0,
 		damage = 0,
 		duration = 6.0,
-		description = "Become invisible for 6 seconds. Enemies lose you and you move faster. Attacking or taking damage ends it early.",
+		description = "Invisible for 6s and move faster. Ends early if you attack or get hit.",
 	},
 	[4] = {
 		name = "Shadow Execution",
@@ -373,7 +372,7 @@ SkillData.rogue = {
 		cooldown = 60.0,
 		damage = 40, -- per slash (five, through every enemy in the smoke); each leaves a mark that detonates for 1.5x; the final strike deals 3x
 		range = 24,
-		description = "Ultimate: throw a smoke bomb and vanish. Your afterimages strike every enemy in the smoke five times, marking them, then you reappear behind the nearest and detonate every mark at once.",
+		description = "Ultimate: vanish in smoke. Hit every enemy inside 5 times, then detonate all Marks.",
 	},
 }
 
@@ -387,7 +386,7 @@ SkillData.mage = {
 		range = 60, -- how far the projectile flies (to the cursor)
 		projectileSpeed = 95,
 		radius = 10, -- the explosion; everything within 1.4x is pulled to its centre
-		description = "Fire a concentrated arcane projectile that explodes on impact, pulling nearby enemies towards the center and leaving an Arcane Rune. Empowered: three converging projectiles.",
+		description = "Explodes on hit, pulls enemies in and leaves a Rune. Empowered: 3 projectiles.",
 	},
 	[2] = {
 		name = "Astral Prison",
@@ -398,7 +397,7 @@ SkillData.mage = {
 		range = 45,
 		radius = 12,
 		duration = 3.0, -- how long the chains hold before the collapse
-		description = "Place a magic circle that traps enemies within spectral chains. The longer they remain, the more it charges before collapsing in a massive explosion. An Arcane Rune inside detonates too. Empowered: larger, pulls enemies in, explodes faster.",
+		description = "A circle chains enemies in place and charges up, then explodes. Detonates Runes inside. Empowered: bigger, pulls in, faster.",
 	},
 	[3] = {
 		name = "Arcane Shift",
@@ -408,7 +407,7 @@ SkillData.mage = {
 		damage = 35, -- the shockwave where you reappear
 		range = 30,
 		radius = 10,
-		description = "Phase through space to the target location, untargetable. Reappear with a shockwave and leave an Arcane Echo that repeats your next ability with reduced power. Empowered: three Arcane Echoes.",
+		description = "Teleport to the target (untargetable) with a shockwave. Your Echo repeats your next ability at reduced power. Empowered: 3 Echoes.",
 	},
 	[4] = {
 		name = "Apocalypse",
@@ -417,7 +416,7 @@ SkillData.mage = {
 		cooldown = 70.0,
 		damage = 26, -- per falling bolt; every mark detonates for 6x
 		radius = 45,
-		description = "Ultimate: mark every enemy in a large radius, call down a storm of arcane projectiles, then every mark detonates in a massive explosion.",
+		description = "Ultimate: mark every enemy in a large radius, rain bolts, then all marks explode.",
 	},
 }
 
@@ -429,7 +428,7 @@ SkillData.martial_artist = {
 		cooldown = 7.0,
 		damage = 70, -- each barrage blow 0.2x (about 11 of them), the power punch 2.4x
 		range = 9,
-		description = "Unleash a barrage: both fists hammer out a storm of blows, afterimages of fists flying, hitting everything in front of you again and again and holding it there. Then one enhanced power punch blasts a cone out ahead, tearing a crater into the floor and throwing everything in it back. Empowered: harder, and a longer cone.",
+		description = "Barrage hits and holds everything in front, then a cone blast knocks back. Empowered: more damage, longer cone.",
 	},
 	[2] = {
 		name = "Electric Uppercut",
@@ -439,7 +438,7 @@ SkillData.martial_artist = {
 		charges = 3, -- up to three uppercuts back to back; each recharges in `cooldown`
 		damage = 65,
 		range = 7,
-		description = "Three charges. Dash in low from a crouch, then rise into an uppercut wrapped in crackling lightning: everything in front of you is launched into the air and shocked. Empowered (and each extra Projectile): the lightning chains on to more enemies.",
+		description = "3 charges. Dash into an uppercut that launches and shocks. Empowered and extra projectiles: chains to more enemies.",
 	},
 	[3] = {
 		name = "Ground Slam",
@@ -449,17 +448,17 @@ SkillData.martial_artist = {
 		damage = 55, -- the strike through enemies; the landing hits for 1.2x, the trail burns for 10% a tick
 		range = 26,
 		radius = 9,
-		description = "Leap high on a surge of Qi and dive onto the spot, striking everything on the way down, crashing in an explosive impact and leaving a burning trail. Empowered: three strikes along the path, more hits, a wider area.",
+		description = "Leap and dive onto the target, hitting along the way. Leaves a burning trail. Empowered: 3 strikes, wider area.",
 	},
 	[4] = {
-		name = "Crimson Hadouken",
+		name = "Dragon Soul",
 		slot = 4,
 		keybind = "R",
-		cooldown = 70.0,
-		damage = 240, -- the sphere through each enemy; it bursts where it ends for 60%
-		range = 70,
-		width = 16, -- the sphere's reach across (grows with Size)
-		description = "Ultimate: charge a sphere of crimson energy in your hand, thrust it forward and fire it through every enemy in its path; it bursts where it ends. Grows with Size.",
+		cooldown = 60.0,
+		damage = 160, -- the roar round him as the dragon bursts out (Size grows it)
+		duration = 10, -- seconds of haste (Empowered: 1.4x)
+		range = 15, -- how far the dragon lashes along each strike (grows with Size)
+		description = "Ultimate: summon a crimson dragon for 10s. +60% attack speed, and the dragon lashes out with every strike.",
 	},
 }
 
@@ -477,7 +476,7 @@ SkillData.summoner = {
 		sigDamage = 120, -- Ground Slam (each fissure 50%)
 		range = 30,
 		duration = 16,
-		description = "Call the Rockborn: it crashes down where you aim as a burning meteor, then taunts nearby enemies and batters them with hooks and hammer fists. Recast while it's out: Ground Slam, a leap to the cursor and a slam that splits the floor with lava fissures.",
+		description = "Summon a golem where you aim. It taunts and punches. Recast: it leaps to the cursor and slams, leaving lava cracks.",
 	},
 	[2] = {
 		name = "Skyfeather",
@@ -488,7 +487,7 @@ SkillData.summoner = {
 		sigDamage = 55, -- Wind Circle's burst (the cyclone cuts for 11 a tick)
 		range = 30,
 		duration = 16,
-		description = "Call the Skyfeather: it dives in from the sky and hovers at range, loosing volleys of feather blades and diving onto enemies. Recast while it's out: Wind Circle, a cyclone at the cursor that drags enemies in, cuts them and bursts.",
+		description = "Summon a hawk that shoots feathers and dives on enemies. Recast: a cyclone at the cursor pulls enemies in, then bursts.",
 	},
 	[3] = {
 		name = "Lunari",
@@ -499,7 +498,7 @@ SkillData.summoner = {
 		sigDamage = 80, -- Radiant Bloom (and it heals the party 25%)
 		range = 24,
 		duration = 16,
-		description = "Call the Lunari: it rises from a moon gate, heals the party with pulses of moonlight and tramples through lines of enemies. Recast while it's out: Radiant Bloom, a rearing stomp that blooms moonlight, healing the party and stunning enemies.",
+		description = "Summon a stag that heals the party and tramples enemies. Recast: it stomps, healing the party and stunning enemies.",
 	},
 	[4] = {
 		name = "Divine Cataclysm",
@@ -507,7 +506,7 @@ SkillData.summoner = {
 		keybind = "R",
 		cooldown = 60.0,
 		damage = 260, -- the crash; the starfire hits for 30, the judgement rays for 22
-		description = "Ultimate: your beasts fly to you and fuse into the Skyrockorn. It circles the battlefield raining starfire, rears high and fires judgement rays into every enemy, then crashes down in a cataclysm. The beasts it was made of step back out.",
+		description = "Ultimate: your beasts fuse into the Skyrockorn. It rains fire, hits every enemy with rays, then crashes down.",
 	},
 }
 
@@ -523,7 +522,7 @@ SkillData.death_knight = {
 		range = 30, -- how far the crater tears out in front of him
 		angle = 70, -- the cone's width in degrees (grows with Size)
 		projectileSpeed = 70, -- how fast the crater ripples out
-		description = "Drag the hammer behind you and swing it up with both hands: the ground tears open in a huge cone of black stone and smoke in front of you, smashing everything in it. Dreadforged: longer, and a second wave of smoke follows.",
+		description = "Smash a huge cone in front of you. Dreadforged: longer, plus a second wave.",
 	},
 	[2] = {
 		name = "Doomfall",
@@ -534,7 +533,7 @@ SkillData.death_knight = {
 		range = 24, -- the furthest leap (to the cursor)
 		radius = 14,
 		duration = 3.0, -- how long the mist lingers
-		description = "Leap high with the Graveblade raised as black mist gathers on it, then crash down sword-first at the cursor: a wide dark shockwave, and thick mist lingers on the spot. Dreadforged: bigger, and the mist bites harder.",
+		description = "Leap and slam at the cursor. Leaves damaging mist. Dreadforged: bigger, stronger mist.",
 	},
 	[3] = {
 		name = "Grave Reversal",
@@ -544,7 +543,7 @@ SkillData.death_knight = {
 		damage = 55, -- the snare 0.4x; the first slam 1x, the execution 2.6x (round them: 0.5x, 0.8x)
 		range = 34, -- how far the chain reaches
 		projectileSpeed = 140,
-		description = "A spectral chain shoots from your free hand and coils round the first enemy it reaches. Tear it across past you and smash it into the ground behind you, reverse the chain to drag it back in front of you, then execute it with an overhead slam that pins it to the ground. Bosses take both blows where they stand.",
+		description = "Chain the first enemy hit, swing it over your head into the floor behind you, then fling it away. Bosses don't move but take both hits.",
 	},
 	[4] = {
 		name = "King of the Grave",
@@ -553,7 +552,49 @@ SkillData.death_knight = {
 		cooldown = 70.0,
 		damage = 60, -- the chains 0.4x, the impact 4.5x, the Dread marks 2.5x
 		radius = 32,
-		description = "Ultimate: summon a gigantic spectral warhammer. Leap into the air with it and bring it down: a huge crater hurls every enemy in reach into the air, then chains drag the survivors in and mark them with Dread, and the marks burst.",
+		description = "Ultimate: leap and slam a giant hammer, launching every enemy nearby. Chains pull survivors in, then they explode.",
+	},
+}
+
+-- The Ronin (RoninServer). Every skill is a draw from the scabbard; hits
+-- land on the beats of the baked moves (RoninMoves).
+SkillData.ronin = {
+	[1] = {
+		name = "Distant Cut",
+		slot = 1,
+		keybind = "E",
+		cooldown = 6.0,
+		damage = 27, -- each of the five bursts of cuts (the same total as three of 45)
+		range = 40, -- how far the cursor may be
+		radius = 9,
+		description = "A quick draw. When the blade clicks home, a flurry of cuts keeps hitting at the cursor for a moment.",
+	},
+	[2] = {
+		name = "Rising Cut",
+		slot = 2,
+		keybind = "F",
+		cooldown = 7.0,
+		damage = 85, -- stage 1; x1.7 at stage 2, x2.8 at stage 3 (RoninServer RISE_SCALE)
+		range = 20, -- stage 1; x1.35, x1.8
+		description = "Hold to charge through three stages, release: a draw-cut that rolls forward, further, harder and wider each stage.",
+	},
+	[3] = {
+		name = "Falling Heaven",
+		slot = 3,
+		keybind = "Q",
+		cooldown = 10.0,
+		damage = 35, -- each air cut; the slam 3.2x
+		radius = 12,
+		description = "Leap, cut twice and spin, then flip into a downward cut that slams the area.",
+	},
+	[4] = {
+		name = "Thousand Cuts",
+		slot = 4,
+		keybind = "R",
+		cooldown = 65.0,
+		damage = 300, -- the click; the storm's four waves 0.06x each
+		radius = 30,
+		description = "Ultimate: a storm of cuts over everything near. Every cut lands when the blade is sheathed.",
 	},
 }
 
@@ -600,8 +641,8 @@ local TIPS: { [string]: { { any } } } = {
 	},
 	swordsman = {
 		{ "Dash through enemies with two quick strikes.", { "size", "cooldown", "damage" } },
-		{ "Block an attack, stun the attacker and counter with a huge slash.", { "duration", "size", "cooldown" } },
-		{ "Lunge forward with a long thrust that pierces a whole line.", { "quantity", "size", "cooldown" } },
+		{ "Block an attack, stun the attacker and riposte with a pommel strike.", { "duration", "size", "cooldown" } },
+		{ "Charge the rapier's point, then lunge with a thrust that pierces a whole line.", { "quantity", "size", "cooldown" } },
 		{ "Slow the world and flash between every enemy in a chain of cuts.", { "size", "damage", "precision" } },
 	},
 	rogue = {
@@ -625,14 +666,20 @@ local TIPS: { [string]: { { any } } } = {
 	death_knight = {
 		{ "Swing wide and send a huge crescent of black smoke rolling forward.", { "size", "knockback", "damage" } },
 		{ "Leap up and crash down sword-first, leaving a pool of biting mist.", { "size", "duration", "cooldown" } },
-		{ "Hook an enemy with a chain, slam it twice and hurl it into the rest.", { "damage", "knockback", "cooldown" } },
+		{ "Hook an enemy with a chain, swing it overhead into the floor and fling it away.", { "damage", "knockback", "cooldown" } },
 		{ "Plant the blade: chains bind every enemy near, spectral sweeps, a final impact.", { "size", "damage", "cooldown" } },
+	},
+	ronin = {
+		{ "Quick-draw: a sphere of cuts lands on the cursor as the blade clicks home.", { "size", "damage", "cooldown" } },
+		{ "A low draw sweeping straight up, launching what's in front.", { "size", "damage", "cooldown" } },
+		{ "Leap, cut in the air, then flip into a slam.", { "size", "damage", "cooldown" } },
+		{ "A storm of cuts; every one lands when the blade is sheathed.", { "size", "damage", "cooldown" } },
 	},
 	martial_artist = {
 		{ "Hammer out a barrage of punches, then finish with a punch that craters a cone.", { "size", "knockback", "ricochet" } },
 		{ "Dash in and launch enemies with an uppercut of chaining lightning.", { "quantity", "ricochet", "size" } },
 		{ "Leap up and dive onto the spot in an explosive impact.", { "size", "damage", "cooldown" } },
-		{ "Fire a sphere of crimson energy that tears through everything in its path.", { "size", "damage", "cooldown" } },
+		{ "Awaken the dragon: faster strikes, and it lashes out along every one.", { "attack_speed", "size", "damage" } },
 	},
 }
 for classId, list in pairs(TIPS) do

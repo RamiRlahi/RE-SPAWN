@@ -256,7 +256,7 @@ local function show(s: any)
 	gl.CellPadding = UDim2.fromOffset(6, 6)
 	gl.Parent = grid
 	if #loot == 0 then
-		label(grid, "Nothing this time. Go deeper: elites, bosses and every floor cleared drop gear.", 13, MUTED,
+		label(grid, "No gear. Elites, bosses and floor clears drop gear.", 13, MUTED,
 			{ Size = UDim2.fromOffset(420, 40), TextWrapped = true })
 		gl:Destroy()
 	end
@@ -277,7 +277,8 @@ local function show(s: any)
 			TextXAlignment = Enum.TextXAlignment.Center })
 		label(f, tostring(item.name or "?"), 11, PARCH, { FontFace = BOLD, Position = UDim2.fromOffset(4, 32), Size = UDim2.new(1, -8, 0, 26),
 			TextXAlignment = Enum.TextXAlignment.Center, TextWrapped = true })
-		local status = if item.lost then "LOST" elseif item.dupeSouls then `DUPE · +{item.dupeSouls} ◆`
+		local status = if item.lost then "LOST" elseif item.upgrade then `▲ +{item.upgrade} POWER`
+			elseif item.dupeSouls then `DUPE · +{item.dupeSouls} ◆`
 			elseif item.isNew then "NEW!" elseif item.secured then "SECURED" else string.upper(tostring(item.rarity or ""))
 		label(f, status, 9, if item.lost then RED elseif item.secured and not item.dupeSouls then Color3.fromRGB(120, 230, 140) else col,
 			{ FontFace = BOLD, Position = UDim2.fromOffset(4, 58), Size = UDim2.new(1, -8, 0, 12), TextXAlignment = Enum.TextXAlignment.Center })

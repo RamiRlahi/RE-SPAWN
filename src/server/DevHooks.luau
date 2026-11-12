@@ -22,6 +22,7 @@
 	  ride|userId|on             call the mount (on = 1) or send it away (0)
 	  hit|userId|damage          a hit on the player (thrown off a mount)
 	  souls|userId|amount        souls given (or taken, negative)
+	  run|userId                 into a run as their selected class (start room)
 	  boss|userId|kind           the player's run's boss made a `kind`
 	                             (BossAI.Kinds), the player put in its arena
 	                             (sent into a run first if in the lobby; set
@@ -31,6 +32,12 @@
 	  own|userId|classId         a locked class owned (this session only)
 	  ready|userId               every skill off cooldown, the class meters
 	                             full (Rage, Qi Charge, ...): ults on demand
+	  gacha_drop|userId          a Pull Ticket dropped on the floor in front of them
+	  scrap|userId|amount        forge scrap given (or taken)
+	  plus|userId|level          the worn power weapon's forge level set (0..10)
+	  parry|userId|modelName     an attack by `modelName` (in Workspace.Mobs or
+	                             Workspace) into the player's guard (true if
+	                             it was parried)
 	The Forgotten Isle:
 	  isle_gear|userId|itemId    a piece of gear into their bag (EquipmentData)
 	  isle_equip|userId|itemId   ... and put it on
@@ -80,6 +87,24 @@ function DevHooks.Init()
 			RunScope.Set(a, "CorruptionSince", RunScope.Get(a, "RunElapsed") or 0)
 			RunScope.Set(a, "CorruptionFloors", tonumber(b) or 0)
 			return true
+		elseif cmd == "scrap" or cmd == "plus" then
+			-- scrap: scrap given (or taken); plus: the worn power weapon's forge level set
+			local p = plr(a)
+			local PlayerData = require(script.Parent:WaitForChild("PlayerData")) :: any
+			local LootManager = require(script.Parent:WaitForChild("LootManager")) :: any
+			local prof = p and PlayerData.Get(p)
+			if not prof or typeof(prof.power) ~= "table" then return "no profile" end
+			if cmd == "scrap" then
+				prof.power.scrap = math.max(0, (prof.power.scrap or 0) + (tonumber(b) or 0))
+			else
+				local uid = prof.power.equipped.weapon
+				local item = uid and prof.power.items[uid]
+				if not item then return "no weapon worn" end
+				item.plus = math.clamp(tonumber(b) or 0, 0, 10)
+			end
+			PlayerData.MarkDirty(p)
+			LootManager.Sync(p)
+			return `scrap {prof.power.scrap}`
 		elseif cmd == "souls" then
 			local p = plr(a)
 			local PlayerData = require(script.Parent:WaitForChild("PlayerData")) :: any
@@ -211,6 +236,12 @@ function DevHooks.Init()
 			local MountManager = require(script.Parent:WaitForChild("MountManager")) :: any
 			if p then MountManager.Request(p, b == "1") end
 			return p and p.Character and p.Character:GetAttribute("Riding")
+		elseif cmd == "parry" then
+			local p = plr(a)
+			local MobManager = require(script.Parent:WaitForChild("MobManager")) :: any
+			local mobs = workspace:FindFirstChild("Mobs")
+			local attacker = (mobs and mobs:FindFirstChild(tostring(b))) or workspace:FindFirstChild(tostring(b))
+			return p and p.Character and MobManager.Parried(p.Character, attacker)
 		elseif cmd == "hit" then
 			local p = plr(a)
 			local hum = p and p.Character and p.Character:FindFirstChildOfClass("Humanoid")
@@ -225,6 +256,16 @@ function DevHooks.Init()
 			ClassManager.SetClass(p, classId) -- (recorded first, as picking it on the screen would)
 			ClassManager.Enter(p, classId)
 			return true
+		elseif cmd == "run" then
+			-- (into a run as the selected class, at the start room, as the campfire's portal would)
+			local p = plr(a)
+			if not p then return "no player" end
+			if p:GetAttribute("InLobby") == false then return "already in a run" end
+			local ClassManager = require(script.Parent:WaitForChild("ClassManager")) :: any
+			ClassManager.Enter(p, p:GetAttribute("SelectedClass") or "swordsman")
+			local t0 = os.clock()
+			while p:GetAttribute("InLobby") ~= false and os.clock() - t0 < 30 do task.wait(0.2) end
+			return tostring(p:GetAttribute("RunId"))
 		elseif cmd == "boss" then
 			local p = plr(a)
 			if not p then return "no player" end
@@ -278,7 +319,7 @@ function DevHooks.Init()
 			local ImmunityTower = require(script.Parent:WaitForChild("ImmunityTower")) :: any
 			ImmunityTower.Spawn(CFrame.lookAt(floor, floor - look), { radius = tonumber(b) })
 			return floor
-		elseif cmd == "gacha_state" or cmd == "gacha_fresh" or cmd == "gacha_tickets" or cmd == "gacha_kills" then
+		elseif cmd == "gacha_state" or cmd == "gacha_fresh" or cmd == "gacha_tickets" or cmd == "gacha_kills" or cmd == "gacha_drop" then
 			local p = plr(a)
 			local PlayerData = require(script.Parent:WaitForChild("PlayerData")) :: any
 			local GachaManager = require(script.Parent:WaitForChild("GachaManager")) :: any
@@ -305,6 +346,16 @@ function DevHooks.Init()
 				local before = prof.currencies.tickets or 0
 				for _ = 1, tonumber(n) or 1 do GachaManager.OnMobKilled(p, tier) end
 				return `{(prof.currencies.tickets or 0) - before} tickets from {n} {tier} kills`
+			elseif cmd == "gacha_drop" then
+				-- one Pull Ticket dropped on the floor 14 studs in front of them
+				local root = p.Character and p.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+				if not root then return "no character" end
+				local D = (require(game:GetService("ReplicatedStorage").Shared.GachaConfig) :: any).TicketDrops
+				local old = D.boss
+				D.boss = 1
+				GachaManager.OnMobKilled(p, "boss", root.Position + root.CFrame.LookVector * 14)
+				D.boss = old
+				return "dropped"
 			end
 			local classes = {}
 			for id in pairs(prof.classes) do table.insert(classes, id) end

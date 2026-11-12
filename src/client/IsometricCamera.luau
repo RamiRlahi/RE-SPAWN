@@ -21,6 +21,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local AimInput = require(script.Parent:WaitForChild("AimInput")) -- (the mouse, or a controller's aim)
+local DashMeter = require(script.Parent:WaitForChild("DashMeter")) -- (the dash charges round the reticle)
 
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
@@ -248,6 +249,8 @@ local function createAimCursor(): (ScreenGui, Frame)
 	createTick(UDim2.fromOffset(7, 2.5), UDim2.new(0.5, -11, 0.5, 0), Vector2.new(1, 0.5))
 	-- Right Tick
 	createTick(UDim2.fromOffset(7, 2.5), UDim2.new(0.5, 11, 0.5, 0), Vector2.new(0, 0.5))
+	-- the dash charges, a quarter circle on its left
+	DashMeter.Attach(container, 34)
 
 	return gui, container
 end
@@ -478,20 +481,66 @@ end
 -- Forced shift lock: the mouse locked to the screen's centre, the camera
 -- over the right shoulder, the body turned to face where the camera looks
 -- (not while a skill drives it).
-local SHIFT_OFFSET = Vector3.new(1.75, 0, 0)
+-- The shoulder offset is put on in the CAMERA's space, right after Roblox's
+-- camera has placed itself this frame, and the body is turned in the same
+-- step. (Humanoid.CameraOffset is in the body's space: the camera then used
+-- last frame's turn of the body, so turning the view while the body turned
+-- too, as in a swing, made it wobble.)
+local SHIFT_OFFSET = Vector3.new(3.4, 0.6, 0) -- (well over the shoulder: the crosshair sits out to his side)
+local shoulderOn = false
+local TURN_EASE = 14              -- (how quickly the body closes a big gap to the camera's heading)
+local TURN_MAX = math.rad(900)    -- degrees a second at most (a big catch-up is a quick swing round, not a snap)
+local shoulderParams = RaycastParams.new()
+shoulderParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local function shoulderStep(dt: number)
+	if not shoulderOn then return end
+	local cam = getCamera()
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not char or not hum or not root or hum.Health <= 0 then return end
+	if cam.CameraType ~= Enum.CameraType.Custom then return end
+	-- over the shoulder, short of a wall
+	local cf = cam.CFrame
+	local want = cf * CFrame.new(SHIFT_OFFSET)
+	shoulderParams.FilterDescendantsInstances = { char }
+	local d = want.Position - cf.Position
+	local hit = Workspace:Raycast(cf.Position, d, shoulderParams)
+	if hit then want = cf + d.Unit * math.max(hit.Distance - 0.4, 0) end
+	cam.CFrame = want
+	-- the body faces where the camera looks (not while a skill drives it).
+	-- After a swing or a skill that held it still while you turned the view,
+	-- it swings round to catch up (up to TURN_MAX a second, easing in) instead
+	-- of snapping there in one frame.
+	if char:GetAttribute("IsSkillCasting") == true or hum.PlatformStand or root.Anchored then return end
+	local look = cf.LookVector
+	local flat = Vector3.new(look.X, 0, look.Z)
+	if flat.Magnitude < 0.01 then return end
+	local want = math.atan2(-flat.X, -flat.Z)
+	local fl = root.CFrame.LookVector
+	local have = math.atan2(-fl.X, -fl.Z)
+	local diff = (want - have + math.pi) % (2 * math.pi) - math.pi
+	dt = math.min(dt, 1 / 20)
+	local step = diff * (1 - math.exp(-TURN_EASE * dt))
+	local cap = TURN_MAX * dt
+	step = math.clamp(step, -cap, cap)
+	-- (turning the view as usual, the body keeps up exactly: only big catch-ups are eased)
+	if math.abs(diff) < math.rad(14) then step = diff end
+	local yaw = have + step
+	root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, yaw, 0)
+end
+
 local function shiftLockStep()
 	UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
-	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
-	if not hum or not root or hum.Health <= 0 then return end
-	if hum.CameraOffset ~= SHIFT_OFFSET then hum.CameraOffset = SHIFT_OFFSET end
+	if not hum or hum.Health <= 0 then return end
+	if hum.CameraOffset ~= Vector3.zero then hum.CameraOffset = Vector3.zero end
 	if hum.AutoRotate then hum.AutoRotate = false end
-	if char:GetAttribute("IsSkillCasting") == true or hum.PlatformStand or root.Anchored then return end
-	local look = getCamera().CFrame.LookVector
-	local flat = Vector3.new(look.X, 0, look.Z)
-	if flat.Magnitude > 0.01 then
-		root.CFrame = CFrame.lookAt(root.Position, root.Position + flat.Unit)
+	if not shoulderOn then
+		shoulderOn = true
+		RunService:BindToRenderStep("ClassicShoulder", Enum.RenderPriority.Camera.Value + 1, shoulderStep)
 	end
 end
 
@@ -524,6 +573,15 @@ local function crosshair(on: boolean)
 		bar(UDim2.fromOffset(2, 8), c + UDim2.fromOffset(0, 9))                -- down
 		bar(UDim2.fromOffset(8, 2), c + UDim2.fromOffset(-9, 0))               -- left
 		bar(UDim2.fromOffset(8, 2), c + UDim2.fromOffset(9, 0))                -- right
+		-- the dash charges, a quarter circle on its left
+		local hub = Instance.new("Frame")
+		hub.Name = "DashHub"
+		hub.AnchorPoint = Vector2.new(0.5, 0.5)
+		hub.Position = c
+		hub.Size = UDim2.fromOffset(2, 2)
+		hub.BackgroundTransparency = 1
+		hub.Parent = g
+		DashMeter.Attach(hub, 34)
 		g.Parent = player:WaitForChild("PlayerGui")
 		crosshairGui = g
 	end
@@ -538,8 +596,42 @@ local function choosingBuff(): boolean
 	return choices ~= nil and ui:IsA("ScreenGui") and ui.Enabled and (choices :: GuiObject).Visible
 end
 
+-- Any menu open that wants the real cursor: the tome / relic choice, the
+-- death menu, settings, and the in-run screens below (shown by their
+-- ScreenGui being on), or a panel that asks for it (UIFreeMouse: the
+-- Forgotten Isle's gear and ritual panels). Looked up 10 times a second.
+local MENU_GUIS = { "BuildCodex", "DungeonFullMapGui", "PurgeScreenGui", "EmoteWheelGui", "EquipmentScreen", "RunSummary",
+	"SummonScreen", "Armory", "WardrobeScreen", "CoopScreen", "GuildScreen" }
+local menuCheckedAt, menuWasOpen = 0, false
+local function menuOpen(): boolean
+	local now = os.clock()
+	if now - menuCheckedAt < 0.1 then return menuWasOpen end
+	menuCheckedAt = now
+	local open = choosingBuff() or player:GetAttribute("DeathMenuOpen") == true or player:GetAttribute("UIFreeMouse") == true
+		or player:GetAttribute("SettingsOpen") == true
+	if not open then
+		local pg = player:FindFirstChildOfClass("PlayerGui")
+		if pg then
+			for _, name in ipairs(MENU_GUIS) do
+				local g = pg:FindFirstChild(name)
+				if g and g:IsA("ScreenGui") and g.Enabled then
+					open = true
+					break
+				end
+			end
+		end
+	end
+	menuWasOpen = open
+	return open
+end
+IsometricCamera.MenuOpen = menuOpen
+
 local function releaseShiftLock()
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	if shoulderOn then
+		shoulderOn = false
+		RunService:UnbindFromRenderStep("ClassicShoulder")
+	end
 	crosshair(false)
 	local char = player.Character
 	local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -629,12 +721,14 @@ function IsometricCamera.Start(transitionDuration: number?)
 	if renderConnection then renderConnection:Disconnect() end
 
 	local wasClassic: boolean? = nil
+	local isoFree = false
 	renderConnection = RunService.RenderStepped:Connect(function(dt)
 		if not isActive or isPaused then return end
 		-- (the setting, switched any time: hand the camera over / take it back)
 		local classic = classicOn()
 		if classic ~= wasClassic then
 			wasClassic = classic
+			isoFree = false
 			applyClassic(classic)
 		end
 		if classic then
@@ -656,8 +750,8 @@ function IsometricCamera.Start(transitionDuration: number?)
 				end
 				if subject and cam.CameraSubject ~= subject then cam.CameraSubject = subject :: any end
 			end
-			-- (UIFreeMouse: a panel that wants the cursor, the Forgotten Isle's gear and ritual panels)
-			if choosingBuff() or player:GetAttribute("DeathMenuOpen") == true or player:GetAttribute("UIFreeMouse") == true then
+			-- (a menu open: menuOpen above)
+			if menuOpen() then
 				-- a free arrow to pick with (a tome, or REVIVE / GIVE UP when
 				-- you've fallen); locked again once it's gone
 				releaseShiftLock()
@@ -670,6 +764,15 @@ function IsometricCamera.Start(transitionDuration: number?)
 			return
 		end
 
+		-- A menu open: the real cursor to click it with, the aim reticle hidden
+		-- (only written when that changes, so the menus' own handling stands).
+		local free = menuOpen()
+		if free ~= isoFree then
+			isoFree = free
+			if cursorGui then cursorGui.Enabled = not free end
+			UserInputService.MouseIconEnabled = free
+		end
+
 		local currentRoot, _ = getCharacterRoot()
 		if not currentRoot then return end
 
@@ -678,7 +781,8 @@ function IsometricCamera.Start(transitionDuration: number?)
 		if focusYLock then
 			rawTargetPos = Vector3.new(rawTargetPos.X, focusYLock + TARGET_HEIGHT, rawTargetPos.Z)
 		end
-		local mousePos = AimInput.ScreenPoint()
+		-- (the cursor stays on the mouse itself, even with a hard lock on)
+		local mousePos = AimInput.PointerPoint()
 
 		-- Update Custom Cursor Screen Position
 		if cursorFrame then

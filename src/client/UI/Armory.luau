@@ -1,15 +1,23 @@
 --!strict
 --[[
 	Armory.luau
-	Your gear (GearData) and what you wear, from the lobby's party panel:
-	tabs for weapon finishes, auras and titles; everything in the game shown,
+	Your gear and what you wear, from the lobby's party panel. The first tab
+	is EQUIPMENT (ArmoryGear, PowerGear): your character, the four pieces
+	you wear and the bag as brick models in their grades; pick a piece to
+	wear it. The others are the
+	cosmetics (GearData): weapon finishes, auras and titles; everything in the game shown,
 	what you own in full colour (with how many), what you don't as a locked
 	silhouette of its rarity. Click to wear it; click again to take it off.
 
 	Also the loot toasts: when something drops in a run (LootDrop), a card
 	slides in on the right in its rarity's colour.
 
-	Armory.Init()   Armory.Open()   Armory.Close()
+	The same panel is the village FORGE (Armory.OpenForge, the forge's
+	prompt): only your gear, to forge a new piece, upgrade one (+1..+10) or
+	salvage spares for scrap. The Armory itself is opened anywhere in the
+	lobby with E (LobbyHUD).
+
+	Armory.Init()   Armory.Open()   Armory.OpenForge()   Armory.Toggle()   Armory.Close()
 --]]
 
 local Players = game:GetService("Players")
@@ -20,6 +28,8 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
 local GearData = require(Shared:WaitForChild("GearData"))
+local PowerGear = require(Shared:WaitForChild("PowerGear"))
+local ArmoryGear = require(script.Parent:WaitForChild("ArmoryGear"))
 
 local player = Players.LocalPlayer
 
@@ -33,11 +43,13 @@ local CARD = Color3.fromRGB(30, 24, 26)
 local BODY = Font.new("rbxasset://fonts/families/Merriweather.json", Enum.FontWeight.Regular)
 local BOLD = Font.new("rbxasset://fonts/families/Merriweather.json", Enum.FontWeight.Bold)
 
-local SLOTS = { { id = "weapon", name = "WEAPON FINISHES" }, { id = "aura", name = "AURAS" }, { id = "title", name = "TITLES" } }
+local SLOTS = { { id = "power", name = "EQUIPMENT" }, { id = "weapon", name = "WEAPON FINISHES" }, { id = "aura", name = "AURAS" }, { id = "title", name = "TITLES" } }
+local GREEN = Color3.fromRGB(120, 230, 140)
 
 local owned: { [string]: number } = {}
 local equipped: { [string]: string } = {}
-local tab = "weapon"
+local power: any = { items = {}, equipped = {}, scrap = 0, total = 100 }
+local tab = "power"
 
 local gui: ScreenGui? = nil
 local grid: ScrollingFrame? = nil
@@ -64,12 +76,45 @@ local function corner(o: GuiObject, r: number)
 	c.Parent = o
 end
 
+local subtitle: TextLabel? = nil
+local gearArea: Frame? = nil
+local titleLabel: TextLabel? = nil
+local mode = "armory" -- or "forge" (the village forge: the same panel, forging only)
+
+local function forgeAction(kind: string, uid: string?)
+	Network.GetRemoteEvent(Network.Remotes.ArmoryAction):FireServer({ kind = kind, uid = uid })
+end
+
 local function render()
 	local gr = grid
 	if not gr then return end
 	for _, c in ipairs(gr:GetChildren()) do
 		if c:IsA("GuiObject") then c:Destroy() end
 	end
+	if subtitle then subtitle.Text = "Cosmetics from the dungeon." end
+	-- EQUIPMENT: its own view (ArmoryGear) in place of the grid
+	local isGear = tab == "power"
+	gr.Visible = not isGear
+	if detail then detail.Visible = not isGear end
+	if countLabel then countLabel.Visible = not isGear end
+	if gearArea then gearArea.Visible = isGear end
+	for _, tb in pairs(tabButtons) do tb.Visible = mode == "armory" end
+	if titleLabel then titleLabel.Text = if mode == "forge" then "THE FORGE" else "THE ARMORY" end
+	if isGear then
+		if subtitle then
+			subtitle.Text = if mode == "forge" then "Forge a new piece, upgrade one to +10, or salvage spares for scrap."
+				else "Your gear, worn from your next run. Extract with gear to keep it; forge it at the village forge."
+		end
+		ArmoryGear.SetMode(if mode == "forge" then "forge" else "equip")
+		ArmoryGear.SetState(power)
+		ArmoryGear.Show()
+		for id, tb in pairs(tabButtons) do
+			tb.BackgroundColor3 = if id == tab then Color3.fromRGB(80, 60, 32) else Color3.fromRGB(36, 28, 26)
+			tb.TextColor3 = if id == tab then GOLD else PARCH
+		end
+		return
+	end
+	ArmoryGear.Hide()
 	local have, total = 0, 0
 	local order = 0
 	for ri = #GearData.RARITIES, 1, -1 do
@@ -119,7 +164,7 @@ local function render()
 			end
 			b.MouseEnter:Connect(function()
 				if detail then
-					detail.Text = if mine then `{item.name}: {item.description}` else `A {string.lower(item.rarity)} {if tab == "weapon" then "weapon finish" else tab}. Find it in the dungeon.`
+					detail.Text = if mine then `{item.name}: {item.description}` else `A {string.lower(item.rarity)} {if tab == "weapon" then "weapon finish" else tab}. Drops in the dungeon.`
 				end
 			end)
 			b.MouseButton1Click:Connect(function()
@@ -155,7 +200,7 @@ local function build()
 	dim.BackgroundTransparency = 0.45
 	dim.Parent = g
 	dim.MouseButton1Click:Connect(Armory.Close)
-	local W, H = 860, 580
+	local W, H = 1100, 700
 	local panel = Instance.new("Frame")
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Position = UDim2.fromScale(0.5, 0.5)
@@ -171,13 +216,13 @@ local function build()
 	sc.Parent = panel
 	local vp = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
 	sc.Scale = math.min(1, (vp.X - 40) / W, (vp.Y - 40) / H)
-	label(panel, "THE ARMORY", 34, GOLD, { Font = Enum.Font.Antique, Position = UDim2.fromOffset(0, 14), Size = UDim2.new(1, 0, 0, 40), TextXAlignment = Enum.TextXAlignment.Center })
-	label(panel, "Gear found in the dungeon. Everyone sees what you wear.", 14, PARCH,
+	titleLabel = label(panel, "THE ARMORY", 34, GOLD, { Font = Enum.Font.Antique, Position = UDim2.fromOffset(0, 14), Size = UDim2.new(1, 0, 0, 40), TextXAlignment = Enum.TextXAlignment.Center })
+	subtitle = label(panel, "Cosmetics from the dungeon.", 14, PARCH,
 		{ Position = UDim2.fromOffset(0, 54), Size = UDim2.new(1, 0, 0, 18), TextXAlignment = Enum.TextXAlignment.Center, TextTransparency = 0.15 })
 	for i, s in ipairs(SLOTS) do
 		local tb = Instance.new("TextButton")
-		tb.Position = UDim2.new(0.5, (i - 2) * 200 - 90, 0, 82)
-		tb.Size = UDim2.fromOffset(180, 32)
+		tb.Position = UDim2.new(0.5, (i - 2.5) * 190 - 85, 0, 82)
+		tb.Size = UDim2.fromOffset(170, 32)
 		tb.FontFace = BOLD
 		tb.TextSize = 14
 		tb.Text = s.name
@@ -192,8 +237,8 @@ local function build()
 	end
 	countLabel = label(panel, "", 13, GOLD, { FontFace = BOLD, Position = UDim2.fromOffset(0, 120), Size = UDim2.new(1, 0, 0, 16), TextXAlignment = Enum.TextXAlignment.Center })
 	local sf = Instance.new("ScrollingFrame")
-	sf.Position = UDim2.fromOffset(24, 144)
-	sf.Size = UDim2.new(1, -48, 1, -236)
+	sf.Position = UDim2.fromOffset(24, 178)
+	sf.Size = UDim2.new(1, -48, 1, -314)
 	sf.BackgroundTransparency = 1
 	sf.BorderSizePixel = 0
 	sf.ScrollBarThickness = 5
@@ -206,8 +251,31 @@ local function build()
 	gl.SortOrder = Enum.SortOrder.LayoutOrder
 	gl.Parent = sf
 	grid = sf
-	detail = label(panel, "Hover over a piece to read it. Click to wear it.", 13, PARCH,
-		{ Position = UDim2.new(0, 30, 1, -88), Size = UDim2.new(1, -60, 0, 30), TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Center, TextTransparency = 0.1 })
+	detail = label(panel, "Hover over a piece to read it. Click to pick it.", 13, PARCH,
+		{ Position = UDim2.new(0, 30, 1, -132), Size = UDim2.new(1, -60, 0, 30), TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Center, TextTransparency = 0.1 })
+	-- EQUIPMENT: the gear you keep (ArmoryGear), first thing you see
+	local ga = Instance.new("Frame")
+	ga.Name = "Equipment"
+	ga.BackgroundTransparency = 1
+	ga.Position = UDim2.fromOffset(24, 136)
+	ga.Size = UDim2.fromOffset(W - 48, 494)
+	ga.Visible = false
+	ga.Parent = panel
+	gearArea = ga
+	ArmoryGear.Build(ga, {
+		wear = function(uid: string)
+			forgeAction("equipPower", uid)
+			ArmoryGear.WearNow(uid)
+		end,
+		upgrade = function(uid: string) forgeAction("upgrade", uid) end,
+		salvage = function(uid: string) forgeAction("salvage", uid) end,
+		salvageWeaker = function() forgeAction("salvageWeaker", nil) end,
+		forgeNew = function(slot: string)
+			if (power.scrap or 0) < PowerGear.CRAFT_COST then return end
+			local ForgeMinigame = require(script.Parent:WaitForChild("ForgeMinigame")) :: any
+			task.spawn(ForgeMinigame.Play, slot)
+		end,
+	})
 	local close = Instance.new("TextButton")
 	close.AnchorPoint = Vector2.new(0.5, 1)
 	close.Position = UDim2.new(0.5, 0, 1, -14)
@@ -222,16 +290,45 @@ local function build()
 	close.MouseButton1Click:Connect(Armory.Close)
 end
 
+function Armory.Render()
+	render()
+end
+
+-- Scrap on hand (the forge's minigame offers another go while it lasts).
+function Armory.Scrap(): number
+	return power.scrap or 0
+end
+
 function Armory.Open()
 	if not gui then build() end
+	if mode ~= "armory" then
+		mode = "armory"
+		tab = "power"
+	end
 	render()
 	Network.GetRemoteEvent(Network.Remotes.RequestArmory):FireServer()
 	local g = gui :: ScreenGui
 	g.Enabled = true
 end
 
+-- The village forge: the same panel, your gear only, to forge with.
+function Armory.OpenForge()
+	if not gui then build() end
+	mode = "forge"
+	tab = "power"
+	render()
+	Network.GetRemoteEvent(Network.Remotes.RequestArmory):FireServer()
+	local g = gui :: ScreenGui
+	g.Enabled = true
+end
+
+function Armory.Toggle()
+	if gui and gui.Enabled then Armory.Close() else Armory.Open() end
+end
+
 function Armory.Close()
 	if gui then gui.Enabled = false end
+	ArmoryGear.Hide()
 end
 
 -- ── Loot toasts ───────────────────────────────────────────────────────────
@@ -268,12 +365,29 @@ local function toast(d: any)
 	st.Thickness = 2
 	st.Parent = f
 	label(f, tostring(d.glyph or "◆"), 26, col, { Position = UDim2.fromOffset(8, 0), Size = UDim2.fromOffset(40, 64), TextXAlignment = Enum.TextXAlignment.Center })
-	local slot = if d.slot == "weapon" then "weapon finish" elseif d.slot == "aura" then "aura" else "title"
-	label(f, string.upper(tostring(d.rarity)) .. "  ·  " .. string.upper(slot) .. (if d.isNew then "  ·  NEW!" else ""), 11, col,
-		{ FontFace = BOLD, Position = UDim2.fromOffset(52, 10), Size = UDim2.fromOffset(230, 14) })
-	label(f, tostring(d.name), 18, Color3.new(1, 1, 1), { FontFace = BOLD, Position = UDim2.fromOffset(52, 26), Size = UDim2.fromOffset(230, 22),
-		TextTruncate = Enum.TextTruncate.AtEnd })
-	label(f, "Carried: extract to keep it", 10, PARCH, { Position = UDim2.fromOffset(52, 46), Size = UDim2.fromOffset(230, 12), TextTransparency = 0.35 })
+	if d.power then
+		-- a power piece: how much stronger it would make you
+		label(f, `{string.upper(tostring(d.rarity))}  ·  {string.upper(tostring(d.slotName))}  ·  iLvl {d.ilvl}`, 11, col,
+			{ FontFace = BOLD, Position = UDim2.fromOffset(52, 10), Size = UDim2.fromOffset(230, 14) })
+		label(f, tostring(d.name), 18, Color3.new(1, 1, 1), { FontFace = BOLD, Position = UDim2.fromOffset(52, 26), Size = UDim2.fromOffset(170, 22),
+			TextTruncate = Enum.TextTruncate.AtEnd })
+		local gain = tonumber(d.gain) or 0
+		label(f, if gain > 0 then `▲ +{gain}` else tostring(d.itemPower or ""), if gain > 0 then 18 else 14,
+			if gain > 0 then GREEN else MUTED, { FontFace = BOLD, AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -10, 0, 26),
+				Size = UDim2.fromOffset(70, 22), TextXAlignment = Enum.TextXAlignment.Right })
+		local note = if d.source == "forge" then (if d.worn then "Forged and worn!" else "Forged: in your bag")
+			elseif d.source == "extract" then (if gain > 0 then "Upgrade! An extraction reward" else "An extraction reward: yours")
+			elseif gain > 0 then "Upgrade! Extract to keep it" else "Carried: extract to keep it"
+		label(f, note, 10, if gain > 0 then GREEN else PARCH,
+			{ Position = UDim2.fromOffset(52, 46), Size = UDim2.fromOffset(230, 12), TextTransparency = if gain > 0 then 0.1 else 0.35 })
+	else
+		local slot = if d.slot == "weapon" then "weapon finish" elseif d.slot == "aura" then "aura" else "title"
+		label(f, string.upper(tostring(d.rarity)) .. "  ·  " .. string.upper(slot) .. (if d.isNew then "  ·  NEW!" else ""), 11, col,
+			{ FontFace = BOLD, Position = UDim2.fromOffset(52, 10), Size = UDim2.fromOffset(230, 14) })
+		label(f, tostring(d.name), 18, Color3.new(1, 1, 1), { FontFace = BOLD, Position = UDim2.fromOffset(52, 26), Size = UDim2.fromOffset(230, 22),
+			TextTruncate = Enum.TextTruncate.AtEnd })
+		label(f, "Carried: extract to keep it", 10, PARCH, { Position = UDim2.fromOffset(52, 46), Size = UDim2.fromOffset(230, 12), TextTransparency = 0.35 })
+	end
 	table.insert(toasts, f)
 	relayout()
 	task.delay(5, function()
@@ -290,6 +404,7 @@ function Armory.Init()
 		if typeof(state) ~= "table" then return end
 		owned = if typeof(state.owned) == "table" then state.owned else {}
 		equipped = if typeof(state.equipped) == "table" then state.equipped else {}
+		if typeof(state.power) == "table" then power = state.power end
 		if gui and gui.Enabled then render() end
 	end)
 	Network.GetRemoteEvent(Network.Remotes.LootDrop).OnClientEvent:Connect(function(d: any)

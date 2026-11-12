@@ -259,7 +259,7 @@ local function showOffer(roomId: number, tomes: { any })
 	subLabel.Font = Enum.Font.GothamMedium
 	subLabel.TextSize = 13
 	subLabel.TextColor3 = PARCHMENT
-	subLabel.Text = "Choose one of your held tomes to sacrifice to the embers (removes 1 stack)."
+	subLabel.Text = "Pick a tome to remove (1 stack)."
 	subLabel.Parent = modal
 
 	-- Close Button

@@ -1,7 +1,8 @@
 --[[
 	DifficultyManager.luau
 	Server-side run clocks + escalating difficulty (the Threat tier), one per
-	run (RunManager: every party's run is its own). Publishes elapsed run
+	run (RunManager: every party's run is its own), on top of the run's
+	difficulty mode (RunScope "Mode": MapData.MODES, picked with the map). Publishes elapsed run
 	seconds + the Threat tier on the run's folder (RunScope: RunElapsed,
 	RunTier) so the HUD of everyone in it can read them directly.
 
@@ -14,6 +15,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local RunScope = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RunScope"))
 local WeeklyModifiers = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("WeeklyModifiers"))
+local MapData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("MapData"))
 
 local DifficultyManager = {}
 
@@ -46,6 +48,16 @@ function DifficultyManager.GetTier(runId: string?): number
 	return if c then c.tier else 0
 end
 
+-- The run's difficulty mode (NORMAL when none was picked).
+function DifficultyManager.GetMode(runId: string?): MapData.Mode
+	return MapData.Mode(if runId then RunScope.Get(runId, "Mode") else nil)
+end
+
+-- × gold, XP and souls from the run's kills.
+function DifficultyManager.RewardMult(runId: string?): number
+	return DifficultyManager.GetMode(runId).reward
+end
+
 -- Multipliers applied to freshly spawned mobs of `runId`.
 function DifficultyManager.GetMobScale(runId: string?): { health: number, damage: number, speed: number, tier: number }
 	local tier = DifficultyManager.GetTier(runId)
@@ -57,9 +69,10 @@ function DifficultyManager.GetMobScale(runId: string?): { health: number, damage
 	if runId and RunScope.Get(runId, "Tutorial") == true then
 		return { health = 0.5, damage = BASE_DAMAGE * 0.5, speed = 1, tier = 0 }
 	end
+	local mode = DifficultyManager.GetMode(runId)
 	return {
-		health = (1 + tier * HEALTH_PER_TIER) * c * moon,
-		damage = (BASE_DAMAGE + tier * DAMAGE_PER_TIER) * c,
+		health = (1 + tier * HEALTH_PER_TIER) * c * moon * mode.health,
+		damage = (BASE_DAMAGE + tier * DAMAGE_PER_TIER) * c * mode.damage,
 		speed  = math.min(1 + tier * SPEED_PER_TIER, 1.5),
 		tier = tier,
 	}

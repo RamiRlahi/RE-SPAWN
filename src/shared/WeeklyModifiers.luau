@@ -26,17 +26,17 @@ local WeeklyModifiers = {}
 
 local LIST: { Modifier } = {
 	{ id = "blood_moon", name = "BLOOD MOON", glyph = "BM", color = Color3.fromRGB(230, 40, 50),
-		description = "Enemies have 50% more health. Legendary and Mythic drops are twice as likely." },
+		description = "Enemies +50% HP. 2x Legendary and Mythic drops." },
 	{ id = "frozen_abyss", name = "FROZEN ABYSS", glyph = "FA", color = Color3.fromRGB(150, 215, 255),
-		description = "Everyone moves 10% slower. Chilled enemies take 25% more damage. Frozen elites everywhere." },
+		description = "-10% move speed. Chilled enemies take +25% damage. More frost elites." },
 	{ id = "elite_invasion", name = "ELITE INVASION", glyph = "EI", color = Color3.fromRGB(190, 110, 255),
-		description = "Three times the elites, and they drop gear more often." },
+		description = "3x elites. Elites drop more gear." },
 	{ id = "gold_rush", name = "GOLD RUSH", glyph = "GR", color = Color3.fromRGB(255, 205, 80),
 		description = "Double gold from everything." },
 	{ id = "swarm", name = "THE SWARM", glyph = "SW", color = Color3.fromRGB(140, 220, 110),
-		description = "A horde on every floor, from the first, and bigger." },
+		description = "A bigger horde on every floor." },
 	{ id = "inferno", name = "INFERNO", glyph = "IN", color = Color3.fromRGB(255, 120, 40),
-		description = "Every hit can set enemies alight, and burning enemies take 30% more. Blazing elites everywhere." },
+		description = "Hits can burn. Burning enemies take +30% damage. More fire elites." },
 }
 WeeklyModifiers.List = LIST
 

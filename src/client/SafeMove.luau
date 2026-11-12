@@ -80,11 +80,14 @@ function SafeMove.ClampToFloor(root: BasePart, dir: Vector3, dist: number): numb
 	local ok = 0
 	local step = 1.5
 	local d = step
-	while d <= dist + 0.01 do
-		local at = root.Position + flat * math.min(d, dist)
+	while true do
+		-- (the last sample is the dash's own end)
+		local s = math.min(d, dist)
+		local at = root.Position + flat * s
 		local hit = Workspace:Raycast(at + Vector3.new(0, 3, 0), Vector3.new(0, -12, 0), p)
 		if not hit or hit.Position.Y < floorY - 3 then break end
-		ok = math.min(d, dist)
+		ok = s
+		if s >= dist then break end
 		d += step
 	end
 	-- (a little back from the edge, so the body doesn't hang over it)

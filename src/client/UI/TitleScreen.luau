@@ -65,6 +65,22 @@ function TitleScreen.Create(parent: GuiObject, callbacks: TitleScreenCallbacks):
 	container.BackgroundTransparency = 1
 	container.Parent = parent
 
+	-- A soft dark wash behind the menu column (fading out to the right), so
+	-- the logo and entries read over the bright golden sky.
+	local shade = group(container, "MenuShade")
+	shade.Size = UDim2.fromScale(0.46, 1)
+	local wash = Instance.new("Frame")
+	wash.Size = UDim2.fromScale(1, 1)
+	wash.BackgroundColor3 = Color3.fromRGB(12, 9, 8)
+	wash.BackgroundTransparency = 0
+	wash.BorderSizePixel = 0
+	wash.Parent = shade
+	local wg = Instance.new("UIGradient")
+	wg.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.38), NumberSequenceKeypoint.new(0.55, 0.6), NumberSequenceKeypoint.new(1, 1),
+	})
+	wg.Parent = wash
+
 	local rail = group(container, "EdgeRail")
 	rail.Size = UDim2.new(0, 44, 1, 0)
 	TitleScreen.Rail(rail)
@@ -122,24 +138,23 @@ function TitleScreen.Create(parent: GuiObject, callbacks: TitleScreenCallbacks):
 	list.Size = UDim2.new(1, 0, 0, 420)
 	local options = Instance.new("Frame")
 	options.Name = "MenuOptions"
-	options.Size = UDim2.new(1, 0, 0, 330)
+	options.Size = UDim2.new(1, 0, 0, 270)
 	options.BackgroundTransparency = 1
 	options.Parent = list
 	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, 4)
+	layout.Padding = UDim.new(0, 8)
 	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Parent = options
 
 	local function none() end
-	MenuEntry.Button(options, "PLAY", "play", 1, callbacks.onStartGame)
-	MenuEntry.Button(options, "SETTINGS", "settings", 2, callbacks.onOpenSettings)
-	MenuEntry.Button(options, "KEYBINDS", "keybinds", 3, callbacks.onOpenKeybinds or callbacks.onOpenSettings)
-	MenuEntry.Button(options, "CREDITS", "credits", 4, callbacks.onOpenCredits or none)
-	MenuEntry.Button(options, "QUIT", "quit", 5, callbacks.onQuit or none)
+	MenuEntry.Button(options, "PLAY", "play", 1, callbacks.onStartGame, true)
+	MenuEntry.Button(options, "OPTIONS", "settings", 2, callbacks.onOpenSettings)
+	MenuEntry.Button(options, "CREDITS", "credits", 3, callbacks.onOpenCredits or none)
+	MenuEntry.Button(options, "LEAVE", "quit", 4, callbacks.onQuit or none)
 
 	local version = Instance.new("TextLabel")
 	version.Size = UDim2.new(1, 0, 0, 20)
-	version.Position = UDim2.new(0, 14, 0, 360)
+	version.Position = UDim2.new(0, 14, 0, 280)
 	version.BackgroundTransparency = 1
 	version.Text = "VERSION 0.1  •  THE AWAKENING"
 	version.FontFace = BOLD
@@ -167,6 +182,7 @@ function TitleScreen.Create(parent: GuiObject, callbacks: TitleScreenCallbacks):
 				GroupTransparency = 0, Position = UDim2.new(0, 0, 0, 214),
 			}):Play()
 			TweenService:Create(rail, TweenInfo.new(1.2), { GroupTransparency = 0 }):Play()
+			TweenService:Create(shade, TweenInfo.new(1.2), { GroupTransparency = 0 }):Play()
 		end)
 	end
 	if MenuBackdrop and MenuBackdrop.OnRevealed then

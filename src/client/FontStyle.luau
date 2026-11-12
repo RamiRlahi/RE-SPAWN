@@ -25,13 +25,26 @@ local function onMap(inst: Instance): boolean
 	return sg.Name == "DungeonFullMapGui" and inst:FindFirstAncestor("Canvas") ~= nil
 end
 
+-- A screen that sets the attribute KeepFont = true keeps its own fonts (the
+-- class select's serif look), for it and everything inside it.
+local function keepsFont(inst: Instance): boolean
+	local p: Instance? = inst
+	while p and not p:IsA("LayerCollector") do
+		-- (the nearest setting wins: false inside a KeepFont screen goes back to Arcade)
+		local keep = p:GetAttribute("KeepFont")
+		if keep ~= nil then return keep == true end
+		p = p.Parent
+	end
+	return false
+end
+
 local watched: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
 
 local function style(inst: Instance)
 	if not (inst:IsA("TextLabel") or inst:IsA("TextButton") or inst:IsA("TextBox")) then return end
 	local t = inst :: any
 	local function apply()
-		if onMap(inst) then return end
+		if onMap(inst) or keepsFont(inst) then return end
 		if t.FontFace.Family ~= ARCADE.Family then t.Font = Enum.Font.Arcade end
 	end
 	apply()

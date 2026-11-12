@@ -103,10 +103,10 @@ local function suggestedCard(): Card
 	local tome = sg and TomeData.GetTome(sg.id)
 	local class = ClassData.GetClass(player:GetAttribute("SelectedClass"))
 	if not sg or not tome then
-		return { title = "Your build", body = "Tomes stack: take the ones that suit how you fight." }
+		return { title = "Your build", body = "Tomes stack. Pick ones that fit your class." }
 	end
 	return { title = "The tome for you", done = "suggested",
-		body = `As the {B(if class then class.name else "hero")}, take the {B(tome.name)}: {sg.why}.\nIt's marked {B("SUGGESTED")} on the choice screen. Picked something else? The next reward offers it again.` }
+		body = `Take the {B(tome.name)}: {sg.why}. It's marked {B("SUGGESTED")}.` }
 end
 
 -- Each a list of cards { title, body, done? } (built when shown, so the keys
@@ -115,97 +115,97 @@ type Card = { title: string, body: string, done: string? }
 local STEPS: { [string]: () -> { Card } } = {
 	Start = function()
 		return {
-			{ title = "Welcome to the Proving Grounds",
-				body = "A short dungeon that walks you through every kind of room, one at a time. Do what each card says to move on." },
+			{ title = "Tutorial",
+				body = "Follow each card to move on." },
 			{ title = "Move", done = "move",
 				body = if AimInput.UsingGamepad()
-					then `{K("Left Stick")} to walk around, {K("Right Stick")} to aim (it locks onto the enemy you point at; let go and you aim the way you walk).`
-					else `{K("W")}{K("A")}{K("S")}{K("D")} to walk around. Your character faces the mouse cursor: you aim with the mouse.` },
+					then `{K("Left Stick")} move, {K("Right Stick")} aim.`
+					else `{K("W")}{K("A")}{K("S")}{K("D")} move. Aim with the mouse.` },
 			{ title = "Attack", done = "attack",
-				body = `Walk up to a {B("straw dummy")} and {A("PrimaryAttack")} to hit it (you attack where you aim). Hold it to keep attacking.` },
+				body = `{A("PrimaryAttack")} to hit a {B("dummy")}. Hold to keep attacking.` },
 			{ title = "Skills", done = "skills",
-				body = `{A("Skill1")} {A("Skill2")} {A("Skill3")} are your skills, {A("Ultimate")} your ultimate (the strongest, on a long cooldown). Try every one of them on the dummies: they never fall.\nHover a skill icon at the bottom of the screen to see what it does and which tomes suit it.` },
+				body = `Skills: {A("Skill1")} {A("Skill2")} {A("Skill3")}. Ultimate: {A("Ultimate")}. Try them all.\nHover a skill icon to read it.` },
 			{ title = "Dash", done = "dash",
-				body = `{A("Dash")} dashes the way you're moving (or toward the cursor standing still). For a moment nothing can hit you: dash {B("through")} an attack that's about to land.` },
+				body = `{A("Dash")} to dash. You can't be hit mid-dash: dash {B("through")} attacks.` },
 			{ title = "Sprint", done = "sprint",
-				body = `{A("Sprint")} switches sprinting on and off, to cross a room quickly.` },
+				body = `{A("Sprint")} toggles sprint.` },
 			{ title = "Onward", done = "next",
-				body = "Rooms lead on to each other down the Keep's halls. This room is safe: head out down the hall to the next room." },
+				body = "Head down the hall to the next room." },
 		}
 	end,
 	Combat = function()
 		return {
 			{ title = "A fight", done = "next",
-				body = `Defeat every enemy to clear the room.\nWatch the floor: {B("red markers")} show where an attack is about to land. Step out of them, or {A("Dash")} through.` },
+				body = `Kill every enemy. Avoid {B("red markers")}: an attack is about to land there.` },
 		}
 	end,
 	["Combat:clear"] = function()
 		return {
 			{ title = "The room's reward", done = "claim",
-				body = `A cleared fight room leaves a {B("reward orb")}. Walk up to it and {A("PrimaryAttack")} it: you level up and pick one of three {B("tomes")}, upgrades that stack for the rest of the run.` },
+				body = `Hit the {B("reward orb")} to level up and pick a {B("tome")} (an upgrade for this run).` },
 			suggestedCard(),
 			{ title = "Your tomes", done = "tab",
-				body = `Hold {A("Tomes")} to look over the tomes you have (hover one to read it).` },
+				body = `Hold {A("Tomes")} to see your tomes.` },
 		}
 	end,
 	Treasure = function()
 		return {
 			{ title = "Treasure", done = "next",
-				body = "No fight here: open the chest (walk up and use the prompt). It always holds gold, usually a tome, and now and then a curse. Then on down the hall." },
+				body = "Open the chest: gold, often a tome, sometimes a curse." },
 		}
 	end,
 	Elite = function()
 		return {
 			{ title = "Elite fight", done = "next",
-				body = `Tougher enemies, each with a special power named over its head: a harder fight, a better reward.\nIn a real run the clock at the top raises the {B("Threat")}: the longer you take, the stronger enemies get.` },
+				body = `Elites are tougher, with better rewards.\nThe longer you take, the higher the {B("Threat")}: enemies get stronger.` },
 		}
 	end,
 	["Elite:clear"] = function()
 		return {
 			{ title = "Choose well", done = "claim",
-				body = "Claim the reward. Some tomes are Boons: take the same Boon again to level it up, and at its top level it can evolve into something new." },
+				body = "Claim the reward. Take a Boon again to level it up. Max level can evolve it." },
 		}
 	end,
 	Shop = function()
 		return {
 			{ title = "The merchant", done = "next",
-				body = `Spend {B("gold")} (under your health bar) on tomes, a healing potion, or the bell that rerolls the wares. Enemies and chests drop gold.\nYou've got 300 gold here: buy something.` },
+				body = `Spend {B("gold")} on tomes or potions. Ring the bell to reroll.\nBuy something.` },
 		}
 	end,
 	Gamble = function()
 		return {
 			{ title = "The gambling den", done = "next",
-				body = "Spin the Wheel of Fate (bet 25, 50 or 100 gold) for a chance at more, or try the Double-or-Nothing altar. Or keep your gold and walk on." },
+				body = "Gamble gold on the wheel or the Double-or-Nothing altar. Optional." },
 		}
 	end,
 	Rest = function()
 		return {
 			{ title = "The Moonwell", done = "next",
-				body = "Drink from the well to heal: its water drops as it heals, so leave some for your party. Offer coins for a blessing.\nIf you fall in battle you can revive once per run." },
+				body = "Drink to heal (shared with your party). Offer coins for a blessing.\nYou can revive once per run." },
 		}
 	end,
 	Cursed = function()
 		return {
 			{ title = "The cursed altar", done = "next",
-				body = `Clear the room, then choose. Accept the curse: lose {B("25% max health")} for the run, but take a {B("relic")} (pick one of three) and Epic-or-better gear.\nRelics are strong, with a cost of their own: yours show down the right of the screen.` },
+				body = `Clear the room. Accept the curse: {B("-25% max HP")} for a {B("relic")} and Epic+ gear.` },
 		}
 	end,
 	Purge = function()
 		return {
 			{ title = "The purge shrine", done = "next",
-				body = "Clear the room, then sacrifice a tome you don't want to the flames: fewer unwanted tomes, more of the ones you want." },
+				body = "Clear the room, then remove a tome you don't want." },
 		}
 	end,
 	Boss = function()
 		return {
 			{ title = "The boss", done = "next",
-				body = `Every attack it makes is {B("telegraphed")}: a marker grows on the floor before it strikes. Step out of it, or {A("Dash")} through at the last moment.\nAt half health it enrages. Save your ultimate {A("Ultimate")} for it.` },
+				body = `Dodge the {B("floor markers")} or {A("Dash")} through. It enrages at half HP.` },
 		}
 	end,
 	["Boss:clear"] = function()
 		return {
 			{ title = "You did it", done = "next",
-				body = `Step into the {B("golden portal")} to finish.\nIn a real run the boss's lift goes on to the next floor; every third floor offers a golden portal to {B("extract")} with your loot. Go deeper and the dungeon's Corruption rises: tougher enemies, better loot.` },
+				body = `Enter the {B("golden portal")} to finish.\nIn a real run, every 2nd floor lets you {B("extract")} with your loot or go deeper for more.` },
 		}
 	end,
 }
@@ -581,7 +581,7 @@ local function makeGuide(root: BasePart, portal: BasePart): Guide
 	h.FontFace = SERIF_BOLD
 	h.TextSize = 18
 	h.TextColor3 = GOLD_BRIGHT
-	h.Text = "Follow the arrows: walk into the portal to begin the tutorial"
+	h.Text = "Follow the arrows to the portal"
 	h.Parent = hint
 	local hc = Instance.new("UICorner")
 	hc.CornerRadius = UDim.new(0, 8)

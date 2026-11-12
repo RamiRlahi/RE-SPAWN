@@ -73,21 +73,27 @@ DOOM.impact = DOOM.crouch + DOOM.rise + DOOM.hang + DOOM.fall
 local DOOM_MIST_TICK = 0.5
 local DOOM_MIST_HIT = 0.12    -- × the crash's damage, each tick in the mist (Dreadforged 0.2)
 
--- Grave Reversal (Q): the chain shoots from his left palm and coils round
--- the first one on its line; then, from the bite (seconds):
---   wrap     coiled round its chest, drawn taut
---   pull     torn across past him round his right side, thrown down behind him
---   slam1    he turns on it and smashes it into the floor (the smaller blow)
---   back     the chain reversed: dragged back round his left side...
---   reverse  ...(how long that takes) to in front of him
---   slam2    the hammer held high, then the execution (the heavy blow)
---   done     pinned there under it while the chain dissolves
+-- Grave Reversal (Q): a heavy chain thrown from his left hand coils round the
+-- first one on its line. He never moves: it's carried round him, never toward
+-- him. From the bite (seconds):
+--   grab     coiled round its chest, the chain drawn taut, held where it stands
+--   launch   heaved up off its feet into the air, rising up and over him
+--   over     ...past the top, swung down across him onto the far side
+--   slam     (= grab + launch + over) smashed into the floor behind him, as far
+--            out as it started
+--   yank     the wind-up of the last yank, the chain lying slack
+--   fling    flung on out away from him, and the chain lets go
+--   land     it hits the floor again, further out
+--   done     the end
 -- A boss is too heavy: the chain holds fast and both blows land where it stands.
--- (Mirrored in DeathKnightController: the caster's poses and turning.)
-local SNATCH = { cast = 0.3, wrap = 0.32, pull = 0.62, slam1 = 1.32, back = 1.52, reverse = 0.62, slam2 = 2.62, done = 3.3 }
+-- (Mirrored in DeathKnightController: his poses, his turning, the chain.)
+local SNATCH = { cast = 0.3, grab = 0.3, launch = 0.4, over = 0.32, slam = 1.02, yank = 1.4, fling = 1.54, land = 2.1, done = 2.5 }
+local SNATCH_MIN_R = 6        -- the arc's radius at least (pushed out a little if it was closer: never pulled in)
+local SNATCH_MAX_UP = 15      -- how high over him the arc goes, at most
+local SNATCH_SIDE = 2.6       -- how far to his left it passes over him (clear of his head; over the chain hand)
+local SNATCH_FLING = 14       -- how much further out the last yank throws it
 local SNATCH_WIDTH = 3.5      -- how close to its line the chain catches
-local SNATCH_AHEAD = 7.5      -- where it's thrown down, behind him and then in front: where the hammer's head meets the floor
-local SNATCH_SPLASH = 8       -- the first blow's radius round the body (the execution's: 1.5x)
+local SNATCH_SPLASH = 8       -- the slam's radius round the body (the landing after the fling: 1.25x)
 
 -- King of the Grave, in six beats (mirrored in DeathKnightController):
 --   0      the awakening: the hammer raised, chains rising round him
@@ -372,17 +378,37 @@ local function floorY(p: Vector3, ignore: { Instance }): number
 	return if hit then hit.Position.Y else p.Y - 3
 end
 
+-- Clear floor along `from` → `to` at waist height: where it stops short of a wall.
+local function clearTo(from: Vector3, to: Vector3, ignore: { Instance }): Vector3
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = ignore
+	local d = to - from
+	if d.Magnitude < 0.1 then return to end
+	local hit = Workspace:Raycast(from, d, params)
+	if not hit then return to end
+	return from + d.Unit * math.max(hit.Distance - 1.5, 0)
+end
+
 local function snatch(player: Player, char: Model, st: State, root: BasePart, dir: Vector3, config: any)
 	local damage = (config.damage or 55) * damageMult(player)
 	local range = config.range or 34
 	local speed = math.max(config.projectileSpeed or 140, 20)
 	st.token += 1
 	local token = st.token
+	-- (this throw's own count: cut short by a dash or another move, the chain
+	-- is still let go on every client, unless a newer throw has taken over)
+	local S = st :: any
+	S.snatchSeq = (S.snatchSeq or 0) + 1
+	local seq = S.snatchSeq
+	local function release()
+		if S.snatchSeq == seq then fx({ kind = "snatchRelease", attacker = player }) end
+	end
 	local from = root.Position
 	local victim, along = firstOnLine(char, from, dir, range)
 	local travel = along / speed
 	if not victim then
-		-- A miss: the chain flies out its full length and snaps back.
+		-- A miss: the chain flies out its full length, drops and is reeled back.
 		st.busyUntil = os.clock() + SNATCH.cast + travel * 2 + 0.1
 		fx({ kind = "snatch", attacker = player, dir = dir, to = from + dir * range, travel = travel, cast = SNATCH.cast })
 		return
@@ -395,11 +421,14 @@ local function snatch(player: Player, char: Model, st: State, root: BasePart, di
 	st.guardUntil = os.clock() + total
 	local center = root.Position
 	fx({ kind = "snatch", attacker = player, dir = dir, to = v.rootPart.Position, travel = travel, cast = T.cast,
-		model = v.character, heavy = heavy, t = T, center = center, ahead = SNATCH_AHEAD })
+		model = v.character, heavy = heavy, t = T, center = center })
 
 	task.spawn(function()
 		task.wait(T.cast + travel)
-		if st.token ~= token or not char.Parent or not root.Parent then return end
+		if st.token ~= token or not char.Parent or not root.Parent then
+			release()
+			return
+		end
 		if v.humanoid.Health <= 0 or not v.rootPart.Parent then
 			fx({ kind = "snatchRelease", attacker = player })
 			st.busyUntil = os.clock() + 0.15
@@ -409,70 +438,69 @@ local function snatch(player: Player, char: Model, st: State, root: BasePart, di
 		local ignore: { Instance } = { char, v.character }
 		local function slam(i: number, p: Vector3)
 			local g = Vector3.new(p.X, floorY(p, ignore), p.Z)
-			fx({ kind = "snatchSlam", attacker = player, pos = g, i = i, radius = if i == 2 then SNATCH_SPLASH * 1.5 else SNATCH_SPLASH,
-				model = v.character })
+			local r = if i == 2 then SNATCH_SPLASH * 1.25 else SNATCH_SPLASH
+			fx({ kind = "snatchSlam", attacker = player, pos = g, i = i, radius = r, model = v.character })
 			if v.humanoid.Health > 0 then
-				strike(player, { v }, damage * (if i == 1 then 1 else 2.6), if i == 1 then "GRAVE SLAM" else "GRAVE EXECUTION", true)
+				strike(player, { v }, damage * (if i == 1 then 1.4 else 2.2), if i == 1 then "GRAVE SLAM" else "GRAVE THROW", true)
 			end
 			local splash = {}
-			for _, t in ipairs(inRadius(char, g, dir, if i == 2 then SNATCH_SPLASH * 1.5 else SNATCH_SPLASH, -1)) do
+			for _, t in ipairs(inRadius(char, g, dir, r, -1)) do
 				if t.character ~= v.character then table.insert(splash, t) end
 			end
-			strike(player, splash, damage * (if i == 1 then 0.5 else 0.8), "GRAVE SLAM")
+			strike(player, splash, damage * (if i == 1 then 0.6 else 0.8), "GRAVE SLAM")
 		end
 
 		if heavy then
 			-- Too heavy to move: the chain holds fast and both blows land where
 			-- it stands.
-			for i, at in ipairs({ T.slam1, T.slam2 }) do
+			for i, at in ipairs({ T.slam, T.land }) do
 				task.delay(at, function()
 					if st.token ~= token or not char.Parent or not v.rootPart.Parent then return end
 					slam(i, v.rootPart.Position)
 				end)
 			end
-			task.delay(T.done, function()
-				if st.token == token then fx({ kind = "snatchRelease", attacker = player }) end
-			end)
+			task.delay(T.done, release)
 			return
 		end
 
-		-- Held by the chain (anchored, the server moving it) round him on the
-		-- floor's plane: θ 0 is straight ahead of him, 180 straight behind.
-		-- Dragged round his right side to behind him, then back round his
-		-- left to in front: never through him, always travelling.
+		-- Carried by the chain (anchored, the server moving it) on a circle round
+		-- him: up off its feet, over him (passing over his left side) and down onto
+		-- the far side at the same distance; then flung on out from there.
 		local vr = v.rootPart
 		local ok, err = pcall(function()
 			vr.Anchored = true
 			stagger(v, T.done + 1)
 			local start = vr.Position
-			local right = dir:Cross(Vector3.yAxis).Unit
 			local flat = Vector3.new(start.X - center.X, 0, start.Z - center.Z)
-			local r0 = math.max(flat.Magnitude, 3)
-			local th0 = math.atan2(flat:Dot(right), flat:Dot(dir))
-			local base = floorY(center, ignore) + (start.Y - floorY(start, ignore))
-			local function at(th: number, r: number, up: number): Vector3
-				local d = dir * math.cos(th) + right * math.sin(th)
-				return Vector3.new(center.X, base + up, center.Z) + d * r
+			local u = if flat.Magnitude > 0.5 then flat.Unit else dir -- (out toward it)
+			local left = Vector3.yAxis:Cross(u).Unit -- (his left, as he faces it)
+			local r0 = math.max(flat.Magnitude, SNATCH_MIN_R)
+			local stand = start.Y - floorY(start, ignore) -- (its root's height over the floor)
+			local baseY = floorY(center, ignore) + stand
+			local hub = Vector3.new(center.X, baseY, center.Z)
+			-- where it comes down: as far out on the other side, short of any wall
+			local landAt = clearTo(hub, hub - u * r0, ignore)
+			local r1 = math.max((landAt - hub).Magnitude, 3)
+			local upScale = math.min(1, SNATCH_MAX_UP / r0)
+			-- θ: 0 where it stood, 90° over him, 180° on the far side
+			local function arcAt(th: number): Vector3
+				local r = r0 + (r1 - r0) * math.clamp(th / math.pi, 0, 1)
+				return hub + u * (r * math.cos(th)) + Vector3.yAxis * (r * math.sin(th) * upScale)
+					+ left * (SNATCH_SIDE * math.sin(th))
 			end
-			-- the body, laid out along its travel (the chest leading, wrapped in
-			-- the chain; the legs trailing), facing him
-			local last = vr.Position
-			local function place(p: Vector3, lay: number)
-				local vel = p - last
-				last = p
-				local toC = Vector3.new(center.X - p.X, 0, center.Z - p.Z)
-				toC = if toC.Magnitude > 0.05 then toC.Unit else -dir
-				local up = Vector3.yAxis
-				if vel.Magnitude > 0.02 then up = (Vector3.yAxis * (1 - lay) + vel.Unit * lay) end
+			-- the body hangs off the chain: chest toward him, head pointing out along it
+			local function hung(p: Vector3)
+				local toC = hub + Vector3.new(0, 1, 0) - p
+				local look = if toC.Magnitude > 0.1 then toC.Unit else -u
+				local outward = p - hub
+				local up = outward - look * outward:Dot(look)
 				up = if up.Magnitude > 0.05 then up.Unit else Vector3.yAxis
-				local x = toC:Cross(up)
-				if x.Magnitude < 0.05 then x = right end
-				vr.CFrame = CFrame.fromMatrix(p, x.Unit, up)
+				vr.CFrame = CFrame.lookAt(p, p + look, up)
 			end
-			-- laid flat on the floor where it was smashed, head away from him
+			-- laid flat on the floor, head away from him
 			local function pinned(p: Vector3)
 				local away = Vector3.new(p.X - center.X, 0, p.Z - center.Z)
-				away = if away.Magnitude > 0.05 then away.Unit else dir
+				away = if away.Magnitude > 0.05 then away.Unit else -u
 				vr.CFrame = CFrame.fromMatrix(Vector3.new(p.X, floorY(p, ignore) + 0.6, p.Z), away:Cross(Vector3.yAxis).Unit, away)
 			end
 			local function over(dur: number, fn: (number) -> ()): boolean
@@ -485,55 +513,55 @@ local function snatch(player: Player, char: Model, st: State, root: BasePart, di
 					RunService.Heartbeat:Wait()
 				end
 			end
-			-- 1 · snared: the chain coils round it and draws taut; it's pulled
-			-- off balance toward him
-			if not over(T.wrap, function(a)
-				place(at(th0, r0 - 0.6 * a * a, 0.3 * a), 0)
+			local p0 = arcAt(0)
+			-- 1 · grabbed: the coil bites, the chain draws taut, it's jerked up
+			-- onto its toes where it stands (not toward him)
+			if not over(T.grab, function(a)
+				local jolt = math.sin(math.min(a / 0.35, 1) * math.pi * 0.5) * 0.35
+				local q = start:Lerp(Vector3.new(p0.X, start.Y, p0.Z), a) + Vector3.new(0, jolt, 0)
+				vr.CFrame = CFrame.lookAt(q, Vector3.new(center.X, q.Y, center.Z))
 			end) then return end
-			-- 2 · torn across past him and thrown down behind him (round his
-			-- right side, off its feet, accelerating then skidding in)
-			local behind = math.pi
-			local thA = th0
-			if not over(T.pull, function(a)
-				local e = if a < 0.6 then (a / 0.6) ^ 2 * 0.7 else 0.7 + 0.3 * (1 - (1 - (a - 0.6) / 0.4) ^ 2)
-				local th = thA + (behind - thA) * e
-				local r = r0 + (SNATCH_AHEAD - r0) * e
-				place(at(th, math.max(r, 3.6), 3.4 * math.sin(math.pi * math.min(e * 1.05, 1))), 0.85 * math.sin(math.pi * a))
+			-- 2 · launched: heaved up off its feet, fast at first, slowing as it
+			-- rises over him...
+			local TOP = math.rad(100)
+			if not over(T.launch, function(a)
+				hung(arcAt(TOP * (1 - (1 - a) ^ 2)))
 			end) then return end
-			-- 3 · it hits the floor behind him; he turns on it and smashes it in
-			-- (small, sharp)
-			local lying = at(behind, SNATCH_AHEAD, 0)
-			if not over(T.slam1 - T.wrap - T.pull, function(a)
-				place(lying + Vector3.new(0, -0.5 * a, 0), 0.6 * a)
+			-- 3 · ...then swung down across him, faster and faster, into the floor
+			-- on the far side
+			if not over(T.over, function(a)
+				hung(arcAt(TOP + (math.pi - TOP) * a * a))
 			end) then return end
-			pinned(lying)
-			slam(1, lying)
+			local down = arcAt(math.pi)
+			pinned(down)
+			slam(1, down)
 			if v.humanoid.Health <= 0 then return end
-			-- 4 · the chain reversed: dragged back round his left side, the
-			-- body trailing, to in front of him
-			if not over(T.back - T.slam1, function(a) pinned(lying) end) then return end
-			local front = 2 * math.pi
-			if not over(T.reverse, function(a)
-				local e = if a < 0.5 then 2 * a * a else 1 - 2 * (1 - a) ^ 2
-				local th = behind + (front - behind) * e
-				place(at(th, SNATCH_AHEAD + 0.6 * math.sin(math.pi * e), 2.6 * math.sin(math.pi * e)), 0.9 * math.sin(math.pi * a))
+			-- 4 · lying there in the crater (a bounce, settling) while he winds up the yank
+			if not over(T.fling - T.slam, function(a)
+				pinned(down + Vector3.new(0, 0.8 * math.sin(math.min(a * 2.2, 1) * math.pi) * (1 - a), 0))
 			end) then return end
-			-- 5 · held up on the chain before him as he raises the hammer...
-			local before = at(front, SNATCH_AHEAD, 0)
-			if not over(T.slam2 - T.back - T.reverse, function(a)
-				place(before + Vector3.new(0, 0.15 * math.sin(a * math.pi * 3), 0), 0)
+			-- 5 · flung on out away from him, tumbling end over end
+			local outDir = Vector3.new(down.X - center.X, 0, down.Z - center.Z)
+			outDir = if outDir.Magnitude > 0.1 then outDir.Unit else -u
+			local lift = Vector3.new(0, 1, 0)
+			local landP = clearTo(down + lift, down + lift + outDir * SNATCH_FLING, ignore) - lift
+			local axis = outDir:Cross(Vector3.yAxis).Unit
+			local face = CFrame.lookAt(Vector3.zero, -outDir).Rotation
+			if not over(T.land - T.fling, function(a)
+				local e = 1 - (1 - a) ^ 1.6
+				local p = down:Lerp(landP, e) + Vector3.new(0, 5.5 * math.sin(math.pi * a), 0)
+				vr.CFrame = CFrame.new(p) * CFrame.fromAxisAngle(axis, -a * math.pi * 3) * face
 			end) then return end
-			-- ...and crushed: pinned to the floor under the hammer
-			pinned(before)
-			slam(2, before)
-			over(T.done - T.slam2 - 0.15, function() pinned(before) end)
+			pinned(landP)
+			slam(2, landP)
+			over(T.done - T.land, function() pinned(landP) end)
 		end)
 		if not ok then warn("[DeathKnightServer] snatch:", err) end
 		if vr.Parent then
 			vr.Anchored = false
 			pcall(function() vr:SetNetworkOwner(nil) end)
 		end
-		if st.token == token then fx({ kind = "snatchRelease", attacker = player }) end
+		release()
 	end)
 end
 
@@ -700,6 +728,13 @@ local function refreshPlate(p: Player, char: Model)
 end
 
 function DeathKnightServer.Init(helpers: any)
+	-- (a dash cuts the move short: free to act again, and what was left of it doesn't land)
+	(require(script.Parent:WaitForChild("Dash")) :: any).OnDash(function(p: Player)
+		local st = states[p] :: any
+		if not st then return end
+		st.busyUntil = 0
+		if type(st.token) == "number" then st.token += 1 end
+	end)
 	H = helpers
 	if helpers.addIncomingHook then
 		helpers.addIncomingHook(function(player: Player, char: Model, damage: number): number

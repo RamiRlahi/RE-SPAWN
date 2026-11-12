@@ -25,6 +25,15 @@ export type EquipmentData = {
 	stats: { [string]: string },
 }
 
+-- Class-select ratings, 0 to 100.
+export type ClassRatings = {
+	damage: number,
+	survivability: number,
+	mobility: number,
+	range: number,
+	difficulty: number,
+}
+
 export type ClassInfo = {
 	id: string,
 	name: string,
@@ -35,6 +44,12 @@ export type ClassInfo = {
 	stats: ClassStats,
 	abilities: { AbilityData },
 	equipment: EquipmentData,
+	-- Class select (filled in from DISPLAY below):
+	tagline: string?,      -- "The Infernal Vanguard"
+	roles: { string }?,    -- { "Bruiser", "Vanguard" }
+	ratings: ClassRatings?,
+	emblem: string?,       -- a glyph over the name
+	glowColor: Color3?,    -- second colour for the pedestal and aura
 }
 
 local ClassData: { [string]: ClassInfo } = {
@@ -43,7 +58,7 @@ local ClassData: { [string]: ClassInfo } = {
 		name = "Martial Artist",
 		title = "Flow · Strike · Master",
 		role = "Melee / Burst",
-		description = "\"The body is the brush. Qi is the ink. The fight is the canvas.\" A bare-fisted master of black ink and crimson energy: fast, mobile, built on combos and huge bursts.",
+		description = "Fast, mobile brawler. Long combos and big bursts.",
 		accentColor = Color3.fromRGB(226, 26, 46),
 		stats = {
 			strength = 4,
@@ -55,18 +70,18 @@ local ClassData: { [string]: ClassInfo } = {
 			difficulty = 3,
 		},
 		abilities = {
-			{ name = "Flowing Fists", tag = "M1/Primary", summary = "Rapid 7-hit martial combo erupting into an explosive ground shockwave.", icon = "rbxassetid://81505553763631", description = "A fast 7-hit chain of Qi-charged strikes: jab, cross, a high kick that pops them up, a spinning strike that hits all around you, an elbow, a palm that bursts with Qi, and a flying knee that makes the ground erupt. Then a breath to recover.", videoId = "" },
-			{ name = "Qi Charge", tag = "Passive", summary = "Attacks build Qi Charge; at 100 Charge, your next ability is Empowered.", icon = "rbxassetid://135519619953111", description = "Build Qi Charge with your abilities and strikes. At 100 Charge your next ability becomes Empowered.", videoId = "" },
-			{ name = "Hundred Fists", tag = "Skill 1 (E)", summary = "A storm of blows from both fists, then a power punch that craters the ground in a cone.", icon = "rbxassetid://74728376681187", description = "Both fists hammer out a barrage, afterimages of fists flying, hitting everything in front again and again; then an enhanced power punch blasts a cone ahead, tearing a crater into the floor and throwing enemies back. Empowered: harder, and a longer cone.", videoId = "" },
-			{ name = "Electric Uppercut", tag = "Skill 2 (F)", summary = "3-charge lightning uppercut that launches foes skyward and shocks nearby targets.", icon = "rbxassetid://90742192763242", description = "Three charges. Dash in low from a crouch and rise into an uppercut wrapped in crackling lightning: a sharp impact flash, and everything hit is launched into the air and shocked. Empowered: the lightning chains on to more enemies.", videoId = "" },
-			{ name = "Ground Slam", tag = "Skill 3 (Q)", summary = "Leap high on a surge of Qi and dive down in an explosive, fiery ground impact.", icon = "rbxassetid://81505553763631", description = "Leap high on a surge of Qi and dive onto the spot, striking enemies on the way down, landing with an explosive hit and leaving a burning trail. Empowered: three strikes along the path, more hits, a wider area.", videoId = "" },
-			{ name = "Crimson Hadouken", tag = "Ultimate (R)", summary = "Hurl a colossal piercing crimson sphere that obliterates foes and detonates.", icon = "rbxassetid://130269422401080", description = "Charge a sphere of red energy in your hand, thrust forward and fire one huge sphere through every enemy in its path; it bursts where it ends. Grows with Size.", videoId = "" },
+			{ name = "Flowing Fists", tag = "M1/Primary", summary = "7-hit combo ending in a shockwave.", icon = "rbxassetid://81505553763631", description = "7-hit combo. Hit 3 launches, hit 4 hits all around, the last hit erupts the ground.", videoId = "" },
+			{ name = "Qi Charge", tag = "Passive", summary = "At 100 Qi, your next ability is Empowered.", icon = "rbxassetid://135519619953111", description = "Hits and abilities build Qi. At 100, your next ability is Empowered.", videoId = "" },
+			{ name = "Hundred Fists", tag = "Skill 1 (E)", summary = "Punch barrage, then a cone blast.", icon = "rbxassetid://74728376681187", description = "Barrage hits everything in front, then a cone blast knocks back. Empowered: more damage, longer cone.", videoId = "" },
+			{ name = "Electric Uppercut", tag = "Skill 2 (F)", summary = "Lightning uppercut that launches. 3 charges.", icon = "rbxassetid://90742192763242", description = "3 charges. Dash into an uppercut that launches and shocks. Empowered: lightning chains to more enemies.", videoId = "" },
+			{ name = "Ground Slam", tag = "Skill 3 (Q)", summary = "Leap and slam down. Leaves fire.", icon = "rbxassetid://81505553763631", description = "Leap and dive onto the target, hitting along the way. Leaves a burning trail. Empowered: 3 strikes, wider area.", videoId = "" },
+			{ name = "Dragon Soul", tag = "Ultimate (R)", summary = "+60% attack speed. A dragon strikes with you.", icon = "rbxassetid://130269422401080", description = "Summon a crimson dragon for 10s: +60% attack speed, and the dragon lashes out along every strike you throw. Empowered: lasts longer, hits harder.", videoId = "" },
 		},
 		equipment = {
 			name = "Ink-Stained Braces & Red Sash",
 			slot = "Bare Fists",
 			rarity = "Legendary Discipline",
-			description = "Black forearm braces striped in red and a crimson sash. Qi flows through them as easily as ink through a brush.",
+			description = "Red-striped fist braces.",
 			stats = {
 				["Max Health"] = "140 HP",
 				["Qi Charge"] = "100 to Empower",
@@ -81,7 +96,7 @@ local ClassData: { [string]: ClassInfo } = {
 		name = "Fire Knight",
 		title = "The Infernal Vanguard",
 		role = "Bruiser / Vanguard",
-		description = "\"The longer the fight continues, the hotter the battlefield becomes.\" Every strike builds Heat until he Overheats, and everything he touches is Scorched until it Ignites.",
+		description = "Hits build Heat. Overheat for stronger skills. Burns everything.",
 		accentColor = Color3.fromRGB(255, 120, 40),
 		stats = {
 			strength = 5,
@@ -93,18 +108,18 @@ local ClassData: { [string]: ClassInfo } = {
 			difficulty = 1,
 		},
 		abilities = {
-			{ name = "Emberblade", tag = "M1/Primary", summary = "4-hit fiery sword combo ending in an Infernal Execution ground slam.", icon = "rbxassetid://16951304645", description = "A 4-hit sword combo forged in flame: Cinder Slash, Scorching Cross, Furnace Breaker, and the Infernal Execution slam with a line of fire.", videoId = "" },
-			{ name = "Heat of War", tag = "Passive", summary = "Every strike builds Heat. At 100 Heat, Overheat for bonus burn & super armor.", icon = "rbxassetid://79763025422259", description = "Every strike builds Heat. At 100 Heat you Overheat: bonus fire damage, burning ground, Empowered skills and no knockback, until the Heat crashes back down. Fire attacks stack Scorch; at 5 stacks an enemy Ignites and explodes, spreading Scorch.", videoId = "" },
-			{ name = "Fire Tornado", tag = "Skill 1 (E)", summary = "Spin inside a mobile flame vortex that pulls in, burns, and launches enemies.", icon = "rbxassetid://132155579159537", description = "Spin inside a tornado of fire that follows you: it burns and drags in everyone inside, then bursts and throws them out. Overheated: bigger, longer, and the ground burns in your wake.", videoId = "" },
-			{ name = "Phoenix Slam", tag = "Skill 2 (F)", summary = "Transform into a fiery phoenix and dive bomb target ground location.", icon = "rbxassetid://91314905448390", description = "Soar into the air as a phoenix of fire, pick your landing spot with the marker, and crash down in an explosion that leaves the ground burning.", videoId = "" },
-			{ name = "Infernal Earthshaker", tag = "Skill 3 (Q)", summary = "Drive your greatsword into the ground, triggering expanding fiery shockwaves.", icon = "rbxassetid://131134579080569", description = "Drive the sword into the ground: a huge explosion, aftershocks rippling out and patches of fire. Overheated: three expanding rings of fire.", videoId = "" },
-			{ name = "Excalibur", tag = "Ultimate (R)", summary = "Charge the sword with golden fire and unleash a colossal wave down a line.", icon = "rbxassetid://73181276426858", description = "Raise the sword before you as it fills with golden fire, then bring it down: a vast wave of golden fire tears down a long line, hitting everything in it and leaving burning ground. Wider and stronger at 75 Heat; at Overheat it consumes it for the biggest wave.", videoId = "" },
+			{ name = "Emberblade", tag = "M1/Primary", summary = "4-hit fire combo ending in a slam.", icon = "rbxassetid://16951304645", description = "4-hit combo. The last hit slams and sends out a line of fire.", videoId = "" },
+			{ name = "Heat of War", tag = "Passive", summary = "At 100 Heat, Overheat: more fire, no knockback.", icon = "rbxassetid://79763025422259", description = "Hits build Heat. At 100, Overheat: bonus fire damage, burning ground, Empowered skills, no knockback. 5 Scorch stacks make an enemy explode.", videoId = "" },
+			{ name = "Fire Tornado", tag = "Skill 1 (E)", summary = "Fire tornado that pulls in and burns.", icon = "rbxassetid://132155579159537", description = "A fire tornado follows you, pulling in and burning enemies, then bursts. Overheated: bigger, longer, burns the ground.", videoId = "" },
+			{ name = "Phoenix Slam", tag = "Skill 2 (F)", summary = "Fly up and dive-bomb a spot.", icon = "rbxassetid://91314905448390", description = "Fly up, aim the marker, crash down in an explosion. Leaves burning ground.", videoId = "" },
+			{ name = "Infernal Earthshaker", tag = "Skill 3 (Q)", summary = "Ground stab with fire shockwaves.", icon = "rbxassetid://131134579080569", description = "Big explosion, aftershocks and fire patches. Overheated: 3 fire rings.", videoId = "" },
+			{ name = "Excalibur", tag = "Ultimate (R)", summary = "Giant fire wave down a line.", icon = "rbxassetid://73181276426858", description = "Charge, then send a fire wave down a long line. Leaves burning ground. Stronger at 75 Heat; at Overheat, uses it all for the biggest wave.", videoId = "" },
 		},
 		equipment = {
 			name = "Emberblade Greatsword",
 			slot = "Greatsword",
 			rarity = "Infernal Relic",
-			description = "A colossal blade that drinks the heat of battle. Its flames grow with every strike until the whole blade burns.",
+			description = "Flames grow with every hit.",
 			stats = {
 				["Max Health"] = "300 HP",
 				["Heat"] = "0 – 100",
@@ -119,7 +134,7 @@ local ClassData: { [string]: ClassInfo } = {
 		name = "Berserker",
 		title = "The Crimson Ravager",
 		role = "Melee / High Damage",
-		description = "\"Rage fuels strength. Strength feeds rage.\" A black-armored warrior with an enormous greatsword who turns momentum into ever more violent attacks, until he tears the battlefield apart.",
+		description = "Greatsword brawler. Builds Rage to turn into a Beast.",
 		accentColor = Color3.fromRGB(200, 20, 36),
 		stats = {
 			strength = 5,
@@ -131,17 +146,17 @@ local ClassData: { [string]: ClassInfo } = {
 			difficulty = 2,
 		},
 		abilities = {
-			{ name = "Greatsword", tag = "M1/Primary", summary = "Heavy 3-hit cleave combo ending in an overhead shockwave.", icon = "rbxassetid://16951304645", description = "A heavy 3-hit chain: a diagonal cleave, a backhand, and an overhead smash that sends out a shockwave.", videoId = "" },
-			{ name = "Rupture", tag = "Skill 1 (E)", summary = "Leap forward and crash down, fracturing the earth with an airborne shockwave.", icon = "rbxassetid://76976244029000", description = "Leap to the cursor (up to 17 studs) and crash down: a crater, a spreading fracture and a shockwave that knocks enemies up. Empowered: bigger, with a second burst of crimson spikes.", videoId = "" },
-			{ name = "Bloodstorm", tag = "Skill 2 (F)", summary = "Carve rapid crimson crescents with 50% damage reduction & knockback cleave.", icon = "rbxassetid://103491694383784", description = "Plant your feet and carve huge crimson crescents in front of you, each blow landing with a jolt and a shove, then a spinning cleave that throws them out. Half damage taken meanwhile. Empowered: more slashes, bigger ones, a bigger finish.", videoId = "" },
-			{ name = "Crimson Charge", tag = "Skill 3 (Q)", summary = "Unstoppable piercing rush that tosses foes & Empowers next skill.", icon = "rbxassetid://80913065419728", description = "Charge headlong at the aim, untouchable the whole way: every enemy in your path is cut and thrown aside, and a burst at the end blows everything near away. Your next skill is Empowered.", videoId = "" },
-			{ name = "Beast Awakening", tag = "Ultimate (R)", summary = "Transform into the savage Beast for 12s with feral claws & primal skills.", icon = "rbxassetid://74715237240108", description = "Fill your Rage (hit, cleave crowds, kill, take hits), then abandon your humanity: a roar, and for 12 s you are the BEAST. Claws: claw, claw, claw, a brutal maul. Beast Slam: a huge leap, a crash on all fours, three shockwave rings. Carnage: three enormous claw swipes that bleed and launch. Beast Charge: tear through everything on all fours, then hurl the biggest one into the rest.", videoId = "" },
+			{ name = "Greatsword", tag = "M1/Primary", summary = "3-hit combo ending in a shockwave.", icon = "rbxassetid://16951304645", description = "3 heavy hits. The last one sends a shockwave.", videoId = "" },
+			{ name = "Rupture", tag = "Skill 1 (E)", summary = "Leap and slam. Knocks enemies up.", icon = "rbxassetid://76976244029000", description = "Leap to the cursor (17 studs) and slam, knocking enemies up. Empowered: bigger, plus a spike burst.", videoId = "" },
+			{ name = "Bloodstorm", tag = "Skill 2 (F)", summary = "Rapid slashes. 50% less damage taken.", icon = "rbxassetid://103491694383784", description = "Slash in front repeatedly, then a spin that knocks back. Take half damage. Empowered: more and bigger slashes.", videoId = "" },
+			{ name = "Crimson Charge", tag = "Skill 3 (Q)", summary = "Unstoppable charge. Empowers next skill.", icon = "rbxassetid://80913065419728", description = "Charge forward, immune. Hits and tosses everything in the path, then bursts. Empowers your next skill.", videoId = "" },
+			{ name = "Beast Awakening", tag = "Ultimate (R)", summary = "Become the Beast for 12s.", icon = "rbxassetid://74715237240108", description = "Needs full Rage (hit, kill, take damage). Become the Beast for 12s with new skills: Claws (4-hit combo), Beast Slam (leap, 3 shockwaves), Carnage (3 bleeding swipes), Beast Charge (rush, then throw).", videoId = "" },
 		},
 		equipment = {
 			name = "Ragebringer",
 			slot = "Greatsword (Two-Handed)",
 			rarity = "Cursed Relic",
-			description = "A blackened greatsword whose edge glows with the rage of every battle it has seen.",
+			description = "A black greatsword.",
 			stats = {
 				["Max Health"] = "260 HP",
 				["Rage"] = "0 – 100",
@@ -155,7 +170,7 @@ local ClassData: { [string]: ClassInfo } = {
 		name = "Mage",
 		title = "The Arcanist",
 		role = "Control / Arcane AoE",
-		description = "Control. Manipulate. Destroy. The world is not broken, it's just a different form of magic: he traps whole groups in spectral chains, phases through space leaving echoes of himself behind, and calls down an arcane apocalypse from the sky.",
+		description = "Crowd control caster. Traps groups, teleports, big AoE.",
 		accentColor = Color3.fromRGB(155, 85, 255),
 		stats = {
 			strength = 2,
@@ -167,18 +182,18 @@ local ClassData: { [string]: ClassInfo } = {
 			difficulty = 4,
 		},
 		abilities = {
-			{ name = "Arcane Bolt", tag = "M1/Primary", summary = "Homing bolts of arcane light that seek nearby foes and burst on impact.", icon = "rbxassetid://137276181827966", description = "Fire bolts of arcane light that seek the enemy nearest your aim and burst where they hit.", videoId = "" },
-			{ name = "Arcane Charge", tag = "Passive", summary = "Spells build Arcane Charge; at 100 Charge, your next cast is Empowered.", icon = "rbxassetid://103445564097184", description = "Your abilities build Arcane Charge: Arcane Burst +10, Astral Prison +20, Arcane Shift +15, Apocalypse +25. At 100 Charge your next ability is Empowered.", videoId = "" },
-			{ name = "Arcane Burst", tag = "Skill 1 (E)", summary = "Concentrated arcane vortex that pulls enemies in and leaves a rune.", icon = "rbxassetid://88301943962437", description = "Fire a concentrated arcane projectile that explodes on impact, pulling nearby enemies towards the center and leaving an Arcane Rune. Empowered: three converging projectiles.", videoId = "" },
-			{ name = "Astral Prison", tag = "Skill 2 (F)", summary = "Cage enemies in spectral chains before collapsing in a massive explosion.", icon = "rbxassetid://75801188793124", description = "Place a magic circle that, after a brief delay, traps enemies within spectral chains. The longer they remain, the more it charges before collapsing in a massive explosion. An Arcane Rune inside detonates too. Empowered: larger, pulls enemies in, explodes faster.", videoId = "" },
-			{ name = "Arcane Shift", tag = "Skill 3 (Q)", summary = "Teleport with a shockwave, leaving an Echo that mirrors your next spell.", icon = "rbxassetid://124123608046140", description = "Phase through space to the target location, untargetable. Reappear with a shockwave and leave an Arcane Echo that repeats your next ability with reduced power. Empowered: three Arcane Echoes.", videoId = "" },
-			{ name = "Apocalypse", tag = "Ultimate (R)", summary = "Rain arcane comets on marked enemies before a catastrophic detonation.", icon = "rbxassetid://102883539726716", description = "Break the battlefield itself: mark every enemy in a large radius, call down a storm of arcane projectiles, then every mark detonates in a massive explosion.", videoId = "" },
+			{ name = "Arcane Bolt", tag = "M1/Primary", summary = "Homing bolts.", icon = "rbxassetid://137276181827966", description = "Bolts home in on the enemy nearest your aim.", videoId = "" },
+			{ name = "Arcane Charge", tag = "Passive", summary = "At 100 Charge, your next cast is Empowered.", icon = "rbxassetid://103445564097184", description = "Abilities build Charge: Burst +10, Prison +20, Shift +15, Apocalypse +25. At 100, your next ability is Empowered.", videoId = "" },
+			{ name = "Arcane Burst", tag = "Skill 1 (E)", summary = "Pulls enemies in. Leaves a Rune.", icon = "rbxassetid://88301943962437", description = "Explodes on hit, pulls enemies in and leaves a Rune. Empowered: 3 projectiles.", videoId = "" },
+			{ name = "Astral Prison", tag = "Skill 2 (F)", summary = "Chain enemies, then explode.", icon = "rbxassetid://75801188793124", description = "A circle chains enemies in place and charges up, then explodes. Detonates Runes inside. Empowered: bigger, pulls in, faster.", videoId = "" },
+			{ name = "Arcane Shift", tag = "Skill 3 (Q)", summary = "Teleport. Leaves an Echo that copies your next spell.", icon = "rbxassetid://124123608046140", description = "Teleport to the target (untargetable) with a shockwave. Your Echo repeats your next ability at reduced power. Empowered: 3 Echoes.", videoId = "" },
+			{ name = "Apocalypse", tag = "Ultimate (R)", summary = "Mark all enemies, rain bolts, detonate.", icon = "rbxassetid://102883539726716", description = "Mark every enemy in a large radius, rain bolts on them, then all marks explode.", videoId = "" },
 		},
 		equipment = {
 			name = "Codex of the Unbroken Sky & Astral Robes",
 			slot = "Floating Grimoire",
 			rarity = "Mythic Arcana",
-			description = "An ancient spellbook that floats open at the Mage's side, its pages burning with violet runes. Every spell he casts is read from it.",
+			description = "A floating spellbook.",
 			stats = {
 				["Max Health"] = "100 HP",
 				["Arcane Charge"] = "100 to Empower",
@@ -193,7 +208,7 @@ local ClassData: { [string]: ClassInfo } = {
 		name = "Rogue",
 		title = "The Shadow",
 		role = "Mobility / Burst",
-		description = "Strike from the dark. Disappear. Repeat. A master of movement and deception who appears when you least expect it, leaving only chaos in their wake.",
+		description = "Mobile assassin. Mark, vanish, strike from behind.",
 		accentColor = Color3.fromRGB(215, 30, 60),
 		stats = {
 			strength = 4,
@@ -205,16 +220,16 @@ local ClassData: { [string]: ClassInfo } = {
 			difficulty = 4,
 		},
 		abilities = {
-			{ name = "Shadow Dagger", tag = "Skill 1 (E)", summary = "Throw a dagger, then reactivate to teleport behind marked target for bonus damage.", icon = "rbxassetid://76025835812755", description = "Throw a dagger that marks the first enemy it hits. Press again to Shadow Step to it: you appear behind a marked enemy for bonus damage. Works while invisible.", videoId = "" },
-			{ name = "Dash", tag = "Skill 2 (F)", summary = "Instantly dash through enemies, slashing and applying the Shadow Mark.", icon = "rbxassetid://126886113502981", description = "Dash instantly in the aimed direction, slashing through every enemy on the way and applying the Shadow Mark.", videoId = "" },
-			{ name = "Invisibility", tag = "Skill 3 (Q)", summary = "Vanish for 6s with speed boost and doubled cooldown recovery.", icon = "rbxassetid://96103077837816", description = "Vanish for 6 seconds: enemies lose you and you move faster. Attacking or taking damage ends it early.", videoId = "" },
-			{ name = "Shadow Execution", tag = "Ultimate (R)", summary = "Smoke bomb ambush with omnidirectional shadow strikes that detonate all marks.", icon = "rbxassetid://90722823590745", description = "Throw a smoke bomb and vanish. Your afterimages strike every enemy in the smoke from all sides, marking them; then you reappear behind the target and detonate every mark at once.", videoId = "" },
+			{ name = "Shadow Dagger", tag = "Skill 1 (E)", summary = "Throw a dagger. Recast to teleport behind the target.", icon = "rbxassetid://76025835812755", description = "Marks the first enemy hit. Press again to teleport behind it for bonus damage. Works while invisible.", videoId = "" },
+			{ name = "Dash", tag = "Skill 2 (F)", summary = "Dash through enemies and Mark them.", icon = "rbxassetid://126886113502981", description = "Dash in the aimed direction, hitting and Marking every enemy on the way.", videoId = "" },
+			{ name = "Invisibility", tag = "Skill 3 (Q)", summary = "Go invisible for 6s. Faster movement and cooldowns.", icon = "rbxassetid://96103077837816", description = "Invisible for 6s and move faster. Ends early if you attack or get hit.", videoId = "" },
+			{ name = "Shadow Execution", tag = "Ultimate (R)", summary = "Smoke bomb. Hits everything inside, detonates Marks.", icon = "rbxassetid://90722823590745", description = "Vanish in smoke. Every enemy inside is hit and Marked, then you reappear and detonate all Marks.", videoId = "" },
 		},
 		equipment = {
 			name = "Shadowfang & Crimson Cowl",
 			slot = "Dagger & Hood",
 			rarity = "Shadow Relic",
-			description = "A black dagger with a crimson edge. Passive: dealing damage builds Shadow Energy; at full, your next ability is enhanced. Marked enemies take more damage, kills give a burst of speed, and cooldowns run faster while invisible.",
+			description = "A dagger that drinks from the shadows.",
 			stats = {
 				["Max Health"] = "95 HP",
 				["Marked Damage"] = "+25%",
@@ -229,7 +244,7 @@ local ClassData: { [string]: ClassInfo } = {
 		name = "Summoner",
 		title = "The Beastcaller",
 		role = "Summons / Control",
-		description = "\"I never fight alone.\" A wanderer bound to three spirit beasts: a golem of living lava, a storm hawk and a moon stag. Call them down, command their great moves, and when the bond runs deepest, fuse all three into the Skyrockorn.",
+		description = "Summons 3 beasts: a golem, a hawk and a healing stag.",
 		accentColor = Color3.fromRGB(130, 215, 255),
 		stats = {
 			strength = 3,
@@ -241,18 +256,18 @@ local ClassData: { [string]: ClassInfo } = {
 			difficulty = 3,
 		},
 		abilities = {
-			{ name = "Bond Bolt", tag = "M1/Primary", summary = "Spirit bolts from the staff; whatever they hit becomes every beast's target.", icon = "rbxassetid://137276181827966", description = "Fire bolts of spirit light from the Bondstaff. The enemy a bolt hits is marked with the Focus sigil and every beast on the field turns on it.", videoId = "" },
-			{ name = "Pack Bond", tag = "Passive", summary = "Every other beast on the field makes all of them hit 12% harder.", icon = "rbxassetid://103445564097184", description = "Your beasts fight on their own beside you. Each other beast on the field makes every one of them hit 12% harder, so a full pack is far deadlier than the sum of its parts.", videoId = "" },
-			{ name = "Rockborn", tag = "Skill 1 (E)", summary = "A lava golem crashes down as a meteor, taunts and pummels. Recast: Ground Slam.", icon = "rbxassetid://131134579080569", description = "Call the Rockborn: it falls where you aim as a burning meteor, then holds the line, drawing enemies onto itself and battering them with hooks and hammer fists. Press again while it's out: it leaps to the cursor and slams the ground, splitting it with erupting lava fissures.", videoId = "" },
-			{ name = "Skyfeather", tag = "Skill 2 (F)", summary = "A storm hawk dives in, firing feather volleys. Recast: Wind Circle.", icon = "rbxassetid://85167837069373", description = "Call the Skyfeather: it dives in out of the sky and hovers at range, loosing volleys of feather blades and diving onto enemies. Press again: it flies to the cursor and circles, raising a cyclone that drags enemies in, cuts them and bursts.", videoId = "" },
-			{ name = "Lunari", tag = "Skill 3 (Q)", summary = "A moon stag heals the party and tramples lines. Recast: Radiant Bloom.", icon = "rbxassetid://83970690874192", description = "Call the Lunari: it rises from a moon gate, heals the party with pulses of moonlight, jabs with its antlers and tramples through lines of enemies. Press again: it gallops to the cursor, rears and stomps, blooming a flower of moonlight that heals the party and stuns enemies.", videoId = "" },
-			{ name = "Divine Cataclysm", tag = "Ultimate (R)", summary = "Fuse every beast into the Skyrockorn: starfire, judgement rays, a crash.", icon = "rbxassetid://102883539726716", description = "Your beasts fly to you and fuse into the Skyrockorn. It takes off and circles the battlefield raining starfire, rears high and fires judgement rays into every enemy, then crashes down in a cataclysm. The beasts it was made of step back out of it.", videoId = "" },
+			{ name = "Bond Bolt", tag = "M1/Primary", summary = "Bolts. Your beasts attack what you hit.", icon = "rbxassetid://137276181827966", description = "The enemy you hit becomes every beast's target.", videoId = "" },
+			{ name = "Pack Bond", tag = "Passive", summary = "+12% beast damage per other beast out.", icon = "rbxassetid://103445564097184", description = "Beasts fight on their own. Each other beast out gives all of them +12% damage.", videoId = "" },
+			{ name = "Rockborn", tag = "Skill 1 (E)", summary = "Lava golem tank. Recast: Ground Slam.", icon = "rbxassetid://131134579080569", description = "Summon a golem where you aim. It taunts and punches. Press again: it leaps to the cursor and slams, leaving lava cracks.", videoId = "" },
+			{ name = "Skyfeather", tag = "Skill 2 (F)", summary = "Ranged hawk. Recast: Wind Circle.", icon = "rbxassetid://85167837069373", description = "Summon a hawk that shoots feathers and dives on enemies. Press again: a cyclone at the cursor pulls enemies in, then bursts.", videoId = "" },
+			{ name = "Lunari", tag = "Skill 3 (Q)", summary = "Healing stag. Recast: Radiant Bloom.", icon = "rbxassetid://83970690874192", description = "Summon a stag that heals the party and tramples enemies. Press again: it stomps at the cursor, healing the party and stunning enemies.", videoId = "" },
+			{ name = "Divine Cataclysm", tag = "Ultimate (R)", summary = "Fuse all beasts into one giant attack.", icon = "rbxassetid://102883539726716", description = "Your beasts fuse into the Skyrockorn. It rains fire, hits every enemy with rays, then crashes down. The beasts return after.", videoId = "" },
 		},
 		equipment = {
-			name = "Bondstaff",
-			slot = "Staff",
+			name = "Bondgauntlet",
+			slot = "Gauntlet",
 			rarity = "Bond Relic",
-			description = "A staff of dark heartwood bound in old gold. Its crystal holds the bond: ember, sky and moon stones set round it, one for each beast.",
+			description = "A rune gauntlet with a stone for each beast.",
 			stats = {
 				["Max Health"] = "110 HP",
 				["Beasts"] = "3 + the fusion",
@@ -267,7 +282,7 @@ local ClassData: { [string]: ClassInfo } = {
 		name = "Death Knight",
 		title = "The Soul Reaper",
 		role = "Bruiser / Control",
-		description = "\"A fallen warrior. A harbinger of eternal rest.\" A walking nightmare in blackened plate, wreathed in black mist, swinging an executioner's greatsword whose chains reach out to drag the living to him.",
+		description = "Heavy greatsword knight. Chains enemies in, builds Dread.",
 		accentColor = Color3.fromRGB(112, 201, 245),
 		stats = {
 			strength = 5,
@@ -279,18 +294,18 @@ local ClassData: { [string]: ClassInfo } = {
 			difficulty = 3,
 		},
 		abilities = {
-			{ name = "Graveblade", tag = "M1/Primary", summary = "Heavy 3-hit greatsword chain ending in an overhead slam of black mist.", icon = "rbxassetid://16951304645", description = "A heavy 3-hit chain with the Graveblade: a horizontal cleave, a rising backhand, and an overhead slam that bursts into black mist.", videoId = "" },
-			{ name = "Dread", tag = "Passive", summary = "Hits build Dread. At 100 he is Dreadforged: harder hits, bigger skills, ghostfire.", icon = "rbxassetid://103445564097184", description = "Every enemy struck builds Dread; kills more. At 100 Dread he becomes Dreadforged for 8 s: the Graveblade burns with icy-blue ghostfire, his swings send out spectral shockwaves, he hits 20% harder and his skills grow.", videoId = "" },
-			{ name = "Blackwake", tag = "Skill 1 (E)", summary = "A two-handed horizontal swing that sends a huge crescent of black smoke forward.", icon = "rbxassetid://103491694383784", description = "Swing the greatsword wide with both hands: a huge crescent of dense black smoke rolls forward, cutting and shoving everything it passes. Dreadforged: wider, and a second wave follows.", videoId = "" },
-			{ name = "Doomfall", tag = "Skill 2 (F)", summary = "Leap high, blade overhead, and crash down sword-first in a dark shockwave.", icon = "rbxassetid://76976244029000", description = "Leap high with the Graveblade raised as black mist gathers on it, then crash down sword-first at the cursor: a wide dark shockwave, and thick mist lingers on the spot, hurting whoever stays in it. Dreadforged: bigger, and the mist bites harder.", videoId = "" },
-			{ name = "Grave Reversal", tag = "Skill 3 (Q)", summary = "Chain an enemy, smash it down behind you, drag it back and execute it.", icon = "rbxassetid://80913065419728", description = "A spectral chain shoots from your free hand and coils round the first enemy it reaches. Tear it across past you and smash it into the ground behind you, reverse the chain to drag it back in front of you, then execute it with an overhead slam that pins it to the ground. Bosses are too heavy to move: they take both blows where they stand.", videoId = "" },
-			{ name = "King of the Grave", tag = "Ultimate (R)", summary = "Plant the blade: ghostfire spreads, chains bind every enemy, spectral sweeps, a final impact.", icon = "rbxassetid://74715237240108", description = "Plant the Graveblade in the ground: ghostfire spreads out across the floor and spectral chains burst from the dark to bind every enemy near. Enormous spectral blades sweep the field behind you, then a massive final impact fills it with black mist and icy-blue light.", videoId = "" },
+			{ name = "Graveblade", tag = "M1/Primary", summary = "3-hit combo ending in a slam.", icon = "rbxassetid://16951304645", description = "3 heavy hits. The last one bursts into mist.", videoId = "" },
+			{ name = "Dread", tag = "Passive", summary = "At 100 Dread: +20% damage, bigger skills.", icon = "rbxassetid://103445564097184", description = "Hits and kills build Dread. At 100, Dreadforged for 8s: +20% damage, swings send shockwaves, bigger skills.", videoId = "" },
+			{ name = "Blackwake", tag = "Skill 1 (E)", summary = "Wide swing that sends a smoke wave.", icon = "rbxassetid://103491694383784", description = "A smoke wave rolls forward, hitting and pushing enemies. Dreadforged: wider, plus a second wave.", videoId = "" },
+			{ name = "Doomfall", tag = "Skill 2 (F)", summary = "Leap and slam. Leaves damaging mist.", icon = "rbxassetid://76976244029000", description = "Leap and slam at the cursor. Leaves mist that damages enemies. Dreadforged: bigger, stronger mist.", videoId = "" },
+			{ name = "Grave Reversal", tag = "Skill 3 (Q)", summary = "Chain an enemy, slam it twice.", icon = "rbxassetid://80913065419728", description = "Chain the first enemy hit, slam it behind you, pull it back and slam it again. Bosses don't move but take both hits.", videoId = "" },
+			{ name = "King of the Grave", tag = "Ultimate (R)", summary = "Bind every enemy nearby, then hit them all.", icon = "rbxassetid://74715237240108", description = "Chains bind every enemy nearby. Giant blades sweep the area, then a final blast.", videoId = "" },
 		},
 		equipment = {
 			name = "The Graveblade & Soul Reaper Plate",
 			slot = "Greatsword (Two-Handed)",
 			rarity = "Grave Relic",
-			description = "A massive chained executioner's greatsword of blackened metal, a tiny spectral core set under its guard. Black mist never stops leaking from it, or from the plate of the knight who carries it.",
+			description = "A chained greatsword.",
 			stats = {
 				["Max Health"] = "280 HP",
 				["Dread"] = "0 – 100",
@@ -300,12 +315,48 @@ local ClassData: { [string]: ClassInfo } = {
 		},
 	},
 
+	["ronin"] = {
+		id = "ronin",
+		name = "Ronin",
+		title = "The Severing Edge",
+		role = "Duelist / Burst",
+		description = "Fast katana fighter. Every skill is a draw from the scabbard.",
+		accentColor = Color3.fromRGB(150, 225, 255),
+		stats = {
+			strength = 4,
+			vitality = 3,
+			defense = 2,
+			agility = 5,
+			maxHealth = 150,
+			offense = 5,
+			difficulty = 3,
+		},
+		abilities = {
+			{ name = "Edge", tag = "M1/Primary", summary = "3 quick cuts. You keep moving.", icon = "rbxassetid://16951304645", description = "Two flat cuts and a rising finisher.", videoId = "" },
+			{ name = "Distant Cut", tag = "Skill 1 (E)", summary = "Cuts land on the cursor.", icon = "rbxassetid://103491694383784", description = "A quick draw. A sphere of cuts hits at the cursor when the blade clicks home.", videoId = "" },
+			{ name = "Rising Cut", tag = "Skill 2 (F)", summary = "Upward draw. Launches enemies.", icon = "rbxassetid://76976244029000", description = "A low draw sweeping straight up through what's in front.", videoId = "" },
+			{ name = "Falling Heaven", tag = "Skill 3 (Q)", summary = "Air cuts, then a flip and a slam.", icon = "rbxassetid://80913065419728", description = "Leap, cut twice and spin, then flip into a downward cut that slams the area.", videoId = "" },
+			{ name = "Thousand Cuts", tag = "Ultimate (R)", summary = "A storm of cuts. All land on the click.", icon = "rbxassetid://74715237240108", description = "Stillness, a held draw, a storm of cuts. Every cut lands when the blade is sheathed.", videoId = "" },
+		},
+		equipment = {
+			name = "The Severing Edge",
+			slot = "Katana & Scabbard",
+			rarity = "Blade Relic",
+			description = "A katana, always sheathed between cuts.",
+			stats = {
+				["Max Health"] = "150 HP",
+				["Distant Cut"] = "Up to 40 studs",
+				["Thousand Cuts"] = "30 stud radius",
+			},
+		},
+	},
+
 	["cleric"] = {
 		id = "cleric",
 		name = "Cleric",
 		title = "The Radiant Herald",
 		role = "Support / Healer",
-		description = "Channels the holy light of the divine to mend allies' wounds, cleanse curses, and smite unholy adversaries with sacred righteous power.",
+		description = "Heals and cleanses the party.",
 		accentColor = Color3.fromRGB(255, 220, 110),
 		stats = {
 			strength = 2,
@@ -317,16 +368,16 @@ local ClassData: { [string]: ClassInfo } = {
 			difficulty = 2,
 		},
 		abilities = {
-			{ name = "Radiant Smite", tag = "M1/Primary", summary = "Holy ray that damages adversaries and heals nearby allies.", icon = "rbxassetid://1053548563", description = "Cast a ray of holy light that damages enemies and restores ally vitality.", videoId = "" },
-			{ name = "Sanctuary Circle", tag = "Skill 1 (E)", summary = "Consecrate the ground, granting continuous health regeneration.", icon = "rbxassetid://83970690874192", description = "Form a consecrated circle on the ground providing continuous high healing.", videoId = "" },
-			{ name = "Divine Ward", tag = "Skill 2 (F)", summary = "Encase ally or self in a holy barrier that cleanses crowd control.", icon = "rbxassetid://79167595723607", description = "Encase yourself or an ally in a holy shield that cleanses crowd control.", videoId = "" },
-			{ name = "Heavenly Grace", tag = "Ultimate (R)", summary = "Massive radiant blast that revitalizes the party and blinds foes.", icon = "rbxassetid://85719690091163", description = "Release an immense burst of sacred light, fully rejuvenating the party and blinding foes.", videoId = "" },
+			{ name = "Radiant Smite", tag = "M1/Primary", summary = "Damages enemies, heals allies.", icon = "rbxassetid://1053548563", description = "A beam that damages enemies and heals allies.", videoId = "" },
+			{ name = "Sanctuary Circle", tag = "Skill 1 (E)", summary = "Healing zone.", icon = "rbxassetid://83970690874192", description = "A circle that heals allies inside.", videoId = "" },
+			{ name = "Divine Ward", tag = "Skill 2 (F)", summary = "Shield that removes stuns.", icon = "rbxassetid://79167595723607", description = "Shield yourself or an ally and remove crowd control.", videoId = "" },
+			{ name = "Heavenly Grace", tag = "Ultimate (R)", summary = "Full party heal. Blinds enemies.", icon = "rbxassetid://85719690091163", description = "Fully heals the party and blinds enemies.", videoId = "" },
 		},
 		equipment = {
 			name = "Sunfire Scepter & Radiant Scripture",
 			slot = "Main Hand Scepter",
 			rarity = "Sacred Relic",
-			description = "An illuminated holy scepter channeling restorative sunburst pulses that cleanses all party debuffs.",
+			description = "Pulses cleanse party debuffs.",
 			stats = {
 				["Max Health"] = "100 HP",
 				["Healing Output"] = "+60%",
@@ -341,7 +392,7 @@ local ClassData: { [string]: ClassInfo } = {
 		name = "Ranger",
 		title = "The Verdant Venom",
 		role = "Ranged DPS / Control",
-		description = "A druidic archer who coats arrows in venom, commands grasping roots, and blankets the battlefield in toxic spores and arrow storms.",
+		description = "Ranged poison archer. Roots and poison clouds.",
 		accentColor = Color3.fromRGB(70, 220, 105),
 		stats = {
 			strength = 3,
@@ -353,17 +404,17 @@ local ClassData: { [string]: ClassInfo } = {
 			difficulty = 3,
 		},
 		abilities = {
-			{ name = "Venom Arrows", tag = "M1/Primary", summary = "Rapid poison-coated arrows that continuously venom foes on hit.", icon = "rbxassetid://71390904975203", description = "Fire poison-coated arrows as fast, readable ranged basic attacks.", videoId = "" },
-			{ name = "Verdant Slash", tag = "Skill 1 (E)", summary = "Dash forward piercing enemies with a lingering nature slash.", icon = "rbxassetid://71390904975203", description = "Instantly dash through enemies, leaving a piercing nature energy slash that cuts all foes in your path.", videoId = "" },
-			{ name = "Entangling Arrow", tag = "Skill 2 (F)", summary = "Shoot a root-charged arrow that erupts into grasping vines to pin foes.", icon = "rbxassetid://116665007054306", description = "Launch a root-charged arrow that bursts into vines and holds enemies in place.", videoId = "" },
-			{ name = "Toxic Cloud", tag = "Skill 3 (Q)", summary = "Throw spore pods that form a lingering toxic poison cloud.", icon = "rbxassetid://94605725583145", description = "Throw a spore pod that leaves a lingering poison cloud on the ground.", videoId = "" },
-			{ name = "Rain of Arrows", tag = "Ultimate (R)", summary = "A colossal plant behind you: it fires the arrow storm, sprays venom and whips enemies away.", icon = "rbxassetid://123385594261124", description = "Slam the bow down to awaken the wilds: a colossal plant bursts up behind you and spits a great arrow into the sky that shatters into a rain of arrows. The plant draws enemies to it, sprays them with venom and whips back any that come close.", videoId = "" },
+			{ name = "Venom Arrows", tag = "M1/Primary", summary = "Poison arrows.", icon = "rbxassetid://71390904975203", description = "Fast arrows that poison.", videoId = "" },
+			{ name = "Verdant Slash", tag = "Skill 1 (E)", summary = "Dash through enemies.", icon = "rbxassetid://71390904975203", description = "Dash forward, hitting every enemy in the path.", videoId = "" },
+			{ name = "Entangling Arrow", tag = "Skill 2 (F)", summary = "Arrow that roots enemies.", icon = "rbxassetid://116665007054306", description = "Bursts into vines that root enemies.", videoId = "" },
+			{ name = "Toxic Cloud", tag = "Skill 3 (Q)", summary = "Poison cloud.", icon = "rbxassetid://94605725583145", description = "Leaves a poison cloud on the ground.", videoId = "" },
+			{ name = "Rain of Arrows", tag = "Ultimate (R)", summary = "Giant plant: arrow rain, poison, knockback.", icon = "rbxassetid://123385594261124", description = "Summon a giant plant. It rains arrows, pulls enemies in, poisons them and knocks back any that get close.", videoId = "" },
 		},
 		equipment = {
 			name = "Elderthorn Bow & Venomseed Quiver",
 			slot = "Two-Handed Bow",
 			rarity = "Ancient Druid Relic",
-			description = "A living bow bent from elderwood and fed by venomous spores. Its arrows bloom into thorns, roots, and toxic clouds.",
+			description = "A living bow.",
 			stats = {
 				["Max Health"] = "100 HP",
 				["Poison DMG"] = "+45%",
@@ -378,7 +429,7 @@ local ClassData: { [string]: ClassInfo } = {
 		name = "Gunslinger",
 		title = "The Deadeye Outlaw",
 		role = "Ranged DPS / Burst",
-		description = "A dark-frontier trick-shooter with a single engraved six-shooter. Every bullet counts: build Deadeye with clean hits, toss a coin into the crowd, and split one perfect shot into a storm of ricochets.",
+		description = "Revolver burst. Builds Deadeye for crits and ricochets.",
 		accentColor = Color3.fromRGB(255, 186, 70),
 		stats = {
 			strength = 3,
@@ -390,18 +441,18 @@ local ClassData: { [string]: ClassInfo } = {
 			difficulty = 5,
 		},
 		abilities = {
-			{ name = "Six Shooter", tag = "M1/Primary", summary = "6-shot revolver; the 6th bullet deals massive critical damage.", icon = "rbxassetid://94409821434570", description = "Six rounds, then a reload. The sixth shot hits hardest.", videoId = "" },
-			{ name = "Deadeye", tag = "Passive", summary = "Consecutive hits fill Deadeye; at full meter, fire a piercing critical shot.", icon = "rbxassetid://115132974561524", description = "Clean consecutive hits fill Deadeye. Full meter: your next hit is a piercing critical shot.", videoId = "" },
-			{ name = "Fan the Hammer", tag = "Skill 1 (E)", summary = "Rapidly dump all remaining cylinder rounds in a lethal short-range fan.", icon = "rbxassetid://94409821434570", description = "Empty every bullet left in the cylinder in a blistering short-range burst.", videoId = "" },
-			{ name = "Gunslinger's Roll", tag = "Skill 2 (F)", summary = "Invulnerable dodge roll dropping a stun flashbang and instant cursor shot.", icon = "rbxassetid://132307778799944", description = "Roll with brief invulnerability, dropping a flashbang that stuns nearby enemies (not bosses; more with Projectile Count), then fire one shot at the cursor as you land.", videoId = "" },
-			{ name = "Deadeye Ricochet", tag = "Skill 3 (Q)", summary = "Toss a spinning coin mid-air; shoot it to ricochet into every foe in range.", icon = "rbxassetid://74725489937058", description = "Toss a spinning coin. Shoot it and the bullet splits into ricochets that seek every enemy in the room.", videoId = "" },
-			{ name = "High Noon", tag = "Ultimate (R)", summary = "Slow time, mark all visible enemies, and execute them with fatal shots.", icon = "rbxassetid://73749330909862", description = "Time slows. Mark every enemy in the room, gun them down one by one, then finish with a Deadeye execution.", videoId = "" },
+			{ name = "Six Shooter", tag = "M1/Primary", summary = "6 shots. The 6th crits.", icon = "rbxassetid://94409821434570", description = "6 shots, then reload. The 6th hits hardest.", videoId = "" },
+			{ name = "Deadeye", tag = "Passive", summary = "Full Deadeye: next shot pierces and crits.", icon = "rbxassetid://115132974561524", description = "Hits in a row fill Deadeye. When full, your next hit pierces and crits.", videoId = "" },
+			{ name = "Fan the Hammer", tag = "Skill 1 (E)", summary = "Fire all remaining shots.", icon = "rbxassetid://94409821434570", description = "Fire every remaining bullet in a short-range burst.", videoId = "" },
+			{ name = "Gunslinger's Roll", tag = "Skill 2 (F)", summary = "Roll, stun, shoot.", icon = "rbxassetid://132307778799944", description = "Invulnerable roll. Drops a flashbang that stuns (not bosses), then shoots at the cursor.", videoId = "" },
+			{ name = "Deadeye Ricochet", tag = "Skill 3 (Q)", summary = "Shoot a coin to hit every enemy.", icon = "rbxassetid://74725489937058", description = "Toss a coin. Shoot it to ricochet into every enemy in the room.", videoId = "" },
+			{ name = "High Noon", tag = "Ultimate (R)", summary = "Slow time, shoot every enemy.", icon = "rbxassetid://73749330909862", description = "Slow time, shoot every enemy in the room, then a Deadeye finisher.", videoId = "" },
 		},
 		equipment = {
 			name = "The Last Word & Outlaw's Coat",
 			slot = "Engraved Revolver",
 			rarity = "Outlaw Relic",
-			description = "A six-shooter etched with golden runes that hum when a shot is lined up. Its brass cylinder never quite stops turning.",
+			description = "An engraved six-shooter.",
 			stats = {
 				["Max Health"] = "100 HP",
 				["Cylinder"] = "6 rounds",
@@ -416,7 +467,7 @@ local ClassData: { [string]: ClassInfo } = {
 		name = "Sword Master",
 		title = "The Blade Dancer",
 		role = "Melee DPS / Duelist",
-		description = "A fast, precise duelist with a rapier. Chain combos to build Momentum, dash through the line, parry what would kill you, and end it all in a storm of blades.",
+		description = "Fast rapier duelist. Combos, dashes and parries.",
 		accentColor = Color3.fromRGB(245, 225, 165),
 		stats = {
 			strength = 4,
@@ -428,18 +479,18 @@ local ClassData: { [string]: ClassInfo } = {
 			difficulty = 3,
 		},
 		abilities = {
-			{ name = "Rapier Combo", tag = "M1/Primary", summary = "Fluid 4-hit fencing chain that builds Momentum and lunges forward.", icon = "rbxassetid://81023610019830", description = "A 4-hit fencing chain: lunge, riposte, double thrust, and a flèche that carries you forward.", videoId = "" },
-			{ name = "Battle Momentum", tag = "Passive", summary = "Sword hits build Momentum (up to 10) for rapid attacks & Empowered skills.", icon = "rbxassetid://138073571091241", description = "Every sword hit builds Momentum (up to 10) for faster attacks. At max, your next ability is Empowered.", videoId = "" },
-			{ name = "Sword Rush", tag = "Skill 1 (E)", summary = "Twin-strike dash that deals amplified damage if both hits connect.", icon = "rbxassetid://81023610019830", description = "Dash through enemies with two rapid strikes. Enemies hit by both take extra damage.", videoId = "" },
-			{ name = "Parry", tag = "Skill 2 (F)", summary = "Defensive guard that negates incoming damage, stuns, and ripostes.", icon = "rbxassetid://135280785520672", description = "A brief guard. Parry an attack to negate it, stun the attacker and answer with a huge upward slash.", videoId = "" },
-			{ name = "Phantom Thrust", tag = "Skill 3 (Q)", summary = "Long-range piercing thrust trailed by phantom sword echoes.", icon = "rbxassetid://84667638225077", description = "A long thrust that carries you forward. Every extra projectile adds a phantom echo of the thrust a beat later.", videoId = "" },
-			{ name = "Blade Storm", tag = "Ultimate (R)", summary = "Flash across the room delivering rapid slashes and an X-cleave finisher.", icon = "rbxassetid://88484267696144", description = "Take guard, slow the world, then flash to every enemy in the room in a chain of at least 8 cuts and end with a giant X that hits the whole room.", videoId = "" },
+			{ name = "Rapier Combo", tag = "M1/Primary", summary = "4-hit combo. Builds Momentum.", icon = "rbxassetid://81023610019830", description = "4-hit combo. The last hit lunges forward.", videoId = "" },
+			{ name = "Battle Momentum", tag = "Passive", summary = "Hits build Momentum for faster attacks.", icon = "rbxassetid://138073571091241", description = "Hits build Momentum (max 10) for faster attacks. At 10, your next ability is Empowered.", videoId = "" },
+			{ name = "Sword Rush", tag = "Skill 1 (E)", summary = "Dash with 2 hits.", icon = "rbxassetid://81023610019830", description = "Dash with 2 strikes. Enemies hit by both take extra damage.", videoId = "" },
+			{ name = "Parry", tag = "Skill 2 (F)", summary = "Block a hit, stun, counter.", icon = "rbxassetid://135280785520672", description = "Block an attack, stun the attacker and counter.", videoId = "" },
+			{ name = "Piercing Judgement", tag = "Skill 3 (Q)", summary = "Charge, then a piercing lunge.", icon = "rbxassetid://84667638225077", description = "Hold to charge, release to lunge through a line. Longer charge = longer, stronger. Extra projectiles add echoes.", videoId = "" },
+			{ name = "Blade Storm", tag = "Ultimate (R)", summary = "Slash every enemy in the room.", icon = "rbxassetid://88484267696144", description = "Slow time, hit every enemy in the room (8+ hits), then a finisher that hits the whole room.", videoId = "" },
 		},
 		equipment = {
 			name = "Dawnsteel Longsword",
 			slot = "Longsword",
 			rarity = "Duelist Relic",
-			description = "A balanced blade with a gilded guard. It sings faster the longer the fight goes on.",
+			description = "A gold-guard rapier.",
 			stats = {
 				["Max Health"] = "150 HP",
 				["Combo"] = "4 hits",
@@ -454,7 +505,7 @@ local ClassData: { [string]: ClassInfo } = {
 		name = "Ice Mage",
 		title = "The Cryo Sorceress",
 		role = "Control / AoE Frost",
-		description = "Weaves crystalline frost into spikes, beams and living ice. Pins enemies in place, baits them with a shattering clone, and buries the battlefield in a blizzard.",
+		description = "Frost caster. Freezes and roots enemies.",
 		accentColor = Color3.fromRGB(70, 220, 255),
 		stats = {
 			strength = 2,
@@ -466,17 +517,17 @@ local ClassData: { [string]: ClassInfo } = {
 			difficulty = 3,
 		},
 		abilities = {
-			{ name = "Ice Crystal", tag = "M1/Primary", summary = "Fires crystalline shards that shatter on impact and apply Chill.", icon = "rbxassetid://110861546175994", description = "Fire a sleek ice crystal that shatters on the first enemy it hits.", videoId = "" },
-			{ name = "Ice Spikes", tag = "Skill 1 (E)", summary = "Impale a line of enemies with piercing crystalline ice spikes that freeze.", icon = "rbxassetid://110861546175994", description = "A racing line of crystalline spikes erupts from the floor, piercing and freezing all in its path.", videoId = "" },
-			{ name = "Ice Beam", tag = "Skill 2 (F)", summary = "Channel a continuous sub-zero beam that stops and freezes targets.", icon = "rbxassetid://85167837069373", description = "Channel a blinding beam of absolute cold that stops on, and freezes, the first enemy it hits.", videoId = "" },
-			{ name = "Ice Clone", tag = "Skill 3 (Q)", summary = "Summon a frost decoy that taunts foes, then shatters into a freezing wave.", icon = "rbxassetid://122144064327132", description = "Summon a crystalline clone that taunts foes, then explodes into a freezing shockwave.", videoId = "" },
-			{ name = "Blizzard", tag = "Ultimate (R)", summary = "Call down a raging blizzard that freezes the room and batters enemies.", icon = "rbxassetid://76962430268191", description = "Call down a raging blizzard that freezes the battlefield and batters enemies with ice.", videoId = "" },
+			{ name = "Ice Crystal", tag = "M1/Primary", summary = "Ice shards that Chill.", icon = "rbxassetid://110861546175994", description = "Shatters on the first enemy hit.", videoId = "" },
+			{ name = "Ice Spikes", tag = "Skill 1 (E)", summary = "Line of spikes that freeze.", icon = "rbxassetid://110861546175994", description = "Spikes erupt in a line, freezing everything they hit.", videoId = "" },
+			{ name = "Ice Beam", tag = "Skill 2 (F)", summary = "Beam that freezes.", icon = "rbxassetid://85167837069373", description = "A beam that freezes the first enemy it hits.", videoId = "" },
+			{ name = "Ice Clone", tag = "Skill 3 (Q)", summary = "Decoy that taunts, then freezes.", icon = "rbxassetid://122144064327132", description = "A clone taunts enemies, then explodes and freezes them.", videoId = "" },
+			{ name = "Blizzard", tag = "Ultimate (R)", summary = "Blizzard that freezes the room.", icon = "rbxassetid://76962430268191", description = "A blizzard that freezes and damages everything in the area.", videoId = "" },
 		},
 		equipment = {
 			name = "Glacial Frostcore Orb & Permafrost Robes",
 			slot = "Off-Hand Relic Orb",
 			rarity = "Frozen Relic",
-			description = "A floating sphere of pure unmelting absolute-zero ice that continually chills the surrounding atmosphere.",
+			description = "A floating ice orb.",
 			stats = {
 				["Max Health"] = "100 HP",
 				["Frost Slow Effect"] = "+30%",
@@ -486,6 +537,35 @@ local ClassData: { [string]: ClassInfo } = {
 		},
 	},
 }
+
+-- What class select shows beside the model: tagline, role tags, the five
+-- 0–100 ratings (damage, survivability, mobility, range, difficulty), an
+-- emblem and the aura's second colour.
+local DISPLAY: { [string]: { tagline: string, roles: { string }, ratings: { number }, emblem: string, glowColor: Color3 } } = {
+	heavy_knight = { tagline = "The Infernal Vanguard", roles = { "Bruiser", "Vanguard" }, ratings = { 90, 85, 45, 30, 65 }, emblem = "✹", glowColor = Color3.fromRGB(255, 200, 80) },
+	rogue = { tagline = "The Shadow", roles = { "Assassin", "Burst" }, ratings = { 85, 35, 95, 40, 80 }, emblem = "☾", glowColor = Color3.fromRGB(90, 30, 120) },
+	mage = { tagline = "The Arcanist", roles = { "Caster", "Control" }, ratings = { 80, 35, 55, 85, 75 }, emblem = "✧", glowColor = Color3.fromRGB(110, 200, 255) },
+	martial_artist = { tagline = "The Crimson Fist", roles = { "Brawler", "Burst" }, ratings = { 85, 55, 90, 35, 60 }, emblem = "☯", glowColor = Color3.fromRGB(255, 220, 120) },
+	summoner = { tagline = "The Beastcaller", roles = { "Summoner", "Control" }, ratings = { 70, 55, 50, 80, 60 }, emblem = "❂", glowColor = Color3.fromRGB(170, 255, 200) },
+	death_knight = { tagline = "The Soul Reaper", roles = { "Bruiser", "Control" }, ratings = { 85, 90, 35, 40, 60 }, emblem = "✠", glowColor = Color3.fromRGB(40, 70, 110) },
+	ronin = { tagline = "The Severing Edge", roles = { "Duelist", "Burst" }, ratings = { 90, 50, 85, 55, 70 }, emblem = "⚔", glowColor = Color3.fromRGB(20, 26, 40) },
+	ranger = { tagline = "The Verdant Venom", roles = { "Marksman", "Control" }, ratings = { 75, 45, 80, 95, 55 }, emblem = "❦", glowColor = Color3.fromRGB(190, 255, 90) },
+	cleric = { tagline = "The Radiant Herald", roles = { "Support", "Healer" }, ratings = { 40, 75, 40, 70, 35 }, emblem = "☀", glowColor = Color3.fromRGB(255, 250, 220) },
+	ice_mage = { tagline = "The Cryo Sorceress", roles = { "Caster", "Frost" }, ratings = { 75, 50, 40, 85, 60 }, emblem = "❄", glowColor = Color3.fromRGB(220, 250, 255) },
+	gunslinger = { tagline = "The Deadeye Outlaw", roles = { "Marksman", "Burst" }, ratings = { 85, 35, 80, 90, 90 }, emblem = "✪", glowColor = Color3.fromRGB(255, 240, 190) },
+	swordsman = { tagline = "The Blade Dancer", roles = { "Duelist", "Skirmisher" }, ratings = { 85, 50, 90, 35, 65 }, emblem = "⚜", glowColor = Color3.fromRGB(255, 255, 235) },
+	berserker = { tagline = "The Crimson Ravager", roles = { "Bruiser", "Slayer" }, ratings = { 95, 75, 55, 30, 40 }, emblem = "☠", glowColor = Color3.fromRGB(255, 90, 60) },
+}
+for id, d in pairs(DISPLAY) do
+	local info = ClassData[id]
+	if info then
+		info.tagline = d.tagline
+		info.roles = d.roles
+		info.ratings = { damage = d.ratings[1], survivability = d.ratings[2], mobility = d.ratings[3], range = d.ratings[4], difficulty = d.ratings[5] }
+		info.emblem = d.emblem
+		info.glowColor = d.glowColor
+	end
+end
 
 -- Classes with a finished kit. The rest are shown locked in class selection
 -- and rejected by the server.
@@ -502,6 +582,7 @@ local PlayableClasses: { [string]: boolean } = {
 	martial_artist = true,
 	summoner = true,
 	death_knight = true,
+	ronin = true,
 }
 
 -- Array order for Carousel / UI display: playable classes first, locked after.
@@ -512,6 +593,7 @@ local ClassOrder: { string } = {
 	"martial_artist",
 	"summoner",
 	"death_knight",
+	"ronin",
 	"ranger",
 	"cleric",
 	"ice_mage",

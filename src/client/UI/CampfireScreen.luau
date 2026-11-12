@@ -119,7 +119,7 @@ function CampfireScreen.Create(parent: GuiObject, callbacks: Callbacks): CanvasG
 	MenuEntry.FitHeight(col, 700)
 
 	label(col, "THE CAMPFIRE", 34, BRASS_LIGHT, { Size = UDim2.new(1, 0, 0, 44), TextStrokeTransparency = 0.25 })
-	label(col, "Gather your party. The portal opens when everyone is ready.", 14, IVORY,
+	label(col, "Opens when everyone is ready.", 14, IVORY,
 		{ Size = UDim2.new(1, 0, 0, 38), Position = UDim2.fromOffset(0, 46), TextWrapped = true, TextTransparency = 0.25,
 			TextYAlignment = Enum.TextYAlignment.Top })
 	local rule = Instance.new("Frame")

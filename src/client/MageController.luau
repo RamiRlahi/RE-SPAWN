@@ -76,6 +76,10 @@ local deps: Deps
 
 local lastBolt = 0
 local busyUntil = 0
+-- (a dash cuts the move short: free to cast again at once)
+(require(script.Parent:WaitForChild("DashController")) :: any).OnCancel(function(c: Model)
+	if c == game:GetService("Players").LocalPlayer.Character then busyUntil = 0 end
+end)
 
 local function isMage(p: Player?): boolean
 	return (p or player):GetAttribute("SelectedClass") == "mage"

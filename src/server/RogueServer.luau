@@ -597,6 +597,13 @@ local function onCharacter(p: Player, char: Model)
 end
 
 function RogueServer.Init(helpers: any)
+	-- (a dash cuts the move short: free to act again, and what was left of it doesn't land)
+	(require(script.Parent:WaitForChild("Dash")) :: any).OnDash(function(p: Player)
+		local st = states[p] :: any
+		if not st then return end
+		st.busyUntil = 0
+		if type(st.token) == "number" then st.token += 1 end
+	end)
 	H = helpers
 	-- Taking a hit ends invisibility (the hit still lands).
 	helpers.addIncomingHook(function(plr: Player, _char: Model, damage: number): number

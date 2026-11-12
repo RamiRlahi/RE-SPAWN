@@ -289,7 +289,7 @@ local function showHide(duration: number, color: Color3)
 	sub.TextSize = 20
 	sub.TextColor3 = Color3.fromRGB(230, 210, 255)
 	sub.TextStrokeTransparency = 0.3
-	sub.Text = "Its slam floods the whole arena: only the gold behind a pillar is safe"
+	sub.Text = "Hide behind a pillar from the slam"
 	sub.Parent = gui
 	local back = Instance.new("Frame")
 	back.AnchorPoint = Vector2.new(0.5, 0)
