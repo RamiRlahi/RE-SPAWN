@@ -25,6 +25,7 @@ local Workspace = game:GetService("Workspace")
 
 local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
 local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
+local CastPoses = require(script.Parent:WaitForChild("CastPoses"))
 local IsometricCamera = require(script.Parent:WaitForChild("IsometricCamera")) :: any
 
 local player = Players.LocalPlayer
@@ -62,6 +63,23 @@ local function freeze(model: Model?, seconds: number)
 end
 
 local lastStop = 0
+
+-- Hit stop for the local player's hit: your animations (tracks and CastPoses'
+-- procedural poses) and the target's held for `seconds`. Client-only: the
+-- damage already landed on the server, only the follow-through waits.
+-- Shared by HitFX (heavy hits and crits) and OnDamage (big hits): one gap for
+-- both, so a flood of hits can't chain stops into a stutter.
+-- docs/vfx-reference-timing.md: 2-4 frames at 30 fps (0.066-0.133 s).
+function BigHitFX.HitStop(target: Model?, seconds: number): boolean
+	local now = os.clock()
+	if now - lastStop < HITSTOP_GAP then return false end
+	lastStop = now
+	local char = player.Character
+	freeze(char, seconds)
+	CastPoses.hitStop(char, seconds)
+	if target then freeze(target, seconds) end
+	return true
+end
 
 local function ring(pos: Vector3, radius: number, color: Color3)
 	local p = Instance.new("Part")
@@ -108,14 +126,8 @@ function BigHitFX.OnDamage(payload: any)
 	if typeof(pos) ~= "Vector3" then return end
 
 	-- hit stop (yours and the target's), rarely
-	local now = os.clock()
-	if now - lastStop >= HITSTOP_GAP then
-		lastStop = now
-		local secs = HITSTOP[tier]
-		freeze(player.Character, secs)
-		local target = payload.model
-		if typeof(target) == "Instance" and target:IsA("Model") then freeze(target, secs) end
-	end
+	local target = payload.model
+	BigHitFX.HitStop(if typeof(target) == "Instance" and target:IsA("Model") then target else nil, HITSTOP[tier])
 
 	-- the camera
 	if FxBudget.Allow("bigHitShake", if tier == 2 then 4 else 6) then

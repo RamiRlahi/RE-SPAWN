@@ -13,6 +13,13 @@
 	  • a white hit-flash on the target (recolour, not a Highlight — the game
 	    already runs close to Roblox's on-screen Highlight limit)
 	  • crits: larger and gold-tinged; heavy hits: a small shake for the attacker
+	  • under every style, the impact layers from the reference clips
+	    (docs/vfx-reference-timing.md), on pooled emitters (no instances per hit):
+	      - a floor glow on frame 0, tinted per style, faded within ~0.35-0.5 s
+	      - a starburst flash (Grid2x2 flipbook) that lives 3 frames
+	      - heavy hits and crits: a ground stain (scorch / frost / holy) that
+	        outlives the effect, and client-only hit stop for the attacker
+	        (BigHitFX.HitStop: 2-4 frames; damage timing is unchanged)
 --]]
 
 local Players = game:GetService("Players")
@@ -23,8 +30,10 @@ local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Network = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Network"))
+local VfxAssets = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("VfxAssets"))
 local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
 local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
+local BigHitFX = require(script.Parent:WaitForChild("BigHitFX"))
 
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
@@ -295,6 +304,159 @@ STYLES.fist = function(h)
 	flashLight(c, Color3.fromRGB(255, 220, 220), 3 * h.scale, 10)
 end
 
+-- ─── Impact layers (floor glow, flash frame, ground stain) ─────────────────
+-- Per style: the floor glow's tint, the starburst's palette (+ a tint over its
+-- baked colours) and the stain left by heavy hits and crits.
+type Look = { glow: Color3, burst: string, burstTint: Color3, stain: string? }
+local LOOKS: { [string]: Look } = {
+	fire = { glow = Color3.fromRGB(255, 62, 40), burst = "fire", burstTint = Color3.new(1, 1, 1), stain = "scorch" },
+	ice = { glow = Color3.fromRGB(80, 160, 255), burst = "ice", burstTint = Color3.new(1, 1, 1), stain = "frost" },
+	holy = { glow = Color3.fromRGB(255, 196, 80), burst = "holy", burstTint = Color3.new(1, 1, 1), stain = "holy" },
+	slash = { glow = Color3.fromRGB(255, 170, 90), burst = "holy", burstTint = Color3.fromRGB(255, 240, 225), stain = "scorch" },
+	fist = { glow = Color3.fromRGB(230, 30, 50), burst = "holy", burstTint = Color3.fromRGB(255, 225, 225), stain = "scorch" },
+	bullet = { glow = Color3.fromRGB(255, 180, 90), burst = "fire", burstTint = Color3.new(1, 1, 1), stain = nil },
+	arrow = { glow = Color3.fromRGB(130, 230, 80), burst = "holy", burstTint = Color3.fromRGB(200, 255, 170), stain = nil },
+	nature = { glow = Color3.fromRGB(130, 230, 80), burst = "holy", burstTint = Color3.fromRGB(200, 255, 170), stain = nil },
+}
+
+-- Pooled emitters: one per look and size, moved to each hit and Emit()ed.
+-- Particles are world-space once emitted, so moving the attachment is safe.
+local poolFolder: Folder? = nil
+local pool: { [string]: { att: Attachment, pe: ParticleEmitter } } = {}
+
+local function emitter(key: string, build: (ParticleEmitter) -> ()): (Attachment, ParticleEmitter)
+	local e = pool[key]
+	if e and e.att.Parent then return e.att, e.pe end
+	if not poolFolder or not poolFolder.Parent then
+		local f = Instance.new("Folder")
+		f.Name = "ImpactFX"
+		f.Parent = Workspace
+		poolFolder = f
+	end
+	local holder = Instance.new("Part")
+	holder.Name = key
+	holder.Anchored, holder.CanCollide, holder.CanQuery, holder.CanTouch, holder.CastShadow = true, false, false, false, false
+	holder.Transparency = 1
+	holder.Size = Vector3.one * 0.2
+	holder.Parent = poolFolder
+	local att = Instance.new("Attachment")
+	att.Parent = holder
+	local pe = Instance.new("ParticleEmitter")
+	pe.Rate = 0
+	pe.LightInfluence = 0
+	pe.LockedToPart = false
+	build(pe)
+	pe.Parent = att
+	pool[key] = { att = att, pe = pe }
+	return att, pe
+end
+
+-- Something lying flat on the floor: a particle facing up (VelocityPerpendicular,
+-- drifting up so slowly it never moves).
+local function flat(pe: ParticleEmitter)
+	pe.EmissionDirection = Enum.NormalId.Top
+	pe.Orientation = Enum.ParticleOrientation.VelocityPerpendicular
+	pe.Speed = NumberRange.new(0.01)
+	pe.SpreadAngle = Vector2.zero
+	pe.Rotation = NumberRange.new(0, 360)
+end
+
+-- The floor under a hit (mobs, characters and effects ignored).
+local floorParams = RaycastParams.new()
+floorParams.FilterType = Enum.RaycastFilterType.Exclude
+floorParams.IgnoreWater = true
+local function floorUnder(pos: Vector3): Vector3?
+	local skip: { Instance } = {}
+	local mobs = Workspace:FindFirstChild("Mobs")
+	if mobs then table.insert(skip, mobs) end
+	if poolFolder then table.insert(skip, poolFolder) end
+	table.insert(skip, VariantFX.Root())
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr.Character then table.insert(skip, plr.Character) end
+	end
+	floorParams.FilterDescendantsInstances = skip
+	local hit = Workspace:Raycast(pos + Vector3.new(0, 1, 0), Vector3.new(0, -14, 0), floorParams)
+	return hit and hit.Position or nil
+end
+
+local function lowDetail(): boolean
+	return player:GetAttribute("Setting_lowDetailVFX") == true or player:GetAttribute("PerfMode") == true
+end
+
+local function impactLayers(styleName: string, h: Hit)
+	local look = LOOKS[styleName]
+	if not look then return end
+	local big = h.crit or h.heavy
+	local size = if big then "big" else "small"
+
+	-- the flash frame: a starburst turned to the camera, alive for 3 frames
+	-- (f0 full, f1 stretched, f2 thin: the reference's 2-frame overexposure)
+	if FxBudget.Allow("impactFlash", if big then 12 else 24) then
+		local tex = VfxAssets.Starburst[look.burst]
+		local att, pe = emitter(`flash_{look.burst}_{styleName}_{size}`, function(pe)
+			pe.Texture = tex.id
+			pe.FlipbookLayout = tex.layout :: Enum.ParticleFlipbookLayout
+			pe.FlipbookMode = Enum.ParticleFlipbookMode.OneShot
+			pe.Color = ColorSequence.new(look.burstTint)
+			pe.LightEmission = 1
+			pe.Brightness = if big then 4 else 3
+			pe.Lifetime = NumberRange.new(if big then 0.13 else 0.1)
+			pe.Size = NumberSequence.new(if big then 9 else 5)
+			pe.Speed = NumberRange.new(0)
+			pe.Rotation = NumberRange.new(0, 360)
+			pe.ZOffset = 2 -- in front of the target it hits
+		end)
+		att.WorldPosition = h.pos + Vector3.new(0, 1, 0)
+		pe:Emit(1)
+	end
+
+	-- the floor: a glow on frame 0 (+ a stain on heavy hits and crits)
+	local wantGlow = FxBudget.Allow("floorGlow", if big then 10 else 16)
+	local wantStain = big and look.stain ~= nil and not lowDetail() and FxBudget.Allow("groundStain", 6)
+	if not (wantGlow or wantStain) then return end
+	local floor = floorUnder(h.pos)
+	if not floor then return end
+
+	if wantGlow then
+		local tex = if big then VfxAssets.Glow.wide else VfxAssets.Glow.soft
+		local att, pe = emitter(`glow_{styleName}_{size}`, function(pe)
+			flat(pe)
+			pe.Texture = tex.id
+			pe.Color = ColorSequence.new(look.glow)
+			pe.LightEmission = 1
+			pe.Brightness = if big then 1.6 else 1.2
+			pe.Lifetime = NumberRange.new(if big then 0.5 else 0.35)
+			pe.Size = NumberSequence.new(if big then 16 else 8)
+			-- full on frame 0, then gone (the reference's glow is gone by ~f12-15)
+			pe.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(0.3, 0.45), NumberSequenceKeypoint.new(1, 1),
+			})
+		end)
+		att.WorldPosition = floor + Vector3.new(0, 0.12, 0)
+		pe:Emit(1)
+	end
+
+	if wantStain then
+		local kind = look.stain :: string
+		local tex = (VfxAssets.Stain :: any)[kind]
+		local life = if kind == "frost" then 1.4 elseif kind == "scorch" then 1.0 else 0.8
+		local att, pe = emitter(`stain_{kind}`, function(pe)
+			flat(pe)
+			pe.Texture = tex.id
+			pe.LightEmission = 0
+			pe.LightInfluence = 0.4 -- sits in the room's light, the embers still read
+			pe.Brightness = 1.4
+			pe.Lifetime = NumberRange.new(life)
+			pe.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 7), NumberSequenceKeypoint.new(0.08, 10), NumberSequenceKeypoint.new(1, 10.5) })
+			pe.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.05), NumberSequenceKeypoint.new(0.6, 0.15), NumberSequenceKeypoint.new(1, 1),
+			})
+		end)
+		att.WorldPosition = floor + Vector3.new(0, 0.06, 0)
+		pe:Emit(1)
+	end
+end
+
 -- ─── Attacker shake on heavy hits ───────────────────────────────────────────
 local lastShake = 0
 local function shake(amount: number)
@@ -344,9 +506,15 @@ function HitFX.Init()
 		local key = if crit or heavy then "impactBig" else "impact"
 		if style and FxBudget.Allow(key, if crit or heavy then 12 else 24) then
 			currentAttacker = if typeof(p.attacker) == "Instance" and p.attacker:IsA("Player") then p.attacker else nil
-			style({ pos = p.position, dir = dir, crit = crit, heavy = heavy,
-				scale = (heavy and 1.4 or 1) * (crit and 1.35 or 1) })
+			local h = { pos = p.position, dir = dir, crit = crit, heavy = heavy, scale = (heavy and 1.4 or 1) * (crit and 1.35 or 1) }
+			style(h)
+			impactLayers(p.style, h)
 			currentAttacker = nil
+		end
+		-- hit stop: your own heavy hits and crits only (3 frames, 4 on a heavy crit)
+		if p.attacker == player and (heavy or crit) then
+			local target = if typeof(p.model) == "Instance" and p.model:IsA("Model") then p.model else nil
+			BigHitFX.HitStop(target, if heavy and crit then 0.13 elseif heavy then 0.1 else 0.066)
 		end
 		if typeof(p.model) == "Instance" and p.model:IsA("Model") and FxBudget.Allow("hitFlash", 30) then
 			-- (the Martial Artist's hits hold the white a beat longer)
