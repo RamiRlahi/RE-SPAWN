@@ -63,6 +63,12 @@ local VfxAssets = {
 	Ribbon = { -- torn see-through sheet, flames licking up inside, sharp dark strokes (clip 3 up close)
 		fire = tex(125673201559652), ice = tex(121766375847763), void = tex(98026943768330), ink = tex(118392091525801),
 	},
+	-- the golden Haymaker's mesh textures (tools/blender/build_haymaker.py builds the meshes)
+	Hay = {
+		shell = tex(139802218322008),   -- hay_dome / hay_arch: glassy, hot rims (u around, v base -> rim)
+		torpedo = tex(121995382208212), -- hay_torpedo: gold body, white swirl lines, hot tip
+		whirl = tex(74941643073806),    -- hay_whirl: gold blades, hot edges
+	},
 	Energy = { -- for Beams: yellow-white centre -> orange body -> red-orange edges, tiles along the length (fire vortex ribbons)
 		fire = tex(113237224250128), ice = tex(110717495358121), ink = tex(123887379659122),
 	},

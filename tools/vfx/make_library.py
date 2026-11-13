@@ -396,6 +396,54 @@ def facet(pal):
     save(rgba(ramp(T, pal), alpha), f"facet_{pal}")
 
 
+# ---------------------------------------------------------------- Haymaker (Sett's W, clip @fadewhizz) mesh textures
+def hay_shell(pal):
+    """Glassy shell (dome / arch): u around, v base(0) -> rim/pole(1). Mostly see-through, a bright hot rim
+    along both edges, faint ribs (meridian streaks) and a few bright scratches, like the clip's 9.95-10.55."""
+    H, W = 256, 512
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    u, v = (xx + 0.5) / W, 1 - (yy + 0.5) / H
+    def tile(cells, seed, aniso):
+        n = fbm((H, W * 2), cells, seed, 3, aniso=aniso)
+        return n[:, W:] * (1 - u) + n[:, :W] * u
+    streak, glint = tile(40, 211, (8, 1)), tile(70, 212, (12, 1))
+    rimTop = sm(0.86, 0.99, v) * sm(1.0, 0.985, v)
+    rimBot = sm(0.10, 0.0, v)
+    fr = (u * 6) % 1.0
+    ribs = sm(0.02, 0.0, np.minimum(fr, 1 - fr))                       # six faint ribs round it
+    scratch = sm(0.70, 0.78, glint) * sm(0.2, 0.7, v)
+    alpha = np.clip(0.10 + 0.10 * streak + 0.85 * rimTop + 0.6 * rimBot + 0.35 * ribs + 0.6 * scratch, 0, 1)
+    T = np.clip(0.74 + 0.08 * streak + 0.3 * np.maximum(rimTop, rimBot) + 0.2 * scratch + 0.15 * ribs, 0, 1)
+    save(rgba(ramp(T, pal), alpha), f"hayshell_{pal}")
+
+
+def hay_torpedo(pal):
+    """The 9.75 torpedo (the punch's body): u = along (0 back, 1 tip), v = around (0..1). Across its girth:
+    a dark outline band at the silhouette (v near 0.25 / 0.75 seen side-on is unknowable, so the outline
+    comes from a separate hull mesh); here: a white-hot swirl line, a saturated body, a hot leading tip."""
+    H, W = 256, 512
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    u, v = (xx + 0.5) / W, (yy + 0.5) / H
+    swirl = sm(0.05, 0.0, np.abs(((v - u * 1.3) % 1.0) - 0.5))       # a swirl line winding along it
+    swirl2 = sm(0.03, 0.0, np.abs(((v + 0.25 - u * 0.9) % 1.0) - 0.5))
+    tip = sm(0.75, 1.0, u)
+    T = 0.6 + 0.4 * np.maximum(swirl, swirl2 * 0.8) + 0.3 * tip - 0.15 * sm(0.3, 0.0, u)
+    alpha = np.clip(0.9 * sm(0.0, 0.12, u) + 0.1, 0, 1)
+    save(rgba(ramp(np.clip(T, 0, 1), pal), alpha), f"haytorpedo_{pal}")
+
+
+def hay_whirl(pal):
+    """The charge's flat whirl disk blades: u along a blade (root 0 -> tip 1), v across. Hot edge, body, dark tip."""
+    H, W = 128, 512
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    u, v = (xx + 0.5) / W, (yy + 0.5) / H
+    w = 0.5 * (1 - u) ** 0.8 * sm(0.0, 0.1, u)
+    d = np.abs(v - 0.5)
+    body = sm(w + 0.01, w - 0.01, d)
+    T = 0.62 + 0.38 * sm(w * 0.6, w, d) - 0.5 * sm(0.75, 1.0, u)
+    save(rgba(ramp(np.clip(T, 0, 1), pal), body), f"haywhirl_{pal}")
+
+
 def energy_ribbon(pal):
     """Beam texture for the fire vortex ribbons and streaks: across the width (v) a yellow-white centre,
     a saturated orange body and red-orange edges that tear slightly; along the length (u, tiles) fine
@@ -488,7 +536,8 @@ def flame_feather(pal):
 
 
 JOBS = {
-    "flamefeather": lambda: [flame_feather(p) for p in ("fire", "ink")],
+    "hay": lambda: [f(p) for f in (hay_shell, hay_torpedo, hay_whirl) for p in ("gold", "ink")],
+    "flamefeather": lambda: [flame_feather(p) for p in ("gold", "ink")],
     "sweep": lambda: [sweep(p) for p in ("fire", "ice", "holy", "void")],
     "ribbon": lambda: [ribbon(p) for p in ("fire", "ice", "void")],
     "cone": lambda: [cone(p) for p in ("fire", "ice", "holy", "void")],
