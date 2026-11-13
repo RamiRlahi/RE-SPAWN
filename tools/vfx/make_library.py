@@ -396,6 +396,37 @@ def facet(pal):
     save(rgba(ramp(T, pal), alpha), f"facet_{pal}")
 
 
+def swirl(pal, seed=141):
+    """Tornado swirl streaks (clip 3, frames 150-335 at full size): on the swept_shell crescent, several THIN
+    curved streaks at different radii and lengths, each with a yellow-white inner line, a red-orange body and
+    dark-red edges, one of them near-black, over a faint translucent orange sheet. u = along (head at u=1),
+    v = across the band."""
+    H, W = 256, 1024
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    u, v = (xx + 0.5) / W, 1 - (yy + 0.5) / H
+    rng = np.random.default_rng(seed)
+    grain = fbm((H, W), 80, seed + 1, 2, aniso=(1, 18))
+    # the faint sheet behind the streaks
+    sheet = sm(0.0, 0.25, u) * sm(1.0, 0.7, u) * sm(0.0, 0.3, v) * sm(1.0, 0.7, v)
+    alpha = sheet * (0.18 + 0.12 * grain)
+    T = 0.40 + 0.1 * grain
+    streaks = [(rng.uniform(0.08, 0.92), rng.uniform(0.010, 0.030), rng.uniform(0.0, 0.45), rng.uniform(0.6, 1.0),
+                i in (3, 7)) for i in range(10)]
+    for vc, th, u0, u1, dark in streaks:
+        a = np.clip((u - u0) / (u1 - u0), 0, 1)
+        inside = (u >= u0) & (u <= u1)
+        thick = th * np.sin(np.pi * np.clip(a * 0.95 + 0.03, 0, 1)) ** 0.5 * (0.45 + 0.55 * a)   # fat toward the head
+        dv = (v - vc - 0.06 * np.sin(a * 3.1 + vc * 9)) / np.maximum(thick, 1e-4)
+        m = np.where(inside, sm(1.0, 0.7, np.abs(dv) + 0.35 * (grain - 0.5)), 0)
+        if dark:
+            t_s = 0.04 + 0.10 * sm(0.0, 0.8, 1 - np.abs(dv))
+        else:
+            t_s = 0.52 + 0.48 * sm(0.55, 0.0, np.abs(dv)) * (0.5 + 0.5 * a) - 0.25 * (1 - a)   # hot inner line, cooler tail
+        T = np.where(m > alpha, t_s, T)
+        alpha = np.maximum(alpha, m * (0.95 if not dark else 0.85))
+    save(rgba(ramp(T, pal), alpha), f"swirl_{pal}")
+
+
 def flame_feather(pal):
     """A flame tongue for Beams (phoenix wings): u (x) runs along the beam root -> tip and TILES, so scrolling
     it (Beam.TextureSpeed) sends flames licking out toward the tip; v (y) runs across the width.

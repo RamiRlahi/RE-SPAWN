@@ -1611,7 +1611,7 @@ local function onTornado(msg: any)
 		local c = Vector3.new(root.Position.X, meshFloorY, root.Position.Z)
 		if core.Parent then core.CFrame = CFrame.new(c + Vector3.new(0, 0.8, 0)) end
 		return c
-	end, r * 0.95, r * 1.5, "fire", dur)
+	end, r * 1.6, r * 2.2, "fire", dur) -- (clip 3: about 4x a character's height, and wider than tall)
 	local template = ReplicatedStorage:FindFirstChild("Tornado")
 	if not (template and template:IsA("BasePart")) then return end
 

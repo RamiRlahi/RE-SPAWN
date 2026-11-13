@@ -293,8 +293,16 @@ function VfxKit.Preload()
 				end
 			end
 		end
+		-- the mesh textures first (a mesh waits, hidden, for its texture), then
+		-- everything else
+		local A = VfxAssets :: any
+		for _, set in ipairs({ A.Swirl, A.Ribbon, A.Sweep, A.FlameFeather, A.Cone, A.Facet }) do add(set) end
+		local first = holders
+		holders = {}
+		pcall(function() game:GetService("ContentProvider"):PreloadAsync(first) end)
 		add(VfxAssets)
 		pcall(function() game:GetService("ContentProvider"):PreloadAsync(holders) end)
+		for _, d in ipairs(first) do d:Destroy() end
 		for _, d in ipairs(holders) do d:Destroy() end
 	end)
 end
@@ -445,12 +453,86 @@ function VfxKit.Tornado(getCenter: () -> Vector3?, radius: number, height: numbe
 		mp.Parent = root()
 		table.insert(layers, { part = mp, r = r, h = h, speed = speed, extra = extra })
 	end
-	addLayer(outer, 1, 1, 3.0, 0, false)
-	addLayer(inner, 0.72, 0.9, -3.8, 0.1, true)
-	addLayer(mesh("tornado", tex.id), 0.45, 0.78, 4.6, 0.05, false)
+	-- (the torn-sheet meshes are the dim body inside now; the swirl arcs below
+	-- are the tornado's walls)
+	addLayer(outer, 0.62, 0.9, 3.0, 0.35, false)
+	addLayer(inner, 0.45, 0.82, -3.8, 0.2, true)
+	if outer then outer:Destroy() end -- (one body layer is enough under the arcs)
+	table.remove(layers, 1)
 	local spin: { number } = {}
 	for i = 1, #layers do spin[i] = i * 2.1 end
 	local readyAt: number? = if texReady(tex.id) then -1 else nil
+
+	-- THE WALLS (clip 3 at full size): dozens of thin crescent streaks swirling
+	-- almost flat around it at every height, each on the swept_shell crescent
+	-- with the swirl texture (several thin streaks: yellow-white inner line,
+	-- red-orange body, one near-black). Each arc spins at its own speed and
+	-- tilt, and respawns with a new height, radius and tilt every ~0.3-0.7 s,
+	-- so the pattern churns like the clip's. A few big flat ones swirl on the
+	-- floor round its base.
+	local swirlTex = ((VfxAssets :: any).Swirl[palette] or (VfxAssets :: any).Swirl.fire).id
+	local shellSpec = MESHES.swept_shell
+	type Arc = { part: MeshPart, h: number, r: number, tilt: CFrame, ang: number, speed: number, age: number, life: number, floor: boolean }
+	local arcs: { Arc } = {}
+	local nArcs = math.floor(18 * (1 - 0.5 * FxBudget.Pressure()) + 0.5)
+	local function reroll(a: Arc, first: boolean)
+		if a.floor then
+			a.h = 0.25 + math.random() * 0.4
+			a.r = radius * (1.05 + math.random() * 0.35)
+			a.tilt = CFrame.Angles(math.rad(math.random(-4, 4)), 0, math.rad(math.random(-4, 4)))
+		else
+			local f = math.random() ^ 0.85
+			a.h = height * (0.08 + 0.9 * f)
+			a.r = radius * (0.78 + 0.27 * f ^ 0.6) * (0.88 + math.random() * 0.24)  -- a fat barrel, widening a little up
+			local axis = math.random() * math.pi * 2
+			a.tilt = CFrame.Angles(0, axis, 0) * CFrame.Angles(math.rad(math.random(-24, 24)), 0, 0) * CFrame.Angles(0, -axis, 0)
+		end
+		a.ang = math.random() * math.pi * 2
+		a.speed = (2.4 + math.random() * 2.4) * math.pi * 2      -- 2.4-4.8 turns a second, all the same way
+		a.age = if first then math.random() * 0.3 else 0
+		a.life = 0.3 + math.random() * 0.4
+	end
+	for i = 1, nArcs + 3 do
+		local mp = mesh("swept_shell", swirlTex)
+		if not mp then break end
+		mp.Transparency = 1
+		mp.Parent = root()
+		local a: Arc = { part = mp, h = 0, r = 0, tilt = CFrame.identity, ang = 0, speed = 0, age = 0, life = 1, floor = i > nArcs }
+		reroll(a, true)
+		table.insert(arcs, a)
+	end
+	-- (performance: resizing a MeshPart is costly, so an arc's Size is only set
+	-- when it changes by more than a few percent (while the tornado grows, and
+	-- on a reroll); CFrames go out in one BulkMoveTo a frame; Transparency is
+	-- only written when it changes)
+	local arcParts: { BasePart } = {}
+	local arcCFrames: { CFrame } = {}
+	local sizeK: { [Arc]: number } = {}
+	local lastTr: { [Arc]: number } = {}
+	local function placeArc(i: number, a: Arc, center: Vector3, grow: number, trBase: number)
+		local r = a.r * (0.35 + 0.65 * grow)
+		local k = r / SHELL_OUTER
+		local p = a.part
+		local kNow = sizeK[a]
+		if not kNow or math.abs(kNow - k) > kNow * 0.04 then
+			sizeK[a] = k
+			p.Size = shellSpec.native * Vector3.new(k, k * 0.6, k)
+		end
+		k = sizeK[a]
+		local frame = CFrame.new(center + Vector3.new(0, a.h * (0.4 + 0.6 * grow), 0)) * a.tilt * CFrame.Angles(0, a.ang, 0)
+		arcParts[i] = p
+		arcCFrames[i] = frame * CFrame.new(-SHELL_CENTER_X * k, 0, 0)
+		-- each arc: fades in fast, holds, fades out as it's rerolled
+		local x = a.age / a.life
+		local env = math.clamp(x / 0.15, 0, 1) * math.clamp((1 - x) / 0.3, 0, 1)
+		-- (rounded to cut property writes, but never below 0.02: at exactly 0
+		-- Roblox ignores the texture's alpha and the arc renders as a solid band)
+		local tr = math.max(math.floor(math.clamp(1 - (1 - trBase) * env, 0.02, 1) * 20 + 0.5) / 20, 0.02)
+		if lastTr[a] ~= tr then
+			lastTr[a] = tr
+			p.Transparency = tr
+		end
+	end
 	local function place(p: MeshPart, center: Vector3, r: number, h: number, ang: number, tr: number)
 		p.Size = Vector3.new(spec.native.X * r / 1.05, h, spec.native.Z * r / 1.05)
 		p.CFrame = CFrame.new(center + Vector3.new(0, h / 2 - 0.2, 0)) * CFrame.Angles(0, ang, 0)
@@ -493,6 +575,7 @@ function VfxKit.Tornado(getCenter: () -> Vector3?, radius: number, height: numbe
 		local c = getCenter()
 		if not c or t >= stopAt + 0.35 then
 			for _, l in ipairs(layers) do l.part:Destroy() end
+			for _, a in ipairs(arcs) do a.part:Destroy() end
 			glow.Enabled = false
 			for _, e in ipairs(slivers) do e.Enabled = false end
 			task.delay(0.6, function() glowHolder:Destroy() end)
@@ -516,6 +599,14 @@ function VfxKit.Tornado(getCenter: () -> Vector3?, radius: number, height: numbe
 			readyAt = t
 		end
 		if readyAt and t - readyAt < 0.25 then tr = math.max(tr, 1 - (t - readyAt) / 0.25) end
+		local arcTr = if texReady(swirlTex) then tr else 1
+		for i, a in ipairs(arcs) do
+			a.age += dt
+			if a.age >= a.life and fadeOut == 0 then reroll(a, false) end
+			a.ang += dt * a.speed
+			placeArc(i, a, c, grow, arcTr)
+		end
+		Workspace:BulkMoveTo(arcParts, arcCFrames, Enum.BulkMoveMode.FireCFrameChanged)
 		local wobble = 0.06 * math.sin(t * 7)
 		-- (the slivers leave from the funnel's middle height, on its rim)
 		sliverAtt.Position = Vector3.new(0, height * 0.45 * (0.5 + 0.5 * grow), 0)
