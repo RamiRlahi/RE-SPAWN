@@ -4825,13 +4825,17 @@ function SkillController.Init()
 		-- (the Martial Artist's Focus Strike and the Swordsman's Piercing
 		-- Judgement charge while their keys are held)
 		if inputMatchesAction(input, "Skill1") then MartialController.Release(1) end
-		if inputMatchesAction(input, "Skill3") then SwordsmanController.Release(3) end
+		if inputMatchesAction(input, "Skill3") then
+			SwordsmanController.Release(3)
+			MartialController.Release(3) -- (the Martial Artist's Haymaker)
+		end
 		-- (and the Ronin's Rising Cut)
 		if inputMatchesAction(input, "Skill2") then RoninController.Release(2) end
 	end)
 	UserInputService.WindowFocusReleased:Connect(function()
 		table.clear(attackHeld)
 		MartialController.Release(1)
+		MartialController.Release(3)
 		SwordsmanController.Release(3)
 		RoninController.Release(2)
 	end)

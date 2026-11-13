@@ -441,14 +441,13 @@ SkillData.martial_artist = {
 		description = "3 charges. Dash into an uppercut that launches and shocks. Empowered and extra projectiles: chains to more enemies.",
 	},
 	[3] = {
-		name = "Ground Slam",
+		name = "Haymaker",
 		slot = 3,
 		keybind = "Q",
 		cooldown = 9.0,
-		damage = 55, -- the strike through enemies; the landing hits for 1.2x, the trail burns for 10% a tick
-		range = 26,
-		radius = 9,
-		description = "Leap and dive onto the target, hitting along the way. Leaves a burning trail. Empowered: 3 strikes, wider area.",
+		damage = 80, -- the wave, up to 3.2x fully charged; each glassy arc behind it 0.45x
+		range = 30, -- the lane at full charge (12 uncharged)
+		description = "Hold to charge, release a haymaker that drives a wave down a lane. The longer the charge, the longer the lane and the harder the hit; arcs burst up along it. Empowered: faster charge, longer, harder.",
 	},
 	[4] = {
 		name = "Dragon Soul",
@@ -678,7 +677,7 @@ local TIPS: { [string]: { { any } } } = {
 	martial_artist = {
 		{ "Hammer out a barrage of punches, then finish with a punch that craters a cone.", { "size", "knockback", "ricochet" } },
 		{ "Dash in and launch enemies with an uppercut of chaining lightning.", { "quantity", "ricochet", "size" } },
-		{ "Leap up and dive onto the spot in an explosive impact.", { "size", "damage", "cooldown" } },
+		{ "Hold to charge a haymaker, release a wave down the lane.", { "size", "damage", "cooldown" } },
 		{ "Awaken the dragon: faster strikes, and it lashes out along every one.", { "attack_speed", "size", "damage" } },
 	},
 }

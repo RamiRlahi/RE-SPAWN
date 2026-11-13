@@ -336,6 +336,9 @@ local IMPACT_PROFILES: { [string]: ImpactProfile } = {
 	["ELECTRIC UPPERCUT"]  = { kb = 0,  lift = 0,  stagger = 0.9,  style = "fist", heavy = true },
 	["CHAIN LIGHTNING"]    = { kb = 0,  lift = 0,  stagger = 0.4,  style = "fist" },
 	["GROUND SLAM"]        = { kb = 0,  lift = 0,  stagger = 0.4,  style = "fist", heavy = true },
+	["HAYMAKER"]           = { kb = 0,  lift = 0,  stagger = 0.6,  style = "fist", heavy = true },
+	["HAYMAKER!"]          = { kb = 0,  lift = 0,  stagger = 0.9,  style = "fist", heavy = true },
+	["HAYMAKER WAVE"]      = { kb = 0,  lift = 0,  stagger = 0.4,  style = "fist" },
 	["CRIMSON HADOUKEN"]   = { kb = 0,  lift = 0,  stagger = 0.6,  style = "fist", heavy = true },
 }
 

@@ -97,7 +97,21 @@ local BARRAGE_EMP = { damage = 1.3, cone = 1.3 }
 local UPPER = { hit = 0.27, total = 0.62, dash = 24, lane = 3.5, stopShort = 2.5, arc = math.cos(math.rad(70)), launch = 55, liftHold = 0.16, stun = 1.3, chain = 16,
 	empChains = 4, chainStun = 0.6 }
 
--- Ground Slam (matches the client's flight: up, a beat, the dive)
+-- Haymaker (Q, matches the client; after the reference clip, which was
+-- stepped through frame by frame): he stands his ground and charges (full
+-- after `full` seconds, Empowered `empFull`; off on its own after `hold`),
+-- a lane marked out on the floor ahead growing `length`..`fullLength` studs
+-- long as it charges. On release the punch drives a wave down the lane: its
+-- front reaches the end in `travel` seconds, hitting everything within `half`
+-- of the lane's line as it passes (up to `maxMult`x the damage at full
+-- charge), blasting them on along it. Behind it a row of glassy arcs bursts
+-- up every `gap` studs (`eruptRadius` round, `eruptMult`x, popping them up),
+-- `after` seconds behind the front.
+local HAY = { full = 1.0, empFull = 0.5, hold = 2.2, length = 12, fullLength = 30, half = 3.2, travel = 0.3,
+	maxMult = 3.2, gap = 5, after = 0.12, eruptRadius = 4.2, eruptMult = 0.45 }
+local HAY_EMP = { damage = 1.3, length = 1.2 }
+
+-- Ground Slam (no longer cast: Q is the Haymaker; kept for reference)
 local ASCENT = { rise = 0.3, dash = 0.08, fall = 0.22 } -- the leap up, the beat at the top, the dive
 local ASCENT_TRAIL = 2.5      -- seconds the trail burns
 local ASCENT_TICK = 0.5
@@ -115,7 +129,7 @@ local DRAGON = { rise = 1.1, duration = 10, emp = 1.4, speed = 1.6, reach = 15, 
 
 -- ── State ───────────────────────────────────────────────────────────────────
 type Target = { character: Model, humanoid: Humanoid, rootPart: BasePart }
-type Focus = { t0: number, empowered: boolean, config: any, token: {} }
+type Focus = { t0: number, empowered: boolean, config: any, token: {}, kind: string? }
 type State = {
 	charge: number,
 	step: number,
@@ -408,11 +422,16 @@ end
 -- ── E: Focus Strike ─────────────────────────────────────────────────────────
 -- The release: `held` is how long the client says the key was down (never
 -- more than the server has seen), `aim` where the fist goes.
+local haymakerRelease: (Player, Focus, number?, Vector3?) -> ()
 local function focusRelease(player: Player, held: number?, aim: Vector3?)
 	local st = getState(player)
 	local f = st.focus
 	if not f then return end
 	st.focus = nil
+	if f.kind == "haymaker" then
+		haymakerRelease(player, f, held, aim)
+		return
+	end
 	local char = player.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not (char and root) then
@@ -604,7 +623,87 @@ local function uppercut(player: Player, char: Model, root: BasePart, dir: Vector
 	end)
 end
 
--- ── Q: Ground Slam ──────────────────────────────────────────────────────────
+-- ── Q: Haymaker ─────────────────────────────────────────────────────────────
+local function haymakerStart(player: Player, config: any, empowered: boolean)
+	local st = getState(player)
+	local now = os.clock()
+	local token = {}
+	st.focus = { t0 = now, empowered = empowered, config = config, token = token, kind = "haymaker" }
+	st.busyUntil = math.max(st.busyUntil, now + HAY.hold + 0.5)
+	fx({ kind = "haymakerCharge", attacker = player, empowered = empowered,
+		full = if empowered then HAY.empFull else HAY.full, hold = HAY.hold })
+	-- (a release that got here ahead of the cast: a tap)
+	local pend = st.pendingRelease
+	st.pendingRelease = nil
+	if pend and now - pend.at < 0.6 then
+		focusRelease(player, pend.held, pend.dir)
+		return
+	end
+	task.delay(HAY.hold, function()
+		local f = st.focus
+		if f and f.token == token then focusRelease(player, HAY.hold, nil) end
+	end)
+end
+
+haymakerRelease = function(player: Player, f: Focus, held: number?, aim: Vector3?)
+	local st = getState(player)
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not (char and root) then
+		st.busyUntil = 0
+		return
+	end
+	local now = os.clock()
+	local elapsed = now - f.t0
+	local h = math.clamp(tonumber(held) or elapsed, 0, elapsed + 0.15)
+	local c = math.clamp(h / (if f.empowered then HAY.empFull else HAY.full), 0, 1)
+	local full = c >= 0.999
+	local config = f.config
+	local area = config.areaMultiplier or 1
+	local dir = flat(if typeof(aim) == "Vector3" then aim else root.CFrame.LookVector)
+	local origin = root.Position
+	-- the lane: longer the harder it was charged (and with Size / area)
+	local length = (HAY.length + (HAY.fullLength - HAY.length) * c) * area * (if f.empowered then HAY_EMP.length else 1)
+	local half = HAY.half * area
+	local damage = (config.damage or 80) * (1 + (HAY.maxMult - 1) * c) * (if f.empowered then HAY_EMP.damage else 1)
+	st.busyUntil = now + 0.45
+	fx({ kind = "haymakerRelease", attacker = player, pos = origin, dir = dir, charge = c, full = full, length = length,
+		half = half, empowered = f.empowered })
+	-- the wave down the lane: each enemy hit as its front passes them
+	local seen: { [Model]: boolean } = {}
+	local first: Target? = nil
+	for _, t in ipairs(alongSegment(char, origin, origin + dir * length, half)) do
+		local rel = t.rootPart.Position - origin
+		local along = math.clamp(Vector3.new(rel.X, 0, rel.Z):Dot(dir), 0, length)
+		task.delay(HAY.travel * along / length, function()
+			if not char.Parent or seen[t.character] then return end
+			seen[t.character] = true
+			if hit(player, t, damage, if full then "HAYMAKER!" else "HAYMAKER") then
+				first = first or t
+				hold(t, 0.3 + 0.3 * c)
+				if not isBoss(t) then shove(t, dir, 40 + 50 * c, 0.25 + 0.3 * c) end
+			end
+		end)
+	end
+	-- the row of glassy arcs bursting up behind the front
+	local n = math.max(1, math.floor(length / HAY.gap))
+	for i = 1, n do
+		local d = i * length / n
+		task.delay(HAY.travel * d / length + HAY.after, function()
+			if not char.Parent then return end
+			local p = floorAt(char, origin + dir * d)
+			for _, t in ipairs(inRadius(char, p, HAY.eruptRadius * area)) do
+				if hit(player, t, damage * HAY.eruptMult, "HAYMAKER WAVE") and not isBoss(t) then launchUp(t, dir) end
+			end
+		end)
+	end
+	task.delay(HAY.travel + 0.05, function()
+		local f1 = first
+		if f1 and char.Parent then pcall(H.ricochet, player, char, f1, damage, "HAYMAKER") end
+	end)
+end
+
+-- ── (old) Q: Ground Slam ────────────────────────────────────────────────────
 local function ascent(player: Player, char: Model, root: BasePart, dir: Vector3, dest: Vector3, config: any, empowered: boolean)
 	local st = getState(player)
 	local area = config.areaMultiplier or 1
@@ -695,10 +794,7 @@ function MartialServer.OnSkill(player: Player, char: Model, skillIndex: number, 
 	elseif skillIndex == 2 then
 		uppercut(player, char, root, dir, config, empowered)
 	elseif skillIndex == 3 then
-		local range = config.range or 26
-		local dest = root.Position + dir * range
-		if typeof(targetPosition) == "Vector3" then dest = targetPosition end
-		ascent(player, char, root, dir, dest, config, empowered)
+		haymakerStart(player, config, empowered)
 	elseif skillIndex == 4 then
 		dragonSoul(player, char, root, dir, config, empowered)
 	end
@@ -738,6 +834,8 @@ function MartialServer.Init(helpers: any)
 		if not st then return end
 		st.busyUntil = 0
 		if type(st.token) == "number" then st.token += 1 end
+		-- (a charging Haymaker is dropped: no punch goes off later)
+		st.focus = nil
 	end)
 	H = helpers
 	-- The Focus Strike's key let go (or a tap that beat the cast here).
