@@ -94,7 +94,7 @@ local function orbitFrame(kind: string): CFrame
 	local yaw = rng:NextNumber(0, TAU)
 	local tilt
 	if kind == "horizontal" then
-		tilt = rng:NextNumber(-15, 15)
+		tilt = rng:NextNumber(-6, 6)
 	elseif kind == "vertical" then
 		tilt = 90 + rng:NextNumber(-15, 15)
 	else
@@ -142,7 +142,7 @@ function FireVortexFX.Start(getFloor: () -> Vector3?, R: number, dur: number): {
 	-- ── ribbons ─────────────────────────────────────────────────────────────
 	type Ribbon = {
 		atts: { Attachment }, beams: { Beam }, frame: CFrame, axis: Vector3, precess: number,
-		radius: number, arc: number, speed: number, phase: number, width: number, wob: number,
+		radius: number, arc: number, speed: number, phase: number, width: number, wob: number, lift: number,
 	}
 	local ribbons: { Ribbon } = {}
 	local RC = C.Ribbons
@@ -155,11 +155,16 @@ function FireVortexFX.Start(getFloor: () -> Vector3?, R: number, dur: number): {
 			precess = range(RC.precess) * TAU * (if rng:NextNumber() < 0.5 then 1 else -1),
 			radius = range(RC.radius) * R,
 			arc = math.rad(range(RC.arc)),
-			speed = range(RC.speed) * TAU * (if k % 3 == 0 then -1 else 1),
+			-- (all one way: the same spin as the funnel round them)
+			speed = range(RC.speed) * TAU,
 			phase = rng:NextNumber(0, TAU),
 			width = range(RC.width) * R,
 			wob = rng:NextNumber(0, TAU),
+			-- stacked up the vortex, evenly, so they read as one rising flow
+			lift = (RC.heights[1] + (RC.heights[2] - RC.heights[1]) * (k - 0.5) / nRibbons) * R,
 		}
+		-- (narrower low down, like the funnel)
+		r.radius *= 0.75 + 0.35 * math.clamp((r.lift / R - RC.heights[1]) / (RC.heights[2] - RC.heights[1]), 0, 1)
 		for _ = 1, RC.points do table.insert(r.atts, att()) end
 		local P = RC.points
 		-- a crescent: pointed at the head, fullest a third along, tapering to a
@@ -184,15 +189,19 @@ function FireVortexFX.Start(getFloor: () -> Vector3?, R: number, dur: number): {
 
 	-- ── streaks ─────────────────────────────────────────────────────────────
 	type Streak = { atts: { Attachment }, beams: { Beam }, dir: Vector3, curl: Vector3, from: number, len: number,
-		width: number, age: number, life: number, burst: boolean }
+		width: number, age: number, life: number, burst: boolean, rad: Vector3, y: number }
 	local streaks: { Streak } = {}
 	local SC = C.Streaks
 	local streakColor = if ink then Color3.new(1, 1, 1) else C.Colors.streak
 	local function rollStreak(s: Streak, burst: boolean)
-		local d = Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(-0.55, 0.75), rng:NextNumber(-1, 1))
-		s.dir = if d.Magnitude > 0.05 then d.Unit else Vector3.xAxis
-		local side = Vector3.yAxis:Cross(s.dir)
-		s.curl = (if side.Magnitude > 0.05 then side.Unit else Vector3.zAxis) * SC.bend
+		-- flung off the spin: leave the rim at a random angle and height, fly
+		-- along the spin's direction (decreasing angle), a little outward and up
+		local a = rng:NextNumber(0, TAU)
+		s.rad = Vector3.new(math.cos(a), 0, math.sin(a))
+		s.y = rng:NextNumber(-0.5, 0.8) * R
+		local tangent = Vector3.new(math.sin(a), 0, -math.cos(a))
+		s.dir = (tangent * 0.85 + s.rad * (if burst then 0.9 else 0.4) + Vector3.yAxis * 0.22).Unit
+		s.curl = s.rad * SC.bend   -- (bends outward as it goes)
 		s.from = range(SC.from) * R
 		s.len = range(SC.length) * R * (if burst then 1.6 else 1)
 		s.width = range(SC.width) * R
@@ -204,7 +213,7 @@ function FireVortexFX.Start(getFloor: () -> Vector3?, R: number, dur: number): {
 	end
 	local function newStreak(burst: boolean): Streak
 		local s: Streak = { atts = { att(), att(), att() }, beams = {}, dir = Vector3.xAxis, curl = Vector3.zero,
-			from = 0, len = 0, width = 0, age = 0, life = 1, burst = burst }
+			from = 0, len = 0, width = 0, age = 0, life = 1, burst = burst, rad = Vector3.xAxis, y = 0 }
 		for i = 1, 2 do
 			local b = newBeam(s.atts[i], s.atts[i + 1], energyTex, true)
 			b.Color = ColorSequence.new(streakColor)
@@ -410,17 +419,20 @@ function FireVortexFX.Start(getFloor: () -> Vector3?, R: number, dur: number): {
 		for _, r in ipairs(ribbons) do
 			local O = CFrame.fromAxisAngle(r.axis, r.precess * t) * r.frame
 			local up = O.UpVector
-			local head = r.phase + r.speed * t
+			-- (the head moves toward decreasing angle: the funnel's direction;
+			-- the tail trails behind it and lower: a rising helix segment)
+			local head = r.phase - r.speed * t
 			local arc = r.arc * (0.3 + 0.7 * form)
 			local rad = r.radius * (0.2 + 0.8 * form) * fling * (1 + RC.wobble * math.sin(t * 3.1 + r.wob))
 			local step = arc / (P - 1)
 			local handle = 4 / 3 * math.tan(step / 4)
+			local base = center + Vector3.new(0, r.lift * (0.4 + 0.6 * form), 0)
 			for j = 1, P do
 				local x = (j - 1) / (P - 1)
-				local th = head - arc * x
+				local th = head + arc * x
 				local rj = rad * (1 - RC.spiralIn * x)
-				local pos = center + O:VectorToWorldSpace(Vector3.new(math.cos(th) * rj, 0, math.sin(th) * rj))
-				local along = O:VectorToWorldSpace(Vector3.new(math.sin(th), 0, -math.cos(th)))
+				local pos = base + O:VectorToWorldSpace(Vector3.new(math.cos(th) * rj, -RC.rise * R * x, math.sin(th) * rj))
+				local along = O:VectorToWorldSpace(Vector3.new(-math.sin(th), 0, math.cos(th)))
 				r.atts[j].WorldCFrame = CFrame.fromMatrix(pos, along, up)
 			end
 			for _, b in ipairs(r.beams) do
@@ -450,7 +462,7 @@ function FireVortexFX.Start(getFloor: () -> Vector3?, R: number, dur: number): {
 			end
 			local x = s.age / s.life
 			local grow = ease(x / 0.3)
-			local a0 = center + s.dir * s.from * (if s.burst then 1 else fling)
+			local a0 = center + Vector3.new(0, s.y, 0) + s.rad * s.from * (if s.burst then 1 else fling)
 			local reach = s.len * grow
 			local a2 = a0 + (s.dir + s.curl).Unit * reach
 			local a1 = a0:Lerp(a2, 0.5) + s.curl * reach * 0.25

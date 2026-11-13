@@ -48,25 +48,27 @@ FireVortexConfig.Core = {
 FireVortexConfig.Ribbons = {
 	count = 6,              -- 5-7
 	points = 7,             -- attachments per ribbon (6 curved beam segments)
-	arc = { 150, 220 },     -- degrees each ribbon spans
-	radius = { 0.8, 1.05 }, -- its orbit (x R)
+	arc = { 120, 170 },     -- degrees each ribbon spans
+	radius = { 0.85, 1.1 }, -- its orbit (x R)
 	spiralIn = 0.18,        -- the tail curls this much inward (x its radius)
 	width = { 0.16, 0.26 }, -- head width (x R); tapers to 15% at the tail
 	speed = { 1.3, 2.6 },   -- turns a second along its orbit
-	precess = { 0.15, 0.45 }, -- turns a second its orbit plane tumbles
+	precess = { 0, 0.04 },  -- turns a second its orbit plane tumbles (near 0: one coherent flow)
+	heights = { -0.55, 0.75 }, -- the ribbons are stacked evenly up the vortex (x R from its centre)
+	rise = 0.35,            -- each ribbon climbs this much from tail to head (x R): one rising helix
 	wobble = 0.08,          -- radius breathing (x radius)
-	-- orbit planes, mixed: "horizontal" (spins round the up axis), "vertical",
+	-- orbit planes: "horizontal" (spins round the up axis, the coherent default), "vertical",
 	-- "diagonal"; one per ribbon, cycled
-	orientations = { "horizontal", "diagonal", "vertical", "diagonal", "horizontal", "vertical", "diagonal" },
+	orientations = { "horizontal", "horizontal", "horizontal", "horizontal", "horizontal", "horizontal", "horizontal" },
 	textureSpeed = 2.2,     -- the texture streams along each ribbon
 	brightness = 1.5,
 	lightEmission = 0.55,   -- (additive overlap of many ribbons whites out above ~0.6)
 }
 
 FireVortexConfig.Streaks = {
-	count = 12,             -- 10-15
-	from = { 0.75, 1.0 },   -- where they start (x R from the centre)
-	length = { 0.8, 1.5 },  -- how far past that they reach (x R)
+	count = 10,             -- 10-15
+	from = { 1.2, 1.6 },    -- where they leave the vortex (x R from its axis): at the funnel's rim
+	length = { 0.7, 1.2 },  -- how far they fly off along the spin (x R)
 	width = { 0.045, 0.075 }, -- (x R): thin and sharp, but never a hairline
 	life = { 0.22, 0.42 },  -- each one flicks out, then a new one somewhere else
 	bend = 0.35,            -- sideways curl along the swirl (x length)
@@ -84,7 +86,7 @@ FireVortexConfig.Ground = {
 	radius = 1.35,          -- the ring (x R)
 	width = 0.12,           -- its band (x R)
 	spin = 0.5,             -- turns a second
-	trails = 3,             -- rotating energy trails on the floor inside the ring
+	trails = 0,             -- rotating energy trails on the floor inside the ring (off: they read as loose rings)
 	trailRadius = { 0.7, 1.15 },
 	trailArc = 120,         -- degrees
 	trailWidth = 0.09,      -- (x R)

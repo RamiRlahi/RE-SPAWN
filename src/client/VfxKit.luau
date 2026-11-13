@@ -481,14 +481,18 @@ function VfxKit.Tornado(getCenter: () -> Vector3?, radius: number, height: numbe
 			a.r = radius * (1.05 + math.random() * 0.35)
 			a.tilt = CFrame.Angles(math.rad(math.random(-4, 4)), 0, math.rad(math.random(-4, 4)))
 		else
+			-- ONE funnel: narrow at the floor, widening upward, every arc on it
+			-- (only a little jitter, so the silhouette holds together)
 			local f = math.random() ^ 0.85
-			a.h = height * (0.08 + 0.9 * f)
-			a.r = radius * (0.78 + 0.27 * f ^ 0.6) * (0.88 + math.random() * 0.24)  -- a fat barrel, widening a little up
-			local axis = math.random() * math.pi * 2
-			a.tilt = CFrame.Angles(0, axis, 0) * CFrame.Angles(math.rad(math.random(-24, 24)), 0, 0) * CFrame.Angles(0, -axis, 0)
+			a.h = height * (0.06 + 0.92 * f)
+			a.r = radius * (0.42 + 0.58 * f ^ 0.8) * (0.94 + math.random() * 0.12)
+			-- ONE helix: every arc pitched the same way (its head higher than its
+			-- tail), so together they read as a single rising spiral, not rings
+			a.tilt = CFrame.Angles(-math.rad(14 + math.random() * 6), 0, 0)
 		end
 		a.ang = math.random() * math.pi * 2
-		a.speed = (2.4 + math.random() * 2.4) * math.pi * 2      -- 2.4-4.8 turns a second, all the same way
+		-- all the same way, faster near the narrow base (a real vortex)
+		a.speed = (2.2 + math.random() * 0.8) * math.pi * 2 * (1.3 - 0.5 * math.clamp(a.h / math.max(height, 1e-3), 0, 1))
 		a.age = if first then math.random() * 0.3 else 0
 		a.life = 0.3 + math.random() * 0.4
 	end
@@ -496,12 +500,12 @@ function VfxKit.Tornado(getCenter: () -> Vector3?, radius: number, height: numbe
 	-- moments of a session gets its walls a beat late instead of never)
 	local function buildArcs()
 		if #arcs > 0 then return end
-		for i = 1, nArcs + 3 do
+		for _ = 1, nArcs do -- (no flat floor arcs: they read as loose rings)
 			local mp = mesh("swept_shell", swirlTex)
 			if not mp then return end
 			mp.Transparency = 1
 			mp.Parent = root()
-			local a: Arc = { part = mp, h = 0, r = 0, tilt = CFrame.identity, ang = 0, speed = 0, age = 0, life = 1, floor = i > nArcs }
+			local a: Arc = { part = mp, h = 0, r = 0, tilt = CFrame.identity, ang = 0, speed = 0, age = 0, life = 1, floor = false }
 			reroll(a, true)
 			table.insert(arcs, a)
 		end
@@ -525,7 +529,9 @@ function VfxKit.Tornado(getCenter: () -> Vector3?, radius: number, height: numbe
 			p.Size = shellSpec.native * Vector3.new(k, k * 0.6, k)
 		end
 		k = sizeK[a]
-		local frame = CFrame.new(center + Vector3.new(0, a.h * (0.4 + 0.6 * grow), 0)) * a.tilt * CFrame.Angles(0, a.ang, 0)
+		-- (the pitch is applied in the arc's own turning frame, so it stays a
+		-- rising helix as the arc spins)
+		local frame = CFrame.new(center + Vector3.new(0, a.h * (0.4 + 0.6 * grow), 0)) * CFrame.Angles(0, a.ang, 0) * a.tilt
 		arcParts[i] = p
 		arcCFrames[i] = frame * CFrame.new(-SHELL_CENTER_X * k, 0, 0)
 		-- each arc: fades in fast, holds, fades out as it's rerolled
@@ -570,7 +576,7 @@ function VfxKit.Tornado(getCenter: () -> Vector3?, radius: number, height: numbe
 		e.LightEmission = if dark then 0 else 1
 		e.LightInfluence = 0
 		e.Brightness = if dark then 1 else 3
-		e.Rate = if dark then 14 else 22
+		e.Rate = if dark then 5 else 9 -- (a few: many read as random spikes)
 		e.LockedToPart = false
 		e.Parent = sliverAtt
 		table.insert(slivers, e)
