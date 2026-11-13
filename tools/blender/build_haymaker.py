@@ -220,7 +220,7 @@ M = {
     "fist": mat_flat("fist", GOLD, 3.0), "hull": mat_flat("hull", DEEP, 1.0, cull=True),
     "torpedo": mat_tex("torp", "haytorpedo_gold", 2.6), "shell": mat_tex("shell", "hayshell_gold", 2.6),
     "whirl": mat_tex("whirl", "haywhirl_gold", 2.8), "rings": mat_flat("rings", HOT, 4.0),
-    "ink": mat_flat("ink", (0.08, 0.025, 0.015), 0.6), "lane": mat_flat("lane", GOLD, 4.0),
+    "ink": mat_flat("ink", (0.08, 0.025, 0.015), 0.6), "lane": mat_flat("lane", GOLD, 4.0), "strip": mat_flat("strip", (0.5, 0.3, 0.05), 1.2),
 }
 for ob, key in ((fist, "fist"), (fist_hull, "hull"), (torpedo, "torpedo"), (torpedo_hull, "hull"), (rings, "rings"),
                 (dome, "shell"), (arch, "shell"), (ink, "ink"), (whirl, "whirl")):
@@ -245,12 +245,27 @@ def clear():
     instances.clear()
 
 LANE = 24
+# Sett's W footprint: a trapezoid, half-width 0.14 L at his feet, 0.33 L at the far end (matches the game)
+def half_at(d):
+    return LANE * (0.14 + (0.33 - 0.14) * d / LANE)
+
+def strip(a, b, w, mat):
+    """A flat band on the floor from a to b (x, y), w wide."""
+    d = Vector((b[0] - a[0], b[1] - a[1], 0)); L = d.length
+    bpy.ops.mesh.primitive_plane_add(size=1); p = bpy.context.object
+    p.scale = (w, L, 1); p.location = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, 0.05)
+    p.rotation_euler = (0, 0, math.atan2(d.y, d.x) - math.pi / 2)
+    p.data.materials.append(mat); instances.append(p)
+
 def lane_lines(alpha_len=1.0):
-    for i in (-1, 0, 1):
-        bpy.ops.mesh.primitive_plane_add(size=1); p = bpy.context.object
-        L = LANE * alpha_len
-        p.scale = (0.25 if i else 0.5, L, 1); p.location = (i * 1.8, -L / 2 - 1, 0.05)
-        p.data.materials.append(M["lane"]); instances.append(p)
+    L = LANE * alpha_len
+    n0, n1 = half_at(0), half_at(L)
+    for sg in (-1, 1):                                       # the two edges, fanning out
+        strip((sg * n0, -1), (sg * n1, -1 - L), 0.3, M["lane"])
+        strip((sg * n0 * 0.45, -1), (sg * n1 * 0.45, -1 - L), 0.18, M["lane"])   # inner fan lines
+    strip((-n0, -1), (n0, -1), 0.3, M["lane"])               # near end
+    strip((-n1, -1 - L), (n1, -1 - L), 0.3, M["lane"])       # far end
+    strip((0, -1), (0, -1 - L), n0 * 2, M["strip"])          # the centre strip (as wide as the near end)
 
 cam_d = bpy.data.cameras.new("cam"); cam_d.lens = 16
 cam = bpy.data.objects.new("cam", cam_d); sc.collection.objects.link(cam); sc.camera = cam
@@ -277,10 +292,9 @@ shot("1005", lambda: (show(dome, (0, -3, 2.5), (5.5, 4.5, 5.5)), show(rings, (0,
 def breakup():
     random.seed(4)
     for i in range(6):
-        y = -2.5 - i * 2.4
-        s = 3.0 + random.uniform(0, 1.4)
-        x = random.uniform(-1.5, 1.5)
-        show(arch, (x, y, 0), (s, s * 0.6, s * 1.1), (0, 0, math.radians(random.uniform(-25, 25))))
+        y = -2.5 - i * 3.6
+        s = half_at(-y) * random.uniform(0.85, 1.0)          # each arch spans the trapezoid at its distance
+        show(arch, (random.uniform(-0.6, 0.6), y, 0), (s, s * 0.45, s * 0.75), (0, 0, math.radians(random.uniform(-10, 10))))
     for i in range(3):
         sg = 1 if i % 2 else -1
         show(ink, (sg * 2.2, -3 - i * 4, 0), (5, 5, 5), (0, 0, math.radians(-30 * sg)))
