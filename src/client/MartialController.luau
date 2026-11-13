@@ -2202,133 +2202,168 @@ local function upright(at: Vector3, dir: Vector3): CFrame
 	return CFrame.fromMatrix(at, dir, z:Cross(dir), z)
 end
 
+-- ── The golden Haymaker (Sett's W, adapted) ─────────────────────────────────
+-- One message: he is pouring an enormous amount of power into one forward
+-- punch. Palette: white-yellow (hottest) → bright gold (main) → orange
+-- (trails) → deep orange-red (edges, fading bits). No spinning rings, no
+-- domes, no spikes: everything flows INTO the fist, then OUT along the aim.
+local G_HOT = Color3.fromRGB(255, 247, 210)
+local G_GOLD = Color3.fromRGB(255, 196, 55)
+local G_ORANGE = Color3.fromRGB(255, 125, 30)
+local G_DEEP = Color3.fromRGB(205, 55, 20)
+local G_TEX = VfxAssets.Energy.fire.id -- (white-yellow centre → orange body → red-orange edges, across its width)
+local G_GLOW = VfxAssets.Glow.soft.id
+
+-- Where his punching fist is (the right arm's end), or a guess in front.
+local function fistPos(char: Model?, root: BasePart, dir: Vector3): Vector3
+	local arm = char and char:FindFirstChild("Right Arm") :: BasePart?
+	if arm then return (arm.CFrame * CFrame.new(0, -1.15, 0)).Position end
+	return root.Position + dir * 1.6 + UP * 0.3
+end
+
 -- 1 · The charge round `char`. `getDir()` gives the aim each frame.
 type HayFx = { stop: (boolean) -> () }
 local function haymakerChargeFx(char: Model, full: number, hold: number, empowered: boolean, mine: boolean,
 	getDir: () -> Vector3): HayFx
 	local root = rootOf(char)
+	local torso = char:FindFirstChild("Torso") :: BasePart?
 	if not root then return { stop = function() end } end
 	local h = carrier(CFrame.new())
-	-- the lane: Sett's W telegraph, a trapezoid on the floor, narrow at his
-	-- feet (`hayNear`) widening to the far end (`hayFar`), with a bright
-	-- centre strip (`core` either side) down its middle. Each line is
-	-- { from along, from across, to along, to across } in units of
-	-- (lane length, its own width); the strip is a filled band.
+
+	-- (subtle ground energy) the trapezoid telegraph, gold and faint
 	type Line = { a0: Attachment, a1: Attachment, b: Beam, spec: { number }, kind: string }
 	local lines: { Line } = {}
-	local function addLine(kind: string, spec: { number }, color: Color3, w: number, speed: number)
+	local function addLine(kind: string, spec: { number }, color: Color3, w: number)
 		local a0, a1 = flatAtt(h, root.Position, Vector3.xAxis), flatAtt(h, root.Position, Vector3.xAxis)
-		local b = newBeam(a0, a1, false, color, 1)
-		b.TextureSpeed = speed
+		local b = newBeam(a0, a1, false, color, 1, G_TEX)
+		b.TextureSpeed = 8
 		b.Width0, b.Width1 = w, w
 		b.Transparency = NumberSequence.new(1)
 		table.insert(lines, { a0 = a0, a1 = a1, b = b, spec = spec, kind = kind })
 	end
-	addLine("strip", { 0, 0, 1, 0 }, HAY_BLUE, 1, 6)                 -- (filled; width set per frame)
-	addLine("edge", { 0, -1, 1, -1 }, HAY_ICE, 0.45, 10)             -- outer edges
-	addLine("edge", { 0, 1, 1, 1 }, HAY_ICE, 0.45, 10)
-	addLine("cap", { 1, -1, 1, 1 }, HAY_ICE, 0.45, 10)               -- far end
-	addLine("cap", { 0, -1, 0, 1 }, HAY_ICE, 0.35, 10)               -- near end
-	addLine("core", { 0, -1, 1, -1 }, WHITE, 0.25, 14)               -- the strip's borders
-	addLine("core", { 0, 1, 1, 1 }, WHITE, 0.25, 14)
-	addLine("flow", { 0, -0.35, 1, 0.35 }, HAY_ICE, 0.18, 18)        -- streaks flowing inside it
-	addLine("flow", { 0, 0.4, 1, -0.3 }, HAY_ICE, 0.18, 18)
-	-- the whirlpool: 4 flat crescents spinning on the floor at his feet
-	type Swirl = { atts: { Attachment }, beams: { Beam }, r: number, speed: number, phase: number }
-	local swirls: { Swirl } = {}
-	for k = 1, 6 do
-		local s: Swirl = { atts = {}, beams = {}, r = 2 + k * 0.85, speed = 8 + k * 2, phase = k * 1.7 }
-		for _ = 1, 4 do table.insert(s.atts, flatAtt(h, root.Position, Vector3.xAxis)) end
-		for i = 1, 3 do
-			local b = newBeam(s.atts[i], s.atts[i + 1], false, if k % 3 == 0 then HAY_NAVY elseif k % 3 == 1 then HAY_BLUE else WHITE, if k % 3 == 0 then 0.2 else 0.9)
-			b.TextureSpeed = -8
-			b.Segments = 8
-			b.Transparency = NumberSequence.new(1)
-			table.insert(s.beams, b)
-		end
-		table.insert(swirls, s)
+	addLine("strip", { 0, 0, 1, 0 }, G_GOLD, 1)
+	addLine("edge", { 0, -1, 1, -1 }, G_ORANGE, 0.3)
+	addLine("edge", { 0, 1, 1, 1 }, G_ORANGE, 0.3)
+	addLine("cap", { 1, -1, 1, 1 }, G_ORANGE, 0.3)
+
+	-- the fist: a hot glow that grows with the charge (and one short-lived light)
+	local fistPart = part({ Size = Vector3.one * 0.2, Transparency = 1 })
+	local fa = Instance.new("Attachment")
+	fa.Parent = fistPart
+	local fistGlow = emitter(fa, { Texture = G_GLOW, Color = ColorSequence.new(G_HOT, G_GOLD), LightEmission = 1, Brightness = 3,
+		Size = nseq(0, 1.2, 1, 1.6), Transparency = nseq(0, 0.2, 1, 1), Lifetime = NumberRange.new(0.12), Speed = NumberRange.new(0),
+		Rate = 40, LockedToPart = true, ZOffset = 1 })
+	local light: PointLight? = nil
+	if FxBudget.Light() then
+		light = Instance.new("PointLight")
+		light.Color, light.Range, light.Brightness, light.Shadows = G_GOLD, 10, 0.5, false
+		light.Parent = fa
 	end
-	-- the glassy dome over him as it peaks
-	local dome = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 11, Color = HAY_BLUE, Material = Enum.Material.ForceField,
-		Transparency = 1, CFrame = root.CFrame })
-	local specks = emitter(h, { Texture = TEX_SPARKLE, Color = ColorSequence.new(HAY_ICE, HAY_BLUE), LightEmission = 1,
-		Size = nseq(0, 0.3, 1, 0), Lifetime = NumberRange.new(0.2, 0.4), Speed = NumberRange.new(5, 12),
-		SpreadAngle = Vector2.new(180, 180), Rate = 0 })
+
+	-- energy gathering INTO the fist: a sphere of motes drawn inward
+	local well = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 7, Transparency = 1 })
+	local gather = emitter(well, { Texture = TEX_SPARKLE, Color = ColorSequence.new({ ColorSequenceKeypoint.new(0, G_ORANGE),
+			ColorSequenceKeypoint.new(0.6, G_GOLD), ColorSequenceKeypoint.new(1, G_HOT) }),
+		LightEmission = 1, Brightness = 3, Size = nseq(0, 0.25, 0.5, 0.55, 1, 0.15), Transparency = nseq(0, 1, 0.2, 0, 1, 0),
+		Lifetime = NumberRange.new(0.35, 0.45), Speed = NumberRange.new(9, 11), Rate = 0,
+		Shape = Enum.ParticleEmitterShape.Sphere, ShapeStyle = Enum.ParticleEmitterShapeStyle.Surface,
+		ShapeInOut = Enum.ParticleEmitterShapeInOut.Inward, Orientation = Enum.ParticleOrientation.VelocityParallel })
+
+	-- golden lines flowing from his body down the punching arm into the fist:
+	-- curved beams from the torso to the fist, their texture streaming fistward
+	type Flow = { a0: Attachment, a1: Attachment, b: Beam, off: Vector3, curl: number }
+	local flows: { Flow } = {}
+	for k = 1, 4 do
+		local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
+		a0.Parent, a1.Parent = h, h
+		local b = newBeam(a0, a1, true, if k % 2 == 0 then G_GOLD else G_ORANGE, 1, G_TEX)
+		b.TextureSpeed = 7
+		b.TextureLength = 2
+		b.Segments = 10
+		b.Transparency = NumberSequence.new(1)
+		table.insert(flows, { a0 = a0, a1 = a1, b = b,
+			off = Vector3.new((k - 2.5) * 0.45, (k % 2) * 0.6 - 0.2, 0), curl = (if k % 2 == 0 then 1 else -1) * (1 + k * 0.3) })
+	end
+
+	-- the aura on his torso (dense, close to the body) and glowing motes rising round his feet
+	local aura = torso and emitter(torso, { Texture = G_GLOW, Color = ColorSequence.new(G_GOLD, G_ORANGE), LightEmission = 1,
+		Brightness = 1.5, Size = nseq(0, 2.5, 1, 3.5), Transparency = nseq(0, 0.6, 1, 1), Lifetime = NumberRange.new(0.25),
+		Speed = NumberRange.new(0), Rate = 0, LockedToPart = true }) or nil
+	local feet = emitter(h, { Texture = TEX_SPARKLE, Color = ColorSequence.new(G_GOLD, G_DEEP), LightEmission = 1,
+		Size = nseq(0, 0.25, 1, 0), Lifetime = NumberRange.new(0.6, 1), Speed = NumberRange.new(2, 5),
+		EmissionDirection = Enum.NormalId.Top, SpreadAngle = Vector2.new(35, 35), Rate = 0 })
+
 	local t0 = os.clock()
 	local alive = true
 	local wasFull = false
-	local nextShard = 0
+	local all: { Instance } = { h, fistPart, well }
 	animate(hold + 0.3, function()
 		if not alive or not root.Parent then return true end
 		local t = os.clock() - t0
 		local k = math.min(t / full, 1)
 		local dir = flat(getDir())
 		local side = Vector3.new(-dir.Z, 0, dir.X)
-		local g = onGround(root.Position) + UP * 0.2
+		local g = onGround(root.Position) + UP * 0.15
 		h.CFrame = CFrame.new(g)
-		-- the trapezoid runs out as it charges (to the lane's length)
+		local fp = fistPos(char, root, dir)
+		fistPart.CFrame = CFrame.new(fp)
+		well.CFrame = CFrame.new(fp)
+		well.Size = Vector3.one * (7 - 2.5 * k) -- (drawing in tighter as it builds)
+
+		-- the telegraph (faint: it's the ground, not the show)
 		local L = 1 + hayLength(k, empowered) * math.clamp(k * 1.2, 0.08, 1)
 		local fullL = hayLength(k, empowered)
 		local near, far = hayNear(fullL), hayFar(fullL)
-		local core = near
-		local function widthAt(a: number, kind: string): number
-			if kind == "core" or kind == "flow" or kind == "strip" then return core end
-			return near + (far - near) * a
-		end
 		local base = g + dir * 0.6
 		for _, ln in ipairs(lines) do
 			local sp = ln.spec
-			local fa, ta = sp[1], sp[3]
-			local from = base + dir * (L * fa) + side * sp[2] * widthAt(fa, ln.kind)
-			local to = base + dir * (L * ta) + side * sp[4] * widthAt(ta, ln.kind)
-			local along = (to - from)
-			local ad = if along.Magnitude > 0.01 then along.Unit else dir
+			local function w(a: number): number
+				return if ln.kind == "strip" then near else near + (far - near) * a
+			end
+			local from = base + dir * (L * sp[1]) + side * sp[2] * w(sp[1])
+			local to = base + dir * (L * sp[3]) + side * sp[4] * w(sp[3])
+			local ad = (to - from).Magnitude > 0.01 and (to - from).Unit or dir
 			local sd = Vector3.new(-ad.Z, 0, ad.X)
 			ln.a0.WorldCFrame = CFrame.fromMatrix(from, ad, sd)
 			ln.a1.WorldCFrame = CFrame.fromMatrix(to, ad, sd)
 			if ln.kind == "strip" then
-				ln.b.Width0, ln.b.Width1 = core * 2, core * 2
-				ln.b.Transparency = NumberSequence.new(0.55 - 0.2 * k)
+				ln.b.Width0, ln.b.Width1 = near * 2, near * 2
+				ln.b.Transparency = NumberSequence.new(0.92 - 0.1 * k)
 			else
-				ln.b.Transparency = NumberSequence.new(0.1 + 0.2 * (1 - k))
+				ln.b.Transparency = NumberSequence.new(0.6 - 0.2 * k)
 			end
 		end
-		-- the whirlpool: crescents spinning flat round his feet
-		for _, s in ipairs(swirls) do
-			local a0 = s.phase + t * s.speed
-			local arc = math.rad(110 + 60 * k)
-			local r = s.r * (0.6 + 0.4 * k)
-			local step = arc / 3
-			local handle = 4 / 3 * math.tan(step / 4) * r
-			for j = 1, 4 do
-				local a = a0 - step * (j - 1)
-				local p = g + Vector3.new(math.cos(a) * r, 0.05 * j, math.sin(a) * r)
-				local tang = Vector3.new(math.sin(a), 0, -math.cos(a))
-				s.atts[j].WorldCFrame = CFrame.fromMatrix(p, tang, Vector3.new(-tang.Z, 0, tang.X))
-			end
-			for j, b in ipairs(s.beams) do
-				local w = (0.5 + 1.1 * k) * (1 - (j - 1) / 3 * 0.75)
-				b.Width0, b.Width1 = w, w * 0.7
-				b.CurveSize0, b.CurveSize1 = handle, handle
-				b.Transparency = NumberSequence.new(0.4 - 0.38 * k)
-			end
+
+		-- the fist grows brighter and hotter
+		local fs = 1 + 2.6 * k
+		fistGlow.Size = nseq(0, fs, 1, fs * 1.3)
+		fistGlow.Brightness = 2 + 4 * k
+		if light then light.Brightness = 0.5 + 2.5 * k end
+		gather.Rate = 25 + 70 * k
+		feet.Rate = 6 + 14 * k
+		if aura then aura.Rate = 10 + 25 * k end
+
+		-- the flowing lines, body → arm → fist
+		local from = if torso then torso.Position + UP * 0.3 else root.Position + UP
+		for i, fl in ipairs(flows) do
+			local start = from + side * fl.off.X + UP * fl.off.Y - dir * 0.4
+			local ad = (fp - start)
+			local u = if ad.Magnitude > 0.01 then ad.Unit else dir
+			local n = u:Cross(UP)
+			n = if n.Magnitude > 0.01 then n.Unit else side
+			fl.a0.WorldCFrame = CFrame.fromMatrix(start, u, n)
+			fl.a1.WorldCFrame = CFrame.fromMatrix(fp, u, n)
+			fl.b.CurveSize0 = fl.curl * (0.8 + 0.4 * math.sin(t * 9 + i))
+			fl.b.CurveSize1 = -fl.curl * 0.6
+			fl.b.Width0 = 0.12 + 0.25 * k
+			fl.b.Width1 = 0.3 + 0.6 * k
+			fl.b.Transparency = NumberSequence.new(math.clamp(0.75 - 0.75 * k + (i - 1) * 0.05, 0, 1))
 		end
-		-- black ink shards flicking up out of the whirlpool
-		if os.clock() >= nextShard and FxBudget.Allow("maHayShard", 30) then
-			nextShard = os.clock() + 0.11 - 0.06 * k
-			local a = math.random() * math.pi * 2
-			local p = g + Vector3.new(math.cos(a), 0, math.sin(a)) * (1.5 + 2.5 * math.random())
-			local out = (Vector3.new(math.cos(a), 0, math.sin(a)) * 0.8 + UP * (1 + math.random())).Unit
-			hayBand(p, p + out * (2 + 3 * k), 0.5 + 0.6 * k, 0, 0.32, Color3.fromRGB(10, 14, 40), 0, false, 0.08)
-		end
-		specks.Rate = 10 + 40 * k
-		dome.Transparency = 1 - 0.55 * math.clamp((k - 0.4) / 0.6, 0, 1)
-		dome.CFrame = CFrame.new(g + UP * 1.5)
-		-- full: a pulse
+
+		-- full: a hot pulse at the fist
 		if k >= 1 and not wasFull then
 			wasFull = true
-			VfxKit.Flash(g + UP * 1.5, "ice", 7, 0.1)
-			VfxKit.FloorRing(g, "ice", 5, 0.35)
+			VfxKit.Flash(fp, "fire", 6, 0.1, G_HOT)
 			if mine then ClassFX.Sound("charge", root, 0.6, 1.4) end
 		end
 		return nil
@@ -2336,216 +2371,121 @@ local function haymakerChargeFx(char: Model, full: number, hold: number, empower
 	return {
 		stop = function(_full: boolean)
 			alive = false
-			specks.Enabled = false
-			dome:Destroy()
+			for _, e in ipairs({ fistGlow, gather, feet }) do e.Enabled = false end
+			if aura then
+				aura.Enabled = false
+				task.delay(0.4, function() aura:Destroy() end)
+			end
+			for _, fl in ipairs(flows) do fl.b.Transparency = NumberSequence.new(1) end
 			for _, ln in ipairs(lines) do ln.b.Transparency = NumberSequence.new(1) end
-			for _, s in ipairs(swirls) do for _, b in ipairs(s.beams) do b.Transparency = NumberSequence.new(1) end end
-			task.delay(0.5, function() h:Destroy() end)
+			if light then light:Destroy() end
+			task.delay(0.6, function() for _, i in ipairs(all) do i:Destroy() end end)
 		end,
 	}
 end
 
--- A ring of light round `center`, standing across `axis` (its plane), as 6
--- curved Beam segments, radius `r`: returned so it can be grown and faded.
-local function hayRing(center: Vector3, axis: Vector3, r: number, w: number, color: Color3, emission: number)
-	local h = carrier(CFrame.new())
-	local cf = CFrame.lookAt(center, center + axis)
-	local atts: { Attachment } = {}
-	for _ = 1, 6 do
-		local a = Instance.new("Attachment")
-		a.Parent = h
-		table.insert(atts, a)
-	end
-	local beams: { Beam } = {}
-	for i = 1, 6 do
-		local b = newBeam(atts[i], atts[i % 6 + 1], true, color, emission)
-		b.Segments = 8
-		b.Width0, b.Width1 = w, w
-		table.insert(beams, b)
-	end
-	local function set(radius: number, tr: number)
-		local step = math.pi * 2 / 6
-		local handle = 4 / 3 * math.tan(step / 4) * radius
-		for i = 1, 6 do
-			local a = (i - 1) * step
-			local p = cf:PointToWorldSpace(Vector3.new(math.cos(a) * radius, math.sin(a) * radius, 0))
-			local tang = cf:VectorToWorldSpace(Vector3.new(-math.sin(a), math.cos(a), 0))
-			atts[i].WorldCFrame = CFrame.fromMatrix(p, tang, axis)
-		end
-		local seq = NumberSequence.new(tr)
-		for _, b in ipairs(beams) do
-			b.CurveSize0, b.CurveSize1 = handle, handle
-			b.Transparency = seq
-		end
-	end
-	set(r, 0)
-	return set, h
-end
-
--- 2 · The release (the clip's 9.65-10.55, t = 0 at release). `slow` > 1
--- stretches every timing (Studio checks only: MA_DebugHaySlow).
+-- 2 · The release: the blast from the fist, forward down the lane, and the
+-- impact where it ends. `slow` > 1 stretches every timing (Studio checks).
 local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: number, half: number, mine: boolean, slow: number?)
+	local _ = half
 	local S = slow or 1
 	local g = onGround(origin)
 	local side = Vector3.new(-dir.Z, 0, dir.X)
-	local fist = origin + dir * 1.8 + UP * 0.4
-	local fin = g + dir * length
+	local fist = origin + dir * 1.6 + UP * 0.3
 	local T = HAY.travel * S
-	-- f0 (9.65): the white card at the fist, a burst of dark blades out of it,
-	-- speed lines streaking back
-	hayBand(fist - dir * 1.2, fist + dir * 1.8, 3.8 + 2 * c, 3 + 1.5 * c, 0.1 * S, WHITE, 1)
-	flare(fist, 5 + 2 * c, 0.1 * S, WHITE)
-	for k = 1, 9 do
-		local a = (k / 9) * math.pi * 2 + math.random() * 0.3
-		local out = (side * math.cos(a) + UP * math.sin(a) + dir * 0.35).Unit
-		hayBand(fist + out * 1.2, fist + out * (3.2 + math.random() * 2.2), 0.45, 0, 0.16 * S,
-			if k % 3 == 0 then HAY_BLUE else HAY_NAVY, if k % 3 == 0 then 0.6 else 0, false, 0.04 * S)
-	end
-	for _ = 1, 7 do
-		local o = side * (math.random() - 0.5) * 6 + UP * (math.random() * 3 - 1)
-		local p = fist + o - dir * (1 + math.random() * 2)
-		hayBand(p, p - dir * (3 + math.random() * 4), 0.12, 0.02, 0.15 * S, WHITE, 1)
-	end
-	VfxKit.FloorGlow(g + dir * length * 0.4, HAY_BLUE, length * 1.1, 0.45 * S, true)
-	-- f1-f3 (9.75): the stream down the lane: a dark navy outline coming to a
-	-- sharp point, a saturated blue body, a white swirl core
-	-- (hugging the floor, swinging in S-curves like the clip's swirling mass:
-	-- the navy outline, two blue swirls crossing, a white swirl core)
-	local low = fist - UP * 0.6
-	-- (a glossy capsule: a thick dark navy outline coming to a sharp tip, a
-	-- white core whose texture fades to blue at its edges, a thin blue swirl
-	-- line riding it)
-	-- (the outline as two thin dark edges either side of the core: overlapping
-	-- Beams sort unpredictably, so nothing is layered under the white)
-	-- THE RELEASE IS A CONE (Sett's W): a wedge of energy widening from the
-	-- fist to the end of the lane. The cone mesh: its tip at the fist, its
-	-- mouth (`half` round) at the end, running out over T; dark outline edges
-	-- along its two sides, a white core line down its middle.
-	local wedge = if VfxKit.TexReady(VfxAssets.Cone.ice.id) then VfxKit.Mesh("shock_cone", VfxAssets.Cone.ice.id) else nil
+	local near, far = hayNear(length), hayFar(length)
+	local fin = fist + dir * length
+
+	-- f0: the hot flash at the fist, a burst of gold out along the aim
+	VfxKit.Flash(fist, "fire", 7 + 4 * c, 0.1 * S, G_HOT)
+	hayBand(fist - dir * 0.5, fist + dir * 3, 3.5 + 2 * c, 2.5 + 1.5 * c, 0.12 * S, G_HOT, 1, false, 0.001)
+
+	-- the blast body: a wide tapered shockwave (the cone mesh, gold) whose
+	-- front races from the fist to the end of the lane
+	local cone = VfxAssets.Cone.fire.id
+	local wedge = if VfxKit.TexReady(cone) then VfxKit.Mesh("shock_cone", cone) else nil
 	if wedge then
 		wedge.Material = Enum.Material.Neon
-		wedge.Transparency = 0.2
+		wedge.Color = G_GOLD
+		wedge.Transparency = 0.25
 		wedge.Parent = ClassFX.Folder()
-		local apex = fist + UP * 0.2
-		animate(0.45 * S, function(x)
-			local run = easeOut(math.min(x * 0.45 * S / T, 1))
-			local len = math.max(length * run, 0.5)
-			local mouth = math.max(hayFar(length) * run, 0.3)
-			-- (the mesh's mouth is at its +Z, opposite its LookVector: look back at him)
-			local p = apex + dir * len * 0.5
-			wedge.Size = Vector3.new(mouth * 2, mouth * 1.2, len)
-			wedge.CFrame = CFrame.lookAt(p, p - dir)
-			wedge.Transparency = 0.2 + 0.8 * math.clamp((x - 0.55) / 0.45, 0, 1)
-			if x >= 1 then wedge:Destroy() end
-			return nil
+	end
+	-- the bright yellow-white centre: thick camera-facing bands down the
+	-- middle (the texture is white-hot at its centre, orange at its edges)
+	local coreW = 2.2 + 1.6 * c
+	-- (tapered: a point at the fist widening down the lane; the hot centre
+	-- narrow inside a broad gold body, lit below full so it doesn't white out)
+	hayBand(fist, fin, 0.5, coreW * 1.1, 0.42 * S, G_HOT, 0.75, false, T)
+	hayBand(fist, fin, 1.2, coreW * 2.4, 0.38 * S, G_GOLD, 0.55, false, T)
+	-- orange and red trails curving round the blast (alternating sides,
+	-- above and below), sweeping forward with it
+	for k = 1, 4 do
+		local sgn = if k % 2 == 0 then 1 else -1
+		local yo = if k <= 2 then 0.8 else -0.2
+		local a = fist + side * sgn * 0.6 + UP * yo
+		local b = fin + side * sgn * far * (0.75 + 0.1 * k) + UP * (yo * 1.5)
+		hayBand(a, b, 0.5, 1.6, 0.4 * S, if k <= 2 then G_ORANGE else G_DEEP, 1, false, T * (1 + k * 0.05), sgn * 0.35)
+	end
+	-- sharp streaks shooting ahead of the front (acceleration)
+	for k = 1, 7 do
+		local o = side * (math.random() - 0.5) * near * 2.4 + UP * (math.random() * 1.6 - 0.3)
+		local st = fist + o + dir * (length * (0.2 + 0.25 * math.random()))
+		task.delay(T * 0.15 * k / 7, function()
+			hayBand(st, st + dir * (6 + math.random() * 7), 0.22, 0.02, 0.2 * S, if k % 3 == 0 then G_HOT else G_GOLD, 1, false, 0.06 * S)
 		end)
 	end
-	for _, sgn in ipairs({ -1, 1 }) do
-		hayBand(low + side * hayNear(length) * sgn, low + dir * length + side * hayFar(length) * sgn, 0.5, 0.25, 0.4 * S, Color3.fromRGB(12, 18, 70), 0, false, T * 0.7)
-		hayBand(low + UP * 0.1, low + dir * length * 0.95 + side * half * 0.75 * sgn, 0.3, 0.6, 0.36 * S, HAY_BLUE, 1, false, T * 0.7)
-	end
-	hayBand(low + UP * 0.1, low + dir * length * 0.92, 1.2 + 0.5 * c, 0.6, 0.38 * S, WHITE, 0.9, false, T * 0.68)
-	-- bright beams along the lane floor beside it, then the dark scorch streak
-	for i = -2, 2 do
-		local o = side * i * half * 0.32
-		hayBand(g + UP * 0.15 + o * 0.5, fin + UP * 0.15 + o, if i == 0 then 1.4 else 0.55, 0.25, 0.9 * S,
-			if i == 0 then WHITE else HAY_ICE, 1, true, T * (1 + math.abs(i) * 0.12))
-	end
-	task.delay(T + 0.3 * S, function()
-		-- (the clip's 4.8 s: a soft dark streak tapering to a point, not a plank;
-		-- its edges given by two thin bands either side at half strength)
-		hayBand(g + UP * 0.08 + dir * 1, fin + UP * 0.08, 1.5, 0.05, 1.8 * S, Color3.fromRGB(3, 4, 9), 0, true, 0.001)
-		hayBand(g + UP * 0.07 + dir * 1.5, fin + UP * 0.07 - dir * 2, 2.6, 0.3, 1.4 * S, Color3.fromRGB(10, 12, 26), 0, true, 0.001)
-	end)
-	-- f1-f8 (9.75-10.15): the ribbed glassy dome bulging out round the fist,
-	-- growing where it is (it doesn't travel), bright rings on its rim
-	local domeAt = fist + dir * 2
-	local cone = VfxAssets.Cone.ice.id
-	local dome = if VfxKit.TexReady(cone) then VfxKit.Mesh("shock_cone", cone) else nil
-	local setRim, rimHolder = hayRing(domeAt, dir, 1.6, 0.28, HAY_ICE, 1)
-	local setRim2, rimHolder2 = hayRing(domeAt + dir * 1.2, dir, 1.2, 0.16, WHITE, 1)
-	-- (more ribs along its depth)
-	local setRim3, rimHolder3 = hayRing(domeAt + dir * 2.2, dir, 1, 0.14, HAY_ICE, 1)
-	local setRim4, rimHolder4 = hayRing(domeAt - dir * 0.6, dir, 1.4, 0.2, HAY_BLUE, 1)
-	if dome then
-		dome.Material = Enum.Material.Neon
-		dome.Transparency = 0.15
-		dome.Parent = ClassFX.Folder()
-	end
-	local DOME = 0.6 * S
-	animate(DOME, function(x)
-		local grow = easeOut(math.min(x / 0.55, 1))
-		local r = 1.8 + 3 * grow   -- (the clip: about two character-heights across)
-		local fade = math.clamp((x - 0.7) / 0.3, 0, 1)
-		if dome and dome.Parent then
-			-- (the mesh's mouth faces back along -dir: a bulge forward round the fist)
-			local len = r * 1.25
-			local p = domeAt + dir * len * 0.35
-			dome.Size = Vector3.new(r * 2, r * 2, len)
-			dome.CFrame = CFrame.lookAt(p, p + dir)
-			dome.Transparency = 0.15 + 0.85 * fade
+	-- the moving wave front: forward-bowed crescents riding the front
+	local t0 = os.clock()
+	local fronts = 0
+	animate(T + 0.2 * S, function(x)
+		local t = os.clock() - t0
+		local run = easeOut(math.min(t / T, 1))
+		local len = math.max(length * run, 0.6)
+		local mouth = math.max(near + (far - near) * run, 0.4)
+		if wedge and wedge.Parent then
+			-- (the mesh's mouth is at its +Z, opposite its LookVector: look back at him)
+			local p = fist + dir * len * 0.5
+			wedge.Size = Vector3.new(mouth * 2, mouth * 1.1, len)
+			wedge.CFrame = CFrame.lookAt(p, p - dir)
+			wedge.Transparency = 0.25 + 0.75 * math.clamp((t - T) / (0.2 * S), 0, 1)
 		end
-		setRim(r * 1.02, 0.1 + 0.9 * fade)
-		setRim2(r * 0.8, 0.2 + 0.8 * fade)
-		setRim3(r * 0.55, 0.25 + 0.75 * fade)
-		setRim4(r * 0.9, 0.3 + 0.7 * fade)
-		if x >= 1 then
-			if dome then dome:Destroy() end
-			rimHolder:Destroy()
-			rimHolder2:Destroy()
-			rimHolder3:Destroy()
-			rimHolder4:Destroy()
+		-- three fronts as it travels (a third, two thirds, the end), each wider
+		local want = math.min(3, math.floor(run * 3 + 0.001))
+		while fronts < want do
+			fronts += 1
+			local d = length * fronts / 3
+			local fp = fist + dir * d
+			local w = near + (far - near) * fronts / 3
+			VfxKit.Sweep(CFrame.lookAt(fp, fp + dir) * CFrame.Angles(0, 0, math.rad(if fronts % 2 == 0 then 8 else -8)),
+				w * 1.15, "fire", if fronts % 2 == 0 then 1 else -1, 0.28 * S)
 		end
+		if x >= 1 and wedge then wedge:Destroy() end
 		return nil
 	end)
-	-- (10.05+): white smoke rolling out along the first part of the lane
-	task.delay(0.04 * S, function() VfxKit.Puffs({ domeAt, domeAt + dir * 1.5 + UP * 0.5 }, "ice", 4, 0.6 * S) end)
-	task.delay(0.12 * S, function()
-		-- (dense white-grey smoke rolling along the first half of the lane)
-		local smokeAt = carrier(CFrame.new(g + UP * 1.2 + dir * length * 0.25))
-		local e = emitter(smokeAt, { Texture = FireFX.TEX.smoke, Color = ColorSequence.new(Color3.fromRGB(235, 240, 255), Color3.fromRGB(150, 160, 190)),
-			LightEmission = 0.25, Brightness = 1.4, Size = nseq(0, 3, 1, 8), Transparency = nseq(0, 0.15, 0.7, 0.45, 1, 1),
-			Lifetime = NumberRange.new(0.7 * S, 1 * S), Speed = NumberRange.new(1 / S, 4 / S), SpreadAngle = Vector2.new(60, 60),
-			Rotation = NumberRange.new(0, 360), Rate = 0, Shape = Enum.ParticleEmitterShape.Box })
-		smokeAt.Size = Vector3.new(4, 1, length * 0.5)
-		smokeAt.CFrame = CFrame.lookAt(smokeAt.Position, smokeAt.Position + dir)
-		e:Emit(14)
-		Debris:AddItem(smokeAt, 1.2 * S)
+	VfxKit.FloorGlow(g + dir * length * 0.5, G_ORANGE, length * 1.1, 0.5 * S, true)
+
+	-- the impact where it ends: a big gold flash, a shockwave pushing on
+	-- forward, fragments and sparks, a brief mark on the ground
+	task.delay(T, function()
+		local ip = fin
+		local ig = onGround(ip)
+		VfxKit.Flash(ip, "fire", 10 + 5 * c, 0.12 * S, G_HOT)
+		VfxKit.Sweep(CFrame.lookAt(ip, ip + dir), far * 1.3, "fire", 1, 0.35 * S)
+		VfxKit.Sweep(CFrame.lookAt(ip + dir * 1.5, ip + dir * 2.5), far * 1.6, "fire", -1, 0.4 * S, 0.4)
+		VfxKit.FloorGlow(ig, G_GOLD, far * 3, 0.45 * S, true)
+		VfxKit.Stain("scorch", ig, far * 1.6, 1.2)
+		VfxKit.Puffs({ ip + side * 1.5, ip - side * 1.5, ip + dir * 2 + UP }, "fire", 3 + c, 0.45 * S)
+		sparks(ip, 26, 30, G_GOLD)
+		ClassFX.Sound("boom", ip, 0.7 + 0.3 * c, 1.05)
 	end)
-	-- f9-f14 (10.25-10.55): the dome breaks into big curling glassy arcs,
-	-- clustered round the fist and the first part of the lane, with dark ink
-	-- flags; bolts
-	local n = math.max(3, math.floor(length / HAY.gap))
-	for i = 1, n do
-		local d = 2 + (length * 0.6) * ((i - 1) / math.max(n - 1, 1)) ^ 1.3
-		task.delay(T * 0.45 + HAY.after * S + (i - 1) * 0.03 * S, function()
-			local p = onGround(origin + dir * d)
-			local lean = dir:Lerp(side * (if i % 2 == 0 then 1 else -1), 0.45).Unit
-			-- THE AIR (the clip's 10.25-10.55): big pale arches spanning ACROSS
-			-- the lane over the stream, like a wind tunnel left behind it,
-			-- layered, leaning back toward him, as wide as the wedge there
-			local sw = if i % 2 == 0 then 1 else -1
-			local across = (side + -dir * 0.25).Unit
-			local R = hayNear(length) + (hayFar(length) - hayNear(length)) * d / length + 1
-			VfxKit.Sweep(upright(p + UP * 0.1, across), R, "ice", sw, 0.6 * S, 0.45)
-			VfxKit.Sweep(upright(p + UP * 0.1 - dir * 0.9, across), R * 0.9, "ice", -sw, 0.55 * S, 0.55)
-			VfxKit.Sweep(upright(p + UP * 0.1 + dir * 0.9, across), R * 1.08, "ice", sw, 0.5 * S, 0.65)
-			-- (dark ink ribbons curling over: a run of thin tapered segments
-			-- along a hooked path, no flat plank)
-			local o = side * sw * (1.6 + math.random())
-			inkFlag(p + o, UP, (lean + side * sw * 0.6).Unit, 3.5 + math.random() * 2, 1.3, 0.55 * S)
-			if FxBudget.Allow("maHayBolt", 10) then bolt(p, p + UP * (3 + math.random() * 2), 0.13, 0.12 * S, HAY_ICE, 3) end
-		end)
-	end
-	VfxKit.FloorRing(g, "dust", 4 + 2 * c, 0.5 * S)
-	ClassFX.Sound("boom", origin, 0.8 + 0.3 * c, 1.1)
+
 	ClassFX.Sound("whoosh", origin, 0.8, 0.7)
 	if mine and deps and S == 1 then
-		impactFrame(0.12)
 		deps.shake(0.5 + 0.5 * c, 0.25)
 		deps.fovPunch(5 + 4 * c, 0.25)
-	elseif near(origin, 60) and deps and S == 1 then
-		deps.shake(0.25, 0.15)
+	elseif near and deps and S == 1 and (rootOf(player.Character) ~= nil) then
+		local r = rootOf(player.Character) :: BasePart
+		if (r.Position - origin).Magnitude < 60 then deps.shake(0.25, 0.15) end
 	end
 end
 
