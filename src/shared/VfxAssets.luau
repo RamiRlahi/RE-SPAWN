@@ -60,10 +60,15 @@ local VfxAssets = {
 		fire = tex(88016031448161), ice = tex(127524096722572),
 		holy = tex(93535107522650), void = tex(100260678536018), ink = tex(96042285322809),
 	},
-	Ribbon = { fire = tex(94942398948049), ice = tex(135154483444429), void = tex(138112570297321), ink = tex(127241733022051) },
+	Ribbon = { -- torn see-through sheet, flames licking up inside, sharp dark strokes (clip 3 up close)
+		fire = tex(125673201559652), ice = tex(121766375847763), void = tex(98026943768330), ink = tex(118392091525801),
+	},
+	FlameFeather = { -- for Beams: a flame tongue that tiles along the beam; scroll it (TextureSpeed) to lick toward the tip
+		fire = tex(76799241893006), ink = tex(85994636811266),
+	},
 	Cone = {
-		fire = tex(92609590491142), ice = tex(137532364339685),
-		holy = tex(102145269831602), void = tex(128581102431897), ink = tex(140074140073337),
+		fire = tex(129789396861780), ice = tex(105626013421361),
+		holy = tex(120775505992999), void = tex(125278046987370), ink = tex(93555159319392),
 	},
 	Facet = { ice = tex(74962630831879), holy = tex(92432980608906), void = tex(138497103278689) },
 

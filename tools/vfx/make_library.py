@@ -315,18 +315,60 @@ def sweep(pal):
 
 
 def ribbon(pal):
-    """Tornado ribbon (clip 3): orange body, white-hot strands, heavy dark strands. Tiles in u."""
+    """Tornado ribbon, from clip 3 up close (frames 200-203): a see-through deep red-orange sheet whose top edge
+    tears into sharp shards, yellow-white flame tongues licking UP inside it, thin sharp black strokes and a few
+    white-hot ones cutting across. u runs along the ribbon and TILES; v runs up it (v=1 = top edge)."""
     H, W = 256, 1024
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
     u, v = (xx + 0.5) / W, 1 - (yy + 0.5) / H
-    def tile_fbm(cells, seed, aniso):       # tile in u by blending with a shifted copy
-        n = fbm((H, W * 2), cells, seed, 3, aniso=aniso)
-        return n[:, :W] * (1 - u) + n[:, W:] * u
-    streak, streak2 = tile_fbm(48, 11, (1, 18)), tile_fbm(80, 12, (1, 24))
-    w = 0.80 + 0.20 * tile_fbm(6, 13, (1, 1))
-    body, T = strip_layers(u, v, w, streak, streak2, pal, dark_strands=0.75, hot_strands=0.35, fray=0.55, hot_edge=(0.70, 0.95))
-    holes = sm(0.30, 0.42, tile_fbm(10, 14, (1, 4)))                                  # gaps between ribbon sections
-    save(rgba(ramp(T, pal), body * holes), f"ribbon_{pal}")
+    def tile_fbm(cells, seed, aniso, octaves=3):
+        n = fbm((H, W * 2), cells, seed, octaves, aniso=aniso)
+        return n[:, W:] * (1 - u) + n[:, :W] * u   # f(0) = n(W) = f(W): seamless
+    def du(a, b):                                   # distance along u, wrapping (so everything tiles)
+        x = np.abs(a - b) % 1.0
+        return np.minimum(x, 1 - x)
+    rng = np.random.default_rng(131)
+    tone, grain = tile_fbm(8, 132, (1, 3)), tile_fbm(60, 133, (1, 10), 2)
+
+    # the sheet: translucent, its top edge torn into sharp shards leaning with the swirl
+    top = 0.62 + 0.10 * (tone - 0.5)
+    us = u - 0.22 * (v - 0.6)                                                      # skew: shards lean along +u
+    for _ in range(26):
+        uk, wk, hk = rng.random(), rng.uniform(0.006, 0.03), rng.uniform(0.08, 0.36)
+        top = top + hk * np.clip(1 - du(us, uk) / wk, 0, 1) ** 1.3
+    bottom = 0.10 + 0.08 * (tone - 0.5)
+    sheet = sm(top + 0.006, top - 0.006, v) * sm(bottom - 0.03, bottom + 0.05, v)
+    alpha = sheet * (0.50 + 0.25 * tone + 0.15 * sm(0.4, 0.8, grain))
+    T = 0.36 + 0.14 * tone + 0.10 * grain + 0.10 * sm(top - 0.25, top, v)          # deep red-orange, hotter at the tear
+
+    # flame tongues licking up inside the sheet: they rise thin out of the sheet, swell, then whip into a
+    # wiggling point (noise-warped more toward the tip), yellow-white at the heart
+    wig = tile_fbm(30, 134, (2, 1)) - 0.5
+    for _ in range(34):
+        uk, vb = rng.random(), rng.uniform(0.04, 0.42)
+        L, w, lean = rng.uniform(0.22, 0.55), rng.uniform(0.010, 0.030), rng.uniform(0.0, 0.06)
+        t = (v - vb) / L
+        inside = (t >= 0) & (t <= 1)
+        tc = np.clip(t, 0, 1)
+        rad = w * np.maximum(np.sin(np.pi * np.clip(tc * 0.85 + 0.15, 0, 1) ** 0.9), 0) ** 0.8 * (1 - tc) ** 0.9 * sm(0.0, 0.25, tc)
+        off = du(u, uk + lean * tc ** 1.4 + 0.035 * wig * tc ** 1.2)
+        m = np.where(inside, sm(1.0, 0.55, off / np.maximum(rad, 1e-5)), 0) * sheet
+        heat = 0.66 + 0.34 * (1 - tc) ** 0.7 * sm(1.0, 0.0, off / np.maximum(rad, 1e-5))
+        T = np.where(m > 0.3, np.maximum(T, heat), T)
+        alpha = np.maximum(alpha, m * 0.92)
+
+    # thin sharp strokes cutting across: mostly black, a few white-hot (tapered at both ends)
+    for k in range(22):
+        uk, vc = rng.random(), rng.uniform(0.15, 0.85)
+        L, th, slope = rng.uniform(0.08, 0.30), rng.uniform(0.006, 0.018), rng.uniform(-0.6, 0.6)
+        x = ((u - uk + 0.5) % 1.0) - 0.5                                           # signed, wrapping
+        along = np.clip(1 - np.abs(x) / L, 0, 1)
+        thick = th * along ** 0.7
+        m = sm(1.0, 0.4, np.abs(v - vc - slope * x) / np.maximum(thick, 1e-5)) * (along > 0)
+        hot = k % 5 == 0
+        T = np.where(m > 0.5, 0.97 if hot else 0.0, T)
+        alpha = np.maximum(alpha, m * (0.85 if hot else 0.95))
+    save(rgba(ramp(T, pal), alpha), f"ribbon_{pal}")
 
 
 def cone(pal):
@@ -334,7 +376,7 @@ def cone(pal):
     S = 512
     yy, xx = np.mgrid[0:S, 0:S].astype(np.float32)
     u, v = (xx + 0.5) / S, 1 - (yy + 0.5) / S
-    n = fbm((S, S * 2), 40, 17, 3, aniso=(14, 1)); streak = n[:, :S] * (1 - u) + n[:, S:] * u   # lines along v
+    n = fbm((S, S * 2), 40, 17, 3, aniso=(14, 1)); streak = n[:, S:] * (1 - u) + n[:, :S] * u   # seamless   # lines along v
     rim = sm(0.80, 0.97, v) * sm(1.0, 0.985, v)
     T = 0.45 + 0.25 * streak + 0.45 * rim - 0.35 * sm(0.4, 0.0, v)
     alpha = np.clip(sm(0.05, 0.75, v) * sm(0.52, 0.78, streak + 0.22 * v) * 0.85 + rim, 0, 1) * sm(1.0, 0.99, v)
@@ -354,7 +396,49 @@ def facet(pal):
     save(rgba(ramp(T, pal), alpha), f"facet_{pal}")
 
 
+def flame_feather(pal):
+    """A flame tongue for Beams (phoenix wings): u (x) runs along the beam root -> tip and TILES, so scrolling
+    it (Beam.TextureSpeed) sends flames licking out toward the tip; v (y) runs across the width.
+    Three layers: a white-hot core line, a saturated body with dark strands, licked edges that go dark red."""
+    H, W = 128, 512
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    u, v = (xx + 0.5) / W, (yy + 0.5) / H
+
+    def tile(cells, seed, aniso, octaves=3):     # seamless in u: blend with a copy shifted one tile over
+        n = fbm((H, W * 2), cells, seed, octaves, aniso=aniso)
+        return n[:, W:] * (1 - u) + n[:, :W] * u   # f(0) = n(W) = f(W): seamless
+
+    body_n = tile(10, 101, (1, 3))                # slow wobble of the core's width
+    warp = tile(16, 104, (1, 2)) - 0.5            # bends the tongues
+    strand = tile(70, 103, (1, 14), 2)            # fine strands (hot and dark)
+    d = np.abs(v - 0.5) * 2                       # 0 core .. 1 edge
+    # the core: a narrow flame running the whole length
+    core_half = 0.30 + 0.16 * (body_n - 0.5)
+    core = sm(1.0, 0.7, d / core_half)
+    # flame tongues: teardrops pointing along +u (toward the beam's tip), curling, overlapping
+    rng = np.random.default_rng(105)
+    tongue = np.zeros((H, W), np.float32); heat = np.zeros((H, W), np.float32)
+    for _ in range(9):
+        u0, v0 = rng.random(), rng.uniform(0.18, 0.82)
+        L, w, curl = rng.uniform(0.28, 0.5), rng.uniform(0.10, 0.22), rng.uniform(-0.18, 0.18)
+        t = ((u - u0) % 1.0) / L                                         # 0 = tongue root .. 1 = tip (wraps: tiles)
+        inside = t < 1
+        tc = np.clip(t, 0, 1)
+        rad = w * np.maximum(np.sin(np.pi * np.clip(tc * 0.85 + 0.15, 0, 1) ** 0.9), 0) ** 0.8 * (1 - tc) ** 0.9 * sm(0.0, 0.2, tc)
+        off = np.abs(v - v0 - curl * t ** 1.6 - 0.16 * warp * t ** 1.2)
+        m = np.where(inside, sm(1.0, 0.65, off / np.maximum(rad, 1e-4)), 0)
+        tongue = np.maximum(tongue, m)
+        heat = np.maximum(heat, m * (1 - np.clip(t, 0, 1)) * sm(1.0, 0.0, off / np.maximum(rad, 1e-4)))
+    alpha = np.maximum(core, tongue)
+    T = 0.58 + 0.30 * heat + 0.40 * sm(0.45, 0.0, d / core_half) * core   # white-hot core line, hot tongue roots
+    T -= 0.32 * (1 - np.maximum(core, heat)) * tongue                      # tongue tips go deep red
+    T -= 0.40 * sm(0.60, 0.72, strand) * alpha * sm(0.1, 0.5, d)           # dark strands
+    T += 0.15 * sm(0.68, 0.82, strand) * core                              # hot strands
+    save(rgba(ramp(T, pal), alpha), f"flamefeather_{pal}")
+
+
 JOBS = {
+    "flamefeather": lambda: [flame_feather(p) for p in ("fire", "ink")],
     "sweep": lambda: [sweep(p) for p in ("fire", "ice", "holy", "void")],
     "ribbon": lambda: [ribbon(p) for p in ("fire", "ice", "void")],
     "cone": lambda: [cone(p) for p in ("fire", "ice", "holy", "void")],

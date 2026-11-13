@@ -35,6 +35,7 @@ local Players = game:GetService("Players")
 
 local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
 local VfxKit = require(script.Parent:WaitForChild("VfxKit"))
+local VfxAssets = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("VfxAssets"))
 
 local FireFX = {}
 
@@ -744,20 +745,32 @@ function FireFX.Wings(char: Model, scale: number): Wings?
 		table.insert(made, a)
 		return a
 	end
+	-- Every wing beam is a burning flame, not a flat colour: the flame-feather
+	-- texture (white-hot core line, orange body, licked dark-red edges, dark
+	-- strands) tiles along it and scrolls out toward its tip, each at its own
+	-- speed, so the flames lick outward instead of sitting still as triangles.
+	local feather = VfxAssets.FlameFeather.fire.id
 	local function beam(a0: Attachment, a1: Attachment, w0: number, w1: number, color: ColorSequence, tr: NumberSequence): Beam
 		local b = Instance.new("Beam")
 		b.Attachment0, b.Attachment1 = a0, a1
 		b.FaceCamera = true
-		b.LightEmission = 1
+		b.LightEmission = 0.85
 		b.LightInfluence = 0
-		b.Brightness = 1.1
-		b.Segments = 8
+		b.Brightness = 2.3
+		b.Segments = 12
 		b.Width0, b.Width1 = w0, w1
-		b.Color = color
+		b.Texture = feather
+		b.TextureMode = Enum.TextureMode.Wrap
+		b.TextureLength = 2.6 * S
+		b.TextureSpeed = 1.1 + rng:NextNumber(0, 1.1)
+		-- (the texture carries the colour; the old ramp only warms it a little)
+		local warm = color.Keypoints[1].Value:Lerp(Color3.new(1, 1, 1), 0.65)
+		b.Color = ColorSequence.new(warm)
 		b.Transparency = tr
 		b.Parent = a0
 		return b
 	end
+	local feathers: { { beam: Beam, i: number } } = {}
 	local BONES = 8
 	type Wing = { side: number, bones: { Attachment }, tips: { Attachment }, coverts: { Attachment } }
 	local wings: { Wing } = {}
@@ -771,8 +784,12 @@ function FireFX.Wings(char: Model, scale: number): Wings?
 			table.insert(w.coverts, cov)
 			local f = i / BONES
 			beam(w.bones[i], b, (0.75 - f * 0.4) * S, (0.75 - (f + 1 / BONES) * 0.4) * S, WING_EDGE, NumberSequence.new(0.05, 0.2))
-			beam(b, tip, (1.5 - f * 0.5) * S, 0.08 * S, WING_FEATHER, NumberSequence.new({ nsk(0, 0.1), nsk(0.7, 0.35), nsk(1, 0.85) }))
-			beam(b, cov, (1.2 - f * 0.4) * S, 0.25 * S, WING_FEATHER, NumberSequence.new(0.35, 0.8))
+			-- (feathers keep some width at the tip: they end in the texture's
+			-- flame tongues, not in a triangle's point)
+			local fb = beam(b, tip, (1.5 - f * 0.5) * S, 0.38 * S, WING_FEATHER, NumberSequence.new({ nsk(0, 0.05), nsk(0.7, 0.2), nsk(1, 0.75) }))
+			local cb = beam(b, cov, (1.2 - f * 0.4) * S, 0.4 * S, WING_FEATHER, NumberSequence.new(0.3, 0.7))
+			table.insert(feathers, { beam = fb, i = i })
+			table.insert(feathers, { beam = cb, i = i + 0.5 })
 			local e = KIND.flame(b, (2.5 - f * 1.1) * S)
 			e.Brightness = 1.8
 			e.Rate = 14
@@ -837,6 +854,13 @@ function FireFX.Wings(char: Model, scale: number): Wings?
 				w.tips[i].Position = Vector3.new(px, py, pz) + fd.Unit * L
 				w.coverts[i].Position = Vector3.new(px, py, pz) + fd.Unit * L * 0.5 + Vector3.new(0, 0.2 * S, 0)
 			end
+		end
+		-- the feathers whip like flames: each one curves, a wave running along
+		-- the wing with the beat
+		for _, fe in ipairs(feathers) do
+			local k = fe.i
+			fe.beam.CurveSize0 = 0.55 * S * math.sin(phase * 1.6 + k * 0.9) * g
+			fe.beam.CurveSize1 = -0.85 * S * math.sin(phase * 1.25 + k * 0.6 + 1.3) * g
 		end
 	end)
 	return {

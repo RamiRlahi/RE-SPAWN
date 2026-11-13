@@ -278,23 +278,49 @@ end
 function VfxKit.Preload()
 	for name in pairs(MESHES) do loadTemplate(name) end
 	task.spawn(function()
-		local decals: { Instance } = {}
+		-- (through ParticleEmitters: a Decal request for these image assets
+		-- fails with "No asset content representation found", and the
+		-- texture never counts as loaded)
+		local holders: { Instance } = {}
 		local function add(t: any)
 			if typeof(t) == "table" then
 				if typeof(t.id) == "string" then
-					local d = Instance.new("Decal")
-					d.Texture = t.id
-					table.insert(decals, d)
+					local pe = Instance.new("ParticleEmitter")
+					pe.Texture = t.id
+					table.insert(holders, pe)
 				else
 					for _, v in pairs(t) do add(v) end
 				end
 			end
 		end
 		add(VfxAssets)
-		pcall(function() game:GetService("ContentProvider"):PreloadAsync(decals) end)
-		for _, d in ipairs(decals) do d:Destroy() end
+		pcall(function() game:GetService("ContentProvider"):PreloadAsync(holders) end)
+		for _, d in ipairs(holders) do d:Destroy() end
 	end)
 end
+
+-- Has `texture` arrived? A textured MeshPart drawn before its texture loads
+-- renders as a plain white shape (seen in Studio on a first cast), so meshes
+-- stay hidden until it has. Asks for it once if it hasn't.
+local ContentProvider = game:GetService("ContentProvider")
+local asked: { [string]: boolean } = {}
+local function texReady(texture: string): boolean
+	if ContentProvider:GetAssetFetchStatus(texture) == Enum.AssetFetchStatus.Success then return true end
+	if not asked[texture] then
+		asked[texture] = true
+		task.spawn(function()
+			-- (through a ParticleEmitter: a Decal request for these image assets
+			-- fails with "No asset content representation found")
+			local pe = Instance.new("ParticleEmitter")
+			pe.Texture = texture
+			pcall(function() ContentProvider:PreloadAsync({ pe }) end)
+			pe:Destroy()
+			asked[texture] = nil
+		end)
+	end
+	return false
+end
+VfxKit.TexReady = texReady
 
 -- A copy of a mesh with `texture`, or nil while it's still loading.
 local function mesh(name: string, texture: string): MeshPart?
@@ -320,6 +346,7 @@ local function run(step: (number, number) -> boolean)
 			local j = jobs[i]
 			j.t += dt
 			local ok, done = pcall(j.step, dt, j.t)
+			if not ok then warn("[VfxKit] effect step failed:", done) end
 			if not ok or done then table.remove(jobs, i) end
 		end
 		if #jobs == 0 then
@@ -341,6 +368,7 @@ function VfxKit.Sweep(cf: CFrame, radius: number, palette: string, sweep: number
 	if not FxBudget.Allow("kitSweep", 16) then return end
 	palette = variantPalette(cf.Position, palette)
 	local tex = (VfxAssets.Sweep :: any)[palette] or VfxAssets.Sweep.fire
+	if not texReady(tex.id) then return end -- (never a white shape)
 	local mp = mesh("swept_shell", tex.id)
 	if not mp then return end
 	local lt = life or 0.32
@@ -365,10 +393,12 @@ function VfxKit.Sweep(cf: CFrame, radius: number, palette: string, sweep: number
 	end)
 end
 
--- A tornado (clip 3): two tornado meshes with the palette's ribbon texture
--- (orange body, white-hot strands, dark strands) spinning against each other
--- about 3 turns a second, a glow on the floor following it. `getCenter` gives
--- the floor point under it each frame (nil = stop). Returns stop().
+-- A tornado (clip 3): three tornado meshes with the palette's ribbon texture
+-- (torn see-through sheets, flames licking up inside, sharp dark strokes)
+-- spinning 3-4.6 turns a second, the middle one the other way; slivers flung
+-- off it; a glow on the floor following it. `getCenter` gives the floor point
+-- under it each frame (nil = stop). Returns stop(). (The caller adds the fire
+-- inside it: FireKnightController's flame core.)
 function VfxKit.Tornado(getCenter: () -> Vector3?, radius: number, height: number, palette: string, dur: number): () -> ()
 	local start = getCenter()
 	local ink = false
@@ -403,27 +433,68 @@ function VfxKit.Tornado(getCenter: () -> Vector3?, radius: number, height: numbe
 	glow.Parent = ga
 	glowHolder.Parent = root()
 
-	local parts: { MeshPart } = {}
-	if outer then table.insert(parts, outer) end
-	if inner then
-		-- the inner layer is lit, not glowing: its dark strands stay dark and
-		-- show through the bright outer one (clip 3's black streaks in the fire)
-		inner.Material = Enum.Material.SmoothPlastic
-		table.insert(parts, inner)
+	-- three ribbon layers (clip 3 up close: many torn see-through sheets over
+	-- each other): the outer and inner glow, the middle one is lit so its dark
+	-- strokes stay dark between them, and turns the other way
+	type Layer = { part: MeshPart, r: number, h: number, speed: number, extra: number }
+	local layers: { Layer } = {}
+	local function addLayer(mp: MeshPart?, r: number, h: number, speed: number, extra: number, lit: boolean)
+		if not mp then return end
+		if lit then mp.Material = Enum.Material.SmoothPlastic end
+		mp.Transparency = 1
+		mp.Parent = root()
+		table.insert(layers, { part = mp, r = r, h = h, speed = speed, extra = extra })
 	end
-	for _, p in ipairs(parts) do p.Transparency = 1; p.Parent = root() end
-	local spin = { 0, math.pi }
+	addLayer(outer, 1, 1, 3.0, 0, false)
+	addLayer(inner, 0.72, 0.9, -3.8, 0.1, true)
+	addLayer(mesh("tornado", tex.id), 0.45, 0.78, 4.6, 0.05, false)
+	local spin: { number } = {}
+	for i = 1, #layers do spin[i] = i * 2.1 end
+	local readyAt: number? = if texReady(tex.id) then -1 else nil
 	local function place(p: MeshPart, center: Vector3, r: number, h: number, ang: number, tr: number)
 		p.Size = Vector3.new(spec.native.X * r / 1.05, h, spec.native.Z * r / 1.05)
 		p.CFrame = CFrame.new(center + Vector3.new(0, h / 2 - 0.2, 0)) * CFrame.Angles(0, ang, 0)
 		p.Transparency = tr
 	end
+
+	-- slivers flung off it (clip 3: long sharp red and black streaks): spark
+	-- streaks stretched along their flight, from a holder riding the funnel
+	local sliverAtt = Instance.new("Attachment")
+	sliverAtt.Parent = glowHolder
+	local slivers: { ParticleEmitter } = {}
+	for i, texSet in ipairs({ VfxAssets.Spark, VfxAssets.Spark }) do
+		local dark = i == 2
+		local st = (texSet :: any)[if dark then "ink" else palette] or VfxAssets.Spark.fire
+		local e = Instance.new("ParticleEmitter")
+		e.Texture = st.id
+		e.Orientation = Enum.ParticleOrientation.VelocityParallel
+		e.Rotation = NumberRange.new(90)                      -- (the spark's long axis along its flight)
+		-- (an Attachment emits from a point: out of the funnel's middle, in a
+		-- wide cone that's mostly sideways and up)
+		e.EmissionDirection = Enum.NormalId.Top
+		e.SpreadAngle = Vector2.new(78, 78)
+		e.Speed = NumberRange.new(16, 30)
+		e.Drag = 1.5
+		e.Acceleration = Vector3.new(0, 6, 0)
+		e.Lifetime = NumberRange.new(0.25, 0.45)
+		e.Size = NumberSequence.new({ nsk(0, 1.6), nsk(1, 0.4) })
+		e.Transparency = NumberSequence.new({ nsk(0, 0), nsk(0.7, 0.2), nsk(1, 1) })
+		e.LightEmission = if dark then 0 else 1
+		e.LightInfluence = 0
+		e.Brightness = if dark then 1 else 3
+		e.Rate = if dark then 14 else 22
+		e.LockedToPart = false
+		e.Parent = sliverAtt
+		table.insert(slivers, e)
+	end
+
 	run(function(dt, t)
 		now = t
 		local c = getCenter()
 		if not c or t >= stopAt + 0.35 then
-			for _, p in ipairs(parts) do p:Destroy() end
+			for _, l in ipairs(layers) do l.part:Destroy() end
 			glow.Enabled = false
+			for _, e in ipairs(slivers) do e.Enabled = false end
 			task.delay(0.6, function() glowHolder:Destroy() end)
 			return true
 		end
@@ -431,13 +502,29 @@ function VfxKit.Tornado(getCenter: () -> Vector3?, radius: number, height: numbe
 		local grow = ease(t / 0.35)
 		local fadeIn = 1 - grow
 		local fadeOut = math.clamp((t - stopAt) / 0.35, 0, 1)
-		if fadeOut > 0 then glow.Enabled = false end
+		if fadeOut > 0 then
+			glow.Enabled = false
+			for _, e in ipairs(slivers) do e.Enabled = false end
+		end
 		local tr = math.clamp(0.02 + math.max(fadeIn, fadeOut) * 0.98, 0.02, 1)
-		spin[1] += dt * math.pi * 2 * 3.0      -- ~3 turns a second (clip 3: the strands change every frame)
-		spin[2] -= dt * math.pi * 2 * 3.8
+		-- (hidden until the ribbon texture has arrived: never a white shape;
+		-- it fades in from then)
+		if not texReady(tex.id) then
+			tr = 1
+			readyAt = nil
+		elseif not readyAt then
+			readyAt = t
+		end
+		if readyAt and t - readyAt < 0.25 then tr = math.max(tr, 1 - (t - readyAt) / 0.25) end
 		local wobble = 0.06 * math.sin(t * 7)
-		if outer then place(outer, c, radius * (0.4 + 0.6 * grow) * (1 + wobble), height * (0.5 + 0.5 * grow), spin[1], tr) end
-		if inner then place(inner, c, radius * 0.6 * (0.4 + 0.6 * grow), height * 0.82 * (0.5 + 0.5 * grow), spin[2], math.clamp(tr + 0.15, 0, 1)) end
+		-- (the slivers leave from the funnel's middle height, on its rim)
+		sliverAtt.Position = Vector3.new(0, height * 0.45 * (0.5 + 0.5 * grow), 0)
+		for i, l in ipairs(layers) do
+			-- ~3 turns a second and more (clip 3: the strands change every frame)
+			spin[i] += dt * math.pi * 2 * l.speed
+			place(l.part, c, radius * l.r * (0.4 + 0.6 * grow) * (1 + wobble * (if i % 2 == 0 then -1 else 1)),
+				height * l.h * (0.5 + 0.5 * grow), spin[i], math.clamp(tr + l.extra, 0, 1))
+		end
 		return false
 	end)
 	-- stop(): fade out from now (0.35 s)

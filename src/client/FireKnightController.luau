@@ -1577,6 +1577,28 @@ local function onTornado(msg: any)
 	if msg.attacker == player then deps.shake(0.3, 0.2) end
 	-- the tornado itself (clip 3): spinning ribbon meshes, white-hot and dark
 	-- strands through the orange, the floor glowing under it
+	-- the fire inside it (clip 3: dense yellow-white flame tongues licking up
+	-- through the sheets): the flame flipbook rising out of a volume that rides
+	-- with him
+	local core = Instance.new("Part")
+	core.Name = "TornadoCore"
+	core.Anchored, core.CanCollide, core.CanQuery, core.CanTouch, core.CastShadow = true, false, false, false, false
+	core.Transparency = 1
+	core.Size = Vector3.new(r * 1.1, 1, r * 1.1)
+	local flames = FireFX.Emitter("flame", core, r * 0.45)
+	flames.Shape = Enum.ParticleEmitterShape.Box
+	flames.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+	flames.EmissionDirection = Enum.NormalId.Top
+	flames.SpreadAngle = Vector2.new(12, 12)
+	flames.Speed = NumberRange.new(r * 0.8, r * 1.6)
+	flames.Lifetime = NumberRange.new(0.4, 0.6)
+	flames.Brightness = 3
+	-- (VfxDetail thins every effect's rate to about a third: 70 lands near 25)
+	flames.Rate = 70 * (1 - 0.6 * FxBudget.Pressure())
+	core.Parent = ClassFX.Folder()
+	task.delay(dur, function() flames.Enabled = false end)
+	Debris:AddItem(core, dur + 0.8)
+
 	local meshFloorY = groundY(root.Position)
 	local meshFloorAt = 0
 	VfxKit.Tornado(function(): Vector3?
@@ -1586,7 +1608,9 @@ local function onTornado(msg: any)
 			meshFloorAt = now
 			meshFloorY = groundY(root.Position)
 		end
-		return Vector3.new(root.Position.X, meshFloorY, root.Position.Z)
+		local c = Vector3.new(root.Position.X, meshFloorY, root.Position.Z)
+		if core.Parent then core.CFrame = CFrame.new(c + Vector3.new(0, 0.8, 0)) end
+		return c
 	end, r * 0.95, r * 1.5, "fire", dur)
 	local template = ReplicatedStorage:FindFirstChild("Tornado")
 	if not (template and template:IsA("BasePart")) then return end
