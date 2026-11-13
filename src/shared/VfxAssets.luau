@@ -63,6 +63,9 @@ local VfxAssets = {
 	Ribbon = { -- torn see-through sheet, flames licking up inside, sharp dark strokes (clip 3 up close)
 		fire = tex(125673201559652), ice = tex(121766375847763), void = tex(98026943768330), ink = tex(118392091525801),
 	},
+	Energy = { -- for Beams: yellow-white centre -> orange body -> red-orange edges, tiles along the length (fire vortex ribbons)
+		fire = tex(113237224250128), ice = tex(110717495358121), ink = tex(123887379659122),
+	},
 	Swirl = { -- for the swept_shell crescent: thin swirl streaks (hot inner line, red body, one near-black) - tornado walls
 		fire = tex(108818398563039), ice = tex(92034258395145), ink = tex(140258864215292),
 	},

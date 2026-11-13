@@ -396,6 +396,25 @@ def facet(pal):
     save(rgba(ramp(T, pal), alpha), f"facet_{pal}")
 
 
+def energy_ribbon(pal):
+    """Beam texture for the fire vortex ribbons and streaks: across the width (v) a yellow-white centre,
+    a saturated orange body and red-orange edges that tear slightly; along the length (u, tiles) fine
+    hot streaks and a few darker strands, so a scrolling beam reads as moving energy. Mostly opaque."""
+    H, W = 128, 512
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    u, v = (xx + 0.5) / W, (yy + 0.5) / H
+    def tile(cells, seed, aniso, octaves=3):
+        n = fbm((H, W * 2), cells, seed, octaves, aniso=aniso)
+        return n[:, W:] * (1 - u) + n[:, :W] * u
+    edge_n, streak, dark = tile(24, 151, (1, 6)), tile(64, 152, (1, 16), 2), tile(40, 153, (1, 12), 2)
+    d = np.abs(v - 0.5) * 2
+    alpha = sm(1.0, 0.82, d + 0.22 * (edge_n - 0.5) * sm(0.4, 1.0, d))
+    T = 1.0 - 0.42 * d ** 1.3                                   # white-hot centre -> orange -> red-orange edge
+    T += 0.10 * sm(0.62, 0.8, streak) * (1 - d)
+    T -= 0.30 * sm(0.66, 0.76, dark) * sm(0.25, 0.7, d)
+    save(rgba(ramp(T, pal), alpha), f"energy_{pal}")
+
+
 def swirl(pal, seed=141):
     """Tornado swirl streaks (clip 3, frames 150-335 at full size): on the swept_shell crescent, several THIN
     curved streaks at different radii and lengths, each with a yellow-white inner line, a red-orange body and

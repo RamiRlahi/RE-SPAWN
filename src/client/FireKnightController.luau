@@ -38,7 +38,7 @@ local AimInput = require(script.Parent:WaitForChild("AimInput")) -- (the mouse, 
 local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
 local SwordFX = require(script.Parent:WaitForChild("SwordFX"))
 local FireFX = require(script.Parent:WaitForChild("FireFX"))
-local VfxKit = require(script.Parent:WaitForChild("VfxKit"))
+local FireVortexFX = require(script.Parent:WaitForChild("FireVortexFX"))
 local SafeMove = require(script.Parent:WaitForChild("SafeMove"))
 local UltimateCameraChoreography = require(script.Parent:WaitForChild("UltimateCameraChoreography"))
 local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
@@ -1564,6 +1564,8 @@ local function scaledSeq(seq: NumberSequence, k: number): NumberSequence
 	return NumberSequence.new(kps)
 end
 
+local USE_TEMPLATE_WIND = false
+
 local function onTornado(msg: any)
 	local char = charOf(msg.attacker)
 	local root = rootOf(char)
@@ -1575,44 +1577,24 @@ local function onTornado(msg: any)
 	ClassFX.Sound("fireWhoosh", root, 0.9, 0.7)
 	ClassFX.Sound("wind", root, 0.7, 0.9)
 	if msg.attacker == player then deps.shake(0.3, 0.2) end
-	-- the tornado itself (clip 3): spinning ribbon meshes, white-hot and dark
-	-- strands through the orange, the floor glowing under it
-	-- the fire inside it (clip 3: dense yellow-white flame tongues licking up
-	-- through the sheets): the flame flipbook rising out of a volume that rides
-	-- with him
-	local core = Instance.new("Part")
-	core.Name = "TornadoCore"
-	core.Anchored, core.CanCollide, core.CanQuery, core.CanTouch, core.CastShadow = true, false, false, false, false
-	core.Transparency = 1
-	core.Size = Vector3.new(r * 1.1, 1, r * 1.1)
-	local flames = FireFX.Emitter("flame", core, r * 0.45)
-	flames.Shape = Enum.ParticleEmitterShape.Box
-	flames.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
-	flames.EmissionDirection = Enum.NormalId.Top
-	flames.SpreadAngle = Vector2.new(12, 12)
-	flames.Speed = NumberRange.new(r * 0.8, r * 1.6)
-	flames.Lifetime = NumberRange.new(0.4, 0.6)
-	flames.Brightness = 3
-	-- (VfxDetail thins every effect's rate to about a third: 70 lands near 25)
-	flames.Rate = 70 * (1 - 0.6 * FxBudget.Pressure())
-	core.Parent = ClassFX.Folder()
-	task.delay(dur, function() flames.Enabled = false end)
-	Debris:AddItem(core, dur + 0.8)
-
-	local meshFloorY = groundY(root.Position)
-	local meshFloorAt = 0
-	VfxKit.Tornado(function(): Vector3?
+	-- the vortex (FireVortexFX, tuned in FireVortexConfig): a compact white-hot
+	-- fire core in a chaotic sphere of energy ribbons, streaks past the
+	-- silhouette, embers and sparks, a ground ring with trails; it carries
+	-- him and explodes when the spin ends
+	local floorY = groundY(root.Position)
+	local floorAt = 0
+	FireVortexFX.Start(function(): Vector3?
 		if not root.Parent then return nil end
 		local now = os.clock()
-		if now - meshFloorAt > 0.07 then
-			meshFloorAt = now
-			meshFloorY = groundY(root.Position)
+		if now - floorAt > 0.07 then
+			floorAt = now
+			floorY = groundY(root.Position)
 		end
-		local c = Vector3.new(root.Position.X, meshFloorY, root.Position.Z)
-		if core.Parent then core.CFrame = CFrame.new(c + Vector3.new(0, 0.8, 0)) end
-		return c
-	end, r * 1.6, r * 2.2, "fire", dur) -- (clip 3: about 4x a character's height, and wider than tall)
-	local template = ReplicatedStorage:FindFirstChild("Tornado")
+		return Vector3.new(root.Position.X, floorY, root.Position.Z)
+	end, r * 0.95, dur)
+	-- (the old particle-wind tornado below stays off: its overlapping rings
+	-- hid the core; set USE_TEMPLATE_WIND to bring it back)
+	local template = if USE_TEMPLATE_WIND then ReplicatedStorage:FindFirstChild("Tornado") else nil
 	if not (template and template:IsA("BasePart")) then return end
 
 	-- a copy of it, unseen holders that never touch anything
