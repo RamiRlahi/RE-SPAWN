@@ -372,7 +372,8 @@ end
 -- outer edge, saturated body, dark inner core) laid in the swing's plane. It
 -- is already mostly drawn on frame 0, widens a little as it goes and fades
 -- out over `life`.
-function VfxKit.Sweep(cf: CFrame, radius: number, palette: string, sweep: number, life: number?)
+-- (`alpha0`: its starting transparency, 0.02 by default; higher = paler, glassier)
+function VfxKit.Sweep(cf: CFrame, radius: number, palette: string, sweep: number, life: number?, alpha0: number?)
 	if not FxBudget.Allow("kitSweep", 16) then return end
 	palette = variantPalette(cf.Position, palette)
 	local tex = (VfxAssets.Sweep :: any)[palette] or VfxAssets.Sweep.fire
@@ -391,12 +392,13 @@ function VfxKit.Sweep(cf: CFrame, radius: number, palette: string, sweep: number
 		mp.CFrame = frame * CFrame.new(-SHELL_CENTER_X * k, 0, 0)
 		mp.Transparency = tr
 	end
-	place(k1 * 0.9, 0.02)
+	local a0 = math.max(alpha0 or 0.02, 0.02)
+	place(k1 * 0.9, a0)
 	mp.Parent = root()
 	run(function(_dt, t)
 		local a = t / lt
 		if a >= 1 or not mp.Parent then mp:Destroy(); return true end
-		place(k1 * (0.9 + 0.14 * ease(a * 2.5)), 0.02 + 0.98 * math.clamp((a - 0.3) / 0.7, 0, 1) ^ 1.4)
+		place(k1 * (0.9 + 0.14 * ease(a * 2.5)), a0 + (1 - a0) * math.clamp((a - 0.3) / 0.7, 0, 1) ^ 1.4)
 		return false
 	end)
 end

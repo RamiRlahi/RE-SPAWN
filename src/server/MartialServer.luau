@@ -674,12 +674,17 @@ haymakerRelease = function(player: Player, f: Focus, held: number?, aim: Vector3
 	-- the wave down the lane: each enemy hit as its front passes them
 	local seen: { [Model]: boolean } = {}
 	local first: Target? = nil
-	for _, t in ipairs(alongSegment(char, origin, origin + dir * length, half)) do
+	-- (a trapezoid, like Sett's W: 0.14 x its length either side at him, 0.33 x at
+-- the end; the centre strip as wide as the near end)
+	local nearHalf, farHalf = math.max(length * 0.14, 1.6), math.max(length * 0.33, 3)
+	for _, t in ipairs(alongSegment(char, origin, origin + dir * length, farHalf)) do
 		local rel = t.rootPart.Position - origin
 		local flatRel = Vector3.new(rel.X, 0, rel.Z)
 		local along = math.clamp(flatRel:Dot(dir), 0, length)
 		local across = (flatRel - dir * flatRel:Dot(dir)).Magnitude
-		local centre = across <= HAY.core * area + H.lineReach(t, 0) * 0.5
+		local reachHere = nearHalf + (farHalf - nearHalf) * along / length + H.lineReach(t, 0) * 0.5
+		if across > reachHere then continue end
+		local centre = across <= nearHalf + H.lineReach(t, 0) * 0.5
 		task.delay(HAY.travel * along / length, function()
 			if not char.Parent or seen[t.character] then return end
 			seen[t.character] = true

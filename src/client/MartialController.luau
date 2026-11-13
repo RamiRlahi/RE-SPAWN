@@ -2080,8 +2080,14 @@ end
 --   after    a glowing line along the lane, then a dark scorch streak on the
 --            floor that fades
 -- (matches MartialServer's HAY)
-local HAY = { full = 1.0, empFull = 0.5, hold = 2.2, length = 12, fullLength = 30, empLength = 1.2, half = 3.2, travel = 0.3,
+local HAY = { full = 1.0, empFull = 0.5, hold = 2.2, length = 12, fullLength = 30, empLength = 1.2, half = 3.2, travel = 0.3, core = 1.3,
 	gap = 5, after = 0.12, walk = 5 }
+-- (Sett's W: the lane is a trapezoid, HAY.half x 0.35 wide either side at
+-- his feet, x 1.3 at the far end; its centre strip HAY.core either side)
+-- (from the League screenshot: half-widths a share of the lane's length L,
+-- 0.14 L at his feet, 0.33 L at the far end; the strip as wide as the near end)
+local function hayNear(L: number): number return math.max(L * 0.14, 1.6) end
+local function hayFar(L: number): number return math.max(L * 0.33, 3) end
 local HAY_BLUE = Color3.fromRGB(45, 95, 255)    -- (the clip's saturated blue)
 local HAY_NAVY = Color3.fromRGB(22, 36, 120)    -- (the dark bodies in its whirlpool)
 local HAY_ICE = Color3.fromRGB(210, 230, 255)
@@ -2203,17 +2209,30 @@ local function haymakerChargeFx(char: Model, full: number, hold: number, empower
 	local root = rootOf(char)
 	if not root then return { stop = function() end } end
 	local h = carrier(CFrame.new())
-	-- the lane: 5 thin lines along the floor ahead
-	type Line = { a0: Attachment, a1: Attachment, b: Beam, off: number, lag: number }
+	-- the lane: Sett's W telegraph, a trapezoid on the floor, narrow at his
+	-- feet (`hayNear`) widening to the far end (`hayFar`), with a bright
+	-- centre strip (`core` either side) down its middle. Each line is
+	-- { from along, from across, to along, to across } in units of
+	-- (lane length, its own width); the strip is a filled band.
+	type Line = { a0: Attachment, a1: Attachment, b: Beam, spec: { number }, kind: string }
 	local lines: { Line } = {}
-	for i = 1, 5 do
+	local function addLine(kind: string, spec: { number }, color: Color3, w: number, speed: number)
 		local a0, a1 = flatAtt(h, root.Position, Vector3.xAxis), flatAtt(h, root.Position, Vector3.xAxis)
-		local b = newBeam(a0, a1, false, if i == 3 then HAY_BLUE:Lerp(HAY_ICE, 0.35) else HAY_BLUE, 1)
-		b.TextureSpeed = 10
-		b.Width0, b.Width1 = if i == 3 then 0.6 else 0.38, 0.22
+		local b = newBeam(a0, a1, false, color, 1)
+		b.TextureSpeed = speed
+		b.Width0, b.Width1 = w, w
 		b.Transparency = NumberSequence.new(1)
-		table.insert(lines, { a0 = a0, a1 = a1, b = b, off = (i - 3) / 2, lag = math.abs(i - 3) * 0.08 })
+		table.insert(lines, { a0 = a0, a1 = a1, b = b, spec = spec, kind = kind })
 	end
+	addLine("strip", { 0, 0, 1, 0 }, HAY_BLUE, 1, 6)                 -- (filled; width set per frame)
+	addLine("edge", { 0, -1, 1, -1 }, HAY_ICE, 0.45, 10)             -- outer edges
+	addLine("edge", { 0, 1, 1, 1 }, HAY_ICE, 0.45, 10)
+	addLine("cap", { 1, -1, 1, 1 }, HAY_ICE, 0.45, 10)               -- far end
+	addLine("cap", { 0, -1, 0, 1 }, HAY_ICE, 0.35, 10)               -- near end
+	addLine("core", { 0, -1, 1, -1 }, WHITE, 0.25, 14)               -- the strip's borders
+	addLine("core", { 0, 1, 1, 1 }, WHITE, 0.25, 14)
+	addLine("flow", { 0, -0.35, 1, 0.35 }, HAY_ICE, 0.18, 18)        -- streaks flowing inside it
+	addLine("flow", { 0, 0.4, 1, -0.3 }, HAY_ICE, 0.18, 18)
 	-- the whirlpool: 4 flat crescents spinning on the floor at his feet
 	type Swirl = { atts: { Attachment }, beams: { Beam }, r: number, speed: number, phase: number }
 	local swirls: { Swirl } = {}
@@ -2247,16 +2266,32 @@ local function haymakerChargeFx(char: Model, full: number, hold: number, empower
 		local side = Vector3.new(-dir.Z, 0, dir.X)
 		local g = onGround(root.Position) + UP * 0.2
 		h.CFrame = CFrame.new(g)
-		-- lane lines run out as it charges (the outer ones a beat behind)
-		local L = hayLength(k, empowered)
-		local half = HAY.half * 0.85
+		-- the trapezoid runs out as it charges (to the lane's length)
+		local L = 1 + hayLength(k, empowered) * math.clamp(k * 1.2, 0.08, 1)
+		local fullL = hayLength(k, empowered)
+		local near, far = hayNear(fullL), hayFar(fullL)
+		local core = near
+		local function widthAt(a: number, kind: string): number
+			if kind == "core" or kind == "flow" or kind == "strip" then return core end
+			return near + (far - near) * a
+		end
+		local base = g + dir * 0.6
 		for _, ln in ipairs(lines) do
-			local grow = math.clamp(k * 1.15 - ln.lag, 0, 1)
-			local from = g + dir * 1.5 + side * ln.off * half * 0.35
-			local to = g + dir * (1.5 + L * grow) + side * ln.off * half
-			ln.a0.WorldCFrame = CFrame.fromMatrix(from, dir, side)
-			ln.a1.WorldCFrame = CFrame.fromMatrix(to, dir, side)
-			ln.b.Transparency = NumberSequence.new(if grow > 0 then 0.15 + 0.25 * math.random() * (1 - k) else 1)
+			local sp = ln.spec
+			local fa, ta = sp[1], sp[3]
+			local from = base + dir * (L * fa) + side * sp[2] * widthAt(fa, ln.kind)
+			local to = base + dir * (L * ta) + side * sp[4] * widthAt(ta, ln.kind)
+			local along = (to - from)
+			local ad = if along.Magnitude > 0.01 then along.Unit else dir
+			local sd = Vector3.new(-ad.Z, 0, ad.X)
+			ln.a0.WorldCFrame = CFrame.fromMatrix(from, ad, sd)
+			ln.a1.WorldCFrame = CFrame.fromMatrix(to, ad, sd)
+			if ln.kind == "strip" then
+				ln.b.Width0, ln.b.Width1 = core * 2, core * 2
+				ln.b.Transparency = NumberSequence.new(0.55 - 0.2 * k)
+			else
+				ln.b.Transparency = NumberSequence.new(0.1 + 0.2 * (1 - k))
+			end
 		end
 		-- the whirlpool: crescents spinning flat round his feet
 		for _, s in ipairs(swirls) do
@@ -2382,13 +2417,34 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 	-- line riding it)
 	-- (the outline as two thin dark edges either side of the core: overlapping
 	-- Beams sort unpredictably, so nothing is layered under the white)
-	local edge = (1.25 + 0.5 * c)
-	for _, sgn in ipairs({ -1, 1 }) do
-		hayBand(low + side * edge * sgn, low + dir * length + side * 0.1 * sgn, 0.55, 0.05, 0.4 * S, Color3.fromRGB(12, 18, 70), 0, false, T * 0.7, 0.14)
+	-- THE RELEASE IS A CONE (Sett's W): a wedge of energy widening from the
+	-- fist to the end of the lane. The cone mesh: its tip at the fist, its
+	-- mouth (`half` round) at the end, running out over T; dark outline edges
+	-- along its two sides, a white core line down its middle.
+	local wedge = if VfxKit.TexReady(VfxAssets.Cone.ice.id) then VfxKit.Mesh("shock_cone", VfxAssets.Cone.ice.id) else nil
+	if wedge then
+		wedge.Material = Enum.Material.Neon
+		wedge.Transparency = 0.2
+		wedge.Parent = ClassFX.Folder()
+		local apex = fist + UP * 0.2
+		animate(0.45 * S, function(x)
+			local run = easeOut(math.min(x * 0.45 * S / T, 1))
+			local len = math.max(length * run, 0.5)
+			local mouth = math.max(hayFar(length) * run, 0.3)
+			-- (the mesh's mouth is at its +Z, opposite its LookVector: look back at him)
+			local p = apex + dir * len * 0.5
+			wedge.Size = Vector3.new(mouth * 2, mouth * 1.2, len)
+			wedge.CFrame = CFrame.lookAt(p, p - dir)
+			wedge.Transparency = 0.2 + 0.8 * math.clamp((x - 0.55) / 0.45, 0, 1)
+			if x >= 1 then wedge:Destroy() end
+			return nil
+		end)
 	end
-	hayBand(low + UP * 0.1, low + dir * length * 0.92, 2.3 + 0.9 * c, 0.3, 0.38 * S, WHITE, 0.9, false, T * 0.68, 0.14)
-	hayBand(low + UP * 0.2 + side * 0.5, low + dir * length * 0.8, 0.35, 0.1, 0.34 * S, HAY_BLUE, 1, false, T * 0.6, -0.4)
-	hayBand(low + UP * 0.2 - side * 0.5, low + dir * length * 0.7, 0.3, 0.08, 0.32 * S, HAY_BLUE, 1, false, T * 0.55, 0.42)
+	for _, sgn in ipairs({ -1, 1 }) do
+		hayBand(low + side * hayNear(length) * sgn, low + dir * length + side * hayFar(length) * sgn, 0.5, 0.25, 0.4 * S, Color3.fromRGB(12, 18, 70), 0, false, T * 0.7)
+		hayBand(low + UP * 0.1, low + dir * length * 0.95 + side * half * 0.75 * sgn, 0.3, 0.6, 0.36 * S, HAY_BLUE, 1, false, T * 0.7)
+	end
+	hayBand(low + UP * 0.1, low + dir * length * 0.92, 1.2 + 0.5 * c, 0.6, 0.38 * S, WHITE, 0.9, false, T * 0.68)
 	-- bright beams along the lane floor beside it, then the dark scorch streak
 	for i = -2, 2 do
 		local o = side * i * half * 0.32
@@ -2465,13 +2521,15 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 		task.delay(T * 0.45 + HAY.after * S + (i - 1) * 0.03 * S, function()
 			local p = onGround(origin + dir * d)
 			local lean = dir:Lerp(side * (if i % 2 == 0 then 1 else -1), 0.45).Unit
-			-- (big glassy arcs: two sweeps laid together, a bright glassy rim
-			-- ring on the arch)
+			-- THE AIR (the clip's 10.25-10.55): big pale arches spanning ACROSS
+			-- the lane over the stream, like a wind tunnel left behind it,
+			-- layered, leaning back toward him, as wide as the wedge there
 			local sw = if i % 2 == 0 then 1 else -1
-			local R = 5.5 + 1.5 * c - i * 0.2
-			VfxKit.Sweep(upright(p + UP * 0.2, lean), R, "ice", sw, 0.55 * S)
-			VfxKit.Sweep(upright(p + UP * 0.3 + dir * 0.4, lean), R * 0.85, "ice", sw, 0.5 * S)
-			hayBand(p - lean * R * 0.6, p + UP * R * 0.9, 0.22, 0.08, 0.4 * S, WHITE, 1, false, 0.08 * S, sw * 0.9)
+			local across = (side + -dir * 0.25).Unit
+			local R = hayNear(length) + (hayFar(length) - hayNear(length)) * d / length + 1
+			VfxKit.Sweep(upright(p + UP * 0.1, across), R, "ice", sw, 0.6 * S, 0.45)
+			VfxKit.Sweep(upright(p + UP * 0.1 - dir * 0.9, across), R * 0.9, "ice", -sw, 0.55 * S, 0.55)
+			VfxKit.Sweep(upright(p + UP * 0.1 + dir * 0.9, across), R * 1.08, "ice", sw, 0.5 * S, 0.65)
 			-- (dark ink ribbons curling over: a run of thin tapered segments
 			-- along a hooked path, no flat plank)
 			local o = side * sw * (1.6 + math.random())
