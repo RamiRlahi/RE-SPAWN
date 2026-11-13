@@ -39,6 +39,7 @@ local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
 local SwordFX = require(script.Parent:WaitForChild("SwordFX"))
 local FireFX = require(script.Parent:WaitForChild("FireFX"))
 local FireVortexFX = require(script.Parent:WaitForChild("FireVortexFX"))
+local VfxKit = require(script.Parent:WaitForChild("VfxKit"))
 local SafeMove = require(script.Parent:WaitForChild("SafeMove"))
 local UltimateCameraChoreography = require(script.Parent:WaitForChild("UltimateCameraChoreography"))
 local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
@@ -1583,7 +1584,7 @@ local function onTornado(msg: any)
 	-- him and explodes when the spin ends
 	local floorY = groundY(root.Position)
 	local floorAt = 0
-	FireVortexFX.Start(function(): Vector3?
+	local function floorUnder(): Vector3?
 		if not root.Parent then return nil end
 		local now = os.clock()
 		if now - floorAt > 0.07 then
@@ -1591,7 +1592,11 @@ local function onTornado(msg: any)
 			floorY = groundY(root.Position)
 		end
 		return Vector3.new(root.Position.X, floorY, root.Position.Z)
-	end, r * 0.95, dur)
+	end
+	-- the two together: the wide funnel of thin swirl streaks (VfxKit.Tornado)
+	-- outside, the vortex's white-hot core, ribbons and streaks inside it
+	VfxKit.Tornado(floorUnder, r * 1.6, r * 2.2, "fire", dur)
+	FireVortexFX.Start(floorUnder, r * 0.95, dur)
 	-- (the old particle-wind tornado below stays off: its overlapping rings
 	-- hid the core; set USE_TEMPLATE_WIND to bring it back)
 	local template = if USE_TEMPLATE_WIND then ReplicatedStorage:FindFirstChild("Tornado") else nil

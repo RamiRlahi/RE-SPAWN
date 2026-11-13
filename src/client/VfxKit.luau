@@ -492,15 +492,21 @@ function VfxKit.Tornado(getCenter: () -> Vector3?, radius: number, height: numbe
 		a.age = if first then math.random() * 0.3 else 0
 		a.life = 0.3 + math.random() * 0.4
 	end
-	for i = 1, nArcs + 3 do
-		local mp = mesh("swept_shell", swirlTex)
-		if not mp then break end
-		mp.Transparency = 1
-		mp.Parent = root()
-		local a: Arc = { part = mp, h = 0, r = 0, tilt = CFrame.identity, ang = 0, speed = 0, age = 0, life = 1, floor = i > nArcs }
-		reroll(a, true)
-		table.insert(arcs, a)
+	-- (built as soon as the mesh template has loaded: a cast in the first
+	-- moments of a session gets its walls a beat late instead of never)
+	local function buildArcs()
+		if #arcs > 0 then return end
+		for i = 1, nArcs + 3 do
+			local mp = mesh("swept_shell", swirlTex)
+			if not mp then return end
+			mp.Transparency = 1
+			mp.Parent = root()
+			local a: Arc = { part = mp, h = 0, r = 0, tilt = CFrame.identity, ang = 0, speed = 0, age = 0, life = 1, floor = i > nArcs }
+			reroll(a, true)
+			table.insert(arcs, a)
+		end
 	end
+	buildArcs()
 	-- (performance: resizing a MeshPart is costly, so an arc's Size is only set
 	-- when it changes by more than a few percent (while the tornado grows, and
 	-- on a reroll); CFrames go out in one BulkMoveTo a frame; Transparency is
@@ -599,6 +605,7 @@ function VfxKit.Tornado(getCenter: () -> Vector3?, radius: number, height: numbe
 			readyAt = t
 		end
 		if readyAt and t - readyAt < 0.25 then tr = math.max(tr, 1 - (t - readyAt) / 0.25) end
+		if #arcs == 0 and fadeOut == 0 then buildArcs() end
 		local arcTr = if texReady(swirlTex) then tr else 1
 		for i, a in ipairs(arcs) do
 			a.age += dt
