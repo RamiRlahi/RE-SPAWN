@@ -34,8 +34,13 @@ local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 
 local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
+local VfxKit = require(script.Parent:WaitForChild("VfxKit"))
 
 local FireFX = {}
+
+-- The floor flash under a fire impact (polearm reference: +0.35 R / +0.11 G /
+-- +0.04 B on frame 0; redder here because the dungeon floors are darker).
+local FLOOR_FIRE = Color3.fromRGB(255, 62, 40)
 
 FireFX.FIRE = Color3.fromRGB(255, 120, 40)
 FireFX.EMBER = Color3.fromRGB(255, 190, 90)
@@ -312,21 +317,29 @@ function FireFX.Column(pos: Vector3, height: number, width: number)
 	Debris:AddItem(a, 1.6)
 end
 
--- An explosion: a white flash, a fireball, flame licks, embers, smoke, a
--- shockwave across the floor and the floor scorched where it went off.
+-- An explosion (reference timing, docs/vfx-reference-timing.md): on frame 0
+-- the starburst flash and the floor flashing red; torn chunks of fire (hot
+-- spots, dark specks) bursting out over ~8 frames and burning out into soot;
+-- flame licks, embers and smoke; a shockwave across the floor, and the floor
+-- scorched and cracked where it went off.
 function FireFX.Explosion(pos: Vector3, radius: number, big: boolean?)
 	local g = ground(pos)
 	local center = Vector3.new(pos.X, math.max(pos.Y, g.Y + radius * 0.35), pos.Z)
-	-- (the flash: a heartbeat of white-hot light)
-	local flash = ClassFX.Neon({ Shape = Enum.PartType.Ball, Size = Vector3.one * radius * 0.6, CFrame = CFrame.new(center),
-		Color = Color3.fromRGB(255, 245, 210), Transparency = 0.1 })
-	TweenService:Create(flash, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-		{ Size = Vector3.one * radius * 1.3, Transparency = 1 }):Play()
-	Debris:AddItem(flash, 0.2)
-	puff("blast", CFrame.new(center), radius * 2.3, if big then 3 else 2, function(e)
-		e.Rotation = NumberRange.new(-360, 360)
-	end, Vector3.one * radius * 0.2)
-	puff("roll", CFrame.new(center), radius * 1.1, if big then 10 else 6, function(e)
+	-- frame 0: the flash and the floor
+	VfxKit.Flash(center, "fire", radius * (if big then 2.6 else 2.1), if big then 0.13 else 0.1)
+	VfxKit.FloorGlow(g, FLOOR_FIRE, radius * (if big then 5 else 4), if big then 0.5 else 0.38, true)
+	VfxKit.Stain("scorch", g, radius * 1.7, if big then 1.6 else 1.1)
+	-- the torn chunks: one in the middle, the rest in a loose ring around it
+	local chunks = { center }
+	local n = if big then 7 else 5
+	local turn = rng:NextNumber(0, math.pi * 2)
+	for i = 1, n do
+		local a = turn + i / n * math.pi * 2
+		local d = radius * rng:NextNumber(0.35, 0.6)
+		table.insert(chunks, center + Vector3.new(math.cos(a) * d, rng:NextNumber(-0.2, 0.5) * radius, math.sin(a) * d))
+	end
+	VfxKit.Puffs(chunks, "fire", radius * (if big then 1.25 else 1.05), if big then 0.6 else 0.5)
+	puff("roll", CFrame.new(center), radius * 1.1, if big then 6 else 3, function(e)
 		e.Speed = NumberRange.new(radius * 0.8, radius * 1.6)
 		e.SpreadAngle = Vector2.new(180, 180)
 		e.Drag = 4
@@ -388,7 +401,21 @@ function FireFX.Slash(cf: CFrame, radius: number, arc: number, sweep: number, dr
 			Debris:AddItem(h, 1)
 		end)
 	end
-	-- The burning slash itself, in the swing's plane.
+	-- The slash itself as a 3D stroke in the swing's plane (white-hot edge,
+	-- saturated body, dark core), torn chunks of fire trailing along its arc,
+	-- and the floor flashing red under it on frame 0 (the polearm reference).
+	VfxKit.Sweep(cf, radius, "fire", sweep, if hot then 0.36 else 0.3)
+	local trailPts = {}
+	for i = 1, 5 do
+		local a = -sign * span / 2 + sign * span * (i - 0.5) / 5
+		table.insert(trailPts, cf:PointToWorldSpace(Vector3.new(-math.sin(a) * radius * 0.9, 0, -math.cos(a) * radius * 0.9)))
+	end
+	task.delay(draw * 0.5, VfxKit.Puffs, trailPts, "fire", 1.4 + radius * 0.22, 0.42)
+	local g = ground(cf.Position)
+	-- (smaller than an explosion's: a held combo swings every 0.42 s, and the
+	-- floor has to clear between strikes like the reference's does)
+	VfxKit.FloorGlow(g, FLOOR_FIRE, radius * 2.2, 0.3, false)
+	-- (the library's burning slash sprite on top, in the swing's plane)
 	puff("slash", cf, radius * 2.1, 1, function(e)
 		e.Rotation = NumberRange.new(if sweep > 0 then 90 else -90)
 		e.RotSpeed = NumberRange.new(sweep * 500, sweep * 500)

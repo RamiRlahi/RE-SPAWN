@@ -38,6 +38,7 @@ local AimInput = require(script.Parent:WaitForChild("AimInput")) -- (the mouse, 
 local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
 local SwordFX = require(script.Parent:WaitForChild("SwordFX"))
 local FireFX = require(script.Parent:WaitForChild("FireFX"))
+local VfxKit = require(script.Parent:WaitForChild("VfxKit"))
 local SafeMove = require(script.Parent:WaitForChild("SafeMove"))
 local UltimateCameraChoreography = require(script.Parent:WaitForChild("UltimateCameraChoreography"))
 local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
@@ -262,14 +263,12 @@ local function popWord(char: Model, text: string, color: Color3, size: number)
 	Debris:AddItem(bb, 1.2)
 end
 
--- A flaming slash: the whole blade's path burns (a filled sweep from the
--- hilt to the tip), with a white-hot edge where the tip passed.
+-- A flaming slash: FireFX.Slash draws the stroke itself (a 3D swept shell
+-- with a white-hot edge, saturated body and dark core, torn chunks of fire
+-- along the arc, the floor flashing red); a thin white-hot arc rides the
+-- blade's edge on top.
 local function crescent(cf: CFrame, radius: number, arc: number, thickness: number, life: number, sweep: number?, color: Color3?)
-	SwordFX.Sweep({ cf = cf, inner = radius * 0.2, outer = radius, arc = arc, sweep = sweep, color = color or FIRE,
-		life = life * 1.15, draw = 0.07, opacity = 0.55 })
-	SwordFX.Sweep({ cf = cf, inner = radius * 0.55, outer = radius * 0.95, arc = arc, sweep = sweep, color = HOT,
-		life = life * 0.8, draw = 0.07, opacity = 0.4 })
-	SwordFX.Arc({ cf = cf, radius = radius, arc = arc, sweep = sweep, width = thickness * 2.4, color = color or FIRE, life = life })
+	SwordFX.Arc({ cf = cf, radius = radius, arc = arc, sweep = sweep, width = thickness * 1.6, color = color or FIRE, life = life * 0.7 })
 	FireFX.Slash(cf, radius, arc, sweep or 1, 0.07, color == HOT)
 end
 
@@ -1576,6 +1575,19 @@ local function onTornado(msg: any)
 	ClassFX.Sound("fireWhoosh", root, 0.9, 0.7)
 	ClassFX.Sound("wind", root, 0.7, 0.9)
 	if msg.attacker == player then deps.shake(0.3, 0.2) end
+	-- the tornado itself (clip 3): spinning ribbon meshes, white-hot and dark
+	-- strands through the orange, the floor glowing under it
+	local meshFloorY = groundY(root.Position)
+	local meshFloorAt = 0
+	VfxKit.Tornado(function(): Vector3?
+		if not root.Parent then return nil end
+		local now = os.clock()
+		if now - meshFloorAt > 0.07 then
+			meshFloorAt = now
+			meshFloorY = groundY(root.Position)
+		end
+		return Vector3.new(root.Position.X, meshFloorY, root.Position.Z)
+	end, r * 0.95, r * 1.5, "fire", dur)
 	local template = ReplicatedStorage:FindFirstChild("Tornado")
 	if not (template and template:IsA("BasePart")) then return end
 
@@ -1586,7 +1598,9 @@ local function onTornado(msg: any)
 	local lvlRel = if lvlPart then template.CFrame:ToObjectSpace((template :: any).Lvlup.CFrame) else CFrame.identity
 	type Em = { e: ParticleEmitter, size: NumberSequence, speed: NumberRange }
 	local ems: { Em } = {}
-	local density = 1 - 0.6 * FxBudget.Pressure() -- (fewer when the frame rate's struggling)
+	-- (the meshes carry the body now: the particle wind is the detail around it,
+	-- and fewer still when the frame rate's struggling)
+	local density = 0.6 * (1 - 0.6 * FxBudget.Pressure())
 	for _, d in ipairs({ fx :: Instance, unpack(fx:GetDescendants()) }) do
 		if d:IsA("BasePart") then
 			d.Anchored, d.CanCollide, d.CanQuery, d.CanTouch, d.CastShadow = true, false, false, false, false
