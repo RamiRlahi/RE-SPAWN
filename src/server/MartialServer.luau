@@ -107,8 +107,10 @@ local UPPER = { hit = 0.27, total = 0.62, dash = 24, lane = 3.5, stopShort = 2.5
 -- charge), blasting them on along it. Behind it a row of glassy arcs bursts
 -- up every `gap` studs (`eruptRadius` round, `eruptMult`x, popping them up),
 -- `after` seconds behind the front.
+-- (after Sett's W, the clip's source: the lane's centre strip, `core` either
+-- side of the line, takes the full hit; its sides take `sideMult`)
 local HAY = { full = 1.0, empFull = 0.5, hold = 2.2, length = 12, fullLength = 30, half = 3.2, travel = 0.3,
-	maxMult = 3.2, gap = 5, after = 0.12, eruptRadius = 4.2, eruptMult = 0.45 }
+	maxMult = 3.2, gap = 5, after = 0.12, eruptRadius = 4.2, eruptMult = 0.45, core = 1.3, sideMult = 0.6 }
 local HAY_EMP = { damage = 1.3, length = 1.2 }
 
 -- Ground Slam (no longer cast: Q is the Haymaker; kept for reference)
@@ -674,11 +676,15 @@ haymakerRelease = function(player: Player, f: Focus, held: number?, aim: Vector3
 	local first: Target? = nil
 	for _, t in ipairs(alongSegment(char, origin, origin + dir * length, half)) do
 		local rel = t.rootPart.Position - origin
-		local along = math.clamp(Vector3.new(rel.X, 0, rel.Z):Dot(dir), 0, length)
+		local flatRel = Vector3.new(rel.X, 0, rel.Z)
+		local along = math.clamp(flatRel:Dot(dir), 0, length)
+		local across = (flatRel - dir * flatRel:Dot(dir)).Magnitude
+		local centre = across <= HAY.core * area + H.lineReach(t, 0) * 0.5
 		task.delay(HAY.travel * along / length, function()
 			if not char.Parent or seen[t.character] then return end
 			seen[t.character] = true
-			if hit(player, t, damage, if full then "HAYMAKER!" else "HAYMAKER") then
+			if hit(player, t, damage * (if centre then 1 else HAY.sideMult),
+				if centre and full then "HAYMAKER!" else "HAYMAKER") then
 				first = first or t
 				hold(t, 0.3 + 0.3 * c)
 				if not isBoss(t) then shove(t, dir, 40 + 50 * c, 0.25 + 0.3 * c) end
