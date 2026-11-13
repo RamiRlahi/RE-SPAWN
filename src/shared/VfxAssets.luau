@@ -3,6 +3,7 @@
 -- Colors are baked in (white-hot edge, saturated body, dark core): use Color = white, LightEmission 0-0.4,
 -- Brightness 2-5. With LightEmission 1 the dark core disappears.
 -- Timing reference: docs/vfx-reference-timing.md.
+-- `ink` textures are for the "dark" VFX variant (VFXPalettes, ink = true): black bodies, white contour and core.
 
 export type Tex = { id: string, layout: Enum.ParticleFlipbookLayout?, frames: number }
 
@@ -19,28 +20,32 @@ local VfxAssets = {
 	Slash = {
 		fire = tex(85737562371567, Grid4), ice = tex(105390064358858, Grid4),
 		holy = tex(138045017722482, Grid4), void = tex(136138254677823, Grid4),
+		ink = tex(101097900856515, Grid4),
 	},
 	Starburst = { -- the 2-frame impact flash: frame 0 full, frame 1 stretched, then gone
 		fire = tex(124778957891898, Grid2), ice = tex(116124712757646, Grid2),
 		holy = tex(103909491253410, Grid2), void = tex(108736960280503, Grid2),
+		ink = tex(91937940037853, Grid2),
 	},
 	Ring = {
 		fire = tex(122159533258922, Grid4), ice = tex(136796090993461, Grid4),
 		holy = tex(121225205120132, Grid4), void = tex(108577760605677, Grid4),
-		dust = tex(128344938336380, Grid4),
+		dust = tex(128344938336380, Grid4), ink = tex(119583197716459, Grid4),
 	},
 	Puff = { -- torn explosion chunk: hot spots, dark specks, burns out into soot and wisps
 		fire = tex(100268429119543, Grid4), ice = tex(77449138097694, Grid4), void = tex(135474960992465, Grid4),
+		ink = tex(93867050839297, Grid4),
 	},
 	Smear = { -- horizontal slice smear for vanishes and dashes (mostly dark)
 		fire = tex(87848792446957, Grid2), ice = tex(127315537307334, Grid2), void = tex(89134996800961, Grid2),
+		ink = tex(102283554667115, Grid2),
 	},
 	Shards = { ice = tex(81500625997650, Grid2) }, -- use FlipbookMode Random
 
 	-- single images
 	Spark = {
 		fire = tex(122113185431406), ice = tex(135228299851226),
-		holy = tex(110171279803006), void = tex(126636410582753),
+		holy = tex(110171279803006), void = tex(126636410582753), ink = tex(139996746871345),
 	},
 	Stain = { -- ground decals: lie flat on the floor
 		scorch = tex(110516639037154), frost = tex(101649129930682), holy = tex(136916385961805),
@@ -53,12 +58,12 @@ local VfxAssets = {
 	-- mesh textures (UV-mapped for assets/vfx/meshes)
 	Sweep = {
 		fire = tex(88016031448161), ice = tex(127524096722572),
-		holy = tex(93535107522650), void = tex(100260678536018),
+		holy = tex(93535107522650), void = tex(100260678536018), ink = tex(96042285322809),
 	},
-	Ribbon = { fire = tex(94942398948049), ice = tex(135154483444429), void = tex(138112570297321) },
+	Ribbon = { fire = tex(94942398948049), ice = tex(135154483444429), void = tex(138112570297321), ink = tex(127241733022051) },
 	Cone = {
 		fire = tex(92609590491142), ice = tex(137532364339685),
-		holy = tex(102145269831602), void = tex(128581102431897),
+		holy = tex(102145269831602), void = tex(128581102431897), ink = tex(140074140073337),
 	},
 	Facet = { ice = tex(74962630831879), holy = tex(92432980608906), void = tex(138497103278689) },
 

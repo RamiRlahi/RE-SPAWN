@@ -31,10 +31,24 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local VfxAssets = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("VfxAssets"))
 local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
+local VariantFX = require(script.Parent:WaitForChild("VariantFX"))
 
 local VfxKit = {}
 
 local player = Players.LocalPlayer
+
+-- VFX variants: the library's textures have their colours baked in, so
+-- VariantFX's ramp recolouring can't restyle them. Instead the caster's
+-- variant picks a matching texture set: the ink ("dark") variant uses the
+-- `ink` textures (black bodies, white contour and core) and dark floor marks.
+-- The caster is found the way VariantFX does it: the character nearest the
+-- effect when it appears.
+local function variantPalette(pos: Vector3, palette: string): (string, boolean)
+	local owner = VariantFX.OwnerNear(pos)
+	local p = owner and VariantFX.PaletteFor(owner)
+	if p and p.ink then return "ink", true end
+	return palette, false
+end
 
 local function nsk(t: number, v: number): NumberSequenceKeypoint
 	return NumberSequenceKeypoint.new(t, v)
@@ -99,16 +113,19 @@ end
 function VfxKit.FloorGlow(pos: Vector3, color: Color3, size: number, life: number, wide: boolean?)
 	if not FxBudget.Allow("kitGlow", 20) then return end
 	local tex = if wide then VfxAssets.Glow.wide else VfxAssets.Glow.soft
-	local key = `glow_{color:ToHex()}_{r1(size)}_{r1(life)}_{wide and 1 or 0}`
+	-- (the ink variant: a dark shadow on the floor instead of a light)
+	local _, ink = variantPalette(pos, "")
+	local key = `glow_{if ink then "ink" else color:ToHex()}_{r1(size)}_{r1(life)}_{wide and 1 or 0}`
 	local att, pe = emitter(key, function(pe)
 		flat(pe)
 		pe.Texture = tex.id
-		pe.Color = ColorSequence.new(color)
-		pe.LightEmission = 1
-		pe.Brightness = 1.5
+		pe.Color = ColorSequence.new(if ink then Color3.new(0, 0, 0) else color)
+		pe.LightEmission = if ink then 0 else 1
+		pe.Brightness = if ink then 1 else 1.5
 		pe.Lifetime = NumberRange.new(life)
 		pe.Size = NumberSequence.new(size)
-		pe.Transparency = NumberSequence.new({ nsk(0, 0.1), nsk(0.3, 0.45), nsk(1, 1) })
+		pe.Transparency = if ink then NumberSequence.new({ nsk(0, 0.35), nsk(0.4, 0.55), nsk(1, 1) })
+			else NumberSequence.new({ nsk(0, 0.1), nsk(0.3, 0.45), nsk(1, 1) })
 	end)
 	att.WorldPosition = pos + Vector3.new(0, 0.12, 0)
 	pe:Emit(1)
@@ -133,11 +150,36 @@ function VfxKit.Stain(kind: string, pos: Vector3, size: number, life: number)
 	pe:Emit(1)
 end
 
+-- A shockwave ring racing out flat across the floor to `radius` over `life`
+-- (the Ring flipbook: thin white-hot leading edge, coloured body, dark smoky
+-- wake inside, breaking into arcs as it ages). The texture's ring reaches 46%
+-- of the cell, so the particle is sized for the ring to end at `radius`.
+function VfxKit.FloorRing(pos: Vector3, palette: string, radius: number, life: number)
+	if not FxBudget.Allow("kitRing", 12) then return end
+	palette = variantPalette(pos, palette)
+	local tex = (VfxAssets.Ring :: any)[palette] or VfxAssets.Ring.fire
+	local size = radius * 2 / 0.92
+	local key = `ring_{palette}_{r1(size)}_{r1(life * 10)}`
+	local att, pe = emitter(key, function(pe)
+		flat(pe)
+		pe.Texture = tex.id
+		pe.FlipbookLayout = tex.layout :: Enum.ParticleFlipbookLayout
+		pe.FlipbookMode = Enum.ParticleFlipbookMode.OneShot
+		pe.LightEmission = 0.4
+		pe.Brightness = 3
+		pe.Lifetime = NumberRange.new(life)
+		pe.Size = NumberSequence.new(size)
+	end)
+	att.WorldPosition = pos + Vector3.new(0, 0.18, 0)
+	pe:Emit(1)
+end
+
 -- ── The flash frame ─────────────────────────────────────────────────────────
 -- The starburst turned to the camera: f0 full, f1 stretched, f2 thin, then
 -- gone (2x2 flipbook over `life`, ~3 frames by default).
 function VfxKit.Flash(pos: Vector3, palette: string, size: number, life: number?, tint: Color3?)
 	if not FxBudget.Allow("kitFlash", 20) then return end
+	palette = variantPalette(pos, palette)
 	local tex = (VfxAssets.Starburst :: any)[palette] or VfxAssets.Starburst.fire
 	local lt = life or 0.1
 	local key = `flash_{palette}_{r1(size)}_{r1(lt * 10)}_{(tint or Color3.new(1, 1, 1)):ToHex()}`
@@ -163,6 +205,8 @@ end
 -- spots, dark brown specks, burning out into soot and curly wisps). Lit by
 -- LightEmission 0.15 only, so the dark parts stay dark.
 function VfxKit.Puffs(points: { Vector3 }, palette: string, size: number, life: number?)
+	if #points == 0 then return end
+	palette = variantPalette(points[1], palette)
 	local tex = (VfxAssets.Puff :: any)[palette] or VfxAssets.Puff.fire
 	local lt = life or 0.5
 	local key = `puff_{palette}_{r1(size)}_{r1(lt * 10)}`
@@ -295,6 +339,7 @@ end
 -- out over `life`.
 function VfxKit.Sweep(cf: CFrame, radius: number, palette: string, sweep: number, life: number?)
 	if not FxBudget.Allow("kitSweep", 16) then return end
+	palette = variantPalette(cf.Position, palette)
 	local tex = (VfxAssets.Sweep :: any)[palette] or VfxAssets.Sweep.fire
 	local mp = mesh("swept_shell", tex.id)
 	if not mp then return end
@@ -325,6 +370,9 @@ end
 -- about 3 turns a second, a glow on the floor following it. `getCenter` gives
 -- the floor point under it each frame (nil = stop). Returns stop().
 function VfxKit.Tornado(getCenter: () -> Vector3?, radius: number, height: number, palette: string, dur: number): () -> ()
+	local start = getCenter()
+	local ink = false
+	if start then palette, ink = variantPalette(start, palette) end
 	local tex = (VfxAssets.Ribbon :: any)[palette] or VfxAssets.Ribbon.fire
 	local outer = mesh("tornado", tex.id)
 	local inner = mesh("tornado", tex.id)
@@ -342,8 +390,9 @@ function VfxKit.Tornado(getCenter: () -> Vector3?, radius: number, height: numbe
 	local glow = Instance.new("ParticleEmitter")
 	flat(glow)
 	glow.Texture = VfxAssets.Glow.wide.id
-	glow.Color = ColorSequence.new(if palette == "ice" then Color3.fromRGB(80, 160, 255) else Color3.fromRGB(255, 70, 35))
-	glow.LightEmission = 1
+	glow.Color = ColorSequence.new(if ink then Color3.new(0, 0, 0)
+		elseif palette == "ice" then Color3.fromRGB(80, 160, 255) else Color3.fromRGB(255, 70, 35))
+	glow.LightEmission = if ink then 0 else 1
 	glow.LightInfluence = 0
 	glow.Brightness = 1.3
 	glow.Lifetime = NumberRange.new(0.45)
@@ -356,7 +405,12 @@ function VfxKit.Tornado(getCenter: () -> Vector3?, radius: number, height: numbe
 
 	local parts: { MeshPart } = {}
 	if outer then table.insert(parts, outer) end
-	if inner then table.insert(parts, inner) end
+	if inner then
+		-- the inner layer is lit, not glowing: its dark strands stay dark and
+		-- show through the bright outer one (clip 3's black streaks in the fire)
+		inner.Material = Enum.Material.SmoothPlastic
+		table.insert(parts, inner)
+	end
 	for _, p in ipairs(parts) do p.Transparency = 1; p.Parent = root() end
 	local spin = { 0, math.pi }
 	local function place(p: MeshPart, center: Vector3, r: number, h: number, ang: number, tr: number)

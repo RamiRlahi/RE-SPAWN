@@ -108,6 +108,12 @@ local function flameColors(hot: boolean?): ColorSequence
 end
 FireFX.Colors = flameColors
 
+-- Saturated from birth (the rolling flame seen from above reads as a pale
+-- yellow ball when it starts white-hot): ember-orange, flame, deep red.
+local function deepColors(): ColorSequence
+	return ColorSequence.new({ csk(0, Color3.fromRGB(255, 176, 70)), csk(0.35, FIRE), csk(1, DEEP) })
+end
+
 -- Emitters for each kind of fire, ready to Emit or run.
 local KIND: { [string]: (Instance, number) -> ParticleEmitter } = {}
 
@@ -123,7 +129,7 @@ end
 
 KIND.roll = function(parent, size)
 	return flip(emitter(parent, {
-		Name = "RollingFlame", Texture = TEX.roll, Color = flameColors(), Brightness = 4, LightEmission = 0.3,
+		Name = "RollingFlame", Texture = TEX.roll, Color = deepColors(), Brightness = 3.2, LightEmission = 0.2,
 		Size = NumberSequence.new({ nsk(0, size * 0.2), nsk(0.5, size), nsk(1, size * 1.05) }),
 		Transparency = NumberSequence.new({ nsk(0, 0), nsk(0.35, 0), nsk(0.55, 0.5), nsk(0.8, 0.92), nsk(1, 1) }),
 		Lifetime = NumberRange.new(0.6, 0.75), Speed = NumberRange.new(0.5, 2), Acceleration = Vector3.new(0, 4, 0),
@@ -298,17 +304,25 @@ end
 function FireFX.Column(pos: Vector3, height: number, width: number)
 	local g = ground(pos)
 	local a = anchor(CFrame.new(g + Vector3.new(0, 0.3, 0)), Vector3.new(width * 0.5, 0.2, width * 0.5))
-	local up = KIND.roll(a, width * 1.4)
+	-- the jet: upright flame tongues (sharp, not round), a little rolling
+	-- flame for body, torn chunks and a floor flash where it bursts out
+	local up = KIND.flame(a, width * 1.6)
+	up.Color = deepColors()
 	up.EmissionDirection = Enum.NormalId.Top
-	up.SpreadAngle = Vector2.new(6, 6)
+	up.SpreadAngle = Vector2.new(5, 5)
 	up.Speed = NumberRange.new(height * 1.6, height * 2.1)
 	up.Drag = 2.2
 	up.Acceleration = Vector3.zero
-	up.Lifetime = NumberRange.new(0.5, 0.65)
-	up:Emit(math.clamp(math.floor(height * 0.8), 4, 14))
-	local base = KIND.flame(a, width * 1.2)
-	base.SpreadAngle = Vector2.new(60, 60)
-	base:Emit(4)
+	up.Lifetime = NumberRange.new(0.45, 0.6)
+	up.Rotation = NumberRange.new(-6, 6)
+	up:Emit(math.clamp(math.floor(height * 0.6), 3, 10))
+	local body = KIND.roll(a, width * 1.2)
+	body.EmissionDirection = Enum.NormalId.Top
+	body.SpreadAngle = Vector2.new(10, 10)
+	body.Speed = NumberRange.new(height * 0.8, height * 1.2)
+	body:Emit(math.clamp(math.floor(height * 0.2), 1, 4))
+	VfxKit.Puffs({ g + Vector3.new(0, width * 0.6, 0) }, "fire", width * 1.6, 0.45)
+	VfxKit.FloorGlow(g, FLOOR_FIRE, width * 5, 0.35, false)
 	local sp = KIND.embers(a, 0.35)
 	sp.EmissionDirection = Enum.NormalId.Top
 	sp.SpreadAngle = Vector2.new(25, 25)
@@ -356,25 +370,34 @@ function FireFX.Explosion(pos: Vector3, radius: number, big: boolean?)
 	ClassFX.Sound(if big then "boom" else "fireBurst", center, if big then 0.9 else 0.55, 1 + rng:NextNumber(-0.08, 0.08))
 end
 
--- A wall of fire bursting up round a circle (rings of fire).
+-- A wall of fire bursting up round a circle (rings of fire): the fire ring
+-- racing out flat across the floor, flame tongues shooting up along it (sharp
+-- upright flames, not rolling balls: from the isometric camera those read as
+-- a ring of round blobs), torn chunks bursting off it, the floor flashing red.
 function FireFX.FlameRing(pos: Vector3, radius: number, height: number)
 	local g = ground(pos)
-	local n = math.clamp(math.floor(radius * 1.1), 10, 34)
+	VfxKit.FloorRing(g, "fire", radius * 1.08, 0.45)
+	VfxKit.FloorGlow(g, FLOOR_FIRE, radius * 2.6, 0.4, true)
+	local n = math.clamp(math.floor(radius * 0.7), 8, 22)
 	local t0 = rng:NextNumber(0, math.pi * 2)
+	local chunks = {}
 	for i = 1, n do
 		local a = t0 + i / n * math.pi * 2
 		local p = g + Vector3.new(math.cos(a) * radius, 0.3, math.sin(a) * radius)
 		local h = anchor(CFrame.new(p))
-		local e = KIND.roll(h, 2.4 + radius * 0.05)
+		local e = KIND.flame(h, 2.2 + radius * 0.06)
+		e.Color = deepColors()
 		e.EmissionDirection = Enum.NormalId.Top
-		e.SpreadAngle = Vector2.new(8, 8)
-		e.Speed = NumberRange.new(height * 1.4, height * 1.9)
+		e.SpreadAngle = Vector2.new(6, 6)
+		e.Speed = NumberRange.new(height * 1.1, height * 1.6)
 		e.Drag = 2.5
 		e.Acceleration = Vector3.zero
+		e.Rotation = NumberRange.new(-8, 8)
 		e:Emit(2)
 		Debris:AddItem(h, 1)
+		if i % 3 == 0 then table.insert(chunks, p + Vector3.new(0, 1.2, 0)) end
 	end
-	FireFX.Shockwave(g, radius * 1.1)
+	VfxKit.Puffs(chunks, "fire", 2.6 + radius * 0.08, 0.45)
 end
 
 -- A flaming slash along a circular arc, laid out like SwordFX's arcs: `cf`
