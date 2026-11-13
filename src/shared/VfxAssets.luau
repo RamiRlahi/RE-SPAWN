@@ -62,14 +62,19 @@ local VfxAssets = {
 	},
 	Facet = { ice = tex(74962630831879), holy = tex(92432980608906), void = tex(138497103278689) },
 
-	-- mesh ids: filled in once the FBX files in assets/vfx/meshes are uploaded
+	-- meshes from assets/vfx/meshes (imported with Studio's 3D Importer). Checked in Studio:
+	--   * Set Transparency to at least 0.02, or the texture's alpha is ignored and the mesh renders solid.
+	--   * Each mesh is centred on its part, not on its apex or base.
+	--   * shock_cone and dash_tunnel point backwards: the cone's mouth and the tunnel's head are at +Z,
+	--     opposite the LookVector. Multiply the CFrame by MeshFlip to aim them forward.
 	Mesh = {
-		shock_cone = "",
-		swept_shell = "",
-		tornado = "",
-		crystal_cluster = "",
-		dash_tunnel = "",
+		shock_cone = "rbxassetid://123275970789401", -- texture: Cone
+		swept_shell = "rbxassetid://106649252909010", -- texture: Sweep (lies flat, +Y up)
+		tornado = "rbxassetid://102996136301762", -- texture: Ribbon (stands up along +Y; spin it)
+		crystal_cluster = "rbxassetid://137610405880687", -- texture: Facet (stands up along +Y)
+		dash_tunnel = "rbxassetid://133294937451535", -- texture: Ribbon or Sweep
 	},
+	MeshFlip = CFrame.Angles(0, math.pi, 0),
 }
 
 return VfxAssets
