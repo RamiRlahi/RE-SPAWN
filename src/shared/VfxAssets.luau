@@ -68,6 +68,7 @@ local VfxAssets = {
 		shell = tex(139802218322008),   -- hay_dome / hay_arch: glassy, hot rims (u around, v base -> rim)
 		torpedo = tex(121995382208212), -- hay_torpedo: gold body, white swirl lines, hot tip
 		whirl = tex(74941643073806),    -- hay_whirl: gold blades, hot edges
+		trail = tex(123691331245222),   -- hay_torpedo as energy: white tip -> gold -> deep orange tail, torn, fading
 	},
 	Energy = { -- for Beams: yellow-white centre -> orange body -> red-orange edges, tiles along the length (fire vortex ribbons)
 		fire = tex(113237224250128), ice = tex(110717495358121), ink = tex(123887379659122),

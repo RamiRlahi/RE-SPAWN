@@ -444,6 +444,26 @@ def hay_whirl(pal):
     save(rgba(ramp(np.clip(T, 0, 1), pal), body), f"haywhirl_{pal}")
 
 
+def hay_trail(pal):
+    """The Haymaker trail as energy, not a prop (u = along: 0 tail .. 1 leading tip; v = around, tiles).
+    Value range: near-white at the leading tip -> gold -> deep orange-red at the tail. Alpha: solid near the
+    tip, eroding into torn noise and fading out toward the tail; streaks run along it."""
+    H, W = 256, 512
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    u, v = (xx + 0.5) / W, (yy + 0.5) / H
+    def tile_v(cells, seed, aniso):          # seamless around (v)
+        n = fbm((H * 2, W), cells, seed, 3, aniso=aniso)
+        return n[H:, :] * (1 - v) + n[:H, :] * v
+    streak = tile_v(40, 301, (1, 8))         # streaks running along u
+    erode = tile_v(22, 302, (1, 3))
+    T = 0.30 + 0.52 * u ** 1.3 + 0.14 * (streak - 0.5)
+    T = np.maximum(T, 0.97 * sm(0.72, 0.95, u))                             # the white-hot leading edge, blended in
+    keep = u * 1.25 - 1.1 * (1 - u) * (1 - erode) + 0.15 * (streak - 0.5)   # torn toward the tail
+    alpha = np.clip(sm(0.0, 0.12, keep), 0, 1) * (0.5 + 0.5 * sm(0.3, 0.9, u))
+    alpha *= 0.75 + 0.25 * sm(0.35, 0.65, streak)
+    save(rgba(ramp(np.clip(T, 0, 1), pal), alpha), f"haytrail_{pal}")
+
+
 def energy_ribbon(pal):
     """Beam texture for the fire vortex ribbons and streaks: across the width (v) a yellow-white centre,
     a saturated orange body and red-orange edges that tear slightly; along the length (u, tiles) fine
@@ -536,7 +556,7 @@ def flame_feather(pal):
 
 
 JOBS = {
-    "hay": lambda: [f(p) for f in (hay_shell, hay_torpedo, hay_whirl) for p in ("gold", "ink")],
+    "hay": lambda: [f(p) for f in (hay_shell, hay_torpedo, hay_whirl, hay_trail) for p in ("gold", "ink")],
     "flamefeather": lambda: [flame_feather(p) for p in ("gold", "ink")],
     "sweep": lambda: [sweep(p) for p in ("fire", "ice", "holy", "void")],
     "ribbon": lambda: [ribbon(p) for p in ("fire", "ice", "void")],

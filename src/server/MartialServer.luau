@@ -110,7 +110,8 @@ local UPPER = { hit = 0.27, total = 0.62, dash = 24, lane = 3.5, stopShort = 2.5
 -- (after Sett's W, the clip's source: the lane's centre strip, `core` either
 -- side of the line, takes the full hit; its sides take `sideMult`)
 local HAY = { full = 1.0, empFull = 0.5, hold = 2.2, length = 12, fullLength = 30, half = 3.2, travel = 0.3,
-	maxMult = 3.2, gap = 5, after = 0.12, eruptRadius = 4.2, eruptMult = 0.45, core = 1.3, sideMult = 0.6 }
+	maxMult = 3.2, gap = 5, after = 0.12, eruptRadius = 4.2, eruptMult = 0.45, core = 1.3, sideMult = 0.6,
+	windup = 0.08 } -- (the anticipation beat before the wave goes: matches the client)
 local HAY_EMP = { damage = 1.3, length = 1.2 }
 
 -- Ground Slam (no longer cast: Q is the Haymaker; kept for reference)
@@ -668,7 +669,7 @@ haymakerRelease = function(player: Player, f: Focus, held: number?, aim: Vector3
 	local length = (HAY.length + (HAY.fullLength - HAY.length) * c) * area * (if f.empowered then HAY_EMP.length else 1)
 	local half = HAY.half * area
 	local damage = (config.damage or 80) * (1 + (HAY.maxMult - 1) * c) * (if f.empowered then HAY_EMP.damage else 1)
-	st.busyUntil = now + 0.45
+	st.busyUntil = now + HAY.windup + 0.45
 	fx({ kind = "haymakerRelease", attacker = player, pos = origin, dir = dir, charge = c, full = full, length = length,
 		half = half, empowered = f.empowered })
 	-- the wave down the lane: each enemy hit as its front passes them
@@ -685,7 +686,7 @@ haymakerRelease = function(player: Player, f: Focus, held: number?, aim: Vector3
 		local reachHere = nearHalf + (farHalf - nearHalf) * along / length + H.lineReach(t, 0) * 0.5
 		if across > reachHere then continue end
 		local centre = across <= nearHalf + H.lineReach(t, 0) * 0.5
-		task.delay(HAY.travel * along / length, function()
+		task.delay(HAY.windup + HAY.travel * along / length, function()
 			if not char.Parent or seen[t.character] then return end
 			seen[t.character] = true
 			if hit(player, t, damage * (if centre then 1 else HAY.sideMult),
@@ -700,7 +701,7 @@ haymakerRelease = function(player: Player, f: Focus, held: number?, aim: Vector3
 	local n = math.max(1, math.floor(length / HAY.gap))
 	for i = 1, n do
 		local d = i * length / n
-		task.delay(HAY.travel * d / length + HAY.after, function()
+		task.delay(HAY.windup + HAY.travel * d / length + HAY.after, function()
 			if not char.Parent then return end
 			local p = floorAt(char, origin + dir * d)
 			for _, t in ipairs(inRadius(char, p, HAY.eruptRadius * area)) do
@@ -708,7 +709,7 @@ haymakerRelease = function(player: Player, f: Focus, held: number?, aim: Vector3
 			end
 		end)
 	end
-	task.delay(HAY.travel + 0.05, function()
+	task.delay(HAY.windup + HAY.travel + 0.05, function()
 		local f1 = first
 		if f1 and char.Parent then pcall(H.ricochet, player, char, f1, damage, "HAYMAKER") end
 	end)

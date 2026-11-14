@@ -2080,7 +2080,7 @@ end
 --   after    a glowing line along the lane, then a dark scorch streak on the
 --            floor that fades
 -- (matches MartialServer's HAY)
-local HAY = { full = 1.0, empFull = 0.5, hold = 2.2, length = 12, fullLength = 30, empLength = 1.2, half = 3.2, travel = 0.3, core = 1.3,
+local HAY = { full = 1.0, empFull = 0.5, hold = 2.2, length = 12, fullLength = 30, empLength = 1.2, half = 3.2, travel = 0.3, core = 1.3, windup = 0.08,
 	gap = 5, after = 0.12, walk = 5 }
 -- (Sett's W: the lane is a trapezoid, HAY.half x 0.35 wide either side at
 -- his feet, x 1.3 at the far end; its centre strip HAY.core either side)
@@ -2324,7 +2324,7 @@ local function buildLane(): Lane
 				ln.a1.WorldCFrame = CFrame.fromMatrix(to, ad, sd)
 				if ln.kind == "strip" then
 					ln.b.Width0, ln.b.Width1 = near * 2, near * 2
-					ln.b.Transparency = NumberSequence.new(math.clamp(tr + 0.8, 0, 1))
+					ln.b.Transparency = NumberSequence.new(math.clamp(0.55 + tr * 0.5, 0, 1))
 				else
 					ln.b.Transparency = NumberSequence.new(tr)
 				end
@@ -2395,7 +2395,8 @@ local function haymakerChargeFx(char: Model, full: number, hold: number, empower
 		local g = onGround(root.Position)
 		-- the trapezoid runs out ahead as it charges
 		local fullL = hayLength(k, empowered)
-		lane.set(g + UP * 0.15 + dir * 0.6, dir, 1 + fullL * math.clamp(k * 1.2, 0.08, 1), fullL, 0.5 - 0.35 * k)
+		-- (dim, filling up as it charges: it must not compete with the attack)
+		lane.set(g + UP * 0.15 + dir * 0.6, dir, 1 + fullL * math.clamp(k * 1.2, 0.08, 1), fullL, 0.85 - 0.45 * k)
 		-- the blades spinning flat at his feet, opening as it builds
 		spin += dt * (6 + 10 * k)
 		if whirl then
@@ -2464,7 +2465,9 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 	-- the trapezoid on the floor, bright, fading after the arches
 	local lane = hayLane()
 	animate(1.0 * S, function(x)
-		lane.set(g + UP * 0.15 + dir * 0.6, dir, length * easeOut(math.min(x * 1.0 / 0.3, 1)), length, 0.05 + 0.95 * math.clamp((x - 0.6) / 0.4, 0, 1))
+		-- (a flash on release, then dimmer, then gone)
+		local tr = if x < 0.08 then 0 else 0.78 + 0.22 * math.clamp((x - 0.55) / 0.45, 0, 1)
+		lane.set(g + UP * 0.15 + dir * 0.6, dir, length * easeOut(math.min(x * 1.0 / 0.3, 1)), length, tr)
 		if x >= 1 then lane.destroy() end
 		return nil
 	end)
@@ -2497,35 +2500,50 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 		hayBand(p, p - dir * (3 + math.random() * 4), 0.14, 0.02, 0.15 * S, G_HOT, 1)
 	end
 
-	-- 0.07: the torpedo down the centre, the portal rings at the fist
-	local TP, TPH = hayMesh("hay_torpedo", HT.torpedo.id, G_GOLD), hayMesh("hay_torpedo_hull", nil, nil, true)
+	-- 0.07: the trail down the centre (energy, not a prop: a white-hot tip
+	-- fading through gold to a torn deep-orange tail, inside a soft glow; slim,
+	-- so the target stays visible), the portal rings at the fist, speed lines
+	-- wrapping it, embers peeling off it
+	local TP = hayMesh("hay_torpedo", HT.trail.id, Color3.new(1, 1, 1))
+	local TG = hayMesh("hay_torpedo", HT.trail.id, G_ORANGE)
 	local RG = hayMesh("hay_rings", nil, G_HOT)
+	local emb = carrier(CFrame.new(fist))
+	local embers = emitter(emb, { Texture = TEX_SPARKLE, Color = ColorSequence.new(G_HOT, G_ORANGE), LightEmission = 1, Brightness = 3,
+		Size = nseq(0, 0.35, 1, 0), Lifetime = NumberRange.new(0.25 * S, 0.5 * S), Speed = NumberRange.new(6 / S, 14 / S),
+		EmissionDirection = Enum.NormalId.Back, SpreadAngle = Vector2.new(60, 60), Drag = 3, Rate = 0 })
+	for k = 1, 3 do
+		local sg = if k % 2 == 0 then 1 else -1
+		local a = fist + UP * (0.3 + 0.5 * (k - 2)) + side * sg * 0.6
+		hayBand(a, a + dir * length * (0.55 + 0.1 * k), 0.12, 0.02, 0.3 * S, G_HOT, 1, false, 0.22 * S, sg * 0.5)
+	end
 	task.delay(0.07 * S, function()
 		animate(0.33 * S, function(x)
 			local L = math.max(length * 0.8 * easeOut(math.min(x / 0.55, 1)), 0.5)
-			local w = (near * 1.5) / 0.2855 * (0.6 + 0.4 * easeOut(math.min(x / 0.3, 1)))
+			local w = (near * 0.9) / 0.2855 * (0.6 + 0.4 * easeOut(math.min(x / 0.3, 1)))
 			local p = fist + UP * 0.3 + dir * (L * 0.5 + 0.5)
 			local tr = math.clamp((x - 0.7) / 0.3, 0, 1)
 			if TP then TP.Size = sizeOf("hay_torpedo", Vector3.new(w, w, L)); TP.CFrame = face(p); TP.Transparency = 0.02 + 0.98 * tr end
-			if TPH then TPH.Size = sizeOf("hay_torpedo_hull", Vector3.new(w, w, L)); TPH.CFrame = face(p); TPH.Transparency = tr end
+			if TG then TG.Size = sizeOf("hay_torpedo", Vector3.new(w * 1.6, w * 1.6, L * 1.05)); TG.CFrame = face(p); TG.Transparency = 0.65 + 0.35 * tr end
+			emb.CFrame = face(fist + UP * 0.3 + dir * (L + 0.5))
+			embers.Rate = if x < 0.7 then 90 / S else 0
 			if RG then
 				local r = 1.3 + 1.6 * easeOut(x)
 				RG.Size = sizeOf("hay_rings", Vector3.new(r, r, 1.5))
 				RG.CFrame = face(fist + dir * 1.2 + UP * 0.4)
 				RG.Transparency = 0.05 + 0.95 * math.clamp((x - 0.5) / 0.5, 0, 1)
 			end
-			if x >= 1 then VfxKit.Release(TP); VfxKit.Release(TPH); VfxKit.Release(RG) end
+			if x >= 1 then VfxKit.Release(TP); VfxKit.Release(TG); VfxKit.Release(RG); emb:Destroy() end
 			return nil
 		end)
 	end)
 
 	-- 0.15: the glass dome shell bulging forward round the fist, warm smoke
-	local DM = hayMesh("hay_dome", HT.shell.id, G_HOT)
+	local DM = hayMesh("hay_dome", HT.shell.id, G_GOLD)
 	if DM then DM.DoubleSided = true end
 	task.delay(0.15 * S, function()
 		VfxKit.Puffs({ fist + dir * 2 + UP, fist + dir * 3.5 + side * 1.5 + UP, fist + dir * 3.5 - side * 1.5 + UP }, "fire", 3.5, 0.6 * S)
 		animate(0.42 * S, function(x)
-			local R = math.max(near * 1.6, 4.5) * (0.55 + 0.45 * easeOut(math.min(x / 0.4, 1)))
+			local R = math.max(near * 1.6, 4.5) * (0.55 + 0.45 * easeOut(math.min(x / 0.4, 1))) * (1 + 0.07 * math.sin(x * 38) * (1 - x))
 			if DM then
 				DM.Size = sizeOf("hay_dome", Vector3.new(R, R, R))
 				DM.CFrame = face(fist + UP * 0.6 + dir * (R * 0.5 + 0.5))
@@ -2575,6 +2593,21 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 			end
 		end)
 	end
+
+	-- the impact where the trail lands (its own beat): a 1-2 frame white flash,
+	-- a shockwave ring racing out, a cracked scorch on the floor, dust and
+	-- debris thrown on along the punch, sparks
+	task.delay((0.07 + 0.33 * 0.55) * S, function()
+		local ip = fist + UP * 0.3 + dir * (length * 0.8 + 0.5)
+		local ig = onGround(ip)
+		VfxKit.Flash(ip, "fire", 7 + 3 * c, 0.06 * S, Color3.new(1, 1, 1))
+		VfxKit.FloorRing(ig, "fire", widthAt(length * 0.8) * 1.2, 0.4 * S)
+		VfxKit.Stain("scorch", ig, widthAt(length * 0.8) * 1.4, 1.4)
+		VfxKit.Puffs({ ip + dir * 1.5, ip + dir * 3 + side * 1.2, ip + dir * 3 - side * 1.2 }, "fire", 3 + c, 0.5 * S)
+		chunks(ig + dir * 1.5, 7, 26)
+		sparks(ip, 22, 30, G_GOLD)
+		ClassFX.Sound("rockHit", ip, 0.8, 0.9)
+	end)
 
 	-- after: a dark streak on the floor down the lane, a glow under it
 	VfxKit.FloorGlow(g + dir * length * 0.35, G_ORANGE, length * 0.55, 0.35 * S, false)
@@ -2659,7 +2692,7 @@ local function onHaymakerRelease(msg: any)
 	local char = charOf(owner)
 	local c = tonumber(msg.charge) or 0
 	if char then focusPunchPose(char, c) end
-	haymakerFire(msg.pos :: Vector3, flat(msg.dir :: Vector3), c, tonumber(msg.length) or HAY.length,
+	task.delay(HAY.windup, haymakerFire, msg.pos :: Vector3, flat(msg.dir :: Vector3), c, tonumber(msg.length) or HAY.length,
 		tonumber(msg.half) or HAY.half, false)
 end
 local function onHaymakerHit(_msg: any) end
@@ -3798,13 +3831,17 @@ function MartialController.Release(skillIndex: number)
 			busyUntil = 0
 			return
 		end
-		busyUntil = os.clock() + 0.45
-		releaseAfter(char, 0.4)
+		busyUntil = os.clock() + HAY.windup + 0.45
+		releaseAfter(char, HAY.windup + 0.4)
 		-- (he stands his ground: planted through the punch)
 		plant(char, 0.4)
 		root.CFrame = CFrame.lookAt(root.Position, root.Position + dir)
 		focusPunchPose(char, c)
-		haymakerFire(root.Position, dir, c, hayLength(c, h.empowered), HAY.half * (tonumber(player:GetAttribute("Stat_size")) or 1), true)
+		-- (the anticipation beat: the fist flares, a held breath, then the punch;
+		-- the server delays its hits by the same HAY.windup)
+		local at, L, hw = root.Position, hayLength(c, h.empowered), HAY.half * (tonumber(player:GetAttribute("Stat_size")) or 1)
+		VfxKit.Flash(fistPos(char, root, dir), "fire", 4 + 2 * c, HAY.windup, G_HOT)
+		task.delay(HAY.windup, haymakerFire, at, dir, c, L, hw, true)
 		return
 	end
 	if skillIndex ~= 1 then return end
