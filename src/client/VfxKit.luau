@@ -349,6 +349,54 @@ local function mesh(name: string, texture: string): MeshPart?
 	return mp
 end
 VfxKit.Mesh = mesh
+
+-- A pool of meshes, so a burst of casts creates nothing new: Acquire gives a
+-- parked copy back (or makes one), Release parks it out of sight (hidden,
+-- still parented: no re-parenting cost) for the next cast. The caller sets
+-- every property it relies on after Acquire.
+local free: { [string]: { MeshPart } } = {}
+local PARK = CFrame.new(0, -5000, 0)
+local POOL_MAX = 16
+function VfxKit.Acquire(name: string, texture: string): MeshPart?
+	local list = free[name]
+	local mp = list and table.remove(list)
+	if mp and mp.Parent then
+		mp.TextureID = texture
+		return mp
+	end
+	mp = mesh(name, texture)
+	if mp then mp:SetAttribute("KitPool", name) end
+	return mp
+end
+function VfxKit.Release(mp: MeshPart?)
+	if not mp then return end
+	local name = mp:GetAttribute("KitPool")
+	local list = if typeof(name) == "string" then (free[name] or {}) else nil
+	if not list or #list >= POOL_MAX or not mp.Parent then
+		mp:Destroy()
+		return
+	end
+	free[name :: string] = list
+	mp.Transparency = 1
+	mp.CFrame = PARK
+	table.insert(list, mp)
+end
+-- Make `n` of a mesh up front (parented under `parent`, parked), once its
+-- template has loaded.
+function VfxKit.Prewarm(name: string, n: number, parent: Instance)
+	task.spawn(function()
+		local t0 = os.clock()
+		while not templates[name] and os.clock() - t0 < 20 do task.wait(0.25) end
+		for _ = 1, n do
+			local mp = VfxKit.Acquire(name, "")
+			if not mp then return end
+			mp:SetAttribute("VfxToned", true)
+			mp.Parent = parent
+			VfxKit.Release(mp)
+			task.wait() -- (spread over frames)
+		end
+	end)
+end
 function VfxKit.MeshSize(name: string): Vector3 return (MESHES[name] and MESHES[name].native) or Vector3.one end
 
 -- One updater for every animated mesh: step(dt, t) returns true when done.

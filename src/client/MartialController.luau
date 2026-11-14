@@ -2124,21 +2124,44 @@ local function newBeam(a0: Attachment, a1: Attachment, faceCamera: boolean, colo
 	return b
 end
 
+-- The band pool: a band's holder, attachments and beam are made once and
+-- handed back when it fades, so a burst of casts creates nothing new.
+type PooledBand = { h: BasePart, a0: Attachment, a1: Attachment, bm: Beam }
+local bandPool: { PooledBand } = {}
+local function takeBand(): PooledBand
+	local pb = table.remove(bandPool)
+	if pb and pb.h.Parent then return pb end
+	local h = carrier(CFrame.new())
+	local a0, a1 = Instance.new("Attachment"), Instance.new("Attachment")
+	a0.Parent, a1.Parent = h, h
+	return { h = h, a0 = a0, a1 = a1, bm = newBeam(a0, a1, true, WHITE, 1) }
+end
+local function giveBand(pb: PooledBand)
+	pb.bm.Transparency = NumberSequence.new(1)
+	if #bandPool < 120 then table.insert(bandPool, pb) else pb.h:Destroy() end
+end
 -- A band from `a` to `b` (camera-facing unless `flatOnFloor`), fading over
 -- `life`; `draw` seconds to run out from a to b.
 local function hayBand(a: Vector3, b: Vector3, w0: number, w1: number, life: number, color: Color3, emission: number,
 	flatOnFloor: boolean?, draw: number?, bend: number?)
 	if not FxBudget.Allow("maHayBand", 90) then return end
-	local h = carrier(CFrame.new())
 	local d = (b - a)
 	local along = if d.Magnitude > 0.01 then d.Unit else Vector3.xAxis
-	local a0 = if flatOnFloor then flatAtt(h, a, along) else Instance.new("Attachment")
-	local a1 = if flatOnFloor then flatAtt(h, a, along) else Instance.new("Attachment")
-	if not flatOnFloor then
-		a0.Parent, a1.Parent = h, h
-		a0.WorldPosition, a1.WorldPosition = a, a
+	-- (from the pool: a holder, two attachments and a beam made once, reused)
+	local pb = takeBand()
+	local a0, a1, bm = pb.a0, pb.a1, pb.bm
+	if flatOnFloor then
+		local sd = Vector3.new(-along.Z, 0, along.X)
+		a0.WorldCFrame = CFrame.fromMatrix(a, along, sd)
+		a1.WorldCFrame = CFrame.fromMatrix(a, along, sd)
+	else
+		a0.WorldCFrame, a1.WorldCFrame = CFrame.new(a), CFrame.new(a)
 	end
-	local bm = newBeam(a0, a1, not flatOnFloor, color, emission)
+	bm.FaceCamera = not flatOnFloor
+	bm.Color = ColorSequence.new(color)
+	bm.LightEmission = emission
+	bm.CurveSize0, bm.CurveSize1 = 0, 0
+	bm.Transparency = NumberSequence.new(0)
 	bm.TextureSpeed = 6
 	bm.Width0, bm.Width1 = w0, w1
 	-- (`bend`: the band swings into an S: its bezier handles turned `bend`
@@ -2164,7 +2187,7 @@ local function hayBand(a: Vector3, b: Vector3, w0: number, w1: number, life: num
 			a1.WorldPosition = p
 		end
 		bm.Transparency = NumberSequence.new(math.clamp((t - dr) / math.max(life - dr, 0.01), 0, 1) ^ 1.4)
-		if x >= 1 then h:Destroy() end
+		if x >= 1 then giveBand(pb) end
 		return nil
 	end)
 end
@@ -2238,9 +2261,11 @@ end
 -- still loading: never a white shape). Kept out of VfxDetail's toning.
 local function hayMesh(name: string, tex: string?, color: Color3?, outline: boolean?): MeshPart?
 	if tex and not VfxKit.TexReady(tex) then return nil end
-	local mp = VfxKit.Mesh(name, tex or "")
+	local mp = VfxKit.Acquire(name, tex or "")
 	if not mp then return nil end
 	mp:SetAttribute("VfxToned", true)
+	mp.DoubleSided = true -- (the template's; outlines turn it off below)
+	mp.Material = Enum.Material.Neon
 	if outline then
 		-- the inverted hull: faces turned in, so only its far side draws, as an outline
 		mp.Material = Enum.Material.SmoothPlastic
@@ -2262,7 +2287,7 @@ end
 
 -- The trapezoid's floor lines (edges, inner fan lines, far end, centre strip).
 type Lane = { set: (Vector3, Vector3, number, number, number) -> (), destroy: () -> () }
-local function hayLane(): Lane
+local function buildLane(): Lane
 	local h = carrier(CFrame.new())
 	type Line = { a0: Attachment, a1: Attachment, b: Beam, spec: { number }, kind: string }
 	local lines: { Line } = {}
@@ -2305,7 +2330,21 @@ local function hayLane(): Lane
 				end
 			end
 		end,
-		destroy = function() h:Destroy() end,
+		destroy = function()
+			for _, ln in ipairs(lines) do ln.b.Transparency = NumberSequence.new(1) end
+		end,
+	}
+end
+-- (pooled: a lane's lines are made once; destroy() hides it and hands it back)
+local lanePool: { Lane } = {}
+local function hayLane(): Lane
+	local lane = table.remove(lanePool) or buildLane()
+	return {
+		set = lane.set,
+		destroy = function()
+			lane.destroy()
+			if #lanePool < 8 then table.insert(lanePool, lane) end
+		end,
 	}
 end
 
@@ -2404,7 +2443,7 @@ local function haymakerChargeFx(char: Model, full: number, hold: number, empower
 			gather.Enabled = false
 			if light then light:Destroy() end
 			lane.destroy()
-			for _, m in ipairs({ dome, whirl } :: { MeshPart? }) do if m then m:Destroy() end end
+			VfxKit.Release(dome); VfxKit.Release(whirl)
 			task.delay(0.5, function() fistPart:Destroy(); well:Destroy() end)
 		end,
 	}
@@ -2439,7 +2478,7 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 		if F then F.Size = sizeOf("hay_fist", Vector3.one * k); F.CFrame = face(p); F.Transparency = 0.02 + 0.98 * tr end
 		-- (the hull a touch bigger than the fist: the outline shows all round it)
 		if FH then FH.Size = sizeOf("hay_fist_hull", Vector3.one * k * 1.06); FH.CFrame = face(p); FH.Transparency = tr end
-		if x >= 1 then if F then F:Destroy() end; if FH then FH:Destroy() end end
+		if x >= 1 then VfxKit.Release(F); VfxKit.Release(FH) end
 		return nil
 	end)
 	VfxKit.Flash(fist + dir * 2 + UP * 0.6, "fire", 8 + 4 * c, 0.1 * S, G_HOT)
@@ -2475,7 +2514,7 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 				RG.CFrame = face(fist + dir * 1.2 + UP * 0.4)
 				RG.Transparency = 0.05 + 0.95 * math.clamp((x - 0.5) / 0.5, 0, 1)
 			end
-			if x >= 1 then for _, m in ipairs({ TP, TPH, RG } :: { MeshPart? }) do if m then m:Destroy() end end end
+			if x >= 1 then VfxKit.Release(TP); VfxKit.Release(TPH); VfxKit.Release(RG) end
 			return nil
 		end)
 	end)
@@ -2492,7 +2531,7 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 				DM.CFrame = face(fist + UP * 0.6 + dir * (R * 0.5 + 0.5))
 				DM.Transparency = 0.15 + 0.85 * math.clamp((x - 0.6) / 0.4, 0, 1)
 			end
-			if x >= 1 and DM then DM:Destroy() end
+			if x >= 1 then VfxKit.Release(DM) end
 			return nil
 		end)
 	end)
@@ -2514,7 +2553,7 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 				AR.Size = sizeOf("hay_arch", Vector3.new(w * s, H, 1.6))
 				AR.CFrame = face(at + UP * (H * 0.5)) * yaw
 				AR.Transparency = 0.1 + 0.9 * math.clamp((x - 0.55) / 0.45, 0, 1)
-				if x >= 1 then AR:Destroy() end
+				if x >= 1 then VfxKit.Release(AR) end
 				return nil
 			end)
 			if i % 2 == 1 then
@@ -2529,7 +2568,7 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 						IK.Size = sizeOf("hay_ink", Vector3.one * s)
 						IK.CFrame = CFrame.lookAt(base + UP * (s * 0.58), base + UP * (s * 0.58) + dir) * CFrame.Angles(0, math.rad(-25 * sg), 0)
 						IK.Transparency = math.clamp((x - 0.55) / 0.45, 0, 1)
-						if x >= 1 then IK:Destroy() end
+						if x >= 1 then VfxKit.Release(IK) end
 						return nil
 					end)
 				end
@@ -3868,6 +3907,11 @@ end
 
 function MartialController.Init(d: Deps)
 	deps = d
+	-- (the Haymaker's meshes made up front, parked, so no cast has to make any)
+	for name, n in pairs({ hay_fist = 2, hay_fist_hull = 2, hay_torpedo = 2, hay_torpedo_hull = 2, hay_rings = 2, hay_dome = 3,
+		hay_whirl = 1, hay_arch = 10, hay_ink = 6 }) do
+		VfxKit.Prewarm(name, n, ClassFX.Folder())
+	end
 	-- (Studio only: set "MA_DebugHay" to a charge 0..1 to fire the Haymaker's
 	-- wave from where you stand, for checking its look without the cast)
 	if RunService:IsStudio() then
