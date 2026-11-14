@@ -1116,6 +1116,44 @@ local function focusPose(char: Model, hold: number, full: number)
 	}, 0.25)
 end
 
+-- Haymaker · charge: wound up for a huge right hand. Wide planted stance,
+-- left foot forward, weight sat back on the right; the shoulders wrenched
+-- round away from the target, the straight right arm thrown far back and
+-- a little up behind him (the fist cocked), the left arm reaching out ahead
+-- and slightly down for balance and aim; head down, eyes held on the
+-- target. It snaps into the coil, then winds tighter as the charge fills
+-- (`full` seconds), shaking harder; at full it holds, trembling. Legs never
+-- step: the feet stay planted on the floor (fighter() drops the body as far
+-- as the angled legs lower the hips).
+-- (only a slight lean: on R6 the hips ride on the torso, so with the shoulders
+-- wrenched round a forward lean sinks the front foot into the floor)
+-- The legs are shins (the R6 standard): near upright, and the crouch slides
+-- them up into the torso (`sink` studs) instead of splaying them out.
+local function sunk(p: Pose, d: number): Pose
+	local r = p.Root or { 0, 0, 0, 0, 0, 0 }
+	p.Root = { r[1] or 0, r[2] or 0, r[3] or 0, r[4] or 0, (r[5] or 0) - d, r[6] or 0 }
+	for _, k in ipairs({ "LH", "RH" }) do
+		local h = p[k]
+		if h then p[k] = { h[1], h[2], h[3], h[4] or 0, (h[5] or 0) + d, h[6] or 0 } end
+	end
+	return p
+end
+-- (lifted 0.12: measured in Studio, it puts both foot centres on the floor)
+local HAY_COIL = CastPoses.lift(sunk(fighter(-3, -50, 18, 15, { -98, 0, 20 }, { 70, 0, 6 }, -12, 0.25), 0.45), 0.1)
+local HAY_WOUND = CastPoses.lift(sunk(fighter(-4, -66, 20, 17, { -110, 0, 24 }, { 64, 0, 2 }, -16, 0.35), 0.6), 0.12)
+local function hayChargePose(char: Model, hold: number, full: number)
+	local shake = function(k: number, t: number): Pose
+		local s = math.sin(t * 58) * (0.3 + 2.6 * k)
+		return { RS = { s, 0, s * 0.4 }, LS = { s * 0.3, 0, 0 }, W = { 0, s * 0.35, 0 }, N = { s * 0.15, 0, 0 } }
+	end
+	CastPoses.play(char, {
+		{ dur = 0.12, style = Enum.EasingStyle.Quad, pose = HAY_COIL },
+		{ dur = math.max(full - 0.12, 0.05), style = Enum.EasingStyle.Sine, pose = HAY_WOUND,
+			wobble = function(t: number) return shake(math.min((t + 0.12) / full, 1), t) end },
+		{ dur = math.max(hold - full, 0.05), pose = HAY_WOUND, wobble = function(t: number) return shake(1, t) end },
+	}, 0.25)
+end
+
 -- 2 · Release: the right fist driven straight out with the whole body
 -- behind it in a deep lunge, the left pulled back to the hip; held longer
 -- the harder it was charged (`c`, 0..1).
@@ -2715,7 +2753,7 @@ local function startHaymaker(char: Model, root: BasePart, empowered: boolean)
 	local full = if empowered then HAY.empFull else HAY.full
 	local token = {}
 	busyUntil = math.huge
-	focusPose(char, HAY.hold, full)
+	hayChargePose(char, HAY.hold, full)
 	haymaking = { t0 = os.clock(), full = full, char = char, root = root, token = token, empowered = empowered,
 		fx = haymakerChargeFx(char, full, HAY.hold, empowered, true, function()
 			return if deps and root.Parent then deps.getAim(root) else root.CFrame.LookVector
@@ -2757,7 +2795,7 @@ local function onHaymakerCharge(msg: any)
 	local root = rootOf(char)
 	if not (char and root) then return end
 	local full = tonumber(msg.full) or HAY.full
-	focusPose(char, tonumber(msg.hold) or HAY.hold, full)
+	hayChargePose(char, tonumber(msg.hold) or HAY.hold, full)
 	local old = hayCharging[owner]
 	if old then old.stop(false) end
 	hayCharging[owner] = haymakerChargeFx(char, full, tonumber(msg.hold) or HAY.hold, msg.empowered == true, false,
@@ -4033,6 +4071,11 @@ function MartialController.Init(d: Deps)
 	-- (Studio only: set "MA_DebugHay" to a charge 0..1 to fire the Haymaker's
 	-- wave from where you stand, for checking its look without the cast)
 	if RunService:IsStudio() then
+		-- ("MA_DebugHayPose" = seconds: hold the charge pose that long, for looking at it)
+		player:GetAttributeChangedSignal("MA_DebugHayPose"):Connect(function()
+			local s = tonumber(player:GetAttribute("MA_DebugHayPose"))
+			if s and player.Character then hayChargePose(player.Character, s, HAY.full) end
+		end)
 		player:GetAttributeChangedSignal("MA_DebugHay"):Connect(function()
 			local c = tonumber(player:GetAttribute("MA_DebugHay"))
 			local root = rootOf(player.Character)
