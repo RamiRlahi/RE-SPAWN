@@ -2132,7 +2132,7 @@ end
 --            floor that fades
 -- (matches MartialServer's HAY)
 local HAY = { full = 1.0, empFull = 0.5, hold = 2.2, length = 12, fullLength = 30, empLength = 1.2, half = 3.2, travel = 0.3, core = 1.3, windup = 0.08,
-	gap = 5, after = 0.12, walk = 5 }
+	gap = 5, after = 0.12 }
 -- (Sett's W: the lane is a trapezoid, HAY.half x 0.35 wide either side at
 -- his feet, x 1.3 at the far end; its centre strip HAY.core either side)
 -- (from the League screenshot: half-widths a share of the lane's length L,
@@ -2705,6 +2705,7 @@ local haymaking: Haymaking? = nil
 	haymaking = nil
 	h.fx.stop(false)
 	c:SetAttribute("AllowSkillMovement", false)
+	c:SetAttribute("Rooted", nil)
 	local hum = c:FindFirstChildOfClass("Humanoid")
 	if hum and not hum.PlatformStand then hum.AutoRotate = true end
 	CastPoses.stop(c)
@@ -2719,14 +2720,21 @@ local function startHaymaker(char: Model, root: BasePart, empowered: boolean)
 		fx = haymakerChargeFx(char, full, HAY.hold, empowered, true, function()
 			return if deps and root.Parent then deps.getAim(root) else root.CFrame.LookVector
 		end) }
-	-- (creeping about at a slow walk while it charges, always turned to the aim)
-	char:SetAttribute("AllowSkillMovement", true)
+	-- (planted while it charges: no walking, no walk cycle under the pose, only
+	-- turning to the aim; a dash is the one way out)
+	char:SetAttribute("AllowSkillMovement", false)
+	char:SetAttribute("Rooted", true)
 	local hum = char:FindFirstChildOfClass("Humanoid")
-	if hum then hum.AutoRotate = false end
+	if hum then hum.AutoRotate = false; hum.WalkSpeed = 0 end
 	animate(HAY.hold, function()
 		local f = haymaking
 		if not f or f.token ~= token then return true end
-		if hum then hum.WalkSpeed = HAY.walk end
+		if hum then hum.WalkSpeed = 0 end
+		char:SetAttribute("Rooted", true)
+		if root.Parent then
+			local v = root.AssemblyLinearVelocity
+			if v.X ~= 0 or v.Z ~= 0 then root.AssemblyLinearVelocity = Vector3.new(0, v.Y, 0) end
+		end
 		if root.Parent and deps then
 			local d = flat(deps.getAim(root))
 			root.CFrame = CFrame.lookAt(root.Position, root.Position + d)
@@ -3900,6 +3908,7 @@ function MartialController.Release(skillIndex: number)
 		local hum = char:FindFirstChildOfClass("Humanoid")
 		if hum and not hum.PlatformStand then hum.AutoRotate = true end
 		if not (char.Parent and root.Parent) then
+			char:SetAttribute("Rooted", nil)
 			busyUntil = 0
 			return
 		end
