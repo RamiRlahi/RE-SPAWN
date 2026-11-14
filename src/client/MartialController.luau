@@ -1247,6 +1247,57 @@ local function chunks(center: Vector3, count: number, speed: number)
 	end
 end
 
+-- Pooled, anchored debris thrown forward along `dir` (no physics, no new
+-- instances per cast): ballistic arcs stepped in the shared loop.
+local rockPool: { BasePart } = {}
+local function takeRock(): BasePart
+	while #rockPool > 0 do
+		local p = table.remove(rockPool) :: BasePart
+		if p.Parent then return p end
+	end
+	return part({ Size = Vector3.one * 0.5, Color = ROCK, Material = Enum.Material.Slate, CFrame = CFrame.new(0, -5000, 0) })
+end
+local function debrisForward(center: Vector3, dir: Vector3, count: number, speed: number)
+	local side = dir:Cross(Vector3.yAxis)
+	local rocks, vel, spin, cf0 = {}, {}, {}, {}
+	for i = 1, count do
+		local p = takeRock()
+		local sz = 0.3 + math.random() * 0.6
+		p.Size = Vector3.new(sz, sz * 0.7, sz * 0.8)
+		p.Transparency = 0
+		rocks[i] = p
+		vel[i] = dir * speed * (0.5 + math.random() * 0.5) + side * speed * (math.random() - 0.5) * 0.7
+			+ Vector3.yAxis * speed * (0.5 + math.random() * 0.5)
+		spin[i] = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * 14
+		cf0[i] = CFrame.new(center + Vector3.new(0, 0.4, 0))
+	end
+	local cfs = table.create(count)
+	local life = 0.9
+	animate(life, function(x)
+		local t = x * life
+		for i = 1, count do
+			local v = vel[i]
+			local pos = cf0[i].Position + v * t + Vector3.new(0, -60 * t * t * 0.5, 0)
+			if pos.Y < center.Y then pos = Vector3.new(pos.X, center.Y, pos.Z) end
+			local r = spin[i] * t
+			cfs[i] = CFrame.new(pos) * CFrame.Angles(r.X, r.Y, r.Z)
+			if x > 0.6 then rocks[i].Transparency = (x - 0.6) / 0.4 end
+		end
+		Workspace:BulkMoveTo(rocks, cfs, Enum.BulkMoveMode.FireCFrameChanged)
+		if x >= 1 then
+			for i = 1, count do
+				rocks[i].Transparency = 1
+				rocks[i].CFrame = CFrame.new(0, -5000, 0)
+				if #rockPool < 24 then table.insert(rockPool, rocks[i]) else rocks[i]:Destroy() end
+			end
+		end
+		return nil
+	end)
+end
+
+-- One ember emitter shared by every Haymaker (moved and Emit()ed, never rebuilt).
+local emberHost: BasePart? = nil
+local emberFx: ParticleEmitter? = nil
 -- The finisher's knee hitting the floor: an eruption round it.
 local function eruption(at: Vector3, radius: number, mine: boolean)
 	local g = onGround(at)
@@ -2507,17 +2558,22 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 	local TP = hayMesh("hay_torpedo", HT.trail.id, Color3.new(1, 1, 1))
 	local TG = hayMesh("hay_torpedo", HT.trail.id, G_ORANGE)
 	local RG = hayMesh("hay_rings", nil, G_HOT)
-	local emb = carrier(CFrame.new(fist))
-	local embers = emitter(emb, { Texture = TEX_SPARKLE, Color = ColorSequence.new(G_HOT, G_ORANGE), LightEmission = 1, Brightness = 3,
+	if not (emberHost and emberHost.Parent) then
+		emberHost = carrier(CFrame.new(0, -5000, 0))
+		emberFx = emitter(emberHost :: BasePart, { Texture = TEX_SPARKLE, Color = ColorSequence.new(G_HOT, G_ORANGE), LightEmission = 1, Brightness = 3,
 		Size = nseq(0, 0.35, 1, 0), Lifetime = NumberRange.new(0.25 * S, 0.5 * S), Speed = NumberRange.new(6 / S, 14 / S),
 		EmissionDirection = Enum.NormalId.Back, SpreadAngle = Vector2.new(60, 60), Drag = 3, Rate = 0 })
+	end
+	local emb, embers = emberHost :: BasePart, emberFx :: ParticleEmitter
+	embers.Lifetime = NumberRange.new(0.25 * S, 0.5 * S); embers.Speed = NumberRange.new(6 / S, 14 / S)
+	local emberAcc = 0
 	for k = 1, 3 do
 		local sg = if k % 2 == 0 then 1 else -1
 		local a = fist + UP * (0.3 + 0.5 * (k - 2)) + side * sg * 0.6
 		hayBand(a, a + dir * length * (0.55 + 0.1 * k), 0.12, 0.02, 0.3 * S, G_HOT, 1, false, 0.22 * S, sg * 0.5)
 	end
 	task.delay(0.07 * S, function()
-		animate(0.33 * S, function(x)
+		animate(0.33 * S, function(x, dt)
 			local L = math.max(length * 0.8 * easeOut(math.min(x / 0.55, 1)), 0.5)
 			local w = (near * 0.9) / 0.2855 * (0.6 + 0.4 * easeOut(math.min(x / 0.3, 1)))
 			local p = fist + UP * 0.3 + dir * (L * 0.5 + 0.5)
@@ -2525,14 +2581,17 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 			if TP then TP.Size = sizeOf("hay_torpedo", Vector3.new(w, w, L)); TP.CFrame = face(p); TP.Transparency = 0.02 + 0.98 * tr end
 			if TG then TG.Size = sizeOf("hay_torpedo", Vector3.new(w * 1.6, w * 1.6, L * 1.05)); TG.CFrame = face(p); TG.Transparency = 0.65 + 0.35 * tr end
 			emb.CFrame = face(fist + UP * 0.3 + dir * (L + 0.5))
-			embers.Rate = if x < 0.7 then 90 / S else 0
+			if x < 0.7 then
+				emberAcc += dt * 90 / S
+				if emberAcc >= 1 then local n = math.floor(emberAcc); emberAcc -= n; embers:Emit(n) end
+			end
 			if RG then
 				local r = 1.3 + 1.6 * easeOut(x)
 				RG.Size = sizeOf("hay_rings", Vector3.new(r, r, 1.5))
 				RG.CFrame = face(fist + dir * 1.2 + UP * 0.4)
 				RG.Transparency = 0.05 + 0.95 * math.clamp((x - 0.5) / 0.5, 0, 1)
 			end
-			if x >= 1 then VfxKit.Release(TP); VfxKit.Release(TG); VfxKit.Release(RG); emb:Destroy() end
+			if x >= 1 then VfxKit.Release(TP); VfxKit.Release(TG); VfxKit.Release(RG) end
 			return nil
 		end)
 	end)
@@ -2604,7 +2663,7 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 		VfxKit.FloorRing(ig, "fire", widthAt(length * 0.8) * 1.2, 0.4 * S)
 		VfxKit.Stain("scorch", ig, widthAt(length * 0.8) * 1.4, 1.4)
 		VfxKit.Puffs({ ip + dir * 1.5, ip + dir * 3 + side * 1.2, ip + dir * 3 - side * 1.2 }, "fire", 3 + c, 0.5 * S)
-		chunks(ig + dir * 1.5, 7, 26)
+		debrisForward(ig + dir * 1.5, dir, 7, 18)
 		sparks(ip, 22, 30, G_GOLD)
 		ClassFX.Sound("rockHit", ip, 0.8, 0.9)
 	end)
@@ -3945,7 +4004,7 @@ end
 function MartialController.Init(d: Deps)
 	deps = d
 	-- (the Haymaker's meshes made up front, parked, so no cast has to make any)
-	for name, n in pairs({ hay_fist = 2, hay_fist_hull = 2, hay_torpedo = 2, hay_torpedo_hull = 2, hay_rings = 2, hay_dome = 3,
+	for name, n in pairs({ hay_fist = 3, hay_fist_hull = 3, hay_torpedo = 6, hay_torpedo_hull = 1, hay_rings = 2, hay_dome = 3,
 		hay_whirl = 1, hay_arch = 10, hay_ink = 6 }) do
 		VfxKit.Prewarm(name, n, ClassFX.Folder())
 	end
