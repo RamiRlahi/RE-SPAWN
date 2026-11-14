@@ -2177,15 +2177,17 @@ local HAY = { full = 1.0, empFull = 0.5, hold = 2.2, length = 12, fullLength = 3
 -- 0.14 L at his feet, 0.33 L at the far end; the strip as wide as the near end)
 local function hayNear(L: number): number return math.max(L * 0.14, 1.6) end
 local function hayFar(L: number): number return math.max(L * 0.33, 3) end
-local HAY_BLUE = Color3.fromRGB(45, 95, 255)    -- (the clip's saturated blue)
-local HAY_NAVY = Color3.fromRGB(22, 36, 120)    -- (the dark bodies in its whirlpool)
-local HAY_ICE = Color3.fromRGB(210, 230, 255)
 local HAY_TEX = VfxAssets.Energy.ice.id
 local UP = Vector3.new(0, 1, 0)
 
 local function hayLength(c: number, empowered: boolean): number
 	local size = tonumber(player:GetAttribute("Stat_size")) or 1
 	return (HAY.length + (HAY.fullLength - HAY.length) * c) * size * (if empowered then HAY.empLength else 1)
+end
+-- The full-charge length behind a `length` charged to `c` (the trapezoid's
+-- fixed shape comes from it; works for anyone's Haymaker from the message).
+local function hayMaxLength(length: number, c: number): number
+	return length * HAY.fullLength / (HAY.length + (HAY.fullLength - HAY.length) * math.clamp(c, 0, 1))
 end
 
 -- An attachment lying flat on the floor at `pos`, its beam running `along`.
@@ -2319,7 +2321,8 @@ end
 -- release = t 0), built from Blender meshes (tools/blender/build_haymaker.py),
 -- in gold, on Sett's W footprint: a trapezoid narrow at his feet and wide at
 -- the far end (hayNear / hayFar), the area the server hits.
---   charge   a glass dome over him, a disk of blades spinning flat at his
+--   charge   (now: hayTelegraph, the streaks and the fist only)
+--            was: a glass dome over him, a disk of blades spinning flat at his
 --            feet, the trapezoid's lines fanning out ahead, energy drawn
 --            into the fist, the fist glowing hotter
 --   0.00     a big outlined fist shoots out of him, a star flash, dots,
@@ -2347,6 +2350,8 @@ local G_TEX = if HAY_PALETTE == "crimson" then VfxAssets.HayCrimson.energy.id el
 local G_GLOW = VfxAssets.Glow.soft.id
 -- multiplied over VfxKit's fire rings and smoke (orange) to pull them into the palette
 local G_FIST = Color3.fromRGB(255, 120, 128)
+-- the charge telegraph's streaks (molten red-orange)
+local G_STREAK = Color3.fromRGB(255, 120, 70)
 -- tint for VfxKit's starburst flashes (their rays are baked orange)
 local G_FLASH = if HAY_PALETTE == "crimson" then Color3.fromRGB(255, 120, 135) else G_HOT
 local G_FXTINT =if HAY_PALETTE == "crimson" then Color3.fromRGB(255, 80, 105) else Color3.new(1, 1, 1)
@@ -2449,17 +2454,162 @@ local function hayLane(): Lane
 	}
 end
 
+-- The charge's floor telegraph: Sett's W trapezoid, fixed by the full-charge
+-- range (it never widens or scales), painted with energy from his feet
+-- toward that range as it charges, always filled behind the advancing edge.
+--   rim      the fixed boundary, sharp thin lines (the hitbox at full charge)
+--   field    the filled part: one flat beam from his feet to the frontier
+--            whose width follows the trapezoid, so it is exactly the area
+--            this charge would hit; dark and compressed when low, saturated,
+--            red-orange and brighter as Grit builds, energy flowing forward
+--   sides    molten borders along the filled part (kept just inside the rim)
+--   front    the advancing frontier: the brightest line, flaring in bursts
+-- `set(base, dir, F, maxL, k, pulse)`: F how far the fill reaches, maxL the
+-- full range, k the charge 0..1, pulse the full-charge burst (1 -> 0).
+type Telegraph = { set: (Vector3, Vector3, number, number, number, number) -> (), hide: () -> () }
+local TELE = {
+	field = VfxAssets.HayCrimson.field.id,
+	edge = VfxAssets.HayCrimson.edge.id,
+	dark = Color3.fromRGB(120, 110, 110), -- (multiplied over the field: compressed, dim)
+	fill = Color3.fromRGB(255, 150, 110), -- (over the crimson field: pulls it red-orange)
+	red = Color3.fromRGB(255, 70, 50),    -- (multiplied over the molten edge: pulls it red)
+	rim = Color3.fromRGB(255, 70, 55),
+}
+local function hayHalfAt(d: number, maxL: number): number
+	local n, m = hayNear(maxL), hayFar(maxL)
+	return n + (m - n) * math.clamp(d / maxL, 0, 1)
+end
+local function buildTelegraph(): Telegraph
+	local h = carrier(CFrame.new())
+	type B = { a0: Attachment, a1: Attachment, b: Beam }
+	local function beam(tex: string, z: number): B
+		local a0, a1 = flatAtt(h, Vector3.zero, Vector3.xAxis), flatAtt(h, Vector3.zero, Vector3.xAxis)
+		local b = newBeam(a0, a1, false, WHITE, 1, tex)
+		b.Transparency = NumberSequence.new(1)
+		b.ZOffset = z
+		b.Segments = 2
+		return { a0 = a0, a1 = a1, b = b }
+	end
+	local field = beam(TELE.field, 0)
+	field.b.TextureLength = 7
+	field.b.LightEmission = 0.6
+	local rim ={ beam(TELE.edge, 2), beam(TELE.edge, 2), beam(TELE.edge, 2) } -- left, right, far end
+	for _, e in ipairs(rim) do e.b.Texture = ""; e.b.TextureSpeed = 0 end   -- (solid: a sharp line)
+	local sides = { beam(TELE.edge, 1), beam(TELE.edge, 1) }
+	local front = beam(TELE.edge, 3)
+	-- (long tiles so the torn tongues read as an uneven edge, not stripes;
+	-- partly lit so they stay saturated red/orange)
+	for _, e in ipairs({ sides[1], sides[2], front }) do e.b.TextureLength = 3.5; e.b.LightEmission = 0.65 end
+	local seed = math.random() * 100
+	local function place(e: B, from: Vector3, to: Vector3)
+		local ad = if (to - from).Magnitude > 0.01 then (to - from).Unit else Vector3.xAxis
+		local sd = Vector3.new(-ad.Z, 0, ad.X)
+		e.a0.WorldCFrame = CFrame.fromMatrix(from, ad, sd)
+		e.a1.WorldCFrame = CFrame.fromMatrix(to, ad, sd)
+	end
+	local function alpha(e: B, v: number) e.b.Transparency = NumberSequence.new(math.clamp(v, 0, 1)) end
+	return {
+		set = function(base: Vector3, dir: Vector3, F: number, maxL: number, k: number, pulse: number)
+			local t = os.clock()
+			local side = Vector3.new(-dir.Z, 0, dir.X)
+			local near, maxH = hayNear(maxL), hayFar(maxL)
+			local fw = hayHalfAt(F, maxL)
+			local tipF, tipM = base + dir * F, base + dir * maxL
+			local hot = math.clamp((k - 0.8) / 0.2, 0, 1)      -- (80-100 %: red-white)
+			-- the fixed boundary: sharp, always readable
+			place(rim[1], base + side * near, tipM + side * maxH)
+			place(rim[2], base - side * near, tipM - side * maxH)
+			place(rim[3], tipM - side * maxH, tipM + side * maxH)
+			for _, e in ipairs(rim) do
+				e.b.Width0, e.b.Width1 = 0.14, 0.14
+				e.b.Color = ColorSequence.new(TELE.rim:Lerp(G_HOT, 0.4 * hot + 0.6 * pulse))
+				e.b.Brightness = 1 + 1.5 * k + 3 * pulse
+				alpha(e, 0.5 - 0.3 * k - 0.3 * pulse)
+			end
+			-- the fill: from his feet to the frontier, exactly the area hit now
+			place(field, base, tipF)
+			field.b.Width0, field.b.Width1 = near * 2, fw * 2
+			local flick = (math.random() - 0.5) * (0.06 + 0.2 * hot)
+			-- (partly lit, and never fully opaque: it stays saturated red-orange
+			-- and the floor and targets under it stay readable)
+			alpha(field, 0.74 - 0.32 * k - 0.35 * pulse + flick)
+			field.b.Color = ColorSequence.new(TELE.dark:Lerp(TELE.fill, k):Lerp(G_HOT, 0.35 * hot + 0.6 * pulse))
+			field.b.Brightness = 0.8 + 1.4 * k + 1 * hot + 4 * pulse
+			field.b.TextureSpeed = 2 + 8 * k
+			-- the molten sides along the filled part, just inside the rim
+			local sw = 0.3 + 0.35 * k + math.abs(math.noise(seed, t * 9, 0.3)) * 0.4 * k + 0.6 * pulse
+			place(sides[1], base + side * (near - sw * 0.4), tipF + side * (fw - sw * 0.4))
+			place(sides[2], base - side * (near - sw * 0.4), tipF - side * (fw - sw * 0.4))
+			for _, e in ipairs(sides) do
+				e.b.Width0, e.b.Width1 = sw * 0.6, sw
+				e.b.Brightness = 1 + 1.6 * k + 4 * pulse
+				e.b.Color = ColorSequence.new(TELE.red:Lerp(WHITE, 0.2 + 0.6 * k):Lerp(G_HOT, pulse))
+				e.b.TextureSpeed = 3 + 10 * k
+				alpha(e, 0.4 - 0.3 * k - 0.2 * pulse + (math.random() - 0.5) * 0.2 * k)
+			end
+			-- the advancing frontier: the brightest line, flaring in short
+			-- aggressive bursts from 60 %
+			local burst = if k >= 0.6 then math.max(math.noise(seed + 7, t * 6, 0.5), 0) * 1.4 * k else 0
+			local frw = 0.45 + 0.7 * k + burst + 0.9 * pulse
+			place(front, tipF - side * fw, tipF + side * fw)
+			front.b.Width0, front.b.Width1 = frw, frw
+			front.b.Brightness = 2 + 4 * k + 3 * burst + 4 * pulse
+			front.b.Color = ColorSequence.new(TELE.red:Lerp(WHITE, 0.4 + 0.6 * k):Lerp(G_HOT, pulse))
+			front.b.TextureSpeed = 6 + 12 * k
+			alpha(front, 0.2 - 0.2 * k)
+		end,
+		hide = function()
+			for _, e in ipairs({ field, rim[1], rim[2], rim[3], sides[1], sides[2], front }) do
+				e.b.Transparency = NumberSequence.new(1)
+			end
+		end,
+	}
+end
+-- A pulse of energy crossing the telegraph, running from his feet out to
+-- `F` over `life` (pooled bands: nothing new per pulse).
+local function hayCrossPulse(base: Vector3, dir: Vector3, F: number, maxL: number, width: number, life: number, color: Color3)
+	if not FxBudget.Allow("maHayPulse", 8) then return end
+	local pb = takeBand()
+	local side = Vector3.new(-dir.Z, 0, dir.X)
+	local bm = pb.bm
+	bm.FaceCamera = false
+	bm.Color = ColorSequence.new(color)
+	bm.LightEmission = 1
+	bm.CurveSize0, bm.CurveSize1 = 0, 0
+	bm.TextureSpeed = 6
+	bm.Width0, bm.Width1 = width, width
+	animate(life, function(x)
+		local d = F * easeIn(x)
+		local p = base + dir * d + UP * 0.02
+		local w = hayHalfAt(d, maxL) * 0.97
+		pb.a0.WorldCFrame = CFrame.fromMatrix(p - side * w, side, dir)
+		pb.a1.WorldCFrame = CFrame.fromMatrix(p + side * w, side, dir)
+		bm.Transparency = NumberSequence.new(0.15 + 0.85 * x ^ 3)
+		if x >= 1 then giveBand(pb) end
+		return nil
+	end)
+end
+local telePool: { Telegraph } = {}
+local function hayTelegraph(): Telegraph
+	local tg = table.remove(telePool) or buildTelegraph()
+	return {
+		set = tg.set,
+		hide = function()
+			tg.hide()
+			if #telePool < 6 then table.insert(telePool, tg) end
+		end,
+	}
+end
+
 -- 1 · The charge round `char`. `getDir()` gives the aim each frame.
 type HayFx = { stop: (boolean) -> () }
 local function haymakerChargeFx(char: Model, full: number, hold: number, empowered: boolean, mine: boolean,
 	getDir: () -> Vector3): HayFx
 	local root = rootOf(char)
 	if not root then return { stop = function() end } end
-	local lane = hayLane()
-	local dome = hayMesh("hay_dome", HT.shell.id, G_GOLD)
-	local whirl = hayMesh("hay_whirl", HT.whirl.id, G_GOLD)
-	if dome then dome.DoubleSided = true end
-	if whirl then whirl.DoubleSided = true end
+	-- (a brawler's charge: the floor and the fist only; no dome, disk or
+	-- runes round him)
+	local tele = hayTelegraph()
 
 	-- the fist: a hot glow that grows with the charge (and one short-lived light)
 	local fistPart = part({ Size = Vector3.one * 0.2, Transparency = 1 })
@@ -2486,40 +2636,53 @@ local function haymakerChargeFx(char: Model, full: number, hold: number, empower
 	local t0 = os.clock()
 	local alive = true
 	local wasFull = false
-	local nextShard = 0
-	local spin = 0
+	local nextStreak, nextGlow, nextCrack, nextPulse = 0, 0, 0, 0
+	local pulse = 0
 	animate(hold + 0.3, function(_x, dt)
 		if not alive or not root.Parent then return true end
 		local t = os.clock() - t0
 		local k = math.min(t / full, 1)
 		local dir = flat(getDir())
 		local g = onGround(root.Position)
-		-- the trapezoid runs out ahead as it charges
-		local fullL = hayLength(k, empowered)
-		-- (dim, filling up as it charges: it must not compete with the attack)
-		lane.set(g + UP * 0.15 + dir * 0.6, dir, 1 + fullL * math.clamp(k * 1.2, 0.08, 1), fullL, 0.85 - 0.45 * k)
-		-- the blades spinning flat at his feet, opening as it builds
-		spin += dt * (6 + 10 * k)
-		if whirl then
-			local R = 2 + 3 * k
-			whirl.Size = sizeOf("hay_whirl", Vector3.new(R / 0.95, 1, R / 0.95))
-			whirl.CFrame = CFrame.new(g + UP * 0.12) * CFrame.Angles(0, spin, 0)
-			whirl.Transparency = 0.5 - 0.4 * k
+		-- the telegraph: the fixed trapezoid (full range) painted from his feet
+		-- to the frontier, which is exactly as far as this charge would hit
+		-- (the fill runs out from his feet in the first 0.15 s, then follows it)
+		local maxL = hayLength(1, empowered)
+		local F = hayLength(k, empowered) * easeOut(math.min(t / 0.15, 1))
+		local base = g + UP * 0.12 + dir * 0.6
+		local side = Vector3.new(-dir.Z, 0, dir.X)
+		pulse = math.max(pulse - dt / 0.3, 0)
+		tele.set(base, dir, F, maxL, k, pulse)
+		local function inside(span: number): Vector3
+			local d = math.random() * F * span
+			return base + dir * d + side * (math.random() * 2 - 1) * hayHalfAt(d, maxL) * 0.75
 		end
-		-- the glass dome over him (pole up), faint, firming up as it peaks
-		if dome then
-			local R = 4 + 1.5 * k
-			dome.Size = sizeOf("hay_dome", Vector3.new(R, R, R))
-			dome.CFrame = CFrame.lookAt(g + UP * (R * 0.5), g + UP * (R * 0.5 + 1), dir)
-			dome.Transparency = 0.85 - 0.3 * math.clamp((k - 0.3) / 0.7, 0, 1)
+		-- 0 %+: a faint red glow under him, growing
+		if os.clock() >= nextGlow then
+			nextGlow = os.clock() + 0.22
+			VfxKit.FloorGlow(g + UP * 0.1, CRIMSON, 4 + 3 * k, 0.4)
 		end
-		-- dark shards flicking up off the disk's edge
-		if os.clock() >= nextShard and FxBudget.Allow("maHayShard", 30) then
-			nextShard = os.clock() + 0.12 - 0.06 * k
-			local a = math.random() * math.pi * 2
-			local out = Vector3.new(math.cos(a), 0, math.sin(a))
-			local p = g + out * (2 + 2.5 * k)
-			hayBand(p, p + (out * 0.6 + UP).Unit * (1.5 + 2 * k), 0.4 + 0.4 * k, 0, 0.3, G_INK, 0, false, 0.08)
+		-- 20 %+: red streaks racing forward along it, more and longer as it builds
+		if k >= 0.2 and os.clock() >= nextStreak and FxBudget.Allow("maHayStreak", 30) then
+			nextStreak = os.clock() + 0.16 - 0.1 * k
+			local p = inside(0.8) + UP * 0.03
+			hayBand(p, p + dir * (1.5 + 3.5 * k), 0.16 + 0.14 * k, 0.02, 0.28, G_STREAK, 1, true, 0.12)
+		end
+		-- 20 %+: the ground cracking under it, sparks; more as it builds
+		if k >= 0.2 and os.clock() >= nextCrack and FxBudget.Allow("maHayCrack", 6) then
+			nextCrack = os.clock() + 0.5 - 0.3 * k
+			local p = inside(0.9)
+			VfxKit.Stain("scorch", p, 1.4 + 2 * k, 1.2)
+			sparks(p + UP * 0.3, 3 + math.floor(5 * k), 8 + 10 * k, G_STREAK)
+		end
+		-- 60 %+: energy pulses running from him out to the frontier, faster
+		-- and red-white past 80 %; the frontier spits sparks
+		if k >= 0.6 and os.clock() >= nextPulse then
+			nextPulse = os.clock() + 0.5 - 0.3 * math.clamp((k - 0.6) / 0.4, 0, 1)
+			hayCrossPulse(base, dir, F, maxL, 0.5 + 0.6 * k, 0.3, if k >= 0.8 then G_HOT else G_STREAK)
+			if FxBudget.Allow("maHayCrack", 6) then
+				sparks(base + dir * F + side * (math.random() * 2 - 1) * hayHalfAt(F, maxL) + UP * 0.3, 4, 16, G_HOT)
+			end
 		end
 		-- the fist grows brighter and hotter, energy drawn into it
 		local fp = fistPos(char, root, dir)
@@ -2534,6 +2697,13 @@ local function haymakerChargeFx(char: Model, full: number, hold: number, empower
 		if k >= 1 and not wasFull then
 			wasFull = true
 			VfxKit.Flash(fp, "fire", 6, 0.1, G_FLASH)
+			-- the full-charge burst: the whole field flares white-hot, a thick
+			-- wave races out to the far end, sparks burst along the frontier
+			pulse = 1
+			hayCrossPulse(base, dir, maxL, maxL, 1.8, 0.22, G_HOT)
+			for i = -1, 1 do
+				sparks(base + dir * maxL + side * i * hayHalfAt(maxL, maxL) * 0.7 + UP * 0.4, 8, 22, G_HOT)
+			end
 			if mine then ClassFX.Sound("charge", root, 0.6, 1.4) end
 		end
 		return nil
@@ -2544,8 +2714,7 @@ local function haymakerChargeFx(char: Model, full: number, hold: number, empower
 			fistGlow.Enabled = false
 			gather.Enabled = false
 			if light then light:Destroy() end
-			lane.destroy()
-			VfxKit.Release(dome); VfxKit.Release(whirl)
+			tele.hide()
 			task.delay(0.5, function() fistPart:Destroy(); well:Destroy() end)
 		end,
 	}
@@ -2558,8 +2727,13 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 	local g = onGround(origin)
 	local side = Vector3.new(-dir.Z, 0, dir.X)
 	local fist = origin + dir * 1.6 + UP * 0.3
-	local near, far = hayNear(length), hayFar(length)
-	local function widthAt(d: number): number return near + (far - near) * math.clamp(d / length, 0, 1) end
+	-- (the trapezoid is fixed by the full-charge range, as on the server: the
+	-- charge only sets how far along it this one reaches)
+	local maxL = hayMaxLength(length, c)
+	local nearH, maxH = hayNear(maxL), hayFar(maxL)
+	local function widthAt(d: number): number return nearH + (maxH - nearH) * math.clamp(d / maxL, 0, 1) end
+	-- (the punch's own body still sized by its charge)
+	local near = hayNear(length)
 	local face = function(p: Vector3): CFrame return CFrame.lookAt(p, p + dir) end
 	local fin = g + dir * length
 
@@ -2568,7 +2742,7 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 	animate(1.0 * S, function(x)
 		-- (a flash on release, then dimmer, then gone)
 		local tr = if x < 0.08 then 0 else 0.78 + 0.22 * math.clamp((x - 0.55) / 0.45, 0, 1)
-		lane.set(g + UP * 0.15 + dir * 0.6, dir, length * easeOut(math.min(x * 1.0 / 0.3, 1)), length, tr)
+		lane.set(g + UP * 0.15 + dir * 0.6, dir, length * easeOut(math.min(x * 1.0 / 0.3, 1)), maxL, tr)
 		if x >= 1 then lane.destroy() end
 		return nil
 	end)
@@ -4065,7 +4239,7 @@ function MartialController.Init(d: Deps)
 	deps = d
 	-- (the Haymaker's meshes made up front, parked, so no cast has to make any)
 	for name, n in pairs({ hay_fist = 3, hay_fist_hull = 3, hay_torpedo = 6, hay_torpedo_hull = 1, hay_rings = 2, hay_dome = 3,
-		hay_whirl = 1, hay_arch = 10, hay_ink = 6 }) do
+		hay_arch = 10, hay_ink = 6 }) do
 		VfxKit.Prewarm(name, n, ClassFX.Folder())
 	end
 	-- (Studio only: set "MA_DebugHay" to a charge 0..1 to fire the Haymaker's
@@ -4074,7 +4248,15 @@ function MartialController.Init(d: Deps)
 		-- ("MA_DebugHayPose" = seconds: hold the charge pose that long, for looking at it)
 		player:GetAttributeChangedSignal("MA_DebugHayPose"):Connect(function()
 			local s = tonumber(player:GetAttribute("MA_DebugHayPose"))
-			if s and player.Character then hayChargePose(player.Character, s, HAY.full) end
+			local char = player.Character
+			local root = rootOf(char)
+			if s and char and root then
+				hayChargePose(char, s, HAY.full)
+				-- (and the charge's effects, with `MA_DebugHayFull` seconds to full)
+				local full = tonumber(player:GetAttribute("MA_DebugHayFull")) or HAY.full
+				local fx = haymakerChargeFx(char, full, s, false, true, function() return root.CFrame.LookVector end)
+				task.delay(s, function() fx.stop(false) end)
+			end
 		end)
 		player:GetAttributeChangedSignal("MA_DebugHay"):Connect(function()
 			local c = tonumber(player:GetAttribute("MA_DebugHay"))

@@ -74,6 +74,8 @@ local VfxAssets = {
 	HayCrimson = {
 		shell = tex(83422605912980), torpedo = tex(72497587284698), whirl = tex(133035837563478),
 		trail = tex(91294509276390), energy = tex(134387125288672),
+		-- the charge telegraph (Beams): the trapezoid's dark energy field, and its torn molten border
+		field = tex(109284858954012), edge = tex(73747654003077),
 	},
 	Energy = { -- for Beams: yellow-white centre -> orange body -> red-orange edges, tiles along the length (fire vortex ribbons)
 		fire = tex(113237224250128), ice = tex(110717495358121), ink = tex(123887379659122),

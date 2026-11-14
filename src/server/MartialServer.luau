@@ -675,15 +675,19 @@ haymakerRelease = function(player: Player, f: Focus, held: number?, aim: Vector3
 	-- the wave down the lane: each enemy hit as its front passes them
 	local seen: { [Model]: boolean } = {}
 	local first: Target? = nil
-	-- (a trapezoid, like Sett's W: 0.14 x its length either side at him, 0.33 x at
--- the end; the centre strip as wide as the near end)
-	local nearHalf, farHalf = math.max(length * 0.14, 1.6), math.max(length * 0.33, 3)
+	-- (a trapezoid, like Sett's W, FIXED by the full-charge range: 0.14 x that
+	-- either side at him, 0.33 x at its far end. The charge only decides how
+	-- far along it reaches; it never widens. The client's telegraph fills the
+	-- same shape. The centre strip is as wide as the near end.)
+	local maxLength = HAY.fullLength * area * (if f.empowered then HAY_EMP.length else 1)
+	local nearHalf, maxHalf = math.max(maxLength * 0.14, 1.6), math.max(maxLength * 0.33, 3)
+	local farHalf = nearHalf + (maxHalf - nearHalf) * length / maxLength
 	for _, t in ipairs(alongSegment(char, origin, origin + dir * length, farHalf)) do
 		local rel = t.rootPart.Position - origin
 		local flatRel = Vector3.new(rel.X, 0, rel.Z)
 		local along = math.clamp(flatRel:Dot(dir), 0, length)
 		local across = (flatRel - dir * flatRel:Dot(dir)).Magnitude
-		local reachHere = nearHalf + (farHalf - nearHalf) * along / length + H.lineReach(t, 0) * 0.5
+		local reachHere = nearHalf + (maxHalf - nearHalf) * along / maxLength + H.lineReach(t, 0) * 0.5
 		if across > reachHere then continue end
 		local centre = across <= nearHalf + H.lineReach(t, 0) * 0.5
 		task.delay(HAY.windup + HAY.travel * along / length, function()

@@ -464,6 +464,42 @@ def hay_trail(pal):
     save(rgba(ramp(np.clip(T, 0, 1), pal), alpha), f"haytrail_{pal}")
 
 
+def hay_field(pal):
+    """The Haymaker charge telegraph's floor field (a Beam: u = along the lane, tiles and scrolls toward the
+    punch; v = across). A dark, compressed body with long energy streaks running along it, brighter toward
+    the borders, the border itself torn (uneven), never a clean line."""
+    H, W = 256, 512
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    u, v = (xx + 0.5) / W, (yy + 0.5) / H
+    def tile(cells, seed, aniso, octaves=3):
+        n = fbm((H, W * 2), cells, seed, octaves, aniso=aniso)
+        return n[:, W:] * (1 - u) + n[:, :W] * u
+    streak, edge_n, mottle = tile(40, 401, (1, 10)), tile(18, 402, (1, 3)), tile(24, 403, (1, 2))
+    d = np.abs(v - 0.5) * 2
+    lines = sm(0.62, 0.78, streak)
+    T = 0.20 + 0.12 * mottle + 0.30 * lines + 0.42 * sm(0.55, 1.0, d)
+    alpha = (0.45 + 0.25 * mottle + 0.30 * lines) * sm(1.0, 0.84, d + 0.22 * (edge_n - 0.5))
+    alpha = np.maximum(alpha, 0.9 * sm(0.72, 0.9, d) * sm(1.0, 0.86, d + 0.22 * (edge_n - 0.5)))
+    save(rgba(ramp(np.clip(T, 0, 1), pal), np.clip(alpha, 0, 1)), f"hayfield_{pal}")
+
+
+def hay_edge(pal):
+    """A molten, uneven border (a Beam: u = along, tiles; v = across): a hot core line, a red-orange body,
+    the outline torn into licking tongues and dark specks, so a scrolling edge reads as raw, unstable energy."""
+    H, W = 128, 512
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+    u, v = (xx + 0.5) / W, (yy + 0.5) / H
+    def tile(cells, seed, aniso, octaves=3):
+        n = fbm((H, W * 2), cells, seed, octaves, aniso=aniso)
+        return n[:, W:] * (1 - u) + n[:, :W] * u
+    tongue, fine, dark = tile(10, 411, (1, 2)), tile(36, 412, (1, 5), 2), tile(30, 413, (1, 8), 2)
+    d = np.abs(v - 0.5) * 2
+    jag = 0.9 * (tongue - 0.5) + 0.35 * (fine - 0.5)
+    alpha = sm(0.78, 0.42, d + jag)
+    T = 1.0 - 0.75 * np.clip(d / 0.75, 0, 1) ** 1.1 + 0.12 * (fine - 0.5)
+    T -= 0.3 * sm(0.66, 0.76, dark) * sm(0.2, 0.6, d)
+    save(rgba(ramp(np.clip(T, 0, 1), pal), np.clip(alpha, 0, 1)), f"hayedge_{pal}")
+
 def energy_ribbon(pal):
     """Beam texture for the fire vortex ribbons and streaks: across the width (v) a yellow-white centre,
     a saturated orange body and red-orange edges that tear slightly; along the length (u, tiles) fine
@@ -557,6 +593,7 @@ def flame_feather(pal):
 
 JOBS = {
     "hay": lambda: [f(p) for f in (hay_shell, hay_torpedo, hay_whirl, hay_trail) for p in ("gold", "crimson", "ink")] + [energy_ribbon("crimson")],
+    "hayfield": lambda: [hay_field("crimson"), hay_edge("molten")],
     "flamefeather": lambda: [flame_feather(p) for p in ("gold", "ink")],
     "sweep": lambda: [sweep(p) for p in ("fire", "ice", "holy", "void")],
     "ribbon": lambda: [ribbon(p) for p in ("fire", "ice", "void")],
