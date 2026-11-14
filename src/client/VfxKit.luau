@@ -240,6 +240,16 @@ local MESHES: { [string]: MeshSpec } = {
 	crystal_cluster = { id = VfxAssets.Mesh.crystal_cluster, native = Vector3.new(1.6401, 1.3018, 1.4525) },
 	shock_cone = { id = VfxAssets.Mesh.shock_cone, native = Vector3.new(1.12, 1.12, 1) },
 	dash_tunnel = { id = VfxAssets.Mesh.dash_tunnel, native = Vector3.new(0.9939, 0.9952, 1.182) },
+	-- (the golden Haymaker's: native sizes as imported)
+	hay_fist = { id = VfxAssets.Mesh.hay_fist, native = Vector3.new(1.24, 1.06, 2.617) },
+	hay_fist_hull = { id = VfxAssets.Mesh.hay_fist_hull, native = Vector3.new(1.38, 1.2, 2.757) },
+	hay_torpedo = { id = VfxAssets.Mesh.hay_torpedo, native = Vector3.new(0.2855, 0.2055, 1) },
+	hay_torpedo_hull = { id = VfxAssets.Mesh.hay_torpedo_hull, native = Vector3.new(0.3368, 0.2425, 1) },
+	hay_rings = { id = VfxAssets.Mesh.hay_rings, native = Vector3.new(2.07, 2.07, 0.252) },
+	hay_dome = { id = VfxAssets.Mesh.hay_dome, native = Vector3.new(2, 2, 1) },
+	hay_arch = { id = VfxAssets.Mesh.hay_arch, native = Vector3.new(2, 1, 0.7) },
+	hay_ink = { id = VfxAssets.Mesh.hay_ink, native = Vector3.new(0.5576, 1.162, 0.8182) },
+	hay_whirl = { id = VfxAssets.Mesh.hay_whirl, native = Vector3.new(1.905, 0.014, 1.905) },
 }
 -- (swept_shell, measured in Studio: the arc's circle centre is +0.578 studs
 -- along X from the part's centre at native size, the outer edge (the texture's
@@ -339,6 +349,7 @@ local function mesh(name: string, texture: string): MeshPart?
 	return mp
 end
 VfxKit.Mesh = mesh
+function VfxKit.MeshSize(name: string): Vector3 return (MESHES[name] and MESHES[name].native) or Vector3.one end
 
 -- One updater for every animated mesh: step(dt, t) returns true when done.
 type Job = { t: number, step: (number, number) -> boolean }

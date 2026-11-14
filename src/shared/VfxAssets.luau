@@ -95,6 +95,12 @@ local VfxAssets = {
 		tornado = "rbxassetid://102996136301762", -- texture: Ribbon (stands up along +Y; spin it)
 		crystal_cluster = "rbxassetid://137610405880687", -- texture: Facet (stands up along +Y)
 		dash_tunnel = "rbxassetid://133294937451535", -- texture: Ribbon or Sweep
+		-- the golden Haymaker (tools/blender/build_haymaker.py): punch along the LookVector, centred on their bounds
+		hay_fist = "rbxassetid://100415125327956", hay_fist_hull = "rbxassetid://93020626136216",
+		hay_torpedo = "rbxassetid://119943798389968", hay_torpedo_hull = "rbxassetid://83458862003119",
+		hay_rings = "rbxassetid://117480783142203", hay_dome = "rbxassetid://74478888700448",
+		hay_arch = "rbxassetid://140585299943660", hay_ink = "rbxassetid://75901356623828",
+		hay_whirl = "rbxassetid://72277467925989",
 	},
 	MeshFlip = CFrame.Angles(0, math.pi, 0),
 }
