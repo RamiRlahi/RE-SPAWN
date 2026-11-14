@@ -70,6 +70,11 @@ local VfxAssets = {
 		whirl = tex(74941643073806),    -- hay_whirl: gold blades, hot edges
 		trail = tex(123691331245222),   -- hay_torpedo as energy: white tip -> gold -> deep orange tail, torn, fading
 	},
+	-- the same textures in the Martial Artist's crimson kit (palette "crimson" in tools/vfx/vfxlib.py)
+	HayCrimson = {
+		shell = tex(83422605912980), torpedo = tex(72497587284698), whirl = tex(133035837563478),
+		trail = tex(91294509276390), energy = tex(134387125288672),
+	},
 	Energy = { -- for Beams: yellow-white centre -> orange body -> red-orange edges, tiles along the length (fire vortex ribbons)
 		fire = tex(113237224250128), ice = tex(110717495358121), ink = tex(123887379659122),
 	},

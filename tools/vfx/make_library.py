@@ -556,7 +556,7 @@ def flame_feather(pal):
 
 
 JOBS = {
-    "hay": lambda: [f(p) for f in (hay_shell, hay_torpedo, hay_whirl, hay_trail) for p in ("gold", "ink")],
+    "hay": lambda: [f(p) for f in (hay_shell, hay_torpedo, hay_whirl, hay_trail) for p in ("gold", "crimson", "ink")] + [energy_ribbon("crimson")],
     "flamefeather": lambda: [flame_feather(p) for p in ("gold", "ink")],
     "sweep": lambda: [sweep(p) for p in ("fire", "ice", "holy", "void")],
     "ribbon": lambda: [ribbon(p) for p in ("fire", "ice", "void")],

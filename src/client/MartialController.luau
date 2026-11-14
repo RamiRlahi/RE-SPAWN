@@ -2292,14 +2292,26 @@ end
 --   0.45     it breaks into glass arches down the lane, each as wide as the
 --            trapezoid there, dark ink ribbons curling over them
 --   0.6+     the lines fade, a dark streak stays on the floor
-local G_HOT = Color3.fromRGB(255, 247, 210)
-local G_GOLD = Color3.fromRGB(255, 196, 55)
-local G_ORANGE = Color3.fromRGB(255, 125, 30)
-local G_OUTLINE = Color3.fromRGB(70, 18, 6)
-local G_INK = Color3.fromRGB(26, 9, 5)
-local G_TEX = VfxAssets.Energy.fire.id
+-- Palette: "crimson" matches the rest of the kit; "gold" is the clip's look.
+-- G_HOT is the white-hot heart, G_GOLD the body, G_ORANGE the cooler glow and
+-- tail, G_OUTLINE / G_INK the dark strokes.
+local HAY_PALETTE: "crimson" | "gold" = "crimson"
+local HAY_COLORS = {
+	gold = { hot = Color3.fromRGB(255, 247, 210), body = Color3.fromRGB(255, 196, 55), glow = Color3.fromRGB(255, 125, 30),
+		outline = Color3.fromRGB(70, 18, 6), ink = Color3.fromRGB(26, 9, 5) },
+	crimson = { hot = Color3.fromRGB(255, 226, 224), body = Color3.fromRGB(232, 30, 52), glow = Color3.fromRGB(150, 8, 26),
+		outline = Color3.fromRGB(46, 2, 8), ink = Color3.fromRGB(20, 2, 5) },
+}
+local HC = HAY_COLORS[HAY_PALETTE]
+local G_HOT, G_GOLD, G_ORANGE, G_OUTLINE, G_INK = HC.hot, HC.body, HC.glow, HC.outline, HC.ink
+local HT = if HAY_PALETTE == "crimson" then VfxAssets.HayCrimson else VfxAssets.Hay
+local G_TEX = if HAY_PALETTE == "crimson" then VfxAssets.HayCrimson.energy.id else VfxAssets.Energy.fire.id
 local G_GLOW = VfxAssets.Glow.soft.id
-local HT = VfxAssets.Hay
+-- multiplied over VfxKit's fire rings and smoke (orange) to pull them into the palette
+local G_FIST = Color3.fromRGB(255, 120, 128)
+-- tint for VfxKit's starburst flashes (their rays are baked orange)
+local G_FLASH = if HAY_PALETTE == "crimson" then Color3.fromRGB(255, 120, 135) else G_HOT
+local G_FXTINT =if HAY_PALETTE == "crimson" then Color3.fromRGB(255, 80, 105) else Color3.new(1, 1, 1)
 
 -- Where his punching fist is (the right arm's end), or a guess in front.
 local function fistPos(char: Model?, root: BasePart, dir: Vector3): Vector3
@@ -2483,7 +2495,7 @@ local function haymakerChargeFx(char: Model, full: number, hold: number, empower
 		gather.Rate = 25 + 70 * k
 		if k >= 1 and not wasFull then
 			wasFull = true
-			VfxKit.Flash(fp, "fire", 6, 0.1, G_HOT)
+			VfxKit.Flash(fp, "fire", 6, 0.1, G_FLASH)
 			if mine then ClassFX.Sound("charge", root, 0.6, 1.4) end
 		end
 		return nil
@@ -2524,7 +2536,8 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 	end)
 
 	-- 0.00: the fist shooting out, outlined; the star flash, dots, speed lines
-	local F, FH = hayMesh("hay_fist", nil, G_GOLD), hayMesh("hay_fist_hull", nil, nil, true)
+	-- (neon: gold blooms toward white on its own, crimson needs a hotter tint or it reads as a flat red block)
+	local F, FH = hayMesh("hay_fist", nil, if HAY_PALETTE == "crimson" then G_FIST else G_GOLD), hayMesh("hay_fist_hull", nil, nil, true)
 	animate(0.13 * S, function(x)
 		local k = 1.6 + 1.2 * easeOut(math.min(x / 0.6, 1)) + 0.4 * c
 		local p = fist + dir * (1 + 5 * easeOut(x)) + UP * 0.6
@@ -2535,7 +2548,7 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 		if x >= 1 then VfxKit.Release(F); VfxKit.Release(FH) end
 		return nil
 	end)
-	VfxKit.Flash(fist + dir * 2 + UP * 0.6, "fire", 8 + 4 * c, 0.1 * S, G_HOT)
+	VfxKit.Flash(fist + dir * 2 + UP * 0.6, "fire", 8 + 4 * c, 0.1 * S, G_FLASH)
 	do -- the clip's dots: a field of small hot specks thrown up round the fist
 		local hold = carrier(CFrame.lookAt(fist + dir * 1.5 + UP, fist + dir * 2.5 + UP))
 		hold.Size = Vector3.new(7, 4, 2)
@@ -2600,7 +2613,7 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 	local DM = hayMesh("hay_dome", HT.shell.id, G_GOLD)
 	if DM then DM.DoubleSided = true end
 	task.delay(0.15 * S, function()
-		VfxKit.Puffs({ fist + dir * 2 + UP, fist + dir * 3.5 + side * 1.5 + UP, fist + dir * 3.5 - side * 1.5 + UP }, "fire", 3.5, 0.6 * S)
+		VfxKit.Puffs({ fist + dir * 2 + UP, fist + dir * 3.5 + side * 1.5 + UP, fist + dir * 3.5 - side * 1.5 + UP }, "fire", 3.5, 0.6 * S, G_FXTINT)
 		animate(0.42 * S, function(x)
 			local R = math.max(near * 1.6, 4.5) * (0.55 + 0.45 * easeOut(math.min(x / 0.4, 1))) * (1 + 0.07 * math.sin(x * 38) * (1 - x))
 			if DM then
@@ -2659,10 +2672,10 @@ local function haymakerFire(origin: Vector3, dir: Vector3, c: number, length: nu
 	task.delay((0.07 + 0.33 * 0.55) * S, function()
 		local ip = fist + UP * 0.3 + dir * (length * 0.8 + 0.5)
 		local ig = onGround(ip)
-		VfxKit.Flash(ip, "fire", 7 + 3 * c, 0.06 * S, Color3.new(1, 1, 1))
-		VfxKit.FloorRing(ig, "fire", widthAt(length * 0.8) * 1.2, 0.4 * S)
+		VfxKit.Flash(ip, "fire", 7 + 3 * c, 0.06 * S, G_FLASH)
+		VfxKit.FloorRing(ig, "fire", widthAt(length * 0.8) * 1.2, 0.4 * S, G_FXTINT)
 		VfxKit.Stain("scorch", ig, widthAt(length * 0.8) * 1.4, 1.4)
-		VfxKit.Puffs({ ip + dir * 1.5, ip + dir * 3 + side * 1.2, ip + dir * 3 - side * 1.2 }, "fire", 3 + c, 0.5 * S)
+		VfxKit.Puffs({ ip + dir * 1.5, ip + dir * 3 + side * 1.2, ip + dir * 3 - side * 1.2 }, "fire", 3 + c, 0.5 * S, G_FXTINT)
 		debrisForward(ig + dir * 1.5, dir, 7, 18)
 		sparks(ip, 22, 30, G_GOLD)
 		ClassFX.Sound("rockHit", ip, 0.8, 0.9)
@@ -3899,7 +3912,7 @@ function MartialController.Release(skillIndex: number)
 		-- (the anticipation beat: the fist flares, a held breath, then the punch;
 		-- the server delays its hits by the same HAY.windup)
 		local at, L, hw = root.Position, hayLength(c, h.empowered), HAY.half * (tonumber(player:GetAttribute("Stat_size")) or 1)
-		VfxKit.Flash(fistPos(char, root, dir), "fire", 4 + 2 * c, HAY.windup, G_HOT)
+		VfxKit.Flash(fistPos(char, root, dir), "fire", 4 + 2 * c, HAY.windup, G_FLASH)
 		task.delay(HAY.windup, haymakerFire, at, dir, c, L, hw, true)
 		return
 	end

@@ -154,17 +154,18 @@ end
 -- (the Ring flipbook: thin white-hot leading edge, coloured body, dark smoky
 -- wake inside, breaking into arcs as it ages). The texture's ring reaches 46%
 -- of the cell, so the particle is sized for the ring to end at `radius`.
-function VfxKit.FloorRing(pos: Vector3, palette: string, radius: number, life: number)
+function VfxKit.FloorRing(pos: Vector3, palette: string, radius: number, life: number, tint: Color3?)
 	if not FxBudget.Allow("kitRing", 12) then return end
 	palette = variantPalette(pos, palette)
 	local tex = (VfxAssets.Ring :: any)[palette] or VfxAssets.Ring.fire
 	local size = radius * 2 / 0.92
-	local key = `ring_{palette}_{r1(size)}_{r1(life * 10)}`
+	local key = `ring_{palette}_{r1(size)}_{r1(life * 10)}_{(tint or Color3.new(1, 1, 1)):ToHex()}`
 	local att, pe = emitter(key, function(pe)
 		flat(pe)
 		pe.Texture = tex.id
 		pe.FlipbookLayout = tex.layout :: Enum.ParticleFlipbookLayout
 		pe.FlipbookMode = Enum.ParticleFlipbookMode.OneShot
+		pe.Color = ColorSequence.new(tint or Color3.new(1, 1, 1))
 		pe.LightEmission = 0.4
 		pe.Brightness = 3
 		pe.Lifetime = NumberRange.new(life)
@@ -204,16 +205,17 @@ end
 -- One puff per point (the polearm clip f1-f9: chunks along the arc, white-hot
 -- spots, dark brown specks, burning out into soot and curly wisps). Lit by
 -- LightEmission 0.15 only, so the dark parts stay dark.
-function VfxKit.Puffs(points: { Vector3 }, palette: string, size: number, life: number?)
+function VfxKit.Puffs(points: { Vector3 }, palette: string, size: number, life: number?, tint: Color3?)
 	if #points == 0 then return end
 	palette = variantPalette(points[1], palette)
 	local tex = (VfxAssets.Puff :: any)[palette] or VfxAssets.Puff.fire
 	local lt = life or 0.5
-	local key = `puff_{palette}_{r1(size)}_{r1(lt * 10)}`
+	local key = `puff_{palette}_{r1(size)}_{r1(lt * 10)}_{(tint or Color3.new(1, 1, 1)):ToHex()}`
 	local att, pe = emitter(key, function(pe)
 		pe.Texture = tex.id
 		pe.FlipbookLayout = tex.layout :: Enum.ParticleFlipbookLayout
 		pe.FlipbookMode = Enum.ParticleFlipbookMode.OneShot
+		pe.Color = ColorSequence.new(tint or Color3.new(1, 1, 1))
 		pe.LightEmission = 0.15
 		pe.Brightness = 2.6
 		pe.Lifetime = NumberRange.new(lt * 0.85, lt)
