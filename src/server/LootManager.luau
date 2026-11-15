@@ -404,6 +404,33 @@ function LootManager.Settle(player: Player, result: string, loot: { any })
 end
 
 -- ── Equipping ─────────────────────────────────────────────────────────────
+-- Forge a new piece in `slot` (PowerGear.CRAFT_COST scrap), its rarity from
+-- `score` (0..1: the minigame's quality, or 1 for a paid skip: StoreManager).
+-- False when it can't (no scrap, too soon after the last).
+function LootManager.Craft(player: Player, slot: string, score: number, ignoreGap: boolean?): boolean
+	local pw = powerOf(player)
+	if not pw or not PowerGear.MAIN[slot] then return false end
+	local now = os.clock()
+	if not ignoreGap and now - (lastCraft[player] or -math.huge) < CRAFT_GAP then return false end
+	if pw.scrap < PowerGear.CRAFT_COST then return false end
+	lastCraft[player] = now
+	pw.scrap -= PowerGear.CRAFT_COST
+	local best = player:GetAttribute("BestFloor")
+	local ilvl = math.max(1, if typeof(best) == "number" then best else 1)
+	local item = PowerGear.Roll(PowerGear.CraftRarity(math.clamp(score, 0, 1)), ilvl, slot)
+	local gain = gainOver(player, item)
+	local added = grantPower(player, item)
+	local lines = {}
+	for _, a in ipairs(item.affixes) do table.insert(lines, PowerGear.Describe(a)) end
+	Network.GetRemoteEvent(Network.Remotes.LootDrop):FireClient(player, {
+		power = true, name = item.name, rarity = item.rarity, slot = item.slot, slotName = PowerGear.SLOT_NAME[item.slot],
+		glyph = item.glyph, ilvl = item.ilvl, itemPower = PowerGear.ItemPower(item), gain = gain, worn = added > 0,
+		stats = lines, source = "forge",
+	})
+	sync(player)
+	return true
+end
+
 local function onAction(player: Player, payload: any)
 	if typeof(payload) ~= "table" then return end
 	if payload.kind == "equipPower" then
@@ -438,27 +465,9 @@ local function onAction(player: Player, payload: any)
 		return
 	end
 	if payload.kind == "craft" then
-		local pw = powerOf(player)
 		local slot, score = payload.slot, payload.score
-		if not pw or typeof(slot) ~= "string" or not PowerGear.MAIN[slot] or typeof(score) ~= "number" or score ~= score then return end
-		local now = os.clock()
-		if now - (lastCraft[player] or -math.huge) < CRAFT_GAP then return end
-		if pw.scrap < PowerGear.CRAFT_COST then return end
-		lastCraft[player] = now
-		pw.scrap -= PowerGear.CRAFT_COST
-		local best = player:GetAttribute("BestFloor")
-		local ilvl = math.max(1, if typeof(best) == "number" then best else 1)
-		local item = PowerGear.Roll(PowerGear.CraftRarity(score), ilvl, slot)
-		local gain = gainOver(player, item)
-		local added = grantPower(player, item)
-		local lines = {}
-		for _, a in ipairs(item.affixes) do table.insert(lines, PowerGear.Describe(a)) end
-		Network.GetRemoteEvent(Network.Remotes.LootDrop):FireClient(player, {
-			power = true, name = item.name, rarity = item.rarity, slot = item.slot, slotName = PowerGear.SLOT_NAME[item.slot],
-			glyph = item.glyph, ilvl = item.ilvl, itemPower = PowerGear.ItemPower(item), gain = gain, worn = added > 0,
-			stats = lines, source = "forge",
-		})
-		sync(player)
+		if typeof(slot) ~= "string" or typeof(score) ~= "number" or score ~= score then return end
+		LootManager.Craft(player, slot, score)
 		return
 	end
 	if payload.kind == "salvageWeaker" then

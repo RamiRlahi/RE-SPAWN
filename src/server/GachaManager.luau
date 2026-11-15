@@ -741,6 +741,41 @@ local function watchDrops()
 end
 
 -- ─── Premium purchases ──────────────────────────────────────────────────────
+-- Products other systems sell (StoreManager): productId → grant(player,
+-- profile) → true when granted. One ProcessReceipt for the whole game (Roblox
+-- allows only one), so they're dispatched from here.
+GachaManager.ProductHandlers = {} :: { [number]: (Player, any) -> boolean }
+
+-- A reward given outright (bought in a store): into the collection (a
+-- duplicate pays out as usual), into the history, sets checked, synced.
+function GachaManager.GrantReward(player: Player, rewardId: string, source: string): boolean
+	local p = PlayerData.Get(player)
+	local reward = GachaRewards.Get(rewardId)
+	if not (p and reward) then return false end
+	grant(p, reward)
+	addHistory(p, reward, source)
+	checkSets(p)
+	PlayerData.MarkDirty(player)
+	sync(player)
+	return true
+end
+
+-- Does the player already own this reward?
+function GachaManager.Owns(player: Player, rewardId: string): boolean
+	local p = PlayerData.Get(player)
+	local reward = GachaRewards.Get(rewardId)
+	return p ~= nil and reward ~= nil and owns(p, reward)
+end
+
+-- Currency given outright (a community reward).
+function GachaManager.AddCurrency(player: Player, currency: string, amount: number)
+	local p = PlayerData.Get(player)
+	if not p then return end
+	addCurrency(p, currency, amount)
+	PlayerData.MarkDirty(player)
+	sync(player)
+end
+
 local function processReceipt(info: any): Enum.ProductPurchaseDecision
 	local player = Players:GetPlayerByUserId(info.PlayerId)
 	if not player then return Enum.ProductPurchaseDecision.NotProcessedYet end
@@ -763,6 +798,11 @@ local function processReceipt(info: any): Enum.ProductPurchaseDecision
 			checkSets(p)
 			granted = true
 		end
+	end
+	-- (other systems' products: StoreManager's mounts, the forge skip)
+	local handler = GachaManager.ProductHandlers[info.ProductId]
+	if not granted and handler then
+		granted = handler(player, p) == true
 	end
 	if not granted then return Enum.ProductPurchaseDecision.NotProcessedYet end
 	p.purchases[info.PurchaseId] = true

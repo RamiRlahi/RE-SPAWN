@@ -20,6 +20,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local ClickOutside = require(script.Parent:WaitForChild("ClickOutside"))
 local TomeData = require(Shared:WaitForChild("TomeData"))
 local ClassData = require(Shared:WaitForChild("ClassData"))
 
@@ -194,7 +195,6 @@ local function build()
 	dim.BackgroundColor3 = Color3.new(0, 0, 0)
 	dim.BackgroundTransparency = 0.45
 	dim.Parent = g
-	dim.MouseButton1Click:Connect(BuildCodex.Close)
 	local W, H = 900, 600
 	local panel = Instance.new("Frame")
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -202,6 +202,7 @@ local function build()
 	panel.Size = UDim2.fromOffset(W, H)
 	panel.BackgroundColor3 = DARK
 	panel.Parent = g
+	ClickOutside.Bind(dim, panel, BuildCodex.Close)
 	local pc = Instance.new("UICorner")
 	pc.CornerRadius = UDim.new(0, 12)
 	pc.Parent = panel

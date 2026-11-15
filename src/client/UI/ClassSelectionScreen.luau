@@ -13,7 +13,6 @@ local M = MenuStyle.Colors
 local CastPoses = require(script.Parent.Parent:WaitForChild("CastPoses"))
 local UltPreviewFX = require(script.Parent.Parent:WaitForChild("UltPreviewFX"))
 local LobbyCamera = require(script.Parent.Parent:WaitForChild("LobbyCamera"))
-local TalentConstellation = require(script.Parent:WaitForChild("TalentConstellation"))
 local SummonScreen = require(script.Parent:WaitForChild("SummonScreen"))
 local CoopScreen = require(script.Parent:WaitForChild("CoopScreen"))
 local ClassLook = require(script.Parent.Parent:WaitForChild("ClassLook"))
@@ -792,7 +791,8 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	local selScale = new("UIScale", {}, selectBtn)
 
 	---------------------------------------------------------------------
-	-- Bottom left: Settings, Co-op, Talents. Bottom right: the motto.
+	-- Bottom left: Settings, Co-op. Bottom right: the motto.
+	-- (The skill tree is in the lobby now: TalentScreen, on the dock or K.)
 	---------------------------------------------------------------------
 	local bl = group("BottomLeft", Vector2.new(0, 1), Vector2.new(34, -34), Vector2.new(520, 44))
 	textButton(bl, "⚙  SETTINGS", UDim2.fromOffset(0, 0), Vector2.new(158, 44), function()
@@ -804,31 +804,9 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		SoundManager.Play("Select")
 		CoopScreen.Open()
 	end)
-	local talentsBtnLabel: TextLabel
-	local _, tl = textButton(bl, "◆  TALENTS", UDim2.fromOffset(310, 0), Vector2.new(150, 44), function() end)
-	talentsBtnLabel = tl
-
 	local br = group("BottomRight", Vector2.new(1, 1), Vector2.new(-36, -40), Vector2.new(420, 24))
 	text(br, { Size = UDim2.fromScale(1, 1), Text = "FIGHT   ◆   SURVIVE   ◆   RESPAWN", TextSize = 17, TextColor3 = MUTED,
 		TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 3 })
-
-	-- The talent constellation (souls, the class's talent tree) takes the left
-	-- panel's place while TALENTS is on.
-	local constellation = TalentConstellation.Create(container)
-	constellation.Frame:SetAttribute("KeepFont", false)
-	constellation.Frame.Visible = false
-	-- (below the logo and the Title / Hide UI buttons, above the bottom row)
-	constellation.Frame.Position = UDim2.new(0, 24, 0, 170)
-	constellation.Frame.Size = UDim2.new(0.42, 0, 1, -260)
-	local talentsOpen = false
-	local talentsBtn = talentsBtnLabel.Parent :: TextButton
-	talentsBtn.MouseButton1Click:Connect(function()
-		SoundManager.Play("Select")
-		talentsOpen = not talentsOpen
-		constellation.Frame.Visible = talentsOpen and not uiHidden
-		left.Visible = not talentsOpen and not uiHidden
-		talentsBtnLabel.Text = if talentsOpen then "◆  CLASS INFO" else "◆  TALENTS"
-	end)
 
 	-- Hide UI: everything but a SHOW UI button, so the hero can be admired.
 	local showBtn = textButton(container, "SHOW UI", UDim2.new(0, 24, 1, -60), Vector2.new(110, 34), function()
@@ -839,9 +817,8 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 	setHidden = function(on: boolean)
 		uiHidden = on
 		for _, g in ipairs(groups) do
-			g.frame.Visible = not on and not (g.frame == left and talentsOpen)
+			g.frame.Visible = not on
 		end
-		constellation.Frame.Visible = talentsOpen and not on
 		for _, f in ipairs({ shadeL, shadeR, shadeT }) do f.Visible = not on end
 		showBtn.Visible = on
 	end
@@ -927,7 +904,6 @@ function ClassSelectionScreen.Create(parent: GuiObject, callbacks: ClassSelectio
 		-- (locked: an unfinished kit, or a class not unlocked at the Altar yet)
 		local locked = not ClassData.IsOwnedBy(player, classId)
 		local accent = if locked then LOCKED_GREY else info.accentColor
-		constellation.Show(classId, accent, locked)
 
 		-- The hero on the pedestal, dressed as the class with its aura. (A
 		-- failing preview must not stop the rest of the page updating.)

@@ -31,6 +31,7 @@ local Lighting = game:GetService("Lighting")
 
 local ClassData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ClassData"))
 local MenuForest = require(script.Parent:WaitForChild("MenuForest"))
+local AtmosphereManager = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("AtmosphereManager"))
 
 local MenuBackdrop = {}
 
@@ -534,11 +535,11 @@ end
 local gradeSun: { ClockTime: number, GeographicLatitude: number }? = nil
 local menuSky: Sky? = nil
 local menuAtm: Atmosphere? = nil
-local stashedSkies: { Instance } = {}
 local function restoreSkies()
 	if menuSky then menuSky.Parent = nil end
-	for _, s in ipairs(stashedSkies) do s.Parent = Lighting end
-	table.clear(stashedSkies)
+	-- (back to the one sky of where the player is: the plaza's here; a run's
+	-- own is set as it starts, AtmosphereManager.ApplyDungeonLighting)
+	AtmosphereManager.UseSky(AtmosphereManager.LOBBY_SKY)
 end
 
 local function setGrade()
@@ -563,12 +564,7 @@ local function setGrade()
 	-- several skyboxes, and Roblox shows any one of them): the others are put
 	-- aside while the title is up, and come back on the plaza or in a run.
 	if not onPlaza then
-		for _, s in ipairs(Lighting:GetChildren()) do
-			if s:IsA("Sky") and s ~= menuSky then
-				table.insert(stashedSkies, s)
-				s.Parent = nil
-			end
-		end
+		AtmosphereManager.UseSky(nil)
 		if not menuSky then
 			local sky = Instance.new("Sky")
 			sky.Name = "MenuSky"

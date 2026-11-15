@@ -678,7 +678,7 @@ local function buildArmory(m: Model, pos: Vector3, C: Vector3)
 	end
 	part(m, { Name = "BackWall", Size = Vector3.new(19, 11, 0.6), CFrame = at(0, 6, 6.6), Color = Color3.fromRGB(120, 100, 82), Material = Enum.Material.Brick })
 	for _, s in ipairs({ -1, 1 }) do
-		part(m, { Name = "Roof", Size = Vector3.new(22, 0.6, 9), CFrame = at(0, 14.6, s * 3.6) * CFrame.Angles(math.rad(-26 * s), 0, 0),
+		part(m, { Name = "Roof", Size = Vector3.new(22, 0.6, 9), CFrame = at(0, 14.6, s * 3.6) * CFrame.Angles(math.rad(26 * s), 0, 0), -- (ridge in the middle, eaves down: it was a V before)
 			Color = Color3.fromRGB(70, 46, 34), Material = Enum.Material.WoodPlanks })
 	end
 	-- weapon racks on the back wall: swords and axes

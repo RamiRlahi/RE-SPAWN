@@ -27,6 +27,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local ClickOutside = require(script.Parent:WaitForChild("ClickOutside"))
 local GearData = require(Shared:WaitForChild("GearData"))
 local PowerGear = require(Shared:WaitForChild("PowerGear"))
 local ArmoryGear = require(script.Parent:WaitForChild("ArmoryGear"))
@@ -199,7 +200,6 @@ local function build()
 	dim.BackgroundColor3 = Color3.new(0, 0, 0)
 	dim.BackgroundTransparency = 0.45
 	dim.Parent = g
-	dim.MouseButton1Click:Connect(Armory.Close)
 	local W, H = 1100, 700
 	local panel = Instance.new("Frame")
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -207,6 +207,7 @@ local function build()
 	panel.Size = UDim2.fromOffset(W, H)
 	panel.BackgroundColor3 = DARK
 	panel.Parent = g
+	ClickOutside.Bind(dim, panel, Armory.Close)
 	corner(panel, 12)
 	local ps = Instance.new("UIStroke")
 	ps.Color = GOLD
@@ -342,6 +343,8 @@ local function relayout()
 end
 
 local function toast(d: any)
+	-- (the forge's minigame reveals its own piece: a toast would spoil it under the steam)
+	if d.source == "forge" and player:GetAttribute("Forging") == true then return end
 	if not toastGui then
 		local g = Instance.new("ScreenGui")
 		g.Name = "LootToasts"

@@ -47,6 +47,20 @@ local SCALE = 1.4             -- of the built dragon: about 50 studs nose to tai
 local HEALTH_MULT = 8         -- × the base boss health (400): 3200 at Threat I
 local DAMAGE_MULT = 1.3       -- × the base boss damage (25)
 local BASE_DAMAGE = 25
+-- Harder with a bigger party: for each player after the first, this much more
+-- health and damage (2 players: ×1.7 health, ×1.12 damage; 4: ×3.1, ×1.36).
+local PARTY_HEALTH = 0.7
+local PARTY_DAMAGE = 0.12
+local PARTY_MAX = 6
+
+-- How many players are in the run (at least one).
+local function partySize(runId: string?): number
+	local n = 0
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr:GetAttribute("InLobby") == false and (runId == nil or plr:GetAttribute("RunId") == runId) then n += 1 end
+	end
+	return math.clamp(n, 1, PARTY_MAX)
+end
 local XP_REWARD = 400
 local HOVER = 0               -- its claws above the floor (it crouches on the ground)
 local PERCH_INSET = 24        -- how far in from the arena's wall it perches
@@ -1168,7 +1182,10 @@ function DragonBoss.Spawn(parent: Instance, room: any, health: number?, runId: s
 	hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
 	pcall(function() hum.EvaluateStateMachine = false end)
 	local scale = DifficultyManager.GetMobScale(runId)
-	local maxHp = math.floor(400 * HEALTH_MULT * scale.health)
+	local party = partySize(runId)
+	local partyHealth = 1 + PARTY_HEALTH * (party - 1)
+	local partyDamage = 1 + PARTY_DAMAGE * (party - 1)
+	local maxHp = math.floor(400 * HEALTH_MULT * scale.health * partyHealth)
 	hum.MaxHealth = maxHp
 	hum.Health = if health and health < maxHp then math.max(1, math.floor(health)) else maxHp
 
@@ -1176,6 +1193,7 @@ function DragonBoss.Spawn(parent: Instance, room: any, health: number?, runId: s
 	if runId then model:SetAttribute("RunId", runId) end
 	model:SetAttribute("IsElite", false)
 	model:SetAttribute("BossKind", "dragon")
+	model:SetAttribute("PartySize", party) -- (what its health and damage were scaled for)
 	model:SetAttribute("DisplayName", NAME)
 	model:SetAttribute("FloorY", arena.floorY)
 	model:SetAttribute("HitRadius", HIT_RADIUS)
@@ -1235,7 +1253,7 @@ function DragonBoss.Spawn(parent: Instance, room: any, health: number?, runId: s
 	local d: Dragon = {
 		model = model, body = body, root = root, head = head, hum = hum, mouth = mouth,
 		arena = arena, groundOffset = groundOffset,
-		damage = DAMAGE_MULT * scale.damage,
+		damage = DAMAGE_MULT * scale.damage * partyDamage,
 		ap = ap, ao = ao, pos = pos, look = look, track = nil, pitch = 0, roll = 0, bob = true,
 		enraged = false, enrageQueued = false, beamsQueued = 0, beamsDone = 0, dead = false,
 		onDied = onDied, fx = fx, aegis = nil, home = { pos = pos, look = look },

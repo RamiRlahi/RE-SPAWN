@@ -160,6 +160,29 @@ local function characterCopy(plain: boolean): Model?
 			end
 		end
 	end
+	-- Back to the rest pose: the copy is taken mid-animation, and armour welded
+	-- on (WeldConstraints keep the offset they're made with) would stay where
+	-- the limbs were, then slip off them once the joints settle in the world.
+	local rootPart = clone:FindFirstChild("HumanoidRootPart")
+	if rootPart and rootPart:IsA("BasePart") then
+		local motors: { Motor6D } = {}
+		for _, d in ipairs(clone:GetDescendants()) do
+			if d:IsA("Motor6D") then table.insert(motors, d) end
+		end
+		local placed: { [BasePart]: boolean } = { [rootPart] = true }
+		local moved = true
+		while moved do
+			moved = false
+			for _, m in ipairs(motors) do
+				local p0, p1 = m.Part0, m.Part1
+				if p0 and p1 and placed[p0] and not placed[p1] then
+					p1.CFrame = p0.CFrame * m.C0 * m.C1:Inverse()
+					placed[p1] = true
+					moved = true
+				end
+			end
+		end
+	end
 	local hum = clone:FindFirstChildOfClass("Humanoid")
 	if hum then
 		hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
@@ -357,6 +380,220 @@ local function armorShowcase(reward: any, classId: string): (Model, () -> ())
 	end
 end
 
+-- Heroes turned from how the showcase is pivoted (degrees, + to his left):
+-- the Swordsman's en garde is side on, so a quarter turn shows him to you.
+local SHOWCASE_YAW: { [string]: number } = { swordsman = -90 }
+
+-- The Fire Knight at ease: the greatsword hanging point down at his right
+-- side, clear of his body (in his ultimate's animation it lay across his
+-- chest and hid him), his head turned a little to you.
+local FIRE_KNIGHT_TILT = CFrame.Angles(math.rad(-70), 0, 0)
+local FIRE_KNIGHT_EASE = { RS = { 8, 0, 8 }, LS = { -4, 0, -6 }, N = { -4, 10, 0 }, W = { 0, -8, 0 } }
+
+-- The weapon in hand as the class select holds it: the Swordsman's blade
+-- upright.
+local function heroGrip(classId: string, grip: CFrame): CFrame
+	if classId == "swordsman" then return grip * CFrame.Angles(math.rad(90), 0, 0) end
+	return grip
+end
+
+-- ── The Death Knight on his throne ─────────────────────────────────────────
+-- He sits on a black stone throne up on a dais, his hands on its armrests,
+-- the Graveblade standing head down on the dais at his right and leaning in
+-- against the throne, while ghosts (sprites rendered in Blender) pour out
+-- from behind it and drift away. Everything is in the root's space (+Z behind
+-- him), the seat set so his head stays where a standing hero's is: the
+-- portraits frame him the same.
+-- (the Graveblade: its handle's place, turned over so the head is down, and
+-- tipped in toward him; shown at half size, or it would tower over the throne)
+local THRONE_PLANT = CFrame.new(2.95, 0.95, -0.55) * CFrame.Angles(0, 0, math.rad(7)) * CFrame.Angles(math.pi, 0, 0)
+local THRONE_PLANT_SCALE = 0.5
+local THRONE_SEATED = { W = { -5, 0, 0 }, N = { -4, 0, 0 }, RS = { 52, 0, 14 }, LS = { 52, 0, -14 },
+	RH = { 80, 0, 7 }, LH = { 80, 0, -7 } }
+local THRONE_STONE = Color3.fromRGB(42, 40, 52)
+local THRONE_SOUL = Color3.fromRGB(70, 150, 210)
+local GHOSTS = { "rbxassetid://103138279346123", "rbxassetid://110866102668351", "rbxassetid://134933143163501" }
+local GHOST_COUNT = 8
+
+local function buildThrone(model: Model, root: BasePart)
+	local folder = Instance.new("Model")
+	folder.Name = "Throne"
+	folder.Parent = model
+	local at = root.CFrame
+	local diamond = CFrame.Angles(0, 0, math.rad(45))
+	local function stone(size: Vector3, x: number, y: number, z: number, rot: CFrame?)
+		part(folder, { Size = size, CFrame = at * CFrame.new(x, y, z) * (rot or CFrame.identity), Color = THRONE_STONE,
+			Material = Enum.Material.Slate })
+	end
+	local function seam(size: Vector3, x: number, y: number, z: number)
+		-- (not Neon: in a viewport it burns flat white-blue)
+		part(folder, { Size = size, CFrame = at * CFrame.new(x, y, z), Color = THRONE_SOUL, Material = Enum.Material.SmoothPlastic })
+	end
+	stone(Vector3.new(6.4, 3.4, 4.8), 0, -3.8, -0.4) -- the dais (its foot runs out of the picture)
+	seam(Vector3.new(6.4, 0.08, 0.08), 0, -2.12, -2.81) -- its front edge
+	stone(Vector3.new(3.4, 0.7, 2.4), 0, -1.8, -0.1) -- seat
+	seam(Vector3.new(3.4, 0.08, 0.08), 0, -1.47, -1.32) -- the seat's edge
+	stone(Vector3.new(3.6, 5.1, 0.6), 0, 1.1, 1.15) -- back
+	stone(Vector3.new(2.1, 2.1, 0.6), 0, 3.65, 1.15, diamond) -- its pointed top
+	for _, s in ipairs({ -1, 1 }) do
+		stone(Vector3.new(0.7, 6.3, 0.7), s * 2.0, 0.75, 1.15) -- pillar
+		stone(Vector3.new(0.6, 0.6, 0.6), s * 2.0, 4.1, 1.15, diamond) -- finial
+		stone(Vector3.new(0.55, 0.35, 2.3), s * 1.95, -0.55, -0.05) -- armrest
+		stone(Vector3.new(0.4, 0.75, 0.4), s * 1.95, -1.08, -1.0) -- its post
+		seam(Vector3.new(0.08, 4.0, 0.06), s * 1.25, 1.1, 0.83)
+		seam(Vector3.new(0.07, 5.8, 0.06), s * 2.0, 0.75, 0.78)
+	end
+	seam(Vector3.new(2.6, 0.08, 0.06), 0, 3.1, 0.83)
+	seam(Vector3.new(2.6, 0.08, 0.06), 0, -0.9, 0.83)
+	part(folder, { Shape = Enum.PartType.Ball, Size = Vector3.one * 0.55, CFrame = at * CFrame.new(0, 3.7, 0.8), Color = THRONE_SOUL })
+end
+
+-- The ghosts: flat sprites turned to the viewport's camera every frame
+-- (particles and billboards don't draw in a ViewportFrame), each rising out
+-- from behind the throne and drifting off to one side, fading in and out,
+-- then starting again somewhere else.
+type Ghost = { part: BasePart, decal: Decal, from: Vector3, path: Vector3, size: number, life: number, age: number,
+	roll: number, side: number }
+local function ghostFlight(model: Model, root: BasePart): RBXScriptConnection
+	local rng = Random.new()
+	local ghosts: { Ghost } = {}
+	local function launch(g: Ghost)
+		g.side = if rng:NextNumber() < 0.5 then -1 else 1
+		g.from = Vector3.new(g.side * rng:NextNumber(0.4, 1.6), rng:NextNumber(0.3, 2.2), 1.7)
+		-- (out to the side and up, staying beside and behind him: never over his face)
+		g.path = Vector3.new(g.side * rng:NextNumber(1.8, 3.4), rng:NextNumber(1.0, 2.4), rng:NextNumber(-1.4, -0.4))
+		g.size = rng:NextNumber(2.0, 2.8)
+		g.life = rng:NextNumber(3.2, 4.4)
+		g.roll = rng:NextNumber(-12, 12)
+		g.decal.Texture = GHOSTS[rng:NextInteger(1, #GHOSTS)]
+		g.age = 0
+	end
+	for i = 1, GHOST_COUNT do
+		local p = part(model, { Name = "Ghost", Size = Vector3.new(2, 2, 0.05), Transparency = 1, CFrame = root.CFrame })
+		local d = Instance.new("Decal")
+		d.Face = Enum.NormalId.Front
+		d.Transparency = 1
+		-- (over 1: brighter than the sprite, glowing against the dark)
+		d.Color3 = Color3.new(1.3, 1.45, 1.6)
+		d.Parent = p
+		local g: Ghost = { part = p, decal = d, from = Vector3.zero, path = Vector3.zero, size = 2, life = 4, age = 0, roll = 0, side = 1 }
+		launch(g)
+		-- (already spread through their flights when it opens)
+		g.age = g.life * (i - 1) / GHOST_COUNT
+		table.insert(ghosts, g)
+	end
+	return RunService.RenderStepped:Connect(function(dt)
+		local vp = model:FindFirstAncestorWhichIsA("ViewportFrame")
+		local cam = vp and vp.CurrentCamera
+		if not cam then return end
+		local base = root.CFrame
+		for _, g in ipairs(ghosts) do
+			g.age += dt
+			if g.age >= g.life then launch(g) end
+			local u = g.age / g.life
+			-- out and up along a curve (fast at first, easing off), swaying
+			local e = 1 - (1 - u) ^ 2
+			local sway = math.sin(g.age * 2.6 + g.roll) * 0.25
+			local off = g.from + Vector3.new(g.path.X * e + sway, g.path.Y * u + math.sin(u * math.pi) * 0.4, g.path.Z * e)
+			local pos = base:PointToWorldSpace(off)
+			local fade = math.clamp(math.min(u / 0.18, (1 - u) / 0.3), 0, 1)
+			local s = g.size * (0.7 + 0.35 * e)
+			g.part.Size = Vector3.new(s, s, 0.05)
+			-- facing the camera, leaning into its drift
+			g.part.CFrame = CFrame.lookAt(pos, cam.CFrame.Position) * CFrame.Angles(0, 0, math.rad(g.roll - g.side * 14 * e))
+			g.decal.Transparency = 1 - 0.95 * fade
+		end
+	end)
+end
+
+-- ── The Rogue's crouch ──────────────────────────────────────────────────────
+-- After the class portrait: low on one knee, his left fist planted on the
+-- ground, the dagger drawn back in his right in a reverse grip. The R6 rig
+-- has no knees, so its legs are let go of their joints: each stands in for a
+-- shin, placed where that would be (the thighs are left to the eye). The
+-- arms stay on their shoulders, the body sunk and leaning over the left one
+-- far enough for its fist to reach the floor. Every part's place is given in
+-- the root's space: +X his right, +Y up (the floor 3 below), -Z the way he
+-- faces.
+local function aim(pos: Vector3, up: Vector3, front: Vector3): CFrame
+	local u = up.Unit
+	local look = (front - u * front:Dot(u)).Unit
+	return CFrame.fromMatrix(pos, look:Cross(u), u, -look)
+end
+local ROGUE_CROUCH: { [string]: CFrame } = (function()
+	local V = Vector3.new
+	local spine = V(-0.34, 0.68, -0.65).Unit -- leaning hard toward you, and over his left arm
+	local pelvis = V(0.1, -2.2, 0.6)
+	local torso = aim(pelvis + spine, spine, V(0.22, -0.6, -0.77))
+	local neck = pelvis + spine * 2
+	local headUp = V(-0.12, 0.96, -0.24).Unit
+	-- An arm hanging off its shoulder along `dir` (the shoulder: the top of
+	-- the arm, where it turns).
+	local function arm(side: number, dir: Vector3, front: Vector3): CFrame
+		local d = dir.Unit
+		return aim(torso * V(side * 1.5, 0.5, 0) + d * 0.5, -d, front)
+	end
+	-- (the left fist: on the floor ahead of him, as near under the shoulder as it reaches)
+	local leftShoulder = torso * V(-1.5, 0.5, 0)
+	return {
+		Torso = torso,
+		Head = aim(neck + headUp * 0.55 + V(0, 0, -0.1), headUp, V(0.06, -0.2, -1)), -- chin tucked, eyes on you
+		["Left Arm"] = arm(-1, V(-1.9, -3, -1.75) - leftShoulder, V(0.15, 0, -1)),
+		["Right Arm"] = arm(1, V(0.76, 0.54, -0.36), V(0.3, -0.3, -0.9)), -- drawn up and back
+		["Right Leg"] = aim(V(1.25, -2.0, -1.35), V(-0.03, 0.99, -0.12), V(0.45, 0, -0.9)), -- the shin upright, boot planted
+		["Left Leg"] = aim(V(-1.25, -2.5, 0.55), V(-0.12, 0.08, -0.99), V(0, -1, 0)), -- the shin back along the floor
+	}
+end)()
+-- The dagger in the right fist (the arm's space): reversed, the blade out of
+-- the bottom of the fist and away from him, its flat to you.
+local ROGUE_GRIP: CFrame = (function()
+	local arm = ROGUE_CROUCH["Right Arm"]
+	local rot = CFrame.lookAt(Vector3.zero, Vector3.new(0.62, -0.68, -0.4).Unit, Vector3.new(0, 0, -1))
+	-- (0.04, 0.1, 0.32: the point of the handle that sits in the fist, RogueLook's GRIP_AT)
+	local handle = rot + (arm * Vector3.new(0, -0.8, 0) - rot:VectorToWorldSpace(Vector3.new(0.04, 0.1, 0.32)))
+	return arm:Inverse() * handle
+end)()
+-- What a portrait has to show to see all of him (the root's space): the
+-- middle of the pose, and how wide and tall it is.
+local ROGUE_FRAME_AT = Vector3.new(0.5, -0.57, -0.3)
+local ROGUE_FRAME_SIZE = Vector2.new(6.3, 5.6)
+
+-- A weapon built in code is put together away from the hero, then welded to
+-- the hand. Once the copy is in a viewport that weld brings only the handle:
+-- the pieces riding on it (WeldConstraints) stay where they were built,
+-- thousands of studs off. So every welded weapon is moved, whole, to where
+-- its weld will hold it.
+local function seatWeapons(model: Model)
+	for _, w in ipairs(model:GetDescendants()) do
+		if not (w:IsA("Weld") and (w.Name == "LookGrip" or w.Name == "OffHandGrip")) then continue end
+		local hand, handle = w.Part0, w.Part1
+		local tool = handle and handle:FindFirstAncestorOfClass("Tool")
+		if not (hand and handle and tool) then continue end
+		local links: { Instance } = {}
+		for _, d in ipairs(tool:GetDescendants()) do
+			if d:IsA("WeldConstraint") or d:IsA("JointInstance") then table.insert(links, d) end
+		end
+		-- (everything joined to this handle, however many joints away)
+		local group: { [BasePart]: boolean } = { [handle] = true }
+		local queue: { BasePart } = { handle }
+		while #queue > 0 do
+			local p = table.remove(queue) :: BasePart
+			for _, l in ipairs(links) do
+				local a, b = (l :: any).Part0, (l :: any).Part1
+				local other = if a == p then b elseif b == p then a else nil
+				if other and not group[other] and other:IsDescendantOf(tool) then
+					group[other] = true
+					table.insert(queue, other)
+				end
+			end
+		end
+		local delta = (hand.CFrame * w.C0 * w.C1:Inverse()) * handle.CFrame:Inverse()
+		local to: { [BasePart]: CFrame } = {}
+		for p in pairs(group) do to[p] = delta * p.CFrame end
+		for p, cf in pairs(to) do p.CFrame = cf end
+	end
+end
+
 -- A class (or a variant of one): its hero, dressed as the class, in the
 -- class's ultimate pose.
 local function heroShowcase(reward: any, classId: string, accent: Color3): (Model, () -> ())
@@ -364,7 +601,64 @@ local function heroShowcase(reward: any, classId: string, accent: Color3): (Mode
 	local model = characterCopy(false) or Instance.new("Model")
 	local root = model:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if root then model.PrimaryPart = root end
-	pcall(ClassLook.Apply, model, classId, { armor = player:GetAttribute(`Armor_{classId}`) == true })
+	-- (turned on the spot: wherever the model is pivoted, the hero stands
+	-- this many degrees round from it)
+	local yaw = SHOWCASE_YAW[classId]
+	if root and yaw then root.PivotOffset = CFrame.Angles(0, math.rad(-yaw), 0) end
+	local throned = classId == "death_knight" and root ~= nil
+	local atEase = classId == "heavy_knight"
+	-- (the crouch lets go of an R6 rig's joints: other rigs keep the class's pose)
+	local crouch = classId == "rogue" and root ~= nil and model:FindFirstChild("Torso") ~= nil
+	if throned and root then
+		buildThrone(model, root)
+		table.insert(conns, ghostFlight(model, root))
+	end
+	pcall(ClassLook.Apply, model, classId, {
+		armor = player:GetAttribute(`Armor_{classId}`) == true,
+		grip = heroGrip,
+		-- (the crouch places the dagger itself; a tilt also keeps the arm
+		-- out of Roblox's tool-holding animation)
+		handTilt = if atEase then FIRE_KNIGHT_TILT elseif crouch then CFrame.identity else nil,
+		plant = if throned then THRONE_PLANT else nil,
+		plantScale = if throned then THRONE_PLANT_SCALE else nil,
+	})
+	if crouch and root then
+		local arm = model:FindFirstChild("Right Arm")
+		local grip = arm and arm:FindFirstChild("LookGrip")
+		if grip and grip:IsA("Weld") then
+			grip.C0, grip.C1 = ROGUE_GRIP, CFrame.identity
+		end
+		-- The second knife away: the left fist is on the floor.
+		for _, d in ipairs(model:GetDescendants()) do
+			if d:IsA("Weld") and d.Name == "OffHandGrip" and d.Part1 then
+				local off = d.Part1
+				local tool = off:FindFirstAncestorOfClass("Tool")
+				for _, c in ipairs(if tool then tool:GetDescendants() else {}) do
+					if c:IsA("WeldConstraint") and c.Part0 == off and c.Part1 then c.Part1:Destroy() end
+				end
+				off:Destroy()
+			end
+		end
+		-- (for whoever frames the portrait: see SummonScreen's setPortrait)
+		model:SetAttribute("FrameAt", ROGUE_FRAME_AT)
+		model:SetAttribute("FrameSize", ROGUE_FRAME_SIZE)
+		-- Each joint turned so its part sits where the crouch puts it. Written
+		-- after the Animator's own pass every frame, so nothing playing on
+		-- the copy can pull a limb back.
+		local placed: { { motor: Motor6D, at: CFrame } } = {}
+		for _, d in ipairs(model:GetDescendants()) do
+			if not d:IsA("Motor6D") then continue end
+			local p0, p1 = d.Part0, d.Part1
+			local target = p1 and ROGUE_CROUCH[p1.Name]
+			if not (p0 and target) then continue end
+			local base = if p0 == root then CFrame.identity else ROGUE_CROUCH.Torso
+			table.insert(placed, { motor = d, at = (base * d.C0):Inverse() * target * d.C1 })
+		end
+		table.insert(conns, RunService.Stepped:Connect(function()
+			for _, j in ipairs(placed) do j.motor.Transform = j.at end
+		end))
+	end
+	seatWeapons(model)
 	-- CastPoses multiplies its pose onto Motor6D.Transform every frame, relying
 	-- on the Animator to reset the joints first. The copy has no animation
 	-- playing, so reset them ourselves or the pose compounds and the rig spins.
@@ -379,9 +673,19 @@ local function heroShowcase(reward: any, classId: string, accent: Color3): (Mode
 	-- Pose once it's in the world (motors need a parent to animate).
 	model.AncestryChanged:Connect(function(_, parent)
 		if not (parent and root) then return end
-		-- Same pose as the class-select screen: the Heavy Knight uses its
-		-- uploaded animation, the other classes a held procedural pose.
-		if classId ~= "heavy_knight" and CastPoses.holdUltPreview(model, classId) then return end
+		if crouch then return end -- (held by its joints, above)
+		-- The Death Knight on his throne, the Fire Knight at ease; the other
+		-- classes their ultimate's held pose, as on the class select.
+		local held = if throned then THRONE_SEATED elseif atEase then FIRE_KNIGHT_EASE else nil
+		if held then
+			CastPoses.play(model, {
+				{ dur = 0.05, pose = held },
+				-- (held still until CastPoses.stop: portraits don't move)
+				{ dur = 1e6, pose = held },
+			}, nil, true)
+			return
+		end
+		if CastPoses.holdUltPreview(model, classId, { still = true }) then return end
 		local humanoid = model:FindFirstChildOfClass("Humanoid")
 		if not humanoid then return end
 		local animator = humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator")

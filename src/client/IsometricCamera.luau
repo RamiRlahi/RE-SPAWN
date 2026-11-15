@@ -109,6 +109,12 @@ local function lens(cam: Camera, want: number, dt: number, now: number)
 	cam.FieldOfView = math.max(base - punchOffset(now), 20)
 end
 
+-- A pause (a cutscene has the camera): when it began, how long it may last
+-- before the camera is taken back, and where the normal camera was looking.
+local pausedAt = 0
+local PAUSE_LIMIT = 20
+local classicView: { look: Vector3, dist: number }? = nil
+
 -- Head aiming state
 local origNeckC0: CFrame? = nil
 local currentAimYaw = 0
@@ -723,12 +729,25 @@ function IsometricCamera.Start(transitionDuration: number?)
 	local wasClassic: boolean? = nil
 	local isoFree = false
 	renderConnection = RunService.RenderStepped:Connect(function(dt)
-		if not isActive or isPaused then return end
+		if not isActive then return end
+		if isPaused then
+			-- (a cutscene that never handed the camera back, e.g. it broke off
+			-- half way: taken back after a while, not left wherever it stopped.
+			-- Not the settings window: that holds the camera as long as it's open.)
+			if os.clock() - pausedAt > PAUSE_LIMIT and player:GetAttribute("SettingsOpen") ~= true then
+				IsometricCamera.Resume(0.35)
+			end
+			return
+		end
 		-- (the setting, switched any time: hand the camera over / take it back)
 		local classic = classicOn()
 		if classic ~= wasClassic then
 			wasClassic = classic
 			isoFree = false
+			applyClassic(classic)
+		elseif cam.CameraType ~= (if classic then Enum.CameraType.Custom else Enum.CameraType.Scriptable) then
+			-- (a cutscene that ended after another had already handed the camera
+			-- back left it in the wrong mode: put right at once)
 			applyClassic(classic)
 		end
 		if classic then
@@ -859,6 +878,19 @@ function IsometricCamera.SetFocus(character: Model?)
 end
 
 function IsometricCamera.Pause()
+	if not isPaused then
+		pausedAt = os.clock()
+		-- Where the normal (third-person) camera was looking, so it goes back
+		-- there after the cutscene. (Roblox's camera carries on from wherever
+		-- the camera was left: after an ultimate's close-up that was in front
+		-- of the character, looking back at it.)
+		local cam = getCamera()
+		local root = getCharacterRoot()
+		classicView = nil
+		if classicOn() and root and cam.CameraType == Enum.CameraType.Custom then
+			classicView = { look = cam.CFrame.LookVector, dist = (cam.CFrame.Position - cam.Focus.Position).Magnitude }
+		end
+	end
 	isPaused = true
 	if classicOn() then releaseShiftLock() end
 	-- (whoever takes the camera owns its lens now; the loop eases back from
@@ -872,6 +904,17 @@ function IsometricCamera.Resume(transitionDuration: number?)
 	isPaused = false
 	lensFov = nil
 	if classicOn() then
+		-- back behind the character, looking where it looked before
+		local cam = getCamera()
+		local root = getCharacterRoot()
+		local view = classicView
+		classicView = nil
+		if root then
+			local look = if view then view.look else root.CFrame.LookVector
+			local dist = if view then math.clamp(view.dist, 4, 40) else 12
+			local focus = root.Position + Vector3.new(0, 1.5, 0)
+			cam.CFrame = CFrame.lookAt(focus - look * dist, focus)
+		end
 		applyClassic(true)
 		return
 	end

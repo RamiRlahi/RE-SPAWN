@@ -1404,13 +1404,18 @@ function CastPoses.previewBeats(classId: string): { [string]: number }
 	return if def and def.beats then def.beats else {}
 end
 
-export type PreviewOptions = { right: Vector3? }
+-- `still`: straight into the held pose and no idle motion (a portrait).
+export type PreviewOptions = { right: Vector3?, still: boolean? }
 
 function CastPoses.holdUltPreview(char: Model?, classId: string, opts: PreviewOptions?): boolean
 	if not char then return false end
 	local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	local def = resolvePreview(classId, previewCtx(root, opts and opts.right))
 	if not def then return false end
+	if opts and opts.still then
+		CastPoses.play(char, { { dur = 0.05, pose = def.pose }, { dur = 1e6, pose = def.pose } }, nil, true)
+		return true
+	end
 	local stages = table.clone(def.intro)
 	local introLen = 0
 	for _, st in ipairs(stages) do introLen += st.dur end

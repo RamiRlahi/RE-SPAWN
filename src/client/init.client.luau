@@ -61,6 +61,8 @@ pcall(function()
 end)
 pcall(function()
 	require(script:WaitForChild("PowerBadge")).Init() -- your POWER on the HUD (it pops when it rises)
+	require(script:WaitForChild("PowerNameplates")).Init() -- everyone's POWER over their name (grander the higher it is)
+	require(script:WaitForChild("MobHitFeedback")).Init() -- a mob's HP bar: the lost chunk as a white band, a kick on each hit
 end)
 pcall(function()
 	require(script:WaitForChild("WeaponForgeFX")).Init() -- a forged weapon's sparks / embers / flames
@@ -160,10 +162,6 @@ if successTorch and TorchLightController then
 	end)
 end
 
--- Classic ARPG blob shadow under every player character
-pcall(function()
-	require(script:WaitForChild("PlayerShadow")).Init()
-end)
 
 -- Radial emote wheel for dungeon runs and lobby (T key)
 pcall(function()

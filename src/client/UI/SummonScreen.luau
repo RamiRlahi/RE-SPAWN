@@ -37,6 +37,7 @@ local ContextActionService = game:GetService("ContextActionService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local ClickOutside = require(script.Parent:WaitForChild("ClickOutside"))
 local MapData = require(Shared:WaitForChild("MapData"))
 local GachaConfig = require(Shared:WaitForChild("GachaConfig"))
 local GachaRewards = require(Shared:WaitForChild("GachaRewards"))
@@ -416,13 +417,37 @@ local function setPortrait(key: any, vp: ViewportFrame, reward: any, mode: strin
 	if not ok or not model then return end
 	portraitCleanups[key] = cleanup
 	local figure = FIGURE_TYPES[reward.type] == true
-	if figure then
+	-- A showcase that isn't a standing figure says what has to be in the
+	-- picture (the Rogue's crouch): the middle of it and its width and height,
+	-- in the model's own space. Both the card and the big panel show all of it.
+	local frameAt, frameSize = model:GetAttribute("FrameAt"), model:GetAttribute("FrameSize")
+	local whole = figure and typeof(frameAt) == "Vector3" and typeof(frameSize) == "Vector2"
+	if whole then
+		model:PivotTo(CFrame.Angles(0, math.pi, 0)) -- (composed to be seen straight on)
+	elseif figure then
 		-- (rigs face -Z: turned to the camera, a little to the side)
 		model:PivotTo(CFrame.Angles(0, math.pi + math.rad(if mode == "bust" then 16 else 22), 0))
 	end
 	model.Parent = world -- (poses once it's in a world)
 	local camera = cam :: Camera
-	if figure then
+	if whole then
+		camera.FieldOfView = 30
+		local at = model:GetPivot():PointToWorldSpace(frameAt :: Vector3)
+		local size = frameSize :: Vector2
+		local abs = vp.AbsoluteSize
+		local aspect = if abs.X > 1 and abs.Y > 1 then abs.X / abs.Y else 0.8
+		local half = math.tan(math.rad(camera.FieldOfView / 2))
+		-- (far enough for its height, and for its width in this viewport's shape)
+		local dist = math.max(size.Y / 2 / half, size.X / 2 / (half * aspect)) + 1
+		if mode == "bust" then
+			-- (the cards come in close, like the other classes' portraits: the
+			-- head, both arms and the blade, the feet and the blade's tip let go)
+			dist *= 0.7
+			-- (up toward the head, and across toward the blade)
+			at += model:GetPivot():VectorToWorldSpace(Vector3.new(0.45, size.Y * 0.1, 0))
+		end
+		camera.CFrame = CFrame.lookAt(at + Vector3.new(0, dist * 0.06, dist), at)
+	elseif figure then
 		if mode == "bust" then
 			camera.FieldOfView = 30
 			local target = Vector3.new(0, 1.2, 0)
@@ -1369,11 +1394,13 @@ local function build(): ScreenGui
 
 	-- ── Overlays (exchange, rates, results): a dimmed backdrop + a panel ──
 	local overlays: { Frame } = {}
+	local overlayPanel: { [Instance]: Frame } = {} -- (each backdrop's window: a click on it never closes it)
 	local function overlay(name: string, size: UDim2, z: number): (Frame, Frame)
 		local dim = new("TextButton", { Name = name, Visible = false, AutoButtonColor = false, Text = "", Size = UDim2.fromScale(1, 1), BackgroundColor3 = C.Ink,
 			BackgroundTransparency = 0.22, BorderSizePixel = 0, ZIndex = z, Selectable = false }, root)
 		local p = panel(dim, { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = size, ZIndex = z + 1, Active = true }, true)
 		table.insert(overlays, dim)
+		overlayPanel[dim] = p
 		return dim, p
 	end
 	local function zAll(f: Instance, z: number)
@@ -1653,7 +1680,7 @@ local function build(): ScreenGui
 		SummonScreen.Close()
 	end
 	for _, o in ipairs(overlays) do
-		(o :: any).Activated:Connect(function()
+		ClickOutside.Bind(o :: any, overlayPanel[o], function()
 			if o.Name ~= "Results" then o.Visible = false end
 		end)
 	end

@@ -55,9 +55,32 @@ AtmosphereManager.Config = {
 	WindowShaftOpacity = 0.075,   -- per layer; three layers stack into a soft core
 }
 
+-- ── 0. One sky per theme ─────────────────────────────────────────────────────
+-- The place keeps several skyboxes in Lighting, and Roblox shows any one of
+-- them when more than one is there. Each theme names its own (MapData's `sky`,
+-- LOBBY_SKY for the plaza); only that one is left in Lighting, the others are
+-- held here. Client only: every player sees the sky of the map they are in.
+AtmosphereManager.LOBBY_SKY = "Sky"
+AtmosphereManager.DEFAULT_SKY = "Sky"
+local skyBank: { [string]: Sky } = {}
+
+-- name: the sky to show (nil: none of the place's, e.g. under the title's own).
+function AtmosphereManager.UseSky(name: string?)
+	if not game:GetService("RunService"):IsClient() then return end
+	for _, s in ipairs(Lighting:GetChildren()) do
+		if s:IsA("Sky") and s.Name ~= "MenuSky" then skyBank[s.Name] = s end
+	end
+	local want = if name then (skyBank[name] or skyBank[AtmosphereManager.DEFAULT_SKY]) else nil
+	for _, s in pairs(skyBank) do
+		local parent = if s == want then Lighting else nil
+		if s.Parent ~= parent then s.Parent = parent end
+	end
+end
+
 -- ── 1. Lighting & Atmosphere Setup ───────────────────────────────────────────
 
 function AtmosphereManager.ApplyLobbyLighting()
+	AtmosphereManager.UseSky(AtmosphereManager.LOBBY_SKY)
 	-- Configure bright daytime lobby / sanctuary lighting
 	Lighting.Ambient = Color3.fromRGB(180, 180, 190)
 	Lighting.OutdoorAmbient = Color3.fromRGB(150, 150, 160)
@@ -95,6 +118,8 @@ function AtmosphereManager.ApplyDungeonLighting(mapId: string?)
 	local ok, MapData = pcall(function() return require(script.Parent:WaitForChild("MapData")) end)
 	local map = if ok and MapData then MapData.Get(mapId) else nil
 	local ml = map and map.lighting
+	-- (the map's own sky, always the same one)
+	AtmosphereManager.UseSky((map and map.sky) or AtmosphereManager.DEFAULT_SKY)
 
 	-- Bright, even light (the map only tints the colour grade), unless the map
 	-- asks for the dark (the Neon Arcade: night, so its neon shines)

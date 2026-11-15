@@ -6,6 +6,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local UITheme = require(Shared:WaitForChild("UITheme"))
 local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
 local Network = require(Shared:WaitForChild("Network"))
+local ClickOutside = require(script.Parent:WaitForChild("ClickOutside"))
 
 local function safeRequire(childName: string)
 	local child = script.Parent:WaitForChild(childName, 5)
@@ -203,13 +204,13 @@ local function showCredits()
 	overlay.BackgroundTransparency = 0.35
 	overlay.ZIndex = 50
 	overlay.Parent = screenGui
-	overlay.Activated:Connect(function() overlay.Visible = false end)
 	creditsDialog = overlay
 
 	local panel = Instance.new("Frame")
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.Position = UDim2.fromScale(0.5, 0.5)
 	panel.Size = UDim2.fromOffset(380, 220)
+	ClickOutside.Bind(overlay, panel, function() overlay.Visible = false end)
 	panel.BackgroundColor3 = Color3.fromRGB(16, 11, 20)
 	panel.BackgroundTransparency = 0.1
 	panel.ZIndex = 51
@@ -234,7 +235,7 @@ local function showCredits()
 	text("CREDITS", 22, 30, 22, Color3.fromRGB(255, 213, 128), 0)
 	text("CREATED BY", 82, 18, 13, Color3.fromRGB(194, 132, 52), 0.1)
 	text("Birgsin", 104, 40, 32, Color3.fromRGB(232, 222, 204), 0)
-	text("click anywhere to close", 176, 18, 11, Color3.fromRGB(190, 160, 120), 0.4)
+	text("click outside to close", 176, 18, 11, Color3.fromRGB(190, 160, 120), 0.4)
 end
 
 -- ── The ready phase owns the screen ─────────────────────────────────────────

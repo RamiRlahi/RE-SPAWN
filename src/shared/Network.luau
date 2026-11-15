@@ -83,6 +83,8 @@ Network.Remotes = {
 	RunSummary          = "RunSummary",
 	Evolution           = "Evolution",
 	ArmoryState         = "ArmoryState",     -- server → client: { owned = { [id] = count }, equipped = { weapon, aura, title } }
+	StoreAction         = "StoreAction",     -- client → server: { kind = "buyMount" | "forgeSkip" | "claimGroup" | "claimLike", ... } (StoreManager)
+	StoreResult         = "StoreResult",     -- server → client: { kind, ok, message }
 	ArmoryAction        = "ArmoryAction",    -- client → server: { kind = "equip", slot, id? }
 	RequestArmory       = "RequestArmory",   -- client → server: ask for an ArmoryState sync
 	LootDrop            = "LootDrop",        -- server → finder: { id, name, rarity, slot, glyph, isNew, source }       -- server → client: a boon evolved { id, name, description, color, isNew }

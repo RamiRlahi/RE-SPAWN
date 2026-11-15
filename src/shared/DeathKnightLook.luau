@@ -57,9 +57,21 @@ local M = Enum.Material
 
 local function R(d: number): number return math.rad(d) end
 
+-- The plate is drawn at full bulk below, then worn slimmer: while Dress runs,
+-- every piece's width and depth (and its offset across the limb) shrink by
+-- SLIM, its height kept, so it hugs the body instead of doubling it. (Not the
+-- Graveblade, which is built with the same `piece`.)
+local SLIM = 0.84
+local slimming = false
+
 -- A part at `offset` from `base`, welded to it.
 local function piece(parent: Instance, base: BasePart, name: string, size: Vector3, offset: CFrame, color: Color3,
 	material: Enum.Material?, shape: string?): BasePart
+	if slimming then
+		size = Vector3.new(size.X * SLIM, size.Y, size.Z * SLIM)
+		local at = offset.Position
+		offset = CFrame.new(at.X * SLIM, at.Y, at.Z * SLIM) * offset.Rotation
+	end
 	local p: BasePart
 	if shape == "wedge" then
 		p = Instance.new("WedgePart")
@@ -509,8 +521,9 @@ local function helm(model: Model, head: BasePart)
 	piece(model, head, "CrownBand", Vector3.new(1.72, 0.22, 1.74), CFrame.new(0, 0.98, 0.02), ASH)
 	for _, s in ipairs({ { a = 0, h = 1.35 }, { a = 32, h = 1.0 }, { a = -32, h = 1.0 }, { a = 64, h = 0.8 }, { a = -64, h = 0.8 },
 		{ a = 100, h = 0.62 }, { a = -100, h = 0.62 }, { a = 145, h = 0.5 }, { a = -145, h = 0.5 } }) do
-		local at = CFrame.new(0, 1.06 + s.h / 2, 0.02) * CFrame.Angles(0, R(s.a), 0) * CFrame.new(0, 0, -0.74)
-		fin(model, head, "CrownSpike", at, 0.42, s.h, 0.15, if s.a == 0 then OBSIDIAN else CHARCOAL)
+		local h = s.h * 0.72
+		local at = CFrame.new(0, 1.06 + h / 2, 0.02) * CFrame.Angles(0, R(s.a), 0) * CFrame.new(0, 0, -0.74)
+		fin(model, head, "CrownSpike", at, 0.42, h, 0.15, if s.a == 0 then OBSIDIAN else CHARCOAL)
 	end
 	piece(model, head, "CrownGem", Vector3.new(0.16, 0.16, 0.06), CFrame.new(0, 1.0, -0.9) * CFrame.Angles(0, 0, R(45)), SPECTRAL, M.Neon).Transparency = 0.3
 end
@@ -558,7 +571,7 @@ local function pauldron(model: Model, arm: BasePart, sx: number)
 		piece(model, arm, "PauldronEdge", Vector3.new(0.1, L.size.Y + 0.02, L.size.Z + 0.02), cf * CFrame.new(sx * (L.size.X / 2 + 0.03), 0, 0), STEEL)
 	end
 	for k = -1, 1 do
-		local h = if k == 0 then 1.35 else 0.95
+		local h = if k == 0 then 1.0 else 0.7
 		fin(model, arm, "PauldronSpike", CFrame.new(sx * 0.42, 1.28 + h / 2, k * 0.55) * CFrame.Angles(0, 0, R(sx * -30)), 0.5, h, 0.16,
 			if k == 0 then ASH else CHARCOAL)
 	end
@@ -634,6 +647,7 @@ function DeathKnightLook.Dress(char: Model)
 	end
 	for _, acc in ipairs(char:GetChildren()) do DeathKnightLook.HideAccessory(acc) end
 
+	slimming = true
 	helm(model, head)
 	cuirass(model, torso)
 	for _, side in ipairs({ "Left Arm", "Right Arm" }) do
@@ -644,6 +658,7 @@ function DeathKnightLook.Dress(char: Model)
 		local leg = char:FindFirstChild(side) :: BasePart?
 		if leg then legPlate(model, leg, if side == "Right Leg" then 1 else -1) end
 	end
+	slimming = false
 
 	-- Black mist leaking from the plate: off the cuirass, rising; off the
 	-- pauldrons; and sinking round his feet.

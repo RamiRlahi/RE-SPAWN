@@ -12,6 +12,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local ClickOutside = require(script.Parent:WaitForChild("ClickOutside"))
 local TomeData = require(Shared:WaitForChild("TomeData"))
 local TomeIcons = require(script.Parent:WaitForChild("TomeIcons"))
 
@@ -208,7 +209,6 @@ local function showOffer(roomId: number, tomes: { any })
 	backdrop.Text = ""
 	backdrop.AutoButtonColor = false
 	backdrop.Parent = rg
-	backdrop.MouseButton1Click:Connect(close)
 
 	-- Center Modal Window
 	local modal = Instance.new("Frame")
@@ -219,6 +219,7 @@ local function showOffer(roomId: number, tomes: { any })
 	modal.BackgroundColor3 = Color3.fromRGB(18, 14, 16)
 	modal.BorderSizePixel = 0
 	modal.Parent = rg
+	ClickOutside.Bind(backdrop, modal, close)
 
 	local modalCorner = Instance.new("UICorner")
 	modalCorner.CornerRadius = UDim.new(0, 12)

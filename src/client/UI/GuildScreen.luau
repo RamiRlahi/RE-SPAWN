@@ -27,6 +27,7 @@ local Debris = game:GetService("Debris")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local ClickOutside = require(script.Parent:WaitForChild("ClickOutside"))
 local GuildData = require(Shared:WaitForChild("GuildData"))
 
 local player = Players.LocalPlayer
@@ -377,7 +378,6 @@ local function build()
 	dim.BackgroundColor3 = Color3.new(0, 0, 0)
 	dim.BackgroundTransparency = 0.45
 	dim.Parent = g
-	dim.MouseButton1Click:Connect(GuildScreen.Close)
 	local W, H = 760, 580
 	local panel = Instance.new("Frame")
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -385,6 +385,7 @@ local function build()
 	panel.Size = UDim2.fromOffset(W, H)
 	panel.BackgroundColor3 = DARK
 	panel.Parent = g
+	ClickOutside.Bind(dim, panel, GuildScreen.Close)
 	corner(panel, 12)
 	local ps = Instance.new("UIStroke")
 	ps.Color = GOLD

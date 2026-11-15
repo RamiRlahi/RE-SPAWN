@@ -36,6 +36,7 @@ export type Profile = {
 	classes: { [string]: boolean },                    -- classes owned (unlocked for good: GachaManager)
 	history: { { any } },                             -- the last summons, newest last: { id, rarity, banner, time }
 	stats: { [string]: number },                      -- lifetime counters (pulls, kills…)
+	store: { [string]: any },                         -- StoreManager: { forgeSkips, claimedGroup, claimedLike }
 	purchases: { [string]: boolean },                 -- processed receipt ids (idempotent grants)
 	account: { level: number, xp: number },           -- account level 1..100 (AccountManager)
 	codex: { [string]: boolean },                     -- evolutions discovered (the Build Codex)
@@ -63,6 +64,7 @@ local function newProfile(): Profile
 		history = {},
 		stats = {},
 		purchases = {},
+		store = {}, -- StoreManager: forge skips held, community rewards claimed
 		account = { level = 1, xp = 0 },
 		codex = {},
 		records = {},

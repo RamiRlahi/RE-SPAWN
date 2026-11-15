@@ -29,7 +29,8 @@
 	                             "DevMove" on the boss model to call a move)
 	  tower|userId|radius        an immunity tower (ImmunityTower) on the floor
 	                             16 studs in front of the player
-	  own|userId|classId         a locked class owned (this session only)
+	  forgeskip|userId|n         n forge skips given (StoreManager)
+  own|userId|classId         a locked class owned (this session only)
 	  ready|userId               every skill off cooldown, the class meters
 	                             full (Rage, Qi Charge, ...): ults on demand
 	  gacha_drop|userId          a Pull Ticket dropped on the floor in front of them
@@ -285,6 +286,13 @@ function DevHooks.Init()
 			-- (off the arena's cross, where its flame vents are)
 			if root then root.CFrame = CFrame.new(mid + Vector3.new(30, 5, 16)) end
 			return mid
+		elseif cmd == "forgeskip" then
+			-- (Studio only: forge skips given without buying one)
+			local p = plr(a)
+			if not p then return "no player" end
+			local StoreManager = require(script.Parent:WaitForChild("StoreManager")) :: any
+			StoreManager.DevGiveSkip(p, tonumber(b) or 1)
+			return p:GetAttribute("ForgeSkips")
 		elseif cmd == "own" then
 			-- (Studio only: the class owned, unsaved, to test a locked kit)
 			local p = plr(a)

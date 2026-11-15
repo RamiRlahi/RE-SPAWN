@@ -48,6 +48,7 @@ export type Map = {
 	packs: { number },      -- MobKinds PACKS indices its rooms draw from
 	bosses: { string },     -- BossAI kinds for the other boss rooms
 	lighting: Lighting,
+	sky: string?,           -- its own skybox: the name of a Sky in Lighting (AtmosphereManager.UseSky), always this one
 	unlockFloor: number?,   -- your deepest floor must reach this to enter
 	sealed: boolean?,       -- chained shut: on the picker (last, in chains) but never enterable
 	hidden: boolean?,       -- taken out for now: no gate, not on the picker, never enterable (its code kept: MapData.Hidden)
@@ -88,6 +89,7 @@ local MapData = {}
 MapData.Maps = {
 	{
 		id = "crypt",
+		sky = "Ame Greenhaze",
 		power = { 100, 300, 600 }, -- recommended POWER: normal, hard, nightmare
 		name = "The Prison of Souls",
 		subtitle = "Stay out of the light",
@@ -118,6 +120,7 @@ MapData.Maps = {
 	},
 	{
 		id = "keep",
+		sky = "RedSky",
 		power = { 200, 450, 800 }, -- recommended POWER: normal, hard, nightmare
 		name = "The Infernal Keep",
 		subtitle = "The Cinder Wyrm's lair",
@@ -150,6 +153,7 @@ MapData.Maps = {
 	},
 	{
 		id = "arcade",
+		sky = "Sky",
 		power = { 350, 700, 1200 }, -- recommended POWER: normal, hard, nightmare
 		name = "The Neon Arcade",
 		subtitle = "Break the towers",
@@ -182,6 +186,7 @@ MapData.Maps = {
 	},
 	{
 		id = "isle",
+		sky = "Sky",
 		power = { 250, 550, 900 }, -- recommended POWER: normal, hard, nightmare
 		name = "The Forgotten Isle",
 		-- (taken out for now: its six islands, enemies and bosses stay in the
@@ -215,6 +220,7 @@ MapData.Maps = {
 	},
 	{
 		id = "frost",
+		sky = "Sky",
 		power = { 300, 650, 1000 }, -- recommended POWER: normal, hard, nightmare
 		name = "The Frozen Halls",
 		sealed = true, -- chained shut: shown last on the picker, can't be entered
@@ -238,6 +244,7 @@ MapData.Maps = {
 -- there, and new players are sent in once: Tutorial.luau).
 MapData.Tutorial = {
 	id = "tutorial",
+	sky = "RedSky",
 	name = "The Proving Grounds",
 	subtitle = "Learn the ropes",
 	rank = "-",

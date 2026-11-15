@@ -296,6 +296,12 @@ local function step(dt: number)
 		if here and entry then
 			local minX, maxX = (here.gx - 0.5) * FLOOR - 6, (here.gx + here.w - 0.5) * FLOOR + 6
 			local minZ, maxZ = (here.gz - 0.5) * FLOOR - 6, (here.gz + here.d - 0.5) * FLOOR + 6
+			-- (the boss's arena: its way out, the stairs up to the portal, runs
+			-- far out past its +X side: ArenaBuilder.BossExit. Without this the
+			-- party was put back at the entrance as it set foot on the stairs.)
+			if here.roomType == "Boss" then
+				maxX += math.max(here.w, here.d) * FLOOR * 0.21 + 80
+			end
 			for _, plr in ipairs(party(f)) do
 				-- (still arriving on a new level: DungeonGenerator.NextLevel places them)
 				if (grace[plr] or 0) > now or plr:GetAttribute("Arriving") == true then continue end
