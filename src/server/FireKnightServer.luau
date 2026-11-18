@@ -855,6 +855,13 @@ function FireKnightServer.Reset(player: Player)
 end
 
 function FireKnightServer.Init(helpers: any)
+	-- (a dash cuts the move short: free to act again, and what was left of it doesn't land)
+	(require(script.Parent:WaitForChild("Dash")) :: any).OnDash(function(p: Player)
+		local st = states[p] :: any
+		if not st then return end
+		st.busyUntil = 0
+		if type(st.token) == "number" then st.token += 1 end
+	end)
 	H = helpers
 	RunService.Heartbeat:Connect(step)
 	Network.GetRemoteEvent(Network.Remotes.FireKnightAim).OnServerEvent:Connect(onAim)

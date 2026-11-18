@@ -47,7 +47,7 @@ local FALL_Y = HUB.Y - 60                -- below this you're put back in the pl
 local hub: Model? = nil
 local spawnCF = CFrame.new(HUB + Vector3.new(0, 4, 30))
 
-local onGate: (Player, string) -> ()
+local onGate: (Player, string, string?) -> ()
 
 -- ── Moving players ──────────────────────────────────────────────────────────
 local function state(player: Player, payload: any)
@@ -105,8 +105,10 @@ local function toCampfire(player: Player, mapId: string): boolean
 	return true
 end
 
-onGate = function(player: Player, mapId: string)
+onGate = function(player: Player, mapId: string, modeId: string?)
 	if player:GetAttribute("InHub") ~= true or not MapData.Get(mapId) then return end
+	-- (the difficulty mode picked with it: NORMAL unless a known one)
+	local mode = MapData.Mode(modeId).id
 	local map = MapData.Get(mapId)
 	if map and map.hidden then return end -- (taken out for now)
 	if map and map.sealed then
@@ -114,7 +116,7 @@ onGate = function(player: Player, mapId: string)
 		return
 	end
 	if map and map.unlockFloor and (player:GetAttribute("BestFloor") or 0) < map.unlockFloor then
-		state(player, { mode = "hub", notice = `{map.name}: reach floor {map.unlockFloor} in any dungeon to open it.` })
+		state(player, { mode = "hub", notice = `{map.name}: reach floor {map.unlockFloor} to unlock.` })
 		return
 	end
 	local leader = PartyManager.Leader(player)
@@ -124,12 +126,14 @@ onGate = function(player: Player, mapId: string)
 		if leader:GetAttribute("AtCampfire") == true and typeof(led) == "string" then
 			toCampfire(player, led)
 		else
-			state(player, { mode = "hub", notice = `Only {leader.DisplayName} (your party leader) can choose the map.` })
+			state(player, { mode = "hub", notice = `Only {leader.DisplayName} (leader) can choose.` })
 		end
 		return
 	end
-	-- The leader: everyone in the party walking the lobby comes along.
+	-- The leader: everyone in the party walking the lobby comes along (the
+	-- run's mode is the leader's: RunManager reads it off them).
 	for _, m in ipairs(PartyManager.Members(player)) do
+		if m.Parent then m:SetAttribute("LobbyMode", mode) end
 		if m.Parent and (m == player or m:GetAttribute("InHub") == true) then
 			toCampfire(m, mapId)
 		elseif m.Parent and m ~= player then
@@ -191,7 +195,7 @@ function LobbyManager.Init()
 			CampfireManager.Unseat(player)
 			LobbyManager.ToHub(player)
 		elseif payload.kind == "pick" and typeof(payload.mapId) == "string" then
-			onGate(player, payload.mapId)
+			onGate(player, payload.mapId, if typeof(payload.mode) == "string" then payload.mode else nil)
 		elseif payload.kind == "tutorial" and player:GetAttribute("InHub") == true then
 			Tutorial.Begin(player)
 		end

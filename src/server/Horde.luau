@@ -29,8 +29,8 @@ local WeeklyModifiers = require(ReplicatedStorage:WaitForChild("Shared"):WaitFor
 local Horde = {}
 
 local HORDE_CHANCE = 0.75
-local HORDE_MIN, HORDE_MAX = 50, 130 -- seconds into the floor
-local HORDE_TIME = 60
+local HORDE_MIN, HORDE_MAX = 30, 75 -- seconds into the floor (floors are short)
+local HORDE_TIME = 45
 local HORDE_CAP = 60
 local WAVE_EVERY = 1.6
 

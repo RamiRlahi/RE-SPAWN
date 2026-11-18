@@ -3,7 +3,7 @@
 	Corruption.luau
 	The greed: what extracting does, and what staying costs.
 
-	  EXTRACT (every third floor's golden portal, the whole party in it): the
+	  EXTRACT (every second floor's golden portal, the whole party in it): the
 	    run ends for everyone as a success. All the loot they carry is kept
 	    (LootManager), plus two drops each, Rare or better.
 

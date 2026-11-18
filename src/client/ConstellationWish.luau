@@ -188,8 +188,10 @@ local function tween(obj: Instance, t: number, props: { [string]: any }, style: 
 	return tw
 end
 
+-- (the wish's sounds, stopped when it ends or is skipped: ClassFX.SoundScope)
+local scopedSfx: ((key: string, volume: number, pitch: number?) -> ())? = nil
 local function sfx(key: string, volume: number, pitch: number?)
-	ClassFX.Sound2D(key, volume, pitch)
+	if scopedSfx then scopedSfx(key, volume, pitch) else ClassFX.Sound2D(key, volume, pitch) end
 end
 
 local function rarityIndex(r: string): number
@@ -227,6 +229,8 @@ function ConstellationWish.Play(best: any, all: { any }?, onDone: (() -> ())?)
 	local pulls = if all and #all > 0 then all else { best }
 	local bestIndex = rarityIndex(best.rarity)
 
+	local playSfx, stopSfx = ClassFX.SoundScope()
+	scopedSfx = playSfx
 	local world = Instance.new("Folder")
 	world.Name = "ConstellationWish"
 	world.Parent = Workspace.Terrain
@@ -937,6 +941,9 @@ function ConstellationWish.Play(best: any, all: { any }?, onDone: (() -> ())?)
 	bloom:Destroy()
 	grade:Destroy()
 	restoreLighting()
+	-- (its wind, choir and chimes end with it, and none start late)
+	stopSfx()
+	if scopedSfx == playSfx then scopedSfx = nil end
 	for s, vol in pairs(ducked) do
 		if s.Parent then tween(s, 0.8, { Volume = vol }) end
 	end

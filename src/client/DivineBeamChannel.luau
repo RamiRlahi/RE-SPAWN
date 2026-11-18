@@ -18,7 +18,7 @@ local HOLY_YELLOW = Color3.fromRGB(255, 232, 120)
 local HOLY_AMBER = Color3.fromRGB(255, 184, 66)
 local HOLY_RAY_TEXTURE = "rbxassetid://1053548563"
 
-local function getCursorWorldPosition(rootPart)
+local function cursorWorldRaw(rootPart)
 	local mousePos = AimInput.ScreenPoint()
 	local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
 	local rp = RaycastParams.new()
@@ -39,6 +39,11 @@ local function getCursorWorldPosition(rootPart)
 		end
 	end
 	return rootPart.Position + rootPart.CFrame.LookVector * 100
+end
+
+-- (never behind you on the classic camera when you look up: AimInput.Ahead)
+local function getCursorWorldPosition(rootPart)
+	return AimInput.Ahead(rootPart.Position, cursorWorldRaw(rootPart))
 end
 
 local function getAimDirection(rootPart)

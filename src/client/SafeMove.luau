@@ -21,8 +21,12 @@
 	(a dash crossing a seam between floor tiles, a teleport landing on a
 	step, a fast move clipping an edge) it's lifted straight back onto it.
 	While moving fast, a missing floor (a seam) doesn't let it drop either.
-	And if it ever falls out of the level entirely, it's put back where it
-	last stood.
+	And if it ever falls out of the level entirely, it's put back at the
+	last spot it WALKED over real floor: recorded only while it is on its
+	feet, moving under its own steps, with floor all round it (not at a
+	ledge's lip, not mid-knockback, not standing still where it was thrown),
+	so it is never put back somewhere it falls again. (The one exception: the
+	spot it arrives at on a new floor, until it has taken a step there.)
 --]]
 
 local Players = game:GetService("Players")
@@ -80,11 +84,14 @@ function SafeMove.ClampToFloor(root: BasePart, dir: Vector3, dist: number): numb
 	local ok = 0
 	local step = 1.5
 	local d = step
-	while d <= dist + 0.01 do
-		local at = root.Position + flat * math.min(d, dist)
+	while true do
+		-- (the last sample is the dash's own end)
+		local s = math.min(d, dist)
+		local at = root.Position + flat * s
 		local hit = Workspace:Raycast(at + Vector3.new(0, 3, 0), Vector3.new(0, -12, 0), p)
 		if not hit or hit.Position.Y < floorY - 3 then break end
-		ok = math.min(d, dist)
+		ok = s
+		if s >= dist then break end
 		d += step
 	end
 	-- (a little back from the edge, so the body doesn't hang over it)
@@ -131,6 +138,24 @@ local guardParams: RaycastParams? = nil
 local guardParamsAt = -math.huge
 local lastPos: Vector3? = nil
 local lastSafe: CFrame? = nil
+-- (sent somewhere new and not walked there yet: the first footing found there
+-- is the fallback until a walked spot replaces it)
+local arrived = true
+-- A spot is only recorded with floor this far out on every side of it, at
+-- most a step lower; checked this often, not every frame.
+local EDGE_MARGIN = 3
+local SAFE_EVERY = 0.15
+local lastSafeCheck = 0
+local SAFE_AROUND = { Vector3.new(EDGE_MARGIN, 0, 0), Vector3.new(-EDGE_MARGIN, 0, 0), Vector3.new(0, 0, EDGE_MARGIN), Vector3.new(0, 0, -EDGE_MARGIN) }
+
+-- Floor on every side of `pos` (the floor under it at `floorY`)?
+local function floorAllRound(pos: Vector3, floorY: number, p: RaycastParams): boolean
+	for _, off in ipairs(SAFE_AROUND) do
+		local hit = Workspace:Raycast(pos + off + Vector3.new(0, 3, 0), Vector3.new(0, -(3 + (pos.Y - floorY) + 2.5), 0), p)
+		if not hit or hit.Normal.Y < 0.5 or hit.Position.Y < floorY - 2.5 then return false end
+	end
+	return true
+end
 -- After a teleport (new level, revive, portal) the new floor may not have
 -- reached this client yet: held still where we arrived (anchored here, not
 -- pushed up every frame, which jittered) until it has.
@@ -175,8 +200,10 @@ local function floorGuard()
 	-- Sent somewhere new (portal, respawn point, Blade Storm): where it last
 	-- stood no longer means anything.
 	if moved > TELEPORT * 4 then
-		-- (the spot we were sent to is the fallback if we ever fall out)
+		-- (the spot we were sent to is the fallback if we fall out before
+		-- walking here; the first good footing, then a walked spot, replace it)
 		lastSafe = root.CFrame
+		arrived = true
 		landingUntil = now + LANDING_GRACE
 	end
 	if now < landingUntil then
@@ -206,8 +233,21 @@ local function floorGuard()
 			root.CFrame += Vector3.new(0, sunk, 0)
 			root.AssemblyLinearVelocity = Vector3.new(vel.X, math.max(vel.Y, 0), vel.Z)
 			lastPos = root.Position
-		elseif not fast and sunk > -0.6 then
-			lastSafe = root.CFrame -- standing on it
+		elseif not fast and sunk > -0.6 and sunk < 0.8 and now - lastSafeCheck >= SAFE_EVERY then
+			-- On its feet on the floor. Recorded only while walking (its own
+			-- steps: not thrown, not falling, not riding a dash) with floor
+			-- all round, or as the first footing after being sent here.
+			lastSafeCheck = now
+			local state = hum:GetState()
+			local walking = hum.MoveDirection.Magnitude > 0.1 and Vector3.new(vel.X, 0, vel.Z).Magnitude > 1
+				and math.abs(vel.Y) < 6
+				and (state == Enum.HumanoidStateType.Running or state == Enum.HumanoidStateType.RunningNoPhysics)
+			if (walking or arrived) and floorAllRound(pos, hit.Position.Y, guardParams :: RaycastParams) then
+				lastSafe = root.CFrame
+				arrived = false
+			elseif arrived and not lastSafe then
+				lastSafe = root.CFrame -- (nowhere better known yet)
+			end
 		end
 	elseif fast and vel.Y < 0 and now - lastGrounded < SEAM_GRACE
 		and hum:GetState() ~= Enum.HumanoidStateType.Jumping and hum:GetState() ~= Enum.HumanoidStateType.Freefall then
@@ -231,6 +271,7 @@ function SafeMove.Init()
 	player.CharacterAdded:Connect(function()
 		release()
 		lastPos, lastSafe = nil, nil
+		arrived = true -- (its spawn point counts until it has walked)
 		landingUntil = 0
 	end)
 	RunService.Heartbeat:Connect(floorGuard)

@@ -448,6 +448,14 @@ function PlayerStats.StartRun(player: Player)
 			table.insert(state.talentEffects, e)
 		end
 	end
+	-- Power gear and the hero level (LootManager / PowerGear): the stats that
+	-- carry from run to run.
+	local okPower, powerEffects = pcall(function()
+		return (require(script.Parent:WaitForChild("LootManager")) :: any).PowerEffects(player)
+	end)
+	if okPower and typeof(powerEffects) == "table" then
+		for _, e in ipairs(powerEffects) do table.insert(state.talentEffects, e) end
+	end
 	states[player] = state
 	player:SetAttribute("Gold", 150)
 	player:SetAttribute("ArtifactCount", 0)
@@ -498,10 +506,17 @@ function PlayerStats.RollRewardBuffs(): { string }
 	return sampleChoices(pool)
 end
 
+-- On the Forgotten Isle: no tomes at all (its own gear and perks instead;
+-- its levels give stats, IslandMode).
+local function onIsland(player: Player): boolean
+	local runId = player:GetAttribute("RunId")
+	return typeof(runId) == "string" and RunScope.Get(runId, "Island") == true
+end
+
 -- One level (a tome choice) from a claimed room emblem, offering `offered`.
 function PlayerStats.LevelUp(player: Player, offered: { string }?)
 	local state = states[player]
-	if not state then return end
+	if not state or onIsland(player) then return end
 	state.offered = offered
 	state.level += 1
 	state.pendingLevelUps += 1
@@ -551,7 +566,7 @@ end
 -- `preferredId` (e.g. a shop's listed tome) is honoured when it fits.
 function PlayerStats.GrantTome(player: Player, preferredId: string?): TomeData.TomeDefinition?
 	local state = states[player]
-	if not state then return nil end
+	if not state or onIsland(player) then return nil end
 	local slotsFull = #state.uniqueTomes >= MAX_UNIQUE_TOMES
 	local tomeId: string? = nil
 	if preferredId and TomeData.GetTome(preferredId) and (state.tomeCounts[preferredId] or not slotsFull)

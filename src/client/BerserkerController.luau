@@ -107,6 +107,10 @@ local deps: Deps
 local localStep = 0
 local lastSwing = 0
 local busyUntil = 0
+-- (a dash cuts the move short: free to cast again at once)
+(require(script.Parent:WaitForChild("DashController")) :: any).OnCancel(function(c: Model)
+	if c == game:GetService("Players").LocalPlayer.Character then busyUntil = 0 end
+end)
 -- (Unchained keeps the blade's afterimage on)
 local persistTrail: { [Model]: boolean } = {}
 

@@ -36,10 +36,12 @@ export type Profile = {
 	classes: { [string]: boolean },                    -- classes owned (unlocked for good: GachaManager)
 	history: { { any } },                             -- the last summons, newest last: { id, rarity, banner, time }
 	stats: { [string]: number },                      -- lifetime counters (pulls, kills…)
+	store: { [string]: any },                         -- StoreManager: { forgeSkips, claimedGroup, claimedLike }
 	purchases: { [string]: boolean },                 -- processed receipt ids (idempotent grants)
 	account: { level: number, xp: number },           -- account level 1..100 (AccountManager)
 	codex: { [string]: boolean },                     -- evolutions discovered (the Build Codex)
 	gear: { owned: { [string]: number }, equipped: { [string]: string } }, -- the Armory (LootManager)
+	power: { items: { [string]: any }, equipped: { [string]: string }, nextUid: number, scrap: number }, -- power gear (LootManager, PowerGear)
 	records: { [string]: number },                    -- bests and totals (deepest floor, runs, kills…)
 	settings: { [string]: any },                      -- the player's settings (SettingsConfig; empty: never saved)
 	guild: string,                                    -- the guild's id ("" none: GuildManager)
@@ -62,10 +64,12 @@ local function newProfile(): Profile
 		history = {},
 		stats = {},
 		purchases = {},
+		store = {}, -- StoreManager: forge skips held, community rewards claimed
 		account = { level = 1, xp = 0 },
 		codex = {},
 		records = {},
 		gear = { owned = {}, equipped = {} },
+		power = { items = {}, equipped = {}, nextUid = 1, scrap = 0 },
 		settings = {},
 		guild = "",
 		guildRequest = "",

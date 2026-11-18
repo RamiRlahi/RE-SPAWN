@@ -3,8 +3,10 @@
 	Souls and class talent trees (see shared TalentData). Stored in the shared
 	PlayerData profile (profile.souls, profile.unlocked).
 
-	  • Souls: bosses give BOSS_SOULS; every KILLS_PER_SOUL kills gives 1; the
-	    gacha also grants souls (refined Soul Shards).
+	  • Souls: bosses give BOSS_SOULS; every KILLS_PER_SOUL kills gives 1;
+	    every floor cleared (going down to the next) gives FLOOR_SOULS; all
+	    × the run's difficulty mode's reward (MapData.MODES). The gacha also
+	    grants souls (refined Soul Shards).
 	  • UnlockTalent (client → server) is fully validated here.
 	  • GetEffects(player, classId) feeds PlayerStats at the start of a run.
 --]]
@@ -20,8 +22,10 @@ local RunStats = require(script.Parent:WaitForChild("RunStats"))
 
 local TalentManager = {}
 
-local BOSS_SOULS = 6
-local KILLS_PER_SOUL = 6
+-- (raised so the talent trees fill in at a better pace: a node costs 1-6)
+local BOSS_SOULS = 10
+local KILLS_PER_SOUL = 3
+local FLOOR_SOULS = 3
 
 local killCounters: { [Player]: number } = {}
 
@@ -45,17 +49,23 @@ function TalentManager.AwardSouls(player: Player, amount: number)
 	PlayerData.MarkDirty(player)
 end
 
--- Called by MobManager for every player credited with a kill.
-function TalentManager.OnMobKilled(player: Player, isBoss: boolean)
+-- Called by MobManager for every player credited with a kill (`mult`: the
+-- run's difficulty mode's reward; a kill counts that much toward a soul).
+function TalentManager.OnMobKilled(player: Player, isBoss: boolean, mult: number?)
+	local m = mult or 1
 	if isBoss then
-		TalentManager.AwardSouls(player, BOSS_SOULS)
+		TalentManager.AwardSouls(player, math.floor(BOSS_SOULS * m + 0.5))
 		return
 	end
-	killCounters[player] = (killCounters[player] or 0) + 1
-	if killCounters[player] >= KILLS_PER_SOUL then
-		killCounters[player] = 0
-		TalentManager.AwardSouls(player, 1)
-	end
+	local count = (killCounters[player] or 0) + m
+	local souls = math.floor(count / KILLS_PER_SOUL)
+	killCounters[player] = count - souls * KILLS_PER_SOUL
+	if souls > 0 then TalentManager.AwardSouls(player, souls) end
+end
+
+-- A floor cleared: the party goes down to the next (DungeonGenerator.NextLevel).
+function TalentManager.OnFloorCleared(player: Player, mult: number?)
+	TalentManager.AwardSouls(player, math.floor(FLOOR_SOULS * (mult or 1) + 0.5))
 end
 
 -- Unlocked talent effects for a class (applied by PlayerStats each run).

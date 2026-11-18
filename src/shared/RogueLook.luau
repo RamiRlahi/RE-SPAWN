@@ -2,8 +2,10 @@
 --[[
 	RogueLook.luau
 	The Rogue's gear, built in code:
-	  BuildDagger()   "Shadowfang": a plain steel combat knife held point
-	                  forward, with a white swing trail (DaggerTrail).
+	  BuildDagger()   "Shadowfang": a pair of plain steel combat knives held
+	                  point forward, the right one with a white swing trail
+	                  (DaggerTrail), the second on its own "OffHandle".
+	  HoldOffhand(char, tool)   the second knife into the left fist.
 	  BuildBlade()    the knife itself (the thrown one is the same).
 	  Dress(char)     nothing any more (no hood); clears an old one.
 --]]
@@ -83,6 +85,9 @@ end
 -- Where the fist holds the knife (handle space: +Z runs down the grip to
 -- the butt, +X toward the edge, +Y the flat). Nudge this to seat it better.
 local GRIP_AT = Vector3.new(0.04, 0.1, 0.32)
+-- Where the second knife rides until a hand takes it: beside the first,
+-- turned over (handle space).
+local OFF_STOW = CFrame.new(-0.3, 0, 0.1) * CFrame.Angles(0, 0, math.pi)
 
 function RogueLook.BuildDagger(): Tool
 	local tool = Instance.new("Tool")
@@ -128,7 +133,53 @@ function RogueLook.BuildDagger(): Tool
 	trail.Transparency = NumberSequence.new(0.15, 1)
 	trail.Enabled = false
 	trail.Parent = blade
+
+	-- The second knife, for the left hand: its own (invisible) handle, the
+	-- same blade. Until a hand takes it (HoldOffhand) it rides beside the
+	-- first, so the pair hang together when the weapon is stowed or shown.
+	local off = Instance.new("Part")
+	off.Name = "OffHandle"
+	off.Size = Vector3.new(0.2, 0.2, 0.2)
+	off.Transparency = 1
+	off.CanCollide = false
+	off.CanTouch = false
+	off.CanQuery = false
+	off.Massless = true
+	off.CFrame = handle.CFrame * OFF_STOW
+	off.Parent = tool
+	local stow = Instance.new("WeldConstraint")
+	stow.Name = "OffHandStow"
+	stow.Part0 = handle
+	stow.Part1 = off
+	stow.Parent = off
+	RogueLook.BuildBlade(tool, off)
+	tool:SetAttribute("OffHand", true)
 	return tool
+end
+
+-- Put the second knife in the left fist: the same grip as the right hand's
+-- (R6: Roblox's fixed grip offset under the arm). Safe to call again.
+local R6_GRIP = CFrame.new(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, -1, 0)
+function RogueLook.HoldOffhand(character: Model, tool: Instance)
+	local off = tool:FindFirstChild("OffHandle") :: BasePart?
+	local left = (character:FindFirstChild("Left Arm") or character:FindFirstChild("LeftHand")) :: BasePart?
+	if not off or not left or not tool:IsA("Tool") then return end
+	local stow = off:FindFirstChild("OffHandStow")
+	if stow then stow:Destroy() end
+	local old = left:FindFirstChild("OffHandGrip")
+	if old then old:Destroy() end
+	local att = left:FindFirstChild("LeftGripAttachment")
+	local w = Instance.new("Weld")
+	w.Name = "OffHandGrip"
+	w.Part0 = left
+	w.Part1 = off
+	w.C0 = if left.Name == "Left Arm" or not (att and att:IsA("Attachment")) then R6_GRIP else (att :: Attachment).CFrame
+	w.C1 = tool.Grip
+	w.Parent = left
+	-- (gone with the knife: put away, dropped, a new weapon)
+	tool.AncestryChanged:Connect(function()
+		if not tool:IsDescendantOf(character) and w.Parent then w:Destroy() end
+	end)
 end
 
 -- The hood. Safe to call again (the old ones go first).

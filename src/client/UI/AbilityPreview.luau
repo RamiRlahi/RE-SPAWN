@@ -11,6 +11,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local UITheme = require(Shared:WaitForChild("UITheme"))
+local ClickOutside = require(script.Parent:WaitForChild("ClickOutside"))
 local MenuStyle = require(script.Parent:WaitForChild("MenuStyle"))
 
 local player = Players.LocalPlayer
@@ -103,7 +104,6 @@ function AbilityPreview.Show(name: string, tag: string, videoId: string, accentC
 	backdrop.Text = ""
 	backdrop.AutoButtonColor = false
 	backdrop.Parent = rg
-	backdrop.MouseButton1Click:Connect(close)
 
 	-- Modal Frame
 	local modal = Instance.new("Frame")
@@ -114,6 +114,7 @@ function AbilityPreview.Show(name: string, tag: string, videoId: string, accentC
 	modal.BackgroundColor3 = M.PlaqueDark
 	modal.BorderSizePixel = 0
 	modal.Parent = rg
+	ClickOutside.Bind(backdrop, modal, close)
 
 	MenuStyle.Plaque(modal, false)
 

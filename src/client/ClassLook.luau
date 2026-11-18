@@ -25,6 +25,7 @@ local MageLook = require(Shared:WaitForChild("MageLook"))
 local MartialLook = require(Shared:WaitForChild("MartialLook"))
 local SummonerLook = require(Shared:WaitForChild("SummonerLook"))
 local DeathKnightLook = require(Shared:WaitForChild("DeathKnightLook"))
+local RoninLook = require(Shared:WaitForChild("RoninLook"))
 local Players = game:GetService("Players")
 local WeaponSling = require(Shared:WaitForChild("WeaponSling"))
 local GearLook = require(Shared:WaitForChild("GearLook"))
@@ -64,8 +65,9 @@ local function buildWeapon(classId: string): Tool?
 	if classId == "swordsman" then return SwordModel.Build() end
 	if classId == "berserker" then return BerserkerLook.BuildGreatsword() end
 	if classId == "rogue" then return RogueLook.BuildDagger() end
-	if classId == "summoner" then return SummonerLook.BuildStaff() end
+	if classId == "summoner" then return SummonerLook.BuildGauntlet() end
 	if classId == "death_knight" then return DeathKnightLook.BuildGraveblade() end
+	if classId == "ronin" then return nil end -- (shown sheathed: the katana is in the scabbard)
 	local name = WEAPONS[classId]
 	local template = name and findTool(name)
 	return if template then template:Clone() else nil
@@ -84,6 +86,7 @@ function ClassLook.Clear(character: Model)
 		-- (a copy of a Death Knight comes with the server's plate on it: off,
 		-- and on again below only if that's the class being shown)
 		DeathKnightLook.Undress(character)
+		RoninLook.RemoveScabbard(character)
 	end
 end
 
@@ -99,7 +102,15 @@ export type Options = {
 }
 
 -- Swords: slung across the back when their hero sits down.
-ClassLook.SWORD_CLASSES = { heavy_knight = true, swordsman = true, berserker = true, death_knight = true } :: { [string]: boolean }
+-- A fresh copy of the class's weapon (class select's Signature Equipment
+-- picture); the Ronin's katana out of its scabbard. nil for classes without one.
+function ClassLook.BuildWeapon(classId: string): Tool?
+	if classId == "ronin" then return RoninLook.BuildKatana() end
+	local ok, tool = pcall(buildWeapon, classId)
+	return if ok then tool else nil
+end
+
+ClassLook.SWORD_CLASSES ={ heavy_knight = true, swordsman = true, berserker = true, death_knight = true } :: { [string]: boolean }
 
 -- (Where it sits slung across the back: WeaponSling, shared with the lobby's
 -- real characters.)
@@ -146,6 +157,8 @@ function ClassLook.Apply(character: Model, classId: string, opts: Options?)
 		local cape = ClothCape.Attach(character, TAG, ClothCape.DEATH_KNIGHT)
 		if cape then cape:SetAttribute(TAG, true) end
 	end
+	-- The Ronin's scabbard, in the left hand (the katana sheathed in it).
+	if classId == "ronin" and copy then RoninLook.AttachScabbard(character) end
 	local backWeld: Weld? = nil -- a slung weapon, eased out past the armor once it's on
 
 	local tool = buildWeapon(classId)
@@ -194,10 +207,14 @@ function ClassLook.Apply(character: Model, classId: string, opts: Options?)
 				hand = left
 				c0 *= WeaponGrip.LEFT_HAND_ADJUST
 			end
-			if o.handTilt then c0 *= o.handTilt end
+			-- (a worn weapon, the Summoner's gauntlet, stays on the arm)
+			local worn = tool:GetAttribute("Worn") == true
+			if o.handTilt and not worn then c0 *= o.handTilt end
 			local grip0: CFrame = grip
 			local torso = (character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")) :: BasePart?
-			if o.onBack and torso then
+			if worn then
+				-- (held as an equipped tool would be)
+			elseif o.onBack and torso then
 				-- Slung across the back (shown smaller if it's a giant blade).
 				local gripAt = grip.Position
 				local len = math.max(biggestPart(tool, handle).Size.X, biggestPart(tool, handle).Size.Y, biggestPart(tool, handle).Size.Z)
@@ -246,7 +263,7 @@ function ClassLook.Apply(character: Model, classId: string, opts: Options?)
 			end)
 			-- Hold it the way an equipped tool is held in-game: Roblox's
 			-- default "toolnone" arm pose (the copy has no Animate script).
-			if not o.handTilt and not o.plant and not o.onBack then
+			if not o.handTilt and not o.plant and not o.onBack and not worn then
 				local hum = character:FindFirstChildOfClass("Humanoid")
 				local animator = hum and hum:FindFirstChildOfClass("Animator")
 				if animator and hum.RigType == Enum.HumanoidRigType.R6 then
@@ -269,7 +286,11 @@ function ClassLook.Apply(character: Model, classId: string, opts: Options?)
 			w.C0 = c0
 			w.C1 = grip0
 			w.Parent = hand
-			if o.onBack and hand.Name ~= "Right Arm" and hand.Name ~= "RightHand" then backWeld = w end
+			if o.onBack and not worn and hand.Name ~= "Right Arm" and hand.Name ~= "RightHand" then backWeld = w end
+			-- (the Rogue's second knife, in the left hand)
+			if tool:GetAttribute("OffHand") == true and not o.onBack and not o.plant then
+				RogueLook.HoldOffhand(character, tool)
+			end
 		else
 			tool:Destroy()
 		end

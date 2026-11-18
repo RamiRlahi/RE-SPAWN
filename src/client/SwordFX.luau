@@ -83,15 +83,30 @@ export type ArcOpts = {
 	draw: number?,     -- time to draw in along the swing
 	grow: number?,     -- radius growth while fading (fraction)
 	core: Color3?,     -- the thin bright core (default white)
+	dark: boolean?,    -- ink, not light: drawn flat (no glow), so black reads as black
+	-- (an uneven crescent rather than a neat circle)
+	peak: number?,     -- 0..1 along the stroke where it's widest; past it the head thins to a point
+	squash: number?,   -- forward depth vs. side reach (1 = circle, 0.7 = a flatter, wider crescent)
+	offset: number?,   -- shifts the stroke round off-centre (fraction of the arc, + = toward its end)
+	move: Vector3?,    -- world offset it rolls along over its life (easing out)
 }
 
--- Point on the arc at angle `a` (0 = forward, + = toward the left).
-local function arcPoint(cf: CFrame, r: number, a: number): Vector3
-	return cf:PointToWorldSpace(Vector3.new(-math.sin(a) * r, 0, -math.cos(a) * r))
+-- Point on the arc at angle `a` (0 = forward, + = toward the left); `sq` flattens the forward reach.
+local function arcPoint(cf: CFrame, r: number, a: number, sq: number?): Vector3
+	return cf:PointToWorldSpace(Vector3.new(-math.sin(a) * r, 0, -math.cos(a) * r * (sq or 1)))
 end
 
-local function arcTangent(cf: CFrame, a: number, sign: number): Vector3
-	return cf:VectorToWorldSpace(Vector3.new(-math.cos(a), 0, math.sin(a))) * sign
+-- d(point)/da on the ellipse, in the direction of travel (its length is the local speed).
+local function arcDeriv(cf: CFrame, r: number, a: number, sign: number, sq: number?): Vector3
+	return cf:VectorToWorldSpace(Vector3.new(-math.cos(a) * r, 0, math.sin(a) * r * (sq or 1))) * sign
+end
+
+-- Width along the stroke (0 tail … 1 head): a long thin tail, widest at `peak`,
+-- then a quick taper to a sharp head. No peak: the old shape, widest at the head.
+local function crescent(f: number, peak: number?): number
+	if not peak then return f ^ 1.3 end
+	if f <= peak then return (f / peak) ^ 1.3 end
+	return ((1 - f) / (1 - peak)) ^ 0.6
 end
 
 function SwordFX.Arc(o: ArcOpts)
@@ -101,9 +116,11 @@ function SwordFX.Arc(o: ArcOpts)
 	local grow = o.grow or 0.12
 	local sign = if (o.sweep or 1) >= 0 then 1 else -1
 	local span = math.rad(o.arc)
-	local start = -sign * span / 2
-	-- Up to 110° per beam piece keeps the Bézier on the circle.
-	local pieces = math.max(1, math.ceil(o.arc / 110))
+	local start = -sign * span / 2 + sign * span * (o.offset or 0)
+	local sq = o.squash or 1
+	-- Up to 110° per beam piece keeps the Bézier on the circle; a crescent with a
+	-- peak (or an ellipse) needs finer pieces for its width and curve to read.
+	local pieces = math.max(1, math.ceil(o.arc / (if o.peak or sq ~= 1 then 24 else 110)))
 	local up = o.cf.UpVector
 
 	local layers = {} -- { a0, a1, glowBeam, coreBeam } per piece
@@ -113,6 +130,10 @@ function SwordFX.Arc(o: ArcOpts)
 		local c0, c1 = att(), att()
 		table.insert(owned, a0); table.insert(owned, a1); table.insert(owned, c0); table.insert(owned, c1)
 		layers[i] = { a0 = a0, a1 = a1, c0 = c0, c1 = c1, glow = beam(a0, a1, color), core = beam(c0, c1, o.core or SwordFX.WHITE) }
+		if o.dark then
+			layers[i].glow.LightEmission = 0
+			layers[i].core.LightEmission = 0
+		end
 	end
 
 	local t0 = os.clock()
@@ -127,26 +148,31 @@ function SwordFX.Arc(o: ArcOpts)
 		local fade = if t > draw then (t - draw) / life else 0
 		local r = o.radius * (1 + grow * fade)
 		local total = span * drawn
+		local cf = o.cf
+		if o.move then
+			local m = math.clamp(t / (draw + life), 0, 1)
+			cf = cf + o.move * (1 - (1 - m) ^ 2)
+		end
 		for i, L in ipairs(layers) do
 			local f0, f1 = (i - 1) / pieces, i / pieces
 			local ang0 = start + sign * total * f0
 			local ang1 = start + sign * total * f1
 			local seg = math.abs(ang1 - ang0)
-			local handle = 4 / 3 * math.tan(seg / 4) * r
-			local p0, p1 = arcPoint(o.cf, r, ang0), arcPoint(o.cf, r, ang1)
-			local tan0, tan1 = arcTangent(o.cf, ang0, sign), arcTangent(o.cf, ang1, sign)
-			local cf0 = CFrame.fromMatrix(p0, tan0, up)
-			local cf1 = CFrame.fromMatrix(p1, tan1, up)
+			local p0, p1 = arcPoint(cf, r, ang0, sq), arcPoint(cf, r, ang1, sq)
+			local d0, d1 = arcDeriv(cf, r, ang0, sign, sq), arcDeriv(cf, r, ang1, sign, sq)
+			local k = 4 / 3 * math.tan(seg / 4)
+			local cf0 = CFrame.fromMatrix(p0, d0.Unit, up)
+			local cf1 = CFrame.fromMatrix(p1, d1.Unit, up)
 			L.a0.WorldCFrame, L.a1.WorldCFrame = cf0, cf1
 			L.c0.WorldCFrame, L.c1.WorldCFrame = cf0, cf1
 			-- Control points: A0 + axis0·CurveSize0 and A1 − axis1·CurveSize1,
 			-- with both axes along the direction of travel.
 			for _, b in ipairs({ L.glow, L.core }) do
-				b.CurveSize0 = handle
-				b.CurveSize1 = handle
+				b.CurveSize0 = k * d0.Magnitude
+				b.CurveSize1 = k * d1.Magnitude
 			end
-			-- Width grows from tail to head; the glow is wide and soft, the core thin.
-			local w0, w1 = o.width * f0 ^ 1.3, o.width * f1 ^ 1.3
+			-- Width along the stroke; the glow is wide and soft, the core thin.
+			local w0, w1 = o.width * crescent(f0, o.peak), o.width * crescent(f1, o.peak)
 			local thin = 1 - fade * 0.7
 			L.glow.Width0, L.glow.Width1 = w0 * thin, w1 * thin
 			L.core.Width0, L.core.Width1 = w0 * 0.3 * thin, w1 * 0.3 * thin
@@ -173,6 +199,9 @@ export type SweepOpts = {
 	life: number?,
 	draw: number?,
 	opacity: number?,  -- 0..1 at the head (default 0.6)
+	squash: number?,   -- (as Arc)
+	offset: number?,   -- (as Arc)
+	move: Vector3?,    -- (as Arc)
 }
 
 function SwordFX.Sweep(o: SweepOpts)
@@ -182,8 +211,9 @@ function SwordFX.Sweep(o: SweepOpts)
 	local opacity = o.opacity or 0.6
 	local sign = if (o.sweep or 1) >= 0 then 1 else -1
 	local span = math.rad(o.arc)
-	local start = -sign * span / 2
-	local pieces = math.max(1, math.ceil(o.arc / 90))
+	local start = -sign * span / 2 + sign * span * (o.offset or 0)
+	local sq = o.squash or 1
+	local pieces = math.max(1, math.ceil(o.arc / (if sq ~= 1 then 30 else 90)))
 	local mid = (o.inner + o.outer) / 2
 	local band = o.outer - o.inner
 
@@ -209,21 +239,27 @@ function SwordFX.Sweep(o: SweepOpts)
 		local drawn = math.clamp(t / draw, 0.02, 1)
 		local fade = if t > draw then (t - draw) / life else 0
 		local total = span * drawn
+		local cf = o.cf
+		if o.move then
+			local m = math.clamp(t / (draw + life), 0, 1)
+			cf = cf + o.move * (1 - (1 - m) ^ 2)
+		end
 		for i, L in ipairs(layers) do
 			local f0, f1 = (i - 1) / pieces, i / pieces
 			local ang0 = start + sign * total * f0
 			local ang1 = start + sign * total * f1
 			local seg = math.abs(ang1 - ang0)
-			local handle = 4 / 3 * math.tan(seg / 4) * mid
-			local p0, p1 = arcPoint(o.cf, mid, ang0), arcPoint(o.cf, mid, ang1)
-			local tan0, tan1 = arcTangent(o.cf, ang0, sign), arcTangent(o.cf, ang1, sign)
-			-- Y axis radial, so the beam's width spans hilt → tip.
-			local rad0 = (p0 - o.cf.Position).Unit
-			local rad1 = (p1 - o.cf.Position).Unit
-			L.a0.WorldCFrame = CFrame.fromMatrix(p0, tan0, rad0)
-			L.a1.WorldCFrame = CFrame.fromMatrix(p1, tan1, rad1)
-			L.beam.CurveSize0 = handle
-			L.beam.CurveSize1 = handle
+			local k = 4 / 3 * math.tan(seg / 4)
+			local p0, p1 = arcPoint(cf, mid, ang0, sq), arcPoint(cf, mid, ang1, sq)
+			local d0, d1 = arcDeriv(cf, mid, ang0, sign, sq), arcDeriv(cf, mid, ang1, sign, sq)
+			-- Y axis out from the centre, square to the path, so the beam's width spans hilt → tip.
+			local up = cf.UpVector
+			local rad0 = d0.Unit:Cross(up) * sign
+			local rad1 = d1.Unit:Cross(up) * sign
+			L.a0.WorldCFrame = CFrame.fromMatrix(p0, d0.Unit, rad0)
+			L.a1.WorldCFrame = CFrame.fromMatrix(p1, d1.Unit, rad1)
+			L.beam.CurveSize0 = k * d0.Magnitude
+			L.beam.CurveSize1 = k * d1.Magnitude
 			L.beam.Width0, L.beam.Width1 = band, band
 			L.beam.Transparency = tailFade(f0, f1, fade, 1 - opacity)
 		end

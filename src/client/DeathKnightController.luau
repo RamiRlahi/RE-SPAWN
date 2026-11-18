@@ -93,6 +93,10 @@ local deps: Deps
 local localStep = 0
 local lastSwing = 0
 local busyUntil = 0
+-- (a dash cuts the move short: free to cast again at once)
+(require(script.Parent:WaitForChild("DashController")) :: any).OnCancel(function(c: Model)
+	if c == game:GetService("Players").LocalPlayer.Character then busyUntil = 0 end
+end)
 
 local function isDK(p: Player?): boolean
 	return (p or player):GetAttribute("SelectedClass") == "death_knight"
@@ -925,49 +929,31 @@ local function thrustPose(char: Model)
 	}, 0.3, true, { carry = 1.4 })
 end
 
-local SLAM1_STOP = 0.12 -- (the first blow's hit-stop)
-
 -- From the bite on (the server's timeline: DeathKnightServer's SNATCH). The
--- body only: he's turned to face the one on the chain every frame, and the
--- left arm is aimed at it while it's being dragged.
-local function reversalPose(char: Model, T: any)
-	local slam1Wind = T.slam1 - T.wrap - T.pull - 0.1
-	local hold2 = T.slam2 - T.back - T.reverse - 0.1
+-- body only: he's turned after the one on the chain every frame, and the left
+-- arm (haulAim) follows it on the chain, up over his head and round. The maul
+-- trails from the right hand throughout.
+local SINE = Enum.EasingStyle.Sine
+local function executionPose(char: Model, T: any)
+	local settle = T.yank - T.slam
 	CastPoses.play(char, {
-		-- SNARE: braced, the fist closed on the chain as it draws taut
-		{ dur = T.wrap, style = Enum.EasingStyle.Sine, pose = body(-8, -18, 32, 30, { RS = DRAG_ARM, LS = { 92, 0, 0 }, N = { 4, 8, 0 } }, 18, 0, -0.2) },
-		-- PULL: sat back into it, then the whole body wrenched round, the left
-		-- arm torn across him
-		{ dur = 0.14, style = QUAD, pose = body(12, -24, 30, 34, { RS = { 24, 180, 10 }, LS = { 80, 0, 0 }, N = { -4, 10, 0 } }, 20, 0.2, 0.4) },
-		{ dur = T.pull - 0.14, style = Enum.EasingStyle.Sine, pose = body(10, -40, 34, 30, { RS = { 26, 180, 14 }, LS = { 70, 0, 0 }, N = { 0, -24, 0 } }, 20, -0.3, 0.3) },
-		-- SLAM: both hands back on the maul, heaved up over him...
-		{ dur = slam1Wind, style = QUAD, pose = body(22, 0, 22, 22, { RS = { 172, 0, 0 }, LS = { 168, 0, 0 }, N = { -14, 0, 0 } }, 18, 0, 0.3) },
-		-- ...and driven down onto it
-		{ dur = 0.1, style = QUART, pose = body(-36, 0, 42, 42, { RS = { 36, 0, 0 }, LS = { 36, 0, 0 }, N = { 18, 0, 0 } }, 18, 0, -0.45) },
-		-- (shorter by the hit-stop that freezes him on the blow, so the rest
-		-- stays in step with the server)
-		{ dur = T.back - T.slam1 - SLAM1_STOP * 0.96, style = Enum.EasingStyle.Sine, pose = body(-32, 0, 40, 40, { RS = { 32, 0, 0 }, LS = { 32, 0, 0 }, N = { 14, 0, 0 } }, 18, 0, -0.4) },
-		-- REVERSAL: the chain wrenched back the other way, his body following
-		-- it round, the maul swung up out of the crater
-		{ dur = 0.12, style = QUAD, pose = body(10, 30, 30, 34, { RS = { 60, 0, 0 }, LS = { 80, 0, 0 }, N = { 0, -10, 0 } }, 20, -0.2, 0.3) },
-		{ dur = T.reverse - 0.12, style = Enum.EasingStyle.Sine, pose = body(8, -30, 30, 30, { RS = { 140, 0, 0 }, LS = { 70, 0, 0 }, N = { -6, 14, 0 } }, 20, 0.2, 0.2) },
-		-- EXECUTION: raised high with both hands, knees bent, held...
-		{ dur = hold2 * 0.55, style = QUAD, pose = body(24, 0, 30, 30, { RS = { 182, 6, 0 }, LS = { 176, -6, 0 }, N = { -18, 0, 0 } }, 20, 0, 0.4) },
-		{ dur = hold2 * 0.45, style = Enum.EasingStyle.Sine, pose = body(26, 0, 32, 32, { RS = { 186, 6, 0 }, LS = { 180, -6, 0 }, N = { -20, 0, 0 } }, 20, 0, 0.45) },
-		-- ...brought down with everything he has
-		{ dur = 0.1, style = QUART, pose = body(-48, 0, 50, 50, { RS = { 28, 0, 0 }, LS = { 28, 0, 0 }, N = { 24, 0, 0 } }, 20, 0, -0.65) },
-		-- the maul left planted in the crater, then he slowly straightens
-		{ dur = 0.36, style = Enum.EasingStyle.Sine, pose = body(-42, 0, 46, 46, { RS = { 26, 0, 0 }, LS = { 26, 0, 0 }, N = { 18, 0, 0 } }, 18, 0, -0.55) },
-		{ dur = T.done - T.slam2 - 0.36, style = QUAD, pose = body(-18, 0, 28, 28, { RS = { 40, 0, 0 }, LS = { 38, 0, 0 }, N = { 6, 0, 0 } }, 16, 0, -0.3) },
-	}, 0.6, true, { carry = 1.4 })
-	-- (tipped down a little for both blows, so the head meets the floor on
-	-- the body ahead of him rather than past it; righted as he rises)
-	wristTo(char, -10, 0.1, T.slam1 - 0.12)
-	wristTo(char, 0, 0.2, T.back)
-	wristTo(char, -10, 0.1, T.slam2 - 0.12)
-	wristTo(char, 0, 0.3, T.slam2 + 0.36)
-	task.delay(T.slam1, CastPoses.hitStop, char, SLAM1_STOP)
-	task.delay(T.slam2, CastPoses.hitStop, char, 0.2)
+		-- GRAB: braced, sat back on the chain as it bites and draws taut
+		{ dur = T.grab, style = SINE, pose = body(10, -14, 30, 32, { RS = DRAG_ARM, N = { 2, 8, 0 } }, 20, 0, 0.25) },
+		-- LAUNCH: dropped low for an instant, then heaved up from the legs,
+		-- looking up after it
+		{ dur = 0.1, style = QUAD, pose = body(-10, -10, 44, 40, { RS = DRAG_ARM, N = { 6, 4, 0 } }, 22, 0, -0.1) },
+		{ dur = T.launch - 0.1, style = QUART, pose = body(18, 8, 24, 30, { RS = DRAG_ARM, N = { -30, 0, 0 } }, 20, 0, 0.35) },
+		-- OVER: thrown forward and down after it (he's turned round to follow it)
+		{ dur = T.over, style = SINE, pose = body(-30, 10, 42, 36, { RS = DRAG_ARM, N = { 16, 0, 0 } }, 22, 0, -0.45) },
+		-- SLAM: crouched over it as it hits, the chain gone slack
+		{ dur = settle * 0.6, style = SINE, pose = body(-24, 4, 40, 36, { RS = DRAG_ARM, N = { 12, 0, 0 } }, 22, 0, -0.35) },
+		-- YANK: wound down and round, coiled...
+		{ dur = settle * 0.4, style = QUAD, pose = body(-14, -22, 38, 34, { RS = DRAG_ARM, N = { 8, -10, 0 } }, 22, -0.2, -0.2) },
+		-- ...and the whole body wrenched up and back: the chain cracks like a whip
+		{ dur = T.fling - T.yank, style = QUART, pose = body(16, 26, 26, 34, { RS = DRAG_ARM, N = { -10, 12, 0 } }, 22, 0.25, 0.4) },
+		{ dur = T.done - T.fling, style = SINE, pose = body(6, 10, 22, 24, { RS = DRAG_ARM, N = { -2, 4, 0 } }, 18, 0, 0.1) },
+	}, 0.5, true, { carry = 1.4 })
+	task.delay(T.slam, CastPoses.hitStop, char, 0.08)
 end
 
 local function kingPose(char: Model)
@@ -1783,8 +1769,226 @@ local function onDoomImpact(msg: any)
 	Debris:AddItem(pool, life + 2)
 end
 
--- Q · Grave Reversal: the chain shoots from his left palm.
-local snatches: { [Player]: { chain: Chain?, coil: Chain?, token: number, tip: (() -> Vector3?)?, victim: BasePart? } } = {}
+-- Q · Grave Reversal: a heavy chain thrown from his left hand.
+-- ── The chain itself: simulated, not drawn ──────────────────────────────────
+-- A Verlet rope of nodes from his hand to the hook. Gravity, inertia and
+-- links that can't stretch; it's laid out as iron links every frame. Its
+-- length follows the gap between the two ends × `slack`: 1 is taut (pulled
+-- straight, though it still lags behind a fast swing), above 1 it hangs in a
+-- curve. Kept off the floor and out of both bodies. The hook end follows `tip`
+-- while it has one (thrown, then bitten into the body). Let go, it falls free.
+-- `reel` winds it back into his hand: the links nearest the hand go first, the
+-- rest whip in after them.
+type HeavyChain = {
+	pin: (tip: (() -> Vector3?)?) -> (),
+	slack: (k: number) -> (),
+	reel: (speed: number) -> (),
+	stop: () -> (),
+}
+local CH_NODES = 26
+local CH_GRAVITY = Vector3.new(0, -120, 0) -- (heavier than the world's: iron)
+local CH_DAMP = 0.985
+local CH_ITER = 12
+local CH_SPACING = LINK * 0.78
+
+local function linkParts(l: BasePart): { BasePart }
+	local out = { l }
+	for _, c in ipairs(l:GetChildren()) do
+		if c:IsA("BasePart") then table.insert(out, c) end
+	end
+	return out
+end
+
+local function heavyChain(hand: () -> Vector3?, bodies: () -> { { any } }): HeavyChain
+	local h0 = hand() or Vector3.zero
+	local x: { Vector3 } = table.create(CH_NODES, h0)
+	local o: { Vector3 } = table.create(CH_NODES, h0)
+	local tipFn: (() -> Vector3?)? = nil
+	local slackK = 1.04
+	local length = 0
+	local reelSpeed: number? = nil
+	local links: { { BasePart } } = {}
+	local hookParts = buildHook()
+	local floorY = groundAt(h0).Y
+	local floorAt = 0
+	local stopped = false
+	local conn: RBXScriptConnection
+	local moveParts: { BasePart } = {}
+	local moveCFs: { CFrame } = {}
+	local sx = (LINK_W - ROD) / 2
+	local endZ = LINK * 0.5 - ROD / 2
+
+	local function stop()
+		if stopped then return end
+		stopped = true
+		conn:Disconnect()
+		for _, l in ipairs(links) do l[1]:Destroy() end
+		for _, h in ipairs(hookParts) do h:Destroy() end
+	end
+
+	local function substep(h: number, a: Vector3, tip: Vector3?)
+		local n = CH_NODES
+		if tip then length = math.max((tip - a).Magnitude * slackK, 0.3) end
+		if reelSpeed then length = math.max(length - reelSpeed * h, 0) end
+		local seg = length / (n - 1)
+		-- inertia + gravity
+		local g = CH_GRAVITY * h * h
+		for i = 2, n do
+			if i == n and tip then continue end
+			local xi = x[i]
+			local v = (xi - o[i]) * CH_DAMP
+			o[i] = xi
+			x[i] = xi + v + g
+		end
+		x[1] = a
+		if tip then x[n] = tip end
+		-- links can't stretch (they can bunch up: that's the slack)
+		for _ = 1, CH_ITER do
+			for i = 1, n - 1 do
+				local d = x[i + 1] - x[i]
+				local len = d.Magnitude
+				if len > seg and len > 1e-4 then
+					local w1 = if i == 1 then 0 else 1
+					local w2 = if i + 1 == n and tip then 0 else 1
+					local w = w1 + w2
+					if w > 0 then
+						local fix = d * ((len - seg) / len / w)
+						if w1 > 0 then x[i] += fix end
+						if w2 > 0 then x[i + 1] -= fix end
+					end
+				end
+			end
+		end
+		-- off the floor, and out of both bodies (not the links at the hand or the hook)
+		local bs = bodies()
+		for i = 2, n - 1 do
+			local p = x[i]
+			if p.Y < floorY + 0.12 then
+				p = Vector3.new(p.X, floorY + 0.12, p.Z)
+				-- (dragged along the floor, not sliding on ice)
+				local ov = o[i]
+				o[i] = Vector3.new(p.X + (ov.X - p.X) * 0.6, p.Y, p.Z + (ov.Z - p.Z) * 0.6)
+			end
+			if i > 2 and i < n - 1 then
+				for _, b in ipairs(bs) do
+					local c, r = b[1] :: Vector3, b[2] :: number
+					local d = p - c
+					local m = d.Magnitude
+					if m < r and m > 1e-3 then p = c + d * (r / m) end
+				end
+			end
+			x[i] = p
+		end
+	end
+
+	local function render(now: number)
+		table.clear(moveParts)
+		table.clear(moveCFs)
+		-- the polyline's length, then a link every CH_SPACING along it
+		local total = 0
+		for i = 1, CH_NODES - 1 do total += (x[i + 1] - x[i]).Magnitude end
+		local count = math.clamp(math.floor(total / CH_SPACING), 0, 64)
+		while #links < count do table.insert(links, linkParts(chainLink())) end
+		while #links > count do (table.remove(links) :: { BasePart })[1]:Destroy() end
+		local seg, segStart = 1, 0
+		local segLen = (x[2] - x[1]).Magnitude
+		for k = 1, count do
+			local s = (k - 0.5) * CH_SPACING
+			while s > segStart + segLen and seg < CH_NODES - 1 do
+				segStart += segLen
+				seg += 1
+				segLen = (x[seg + 1] - x[seg]).Magnitude
+			end
+			local f = if segLen > 1e-4 then math.clamp((s - segStart) / segLen, 0, 1) else 0
+			local p = x[seg]:Lerp(x[seg + 1], f)
+			-- (the direction: smoothed over the neighbouring nodes, so links turn gradually)
+			local ta = x[math.max(seg - 1, 1)]:Lerp(x[seg], f)
+			local tb = x[math.min(seg + 1, CH_NODES - 1)]:Lerp(x[math.min(seg + 2, CH_NODES)], f)
+			local tan = tb - ta
+			if tan.Magnitude < 1e-3 then tan = x[seg + 1] - x[seg] end
+			if tan.Magnitude < 1e-3 then tan = Vector3.yAxis end
+			tan = tan.Unit
+			local ref = if math.abs(tan.Y) > 0.95 then Vector3.xAxis else Vector3.yAxis
+			-- every other link turned a quarter round, threaded through the last,
+			-- each one rocking a little on its neighbours
+			local twist = (if k % 2 == 0 then 0 else math.pi / 2) + math.sin(k * 1.7 + now * 3.1) * 0.22
+			local cf = CFrame.lookAt(p, p + tan, ref) * CFrame.Angles(0, 0, twist)
+			local L = links[k]
+			table.insert(moveParts, L[1]); table.insert(moveCFs, cf * CFrame.new(-sx, 0, 0) * CYL_Z)
+			local e = 0
+			for j = 2, #L do
+				local c = L[j]
+				table.insert(moveParts, c)
+				if c.Name == "Side" then
+					table.insert(moveCFs, cf * CFrame.new(sx, 0, 0) * CYL_Z)
+				else
+					e += 1
+					table.insert(moveCFs, cf * CFrame.new(0, 0, if e == 1 then -endZ else endZ))
+				end
+			end
+		end
+		-- the hook on the end, pointing on along the chain
+		local a, b = x[CH_NODES - 1], x[CH_NODES]
+		local d = b - a
+		local hcf = if d.Magnitude > 1e-3 then CFrame.lookAt(b, b + d.Unit) else CFrame.new(b)
+		for k, hp in ipairs(hookParts) do
+			table.insert(moveParts, hp); table.insert(moveCFs, hcf * HOOK_PIECES[k].cf)
+		end
+		if #moveParts > 0 then Workspace:BulkMoveTo(moveParts, moveCFs, Enum.BulkMoveMode.FireCFrameChanged) end
+	end
+
+	conn = RunService.RenderStepped:Connect(function(dt)
+		local ok, err = pcall(function()
+			local a = hand()
+			if not a then
+				stop()
+				return
+			end
+			local now = os.clock()
+			if now - floorAt > 0.25 then
+				floorAt = now
+				floorY = math.min(groundAt(a).Y, groundAt(x[CH_NODES]).Y)
+			end
+			local tip = tipFn and tipFn()
+			if tipFn and not tip then tipFn = nil end
+			local h = math.min(dt, 1 / 20) / 2
+			substep(h, a, tip)
+			substep(h, a, tip)
+			if reelSpeed and length <= 0.4 then
+				stop()
+				return
+			end
+			render(now)
+		end)
+		if not ok then
+			warn("[DeathKnightController] chain", err)
+			stop()
+		end
+	end)
+
+	return {
+		pin = function(tip: (() -> Vector3?)?)
+			if not tip and tipFn then
+				-- (let go: it keeps the speed it had)
+				length = 0
+				for i = 1, CH_NODES - 1 do length += (x[i + 1] - x[i]).Magnitude end
+			end
+			tipFn = tip
+		end,
+		slack = function(k: number) slackK = k end,
+		reel = function(speed: number)
+			if tipFn then
+				tipFn = nil
+				length = 0
+				for i = 1, CH_NODES - 1 do length += (x[i + 1] - x[i]).Magnitude end
+			end
+			reelSpeed = speed
+		end,
+		stop = stop,
+	}
+end
+
+local snatches: { [Player]: { chain: HeavyChain?, coil: Chain?, token: number, victim: BasePart?, model: Model? } } = {}
 
 -- The chain coiled round the one it caught: rings of iron links wound round
 -- its chest and arms, following it, coiling on over `wind` seconds.
@@ -1834,6 +2038,27 @@ local function palm(char: Model): Vector3?
 	return if root then root.Position + root.CFrame.LookVector * 2 else nil
 end
 
+-- What the chain must not pass through: his torso and head, the caught one's torso.
+local function chainBodies(char: Model, victim: Model?): () -> { { any } }
+	local list: { { any } } = {}
+	return function()
+		table.clear(list)
+		local t = char:FindFirstChild("Torso") :: BasePart?
+		local hd = char:FindFirstChild("Head") :: BasePart?
+		if t then table.insert(list, { t.Position, 1.25 }) end
+		if hd then table.insert(list, { hd.Position, 0.8 }) end
+		local vt = victim and (victim:FindFirstChild("Torso") or victim:FindFirstChild("UpperTorso")) :: BasePart?
+		if vt then table.insert(list, { vt.Position, 1.15 }) end
+		return list
+	end
+end
+
+-- How the one on the chain moves its limbs (MobAnimator reads it, here only):
+-- 1 grabbed, 2 in the air, 3 limp on the floor.
+local function heldPose(model: Model?, state: number?)
+	if model and model.Parent then model:SetAttribute("ChainHeld", state) end
+end
+
 local function onSnatch(msg: any)
 	local char = charOf(msg.attacker)
 	local root = rootOf(char)
@@ -1845,79 +2070,122 @@ local function onSnatch(msg: any)
 	if old then
 		if old.chain then old.chain.stop() end
 		if old.coil then old.coil.stop() end
+		heldPose(old.model, nil)
 	end
-	local S = { chain = nil :: Chain?, coil = nil :: Chain?, token = (old and old.token or 0) + 1, tip = nil :: any, victim = nil :: BasePart? }
-	snatches[attacker] = S
 	local cast = msg.cast :: number
 	local travel = math.max(msg.travel :: number, 0.03)
 	local to = msg.to :: Vector3
 	local model = msg.model :: Model?
 	local victimRoot = model and (model:FindFirstChild("HumanoidRootPart") or model.PrimaryPart) :: BasePart?
-	S.victim = victimRoot
-	S.tip = function() return palm(char) end
+	local S = { chain = nil :: HeavyChain?, coil = nil :: Chain?, token = (old and old.token or 0) + 1, victim = victimRoot, model = model }
+	snatches[attacker] = S
+	local function live(): boolean return snatches[attacker] == S and char.Parent ~= nil end
 	-- (the free hand reaching after it from the thrust on)
 	if victimRoot then haulAim[char] = victimRoot end
 	task.delay(cast * 0.8, function()
 		if not root.Parent then return end
-		ClassFX.Sound("whoosh", root, 0.8, 1.1)
-		local p = palm(char)
-		if p then motes(p, 8, 8) end
+		ClassFX.Sound("whoosh", root, 0.8, 0.8)
 	end)
-	-- The chain: out of the palm to the target, then (caught) held taut on it
-	-- through both drags, or (missed) reeled back in.
-	local t0 = os.clock() + cast
-	S.chain = liveChain(function()
-		if snatches[attacker] ~= S or not char.Parent then return nil, nil end
-		local tip = palm(char)
-		if not tip then return nil, nil end
-		local t = os.clock() - t0
-		if t < 0 then return tip, tip end
-		if t < travel then
+
+	-- The throw: the hook leads, on a slight arc, the chain paying out behind
+	-- it link by link (the hand holds one end; the hook drags the rest out).
+	task.delay(cast, function()
+		if not live() then return end
+		local from = palm(char)
+		if not from then return end
+		local chain = heavyChain(function() return if char.Parent then palm(char) else nil end, chainBodies(char, model))
+		S.chain = chain
+		local goal0 = if victimRoot and victimRoot.Parent then victimRoot.Position else to
+		local arcUp = math.min((goal0 - from).Magnitude * 0.07, 2.2)
+		local t0 = os.clock()
+		chain.slack(1.06)
+		chain.pin(function()
+			local f = math.clamp((os.clock() - t0) / travel, 0, 1)
 			local goal = if victimRoot and victimRoot.Parent then victimRoot.Position else to
-			return tip, tip:Lerp(goal, t / travel)
+			local e = 1 - (1 - f) ^ 1.5
+			return from:Lerp(goal, e) + Vector3.new(0, arcUp * math.sin(math.pi * e), 0)
+		end)
+		if not victimRoot then
+			-- A miss: it flies out its full length, drops, and is reeled back in.
+			task.delay(travel, function()
+				if not live() then return end
+				chain.pin(nil)
+				task.delay(0.18, function()
+					if not live() then return end
+					chain.reel(70)
+					ClassFX.Sound("whoosh", root, 0.6, 0.7)
+				end)
+			end)
+			task.delay(travel + 1.2, function()
+				if snatches[attacker] == S then
+					chain.stop()
+					snatches[attacker] = nil
+				end
+			end)
 		end
-		if victimRoot then
-			if not victimRoot.Parent then return nil, nil end
-			return tip, victimRoot.Position
-		end
-		local back = math.clamp((t - travel) / travel, 0, 1)
-		if back >= 1 then return nil, nil end
-		return tip, to:Lerp(tip, back)
-	end, if victimRoot then 0.06 else 0.2)
+	end)
+
 	if model and victimRoot then
 		local T = msg.t
+		local heavy = msg.heavy == true
 		task.delay(cast + travel, function()
-			if snatches[attacker] ~= S or not victimRoot.Parent then return end
-			-- the chain bites and coils round its chest
+			if not live() or not victimRoot.Parent then return end
+			-- the hook bites: the chain coils round its chest and snaps taut
 			local p = victimRoot.Position
-			motes(p, 14, 10)
-			darkSmoke(p, 6, 1.6, 6, 0.6)
+			motes(p, 10, 8)
+			darkSmoke(p, 5, 1.4, 5, 0.5)
 			ClassFX.Sound("rockHit", p, 0.9, 0.5)
 			ClassFX.Sound("punch", p, 0.7, 0.7)
-			S.coil = coil(victimRoot, T.wrap * 0.8)
-			-- drawn taut as the fist closes
-			task.delay(T.wrap * 0.85, function()
-				if snatches[attacker] ~= S then return end
-				ClassFX.Sound("rockHit", root, 0.7, 0.75)
-				if mine then deps.shake(0.4, 0.12) end
+			local chain = S.chain
+			if chain then
+				chain.pin(function() return if victimRoot.Parent then victimRoot.Position else nil end)
+				chain.slack(0.98)
+			end
+			S.coil = coil(victimRoot, T.grab * 0.8)
+			executionPose(char, T)
+			if not heavy then heldPose(model, 1) end
+			local function at(t: number, fn: () -> ())
+				task.delay(t, function() if live() then fn() end end)
+			end
+			-- the heave: off its feet and over him (the chain stays taut, lagging the swing)
+			at(T.grab, function()
+				if not heavy then heldPose(model, 2) end
+				ClassFX.Sound("whoosh", root, 1, 0.5)
+				if mine then deps.shake(0.45, 0.15) end
+				if chain then chain.slack(0.985) end
 			end)
-			reversalPose(char, T)
-			-- the free hand on the chain while it drags, on the maul for the blows
-			local function aimAt(on: boolean)
-				if snatches[attacker] ~= S then return end
-				haulAim[char] = if on then victimRoot else nil
-			end
-			task.delay(T.wrap + T.pull, aimAt, false)
-			task.delay(T.back, aimAt, true)
-			task.delay(T.back + T.reverse, aimAt, false)
-			-- the drags: torn across and wrenched back, smoke off the body
-			for _, at in ipairs({ T.wrap, T.back }) do
-				task.delay(at, function()
-					if snatches[attacker] ~= S then return end
-					ClassFX.Sound("whoosh", root, 0.9, 0.55)
-					if FxBudget.Allow("dkDragTrail", 4) then trail(char, 0.4) end
-				end)
-			end
+			at(T.grab + T.launch, function()
+				ClassFX.Sound("whoosh", root, 0.9, 0.62)
+			end)
+			-- the slam: the chain goes slack as it hits
+			at(T.slam, function()
+				if not heavy then heldPose(model, 3) end
+				if chain then chain.slack(1.22) end
+			end)
+			-- the yank: drawn taut again...
+			at(T.yank, function()
+				if chain then chain.slack(1.0) end
+				ClassFX.Sound("rockHit", root, 0.6, 0.9)
+			end)
+			-- ...cracked like a whip: it's flung on out, and the chain lets go and
+			-- whips back into his hand
+			at(T.fling, function()
+				if not heavy then heldPose(model, 2) end
+				ClassFX.Sound("whoosh", root, 1, 0.45)
+				if mine then deps.shake(0.6, 0.18) end
+			end)
+			at(T.fling + 0.08, function()
+				haulAim[char] = nil
+				if S.coil then
+					S.coil.stop()
+					S.coil = nil
+				end
+				if victimRoot.Parent then motes(victimRoot.Position, 10, 7) end
+				if chain then chain.reel(48) end
+			end)
+			at(T.land, function()
+				if not heavy then heldPose(model, 3) end
+			end)
 		end)
 	else
 		haulAim[char] = nil
@@ -1925,7 +2193,8 @@ local function onSnatch(msg: any)
 	if not mine then return end
 
 	-- Our own body: planted where it stands, turned to keep facing the one on
-	-- the chain (the drags carry it round him: he pivots after it).
+	-- the chain (it's swung over him: he turns round after it, following its
+	-- shadow on the floor).
 	snatchToken += 1
 	local m = snatchMover
 	snatchMover = nil
@@ -1946,25 +2215,26 @@ local function onSnatch(msg: any)
 	releaseAfter(char, total + 0.05)
 	local yaw = math.atan2(-(msg.dir :: Vector3).X, -(msg.dir :: Vector3).Z)
 	local lastT = 0
+	local turnUntil = cast + travel + T.fling + 0.1
 	timeline(total, function(t)
 		if not mv.alive() then return end
 		local dt = t - lastT
 		lastT = t
 		mv.set(start)
-		if t < cast + travel or not victimRoot or not victimRoot.Parent then return end
+		if t < cast + travel or t > turnUntil or not victimRoot or not victimRoot.Parent then return end
 		local d = victimRoot.Position - root.Position
-		if Vector3.new(d.X, 0, d.Z).Magnitude < 0.5 then return end
+		if Vector3.new(d.X, 0, d.Z).Magnitude < 1.5 then return end
 		-- (turned after it at a heavy body's pace, not snapped round)
 		local want = math.atan2(-d.X, -d.Z)
 		local diff = (want - yaw + math.pi) % (2 * math.pi) - math.pi
-		yaw += math.clamp(diff, -9 * dt, 9 * dt)
+		yaw += math.clamp(diff, -12 * dt, 12 * dt)
 		mv.face(Vector3.new(-math.sin(yaw), 0, -math.cos(yaw)))
 	end, function()
 		mv.stop(true)
 	end)
 end
 
--- The two blows: the first sharp and small, the execution enormous.
+-- The two blows: the slam behind him, sharp; the landing after the fling, enormous.
 local function onSnatchSlam(msg: any)
 	local g = msg.pos :: Vector3
 	local r = msg.radius :: number
@@ -1989,8 +2259,6 @@ local function onSnatchSlam(msg: any)
 		shards(g, r * 0.6, 14, 1.6, 3.6, 1)
 		if FxBudget.Allow("dkRocks", 6) then rocks(g + Vector3.new(0, 0.4, 0), 14, 30, 30) end
 		motes(g + Vector3.new(0, 1, 0), 18, 16)
-		local model = msg.model :: Model?
-		if model and model.Parent then bindingChains(model, 0.8) end
 		ClassFX.Sound("rockHit", g, 1, 0.55)
 		ClassFX.Sound("quake", g, 0.9, 0.8)
 		ClassFX.Sound("boom", g, 1, 0.65)
@@ -2021,22 +2289,17 @@ local function onSnatchSlam(msg: any)
 	end
 end
 
--- The chain lets go: it comes apart into blue motes along its length, the
--- coil with it.
+-- The end of it: the chain (if it's still out) whips back into his hand, the
+-- coil comes off.
 local function dropSnatch(attacker: Player?)
 	local char = charOf(attacker)
 	if char then haulAim[char] = nil end
 	local S = attacker and snatches[attacker]
 	if S then
-		local a = S.tip and S.tip()
-		local b = S.victim and S.victim.Parent and S.victim.Position
-		if a and b and FxBudget.Allow("dkChainDust", 4) then
-			local n = math.clamp(math.floor((b - a).Magnitude / 1.5), 2, 16)
-			for i = 0, n do motes(a:Lerp(b, i / n), 2, 3) end
-			if S.victim then motes(S.victim.Position, 12, 5) end
-		end
-		if S.chain then S.chain.stop() end
+		if S.chain then S.chain.reel(60) end
 		if S.coil then S.coil.stop() end
+		heldPose(S.model, nil)
+		if S.victim and S.victim.Parent and FxBudget.Allow("dkChainDust", 4) then motes(S.victim.Position, 8, 5) end
 	end
 	if attacker then snatches[attacker] = nil end
 end

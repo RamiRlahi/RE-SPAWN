@@ -10,6 +10,13 @@
 	  MapData.Maps          the list, in gate order (not the hidden ones: MapData.Hidden)
 	  MapData.Get(id)       one map (nil for an unknown id)
 	  MapData.DEFAULT       the map used when none was picked
+	  MapData.MODES         the difficulty modes every map is played on:
+	                        NORMAL, HARD, NIGHTMARE (mob health and damage
+	                        × `health` / `damage`, gold, XP and souls × `reward`)
+	  MapData.Mode(id)      one mode (NORMAL for an unknown id)
+	  MapData.RecommendedPower(map, modeId)
+	                        the POWER (PowerGear.Total) a party should bring:
+	                        the map's `power`, one per mode
 --]]
 
 -- (every dungeon is lit bright and clear; a map tints the colour grade, and a
@@ -42,6 +49,7 @@ export type Map = {
 	bosses: { string },     -- BossAI kinds for the other boss rooms
 	majorBoss: string?,     -- the map's signature boss, selected every third floor
 	lighting: Lighting,
+	sky: string?,           -- its own skybox: the name of a Sky in Lighting (AtmosphereManager.UseSky), always this one
 	unlockFloor: number?,   -- your deepest floor must reach this to enter
 	sealed: boolean?,       -- chained shut: on the picker (last, in chains) but never enterable
 	hidden: boolean?,       -- taken out for now: no gate, not on the picker, never enterable (its code kept: MapData.Hidden)
@@ -63,6 +71,18 @@ export type Map = {
 	-- taken room by room, 1 → 2 choices → 3 → 2 → the boss, each room's portals
 	-- opening when it's cleared, each saying what's through it: RoomPortals).
 	transit: string?,
+	-- The POWER recommended on each mode, in MapData.MODES order
+	-- (NORMAL, HARD, NIGHTMARE).
+	power: { number }?,
+}
+
+export type Mode = {
+	id: string,
+	name: string,
+	health: number, -- × mob health
+	damage: number, -- × mob damage
+	reward: number, -- × gold, XP and souls
+	color: Color3,
 }
 
 local MapData = {}
@@ -70,10 +90,12 @@ local MapData = {}
 MapData.Maps = {
 	{
 		id = "crypt",
+		sky = "Ame Greenhaze",
+		power = { 100, 300, 600 }, -- recommended POWER: normal, hard, nightmare
 		name = "The Prison of Souls",
 		subtitle = "Stay out of the light",
 		rank = "C",
-		description = "A prison for the damned. Searchlights sweep every hall: be seen three times and the wardens send every inmate down the lifts after you. Shackled souls, jailers and executioners.",
+		description = "A prison. Get spotted by searchlights 3 times and every inmate comes for you.",
 		color = Color3.fromRGB(120, 230, 210),
 		stone = Color3.fromRGB(200, 214, 210),
 		packs = { 6 },
@@ -100,6 +122,8 @@ MapData.Maps = {
 	},
 	{
 		id = "keep",
+		sky = "RedSky",
+		power = { 200, 450, 800 }, -- recommended POWER: normal, hard, nightmare
 		name = "The Infernal Keep",
 		subtitle = "The Ashen Sovereign's lair",
 		rank = "B",
@@ -132,10 +156,12 @@ MapData.Maps = {
 	},
 	{
 		id = "arcade",
+		sky = "Sky",
+		power = { 350, 700, 1200 }, -- recommended POWER: normal, hard, nightmare
 		name = "The Neon Arcade",
 		subtitle = "Break the towers",
 		rank = "S",
-		description = "A floating arcade in the void, taken room by room: clear a room and its portals light, each showing what waits beyond. Towers of magenta light make the monsters round them untouchable: shatter a tower and its shields fall.",
+		description = "Clear a room to pick the next. Break the pink towers to remove enemy shields.",
 		color = Color3.fromRGB(255, 70, 210),
 		stone = Color3.fromRGB(255, 255, 255),
 		packs = { 8 },
@@ -164,13 +190,15 @@ MapData.Maps = {
 	},
 	{
 		id = "isle",
+		sky = "Sky",
+		power = { 250, 550, 900 }, -- recommended POWER: normal, hard, nightmare
 		name = "The Forgotten Isle",
 		-- (taken out for now: its six islands, enemies and bosses stay in the
 		-- code; drop this line to bring it back)
 		hidden = true,
 		subtitle = "Survive. Plunder. Summon.",
 		rank = "A",
-		description = "An island where an ancient people chained their gods. The dead climb out of its forests, ruins and caves without end. Grow strong on what you find, then wake the ritual at its heart and face whatever answers.",
+		description = "Open-world survival. Power up, then start the ritual to fight the bosses.",
 		color = Color3.fromRGB(170, 100, 255),
 		stone = Color3.fromRGB(255, 255, 255),
 		packs = { 1 },
@@ -196,6 +224,8 @@ MapData.Maps = {
 	},
 	{
 		id = "frost",
+		sky = "Sky",
+		power = { 300, 650, 1000 }, -- recommended POWER: normal, hard, nightmare
 		name = "The Frozen Halls",
 		sealed = true, -- chained shut: shown last on the picker, can't be entered
 		subtitle = "Silence beneath the ice",
@@ -219,10 +249,11 @@ MapData.Maps = {
 -- there, and new players are sent in once: Tutorial.luau).
 MapData.Tutorial = {
 	id = "tutorial",
+	sky = "RedSky",
 	name = "The Proving Grounds",
 	subtitle = "Learn the ropes",
 	rank = "-",
-	description = "A short guided run through the Infernal Keep: every kind of room, one after another, and a weakened boss.",
+	description = "A short guided run with a weak boss.",
 	color = Color3.fromRGB(255, 120, 50),
 	stone = Color3.fromRGB(230, 200, 190),
 	packs = { 5 },
@@ -251,6 +282,27 @@ MapData.Tutorial = {
 } :: Map
 
 MapData.DEFAULT = "keep"
+
+-- The difficulty modes, easiest first (the map picker's buttons, top down).
+MapData.MODES = {
+	{ id = "normal", name = "NORMAL", health = 1, damage = 1, reward = 1, color = Color3.fromRGB(120, 210, 120) },
+	{ id = "hard", name = "HARD", health = 1.6, damage = 1.3, reward = 1.5, color = Color3.fromRGB(255, 190, 70) },
+	{ id = "nightmare", name = "NIGHTMARE", health = 2.5, damage = 1.7, reward = 2.25, color = Color3.fromRGB(235, 70, 80) },
+} :: { Mode }
+
+local modeById: { [string]: Mode } = {}
+for _, m in ipairs(MapData.MODES) do modeById[m.id] = m end
+
+function MapData.Mode(id: any): Mode
+	return (if typeof(id) == "string" then modeById[id] else nil) or MapData.MODES[1]
+end
+
+function MapData.RecommendedPower(map: Map, modeId: string?): number
+	local mode = MapData.Mode(modeId)
+	local i = table.find(MapData.MODES, mode) or 1
+	local list = map.power or { 100, 300, 600 }
+	return list[i] or list[#list]
+end
 
 -- The lobby plaza's centre (LobbyManager builds it; clients draw its sky).
 MapData.LOBBY_CENTER = Vector3.new(-4200, 300, 0)

@@ -7,7 +7,8 @@
 	(Action, Running Faster A, Memento Mori: one after another, each run
 	starting on the next), "Boss Battle Burnout" while a boss is alive near
 	you, and the drums of a horde event (Horde.luau) while one is on. Back
-	from a run, the menu soundtrack picks up where it was left.
+	from a run, the menu soundtrack picks up where it was left. Silent while
+	the player attribute MusicCut is set (summoning, SummonScreen).
 	Tracks crossfade; the volume is the Music Volume setting.
 --]]
 
@@ -71,6 +72,9 @@ local function bossNear(): boolean
 end
 
 local function want(): string?
+	-- (summoning: silence from the first pull till the summon page is left;
+	-- SummonScreen sets MusicCut)
+	if player:GetAttribute("MusicCut") == true then return nil end
 	-- (the lobby plaza too: the same track, so it never restarts on the way in)
 	if player:GetAttribute("InHub") == true or player:GetAttribute("InLobby") ~= false then return "menu" end
 	if typeof(RunScope.Mine("HordeUntil")) == "number" then return "horde" end
@@ -81,6 +85,8 @@ end
 local function sync()
 	local inRun = player:GetAttribute("InLobby") == false and player:GetAttribute("InHub") ~= true
 	if inRun and not wasInRun then nextDungeonTrack() end
+	-- (a summon's silence never follows you into a run)
+	if inRun and player:GetAttribute("MusicCut") ~= nil then player:SetAttribute("MusicCut", nil) end
 	wasInRun = inRun
 	local w = want()
 	if w == current then
@@ -123,7 +129,7 @@ function MusicController.Init()
 			end)
 		end
 	end
-	for _, a in ipairs({ "InHub", "InLobby", "Setting_musicVolume" }) do
+	for _, a in ipairs({ "InHub", "InLobby", "Setting_musicVolume", "MusicCut" }) do
 		player:GetAttributeChangedSignal(a):Connect(sync)
 	end
 	sync()

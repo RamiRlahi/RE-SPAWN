@@ -307,9 +307,8 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?, all: { any }?)
 	end
 
 	-- Sound: flat (2D), so it's the same wherever the camera flies.
-	local function sfx(key: string, volume: number, pitch: number?)
-		ClassFX.Sound2D(key, volume, pitch)
-	end
+	-- (stopped with the cinematic: ClassFX.SoundScope)
+	local sfx, stopSfx = ClassFX.SoundScope()
 
 	-- A flat ring of light racing outward along the ground.
 	local function shockwave(at: Vector3, color: Color3, radius: number, t: number)
@@ -976,6 +975,7 @@ function SummonCinematic.Play(reward: any, onDone: (() -> ())?, all: { any }?)
 	cleanupFigure()
 	world:Destroy()
 	setCharacterHidden(char, false)
+	stopSfx()
 	for s, vol in pairs(ducked) do
 		if s.Parent then tween(s, 0.8, { Volume = vol }) end
 	end

@@ -1,7 +1,8 @@
 --[[
 	TicketToast.luau
-	A Pull Ticket dropped from a kill (GachaManager → TicketDrop): it is
-	already in your inventory; this only says so. A small gold plaque slides
+	A Pull Ticket picked up (GachaManager → TicketDrop): it is already in
+	your inventory; this only says so. (A ticket that has only just dropped,
+	{ drop = true }, is drawn on the floor by TicketPickup instead.) A small gold plaque slides
 	in at the right edge with the new total, then fades. Drops are rare (a few
 	an hour, capped server-side), so nothing here needs budgeting.
 
@@ -14,12 +15,13 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local TicketPickup = require(script.Parent:WaitForChild("TicketPickup"))
 
 local player = Players.LocalPlayer
 
 local TicketToast = {}
 
-local TIER_TEXT = { normal = "", elite = "ELITE DROP", miniboss = "BEHEMOTH DROP", boss = "BOSS DROP" }
+local TIER_TEXT = { normal = "", elite = "ELITE", miniboss = "BEHEMOTH", boss = "BOSS" }
 local stack = 0
 
 local function show(payload: any)
@@ -59,8 +61,8 @@ local function show(payload: any)
 		l.Parent = f
 	end
 	local tier = TIER_TEXT[payload.tier] or ""
-	text(`+{payload.amount or 1} PULL TICKET{if tier ~= "" then "  ·  " .. tier else ""}`, 6, 18, Color3.fromRGB(255, 225, 150))
-	text(`{payload.total or 0} in your inventory`, 30, 14, Color3.fromRGB(222, 196, 156))
+	text(`+{payload.amount or 1} TICKET{if tier ~= "" then "  ·  " .. tier else ""}`, 6, 18, Color3.fromRGB(255, 225, 150))
+	text(`{payload.total or 0} owned`, 30, 14, Color3.fromRGB(222, 196, 156))
 	TweenService:Create(f, TweenInfo.new(0.35, Enum.EasingStyle.Back), { Position = UDim2.new(1, -16, 0.3, slot * 62) }):Play()
 	task.delay(3.2, function()
 		TweenService:Create(f, TweenInfo.new(0.4), { Position = UDim2.new(1, 260, 0.3, slot * 62) }):Play()
@@ -73,7 +75,13 @@ end
 
 function TicketToast.Init()
 	Network.GetRemoteEvent(Network.Remotes.TicketDrop).OnClientEvent:Connect(function(payload)
-		if typeof(payload) == "table" then show(payload) end
+		if typeof(payload) ~= "table" then return end
+		if payload.drop then
+			TicketPickup.Spawn(payload)
+			return
+		end
+		if payload.id then TicketPickup.Collect(payload.id) end
+		show(payload)
 	end)
 end
 

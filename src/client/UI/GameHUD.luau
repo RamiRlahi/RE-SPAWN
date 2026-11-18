@@ -91,6 +91,13 @@ local SKILL_ICONS_BY_CLASS: { [string]: { [any]: string } } = {
 		[3] = "rbxassetid://80913065419728",   -- Grave Snatch (Q)
 		[4] = "rbxassetid://74715237240108",   -- King of the Grave (R)
 	},
+	-- (placeholders borrowed from other kits until the Ronin's own are uploaded)
+	ronin = {
+		[1] = "rbxassetid://103491694383784",  -- Distant Cut (E)
+		[2] = "rbxassetid://76976244029000",   -- Rising Cut (F)
+		[3] = "rbxassetid://80913065419728",   -- Falling Heaven (Q)
+		[4] = "rbxassetid://74715237240108",   -- Thousand Cuts (R)
+	},
 	cleric = {
 		[1] = "rbxassetid://83970690874192",  -- 1st ability (E)
 		[2] = "rbxassetid://79167595723607",  -- 2nd ability (F)
@@ -114,7 +121,7 @@ local SKILL_ICONS_BY_CLASS: { [string]: { [any]: string } } = {
 		[1] = "rbxassetid://74728376681187",   -- Focus Strike (E)
 		[2] = "rbxassetid://90742192763242",   -- Electric Uppercut (F)
 		[3] = "rbxassetid://81505553763631",   -- Ground Slam (Q)
-		[4] = "rbxassetid://130269422401080",  -- Crimson Hadouken (R)
+		[4] = "rbxassetid://130269422401080",  -- Dragon Soul (R)
 		passive = "rbxassetid://135519619953111", -- Qi Charge
 	},
 	mage = {
@@ -141,7 +148,7 @@ local SKILL_ICONS_BY_CLASS: { [string]: { [any]: string } } = {
 	swordsman = {
 		[1] = "rbxassetid://81023610019830",   -- Sword Rush (E)
 		[2] = "rbxassetid://135280785520672",  -- Parry (F)
-		[3] = "rbxassetid://84667638225077",   -- Phantom Thrust (Q)
+		[3] = "rbxassetid://84667638225077",   -- Piercing Judgement (Q)
 		[4] = "rbxassetid://88484267696144",   -- Blade Storm (R)
 		passive = "rbxassetid://138073571091241", -- Battle Momentum
 	},
@@ -1138,7 +1145,10 @@ local function updateRunTimer()
 		if runTimerText.Text ~= txt then runTimerText.Text = txt end
 	end
 	if runTierText then
+		-- (the run's difficulty mode first, when it isn't NORMAL: "HARD · Threat II")
+		local mode = RunScope.Mine("Mode")
 		local txt = tierLabel(tier)
+		if typeof(mode) == "string" and mode ~= "normal" then txt = string.upper(mode) .. " · " .. txt end
 		if runTierText.Text ~= txt then runTierText.Text = txt end
 	end
 end

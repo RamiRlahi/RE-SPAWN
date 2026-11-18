@@ -62,6 +62,11 @@ function RunManager.Start(players: { Player }, mapId: string?): string
 	runs[id] = run
 	RunScope.Create(id)
 	RunScope.Set(id, "MapId", run.mapId)
+	-- (the difficulty mode the party leader picked with the map: MapData.MODES;
+	-- the tutorial is always NORMAL)
+	local lead = players[1]
+	local modeId = if lead and not (map :: any).tutorial then lead:GetAttribute("LobbyMode") else nil
+	RunScope.Set(id, "Mode", MapData.Mode(modeId).id)
 	for _, p in ipairs(players) do
 		if p.Parent then p:SetAttribute("RunId", id) end
 	end
@@ -84,7 +89,7 @@ function RunManager.Start(players: { Player }, mapId: string?): string
 			mapId = run.mapId,
 			level = 1,
 			seed = os.time() + math.random(1, 100000),
-			totalRooms = 18,
+			totalRooms = 11,
 			minRoomTiles = 9,
 			maxRoomTiles = 13,
 			branchProbability = 0.8,

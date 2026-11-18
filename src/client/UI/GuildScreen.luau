@@ -27,6 +27,7 @@ local Debris = game:GetService("Debris")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local ClickOutside = require(script.Parent:WaitForChild("ClickOutside"))
 local GuildData = require(Shared:WaitForChild("GuildData"))
 
 local player = Players.LocalPlayer
@@ -213,7 +214,7 @@ local function renderNoGuild()
 	end)
 	ask.Position = UDim2.fromOffset(324, 13)
 	if s.pending then
-		label(j, "Your request is waiting for the guild's leader or an officer.", 13, MUTED,
+		label(j, "Waiting for an officer to accept.", 13, MUTED,
 			{ Position = UDim2.fromOffset(14, 58), Size = UDim2.new(1, -170, 0, 26) })
 		local cancel = button(j, "CANCEL", RED, UDim2.fromOffset(100, 28), function() call("cancelRequest") end)
 		cancel.Position = UDim2.new(1, -114, 0, 58)
@@ -311,7 +312,7 @@ local function renderTop()
 	end
 	if #s.top == 0 then
 		local r = section(44)
-		label(r, "No guild has scored this season yet. Clear floors to put yours on the board.", 14, MUTED,
+		label(r, "No scores yet. Clear floors to score.", 14, MUTED,
 			{ Position = UDim2.fromOffset(14, 0), Size = UDim2.new(1, -28, 1, 0) })
 	end
 	for _, e in ipairs(s.top) do
@@ -335,7 +336,7 @@ local function renderTop()
 			13, PARCH, { Position = UDim2.fromOffset(110, 0), Size = UDim2.new(1, -120, 1, 0) })
 		prev = r.upTo
 	end
-	label(content :: any, "The top 3 guilds' best players stand on the podium in every lobby.", 12, MUTED,
+	label(content :: any, "Top 3 guilds get a podium in every lobby.", 12, MUTED,
 		{ Size = UDim2.new(1, -12, 0, 24), LayoutOrder = 999 })
 end
 
@@ -377,7 +378,6 @@ local function build()
 	dim.BackgroundColor3 = Color3.new(0, 0, 0)
 	dim.BackgroundTransparency = 0.45
 	dim.Parent = g
-	dim.MouseButton1Click:Connect(GuildScreen.Close)
 	local W, H = 760, 580
 	local panel = Instance.new("Frame")
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -385,6 +385,7 @@ local function build()
 	panel.Size = UDim2.fromOffset(W, H)
 	panel.BackgroundColor3 = DARK
 	panel.Parent = g
+	ClickOutside.Bind(dim, panel, GuildScreen.Close)
 	corner(panel, 12)
 	local ps = Instance.new("UIStroke")
 	ps.Color = GOLD
@@ -479,7 +480,7 @@ function GuildScreen.Init()
 		if msg.kind == "points" then
 			toast(`+{msg.points} guild points  ·  your guild has {msg.total} this season`)
 		elseif msg.kind == "invited" then
-			toast(`{msg.from} invited you to {msg.name or "their guild"}. Open GUILD to answer.`)
+			toast(`{msg.from} invited you to {msg.name or "their guild"} (see GUILD).`)
 		elseif msg.kind == "joined" then
 			toast(`You joined {msg.name}!`)
 		elseif msg.kind == "kicked" then

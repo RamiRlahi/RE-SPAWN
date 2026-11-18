@@ -106,7 +106,7 @@ local function info(rt: Ritual): { [string]: any }
 		cooldown = if rt.state == "cooldown" then math.max(0, math.ceil(rt.readyAt - now)) else 0,
 		slain = rt.slain,
 		bosses = #IslandBosses.Ids(),
-		lore = "Eight wardens sealed what sleeps beneath this stone. Wake them, and one of the island's sovereigns will answer.",
+		lore = "Start the ritual to summon a random boss.",
 	}
 end
 

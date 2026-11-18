@@ -390,7 +390,7 @@ local function summon(player: Player, payload: any)
 	if free then
 		-- The daily wish: one free single summon a day.
 		if not freeAvailable(p) then
-			Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { error = "Your daily wish is spent. A new one rises at midnight (UTC)." })
+			Network.GetRemoteEvent(Network.Remotes.SummonResult):FireClient(player, { error = "Daily wish used. Resets at 00:00 UTC." })
 			return
 		end
 		p.stats.lastFreeDay = today()
@@ -661,10 +661,30 @@ function GachaManager.AwardTickets(player: Player, amount: number, _reason: stri
 end
 
 -- A kill `player` gets credit for: one independent roll at the tier's odds
--- ("normal" | "elite" | "miniboss" | "boss"; MobManager), collected straight
--- away. The roll is the server's own; nothing from the client is involved.
+-- ("normal" | "elite" | "miniboss" | "boss"; MobManager). The roll is the
+-- server's own; nothing from the client is involved.
+--   With `at` (where the mob fell) the ticket is dropped there instead: only
+-- that player sees it (TicketPickup, client), spinning on the floor, and it is
+-- theirs once they walk up to it (PICKUP_RADIUS). It is never lost: one left
+-- lying for DROP_LIFE seconds, or when they leave the run, is collected anyway.
+local PICKUP_RADIUS = 7
+local PICKUP_AFTER = 1.2 -- (let it land first: the client's drop arc)
+local DROP_LIFE = 150
+type Drop = { id: number, pos: Vector3, tier: string, at: number }
 local recentDrops: { [Player]: { number } } = {}
-function GachaManager.OnMobKilled(player: Player, tier: string)
+local lying: { [Player]: { Drop } } = {}
+local nextDropId = 0
+
+local function collect(player: Player, drop: Drop)
+	local p = PlayerData.Get(player)
+	if not p then return end
+	GachaManager.AwardTickets(player, 1, drop.tier)
+	Network.GetRemoteEvent(Network.Remotes.TicketDrop):FireClient(player, {
+		amount = 1, total = p.currencies.tickets or 0, tier = drop.tier, id = drop.id,
+	})
+end
+
+function GachaManager.OnMobKilled(player: Player, tier: string, at: Vector3?)
 	local p = PlayerData.Get(player)
 	if not p then return end
 	local D = GachaConfig.TicketDrops
@@ -678,11 +698,84 @@ function GachaManager.OnMobKilled(player: Player, tier: string)
 	if #list >= D.hourlyCap then return end
 	table.insert(list, now)
 	p.stats.ticketDrops = (p.stats.ticketDrops or 0) + 1
-	GachaManager.AwardTickets(player, 1, tier)
-	Network.GetRemoteEvent(Network.Remotes.TicketDrop):FireClient(player, { amount = 1, total = p.currencies.tickets or 0, tier = tier })
+	nextDropId += 1
+	local drop: Drop = { id = nextDropId, pos = at or Vector3.zero, tier = tier, at = now }
+	if not at then
+		collect(player, drop)
+		return
+	end
+	local mine = lying[player] or {}
+	lying[player] = mine
+	table.insert(mine, drop)
+	Network.GetRemoteEvent(Network.Remotes.TicketDrop):FireClient(player, {
+		drop = true, id = drop.id, position = at, tier = tier,
+	})
+end
+
+-- Walking up to a dropped ticket picks it up (checked 5 times a second).
+local function watchDrops()
+	local acc = 0
+	game:GetService("RunService").Heartbeat:Connect(function(dt)
+		acc += dt
+		if acc < 0.2 then return end
+		acc = 0
+		local now = os.clock()
+		for player, mine in pairs(lying) do
+			local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
+			local gone = player:GetAttribute("InLobby") == true
+			for i = #mine, 1, -1 do
+				local d = mine[i]
+				local take = gone or now - d.at > DROP_LIFE
+				if not take and root and now - d.at >= PICKUP_AFTER then
+					local off = root.Position - d.pos
+					take = Vector2.new(off.X, off.Z).Magnitude <= PICKUP_RADIUS and math.abs(off.Y) <= 12
+				end
+				if take then
+					table.remove(mine, i)
+					collect(player, d)
+				end
+			end
+			if #mine == 0 then lying[player] = nil end
+		end
+	end)
 end
 
 -- ─── Premium purchases ──────────────────────────────────────────────────────
+-- Products other systems sell (StoreManager): productId → grant(player,
+-- profile) → true when granted. One ProcessReceipt for the whole game (Roblox
+-- allows only one), so they're dispatched from here.
+GachaManager.ProductHandlers = {} :: { [number]: (Player, any) -> boolean }
+
+-- A reward given outright (bought in a store): into the collection (a
+-- duplicate pays out as usual), into the history, sets checked, synced.
+function GachaManager.GrantReward(player: Player, rewardId: string, source: string): boolean
+	local p = PlayerData.Get(player)
+	local reward = GachaRewards.Get(rewardId)
+	if not (p and reward) then return false end
+	grant(p, reward)
+	addHistory(p, reward, source)
+	checkSets(p)
+	PlayerData.MarkDirty(player)
+	sync(player)
+	return true
+end
+
+-- Does the player already own this reward?
+function GachaManager.Owns(player: Player, rewardId: string): boolean
+	local p = PlayerData.Get(player)
+	local reward = GachaRewards.Get(rewardId)
+	return p ~= nil and reward ~= nil and owns(p, reward)
+end
+
+-- Currency given outright (a community reward).
+function GachaManager.AddCurrency(player: Player, currency: string, amount: number)
+	local p = PlayerData.Get(player)
+	if not p then return end
+	addCurrency(p, currency, amount)
+	PlayerData.MarkDirty(player)
+	sync(player)
+end
+
 local function processReceipt(info: any): Enum.ProductPurchaseDecision
 	local player = Players:GetPlayerByUserId(info.PlayerId)
 	if not player then return Enum.ProductPurchaseDecision.NotProcessedYet end
@@ -705,6 +798,11 @@ local function processReceipt(info: any): Enum.ProductPurchaseDecision
 			checkSets(p)
 			granted = true
 		end
+	end
+	-- (other systems' products: StoreManager's mounts, the forge skip)
+	local handler = GachaManager.ProductHandlers[info.ProductId]
+	if not granted and handler then
+		granted = handler(player, p) == true
 	end
 	if not granted then return Enum.ProductPurchaseDecision.NotProcessedYet end
 	p.purchases[info.PurchaseId] = true
@@ -789,7 +887,16 @@ function GachaManager.Init()
 		restricted[player] = nil
 		busy[player] = nil
 		recentDrops[player] = nil
+		-- (tickets still lying around are theirs: collected on the way out)
+		local mine = lying[player]
+		lying[player] = nil
+		local p = mine and PlayerData.Get(player)
+		if p then
+			addCurrency(p, "tickets", #mine)
+			PlayerData.MarkDirty(player)
+		end
 	end)
+	watchDrops()
 	print("[GachaManager] initialized.")
 end
 

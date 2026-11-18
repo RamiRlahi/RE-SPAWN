@@ -94,6 +94,8 @@ local function paletteOf(plr: Player?): Palette?
 	local reward = GachaRewards.Get(id)
 	return VFXPalettes.Get(reward and reward.palette)
 end
+-- (VfxKit swaps its pre-coloured library textures for this palette's set)
+VariantFX.PaletteFor = paletteOf
 
 local function propsFor(inst: Instance, onCharacter: boolean): { string }?
 	for _, entry in ipairs(EFFECT_PROPS) do

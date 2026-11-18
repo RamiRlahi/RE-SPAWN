@@ -115,8 +115,8 @@ function WardrobeScreen.Open(kind: string, state: any, act: (any) -> ())
 	ornament(stage, 166, 600)
 	text(stage, if isArmor then "DRESS EACH CLASS" elseif isWings then "CHOOSE YOUR WINGS" else "CHOOSE YOUR MOUNT", 28, S.GOLD_L,
 		{ AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromOffset(W / 2, 184), Size = UDim2.fromOffset(700, 32) })
-	local note = text(stage, if isArmor then "Each class wears its own outfit (found in summons). Without it: your own avatar."
-		elseif isWings then "Worn everywhere." else "Press B to ride: faster than running. A hit throws you off.", 20,
+	local note = text(stage, if isArmor then "Class outfits come from summons."
+		elseif isWings then "Worn everywhere." else "Press B to ride. Getting hit dismounts you.", 20,
 		Color3.fromRGB(200, 200, 220), { AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.fromOffset(W / 2, 222), Size = UDim2.fromOffset(900, 24) })
 	note.TextTransparency = 0.2
 	-- the tabs: the Wardrobe's three sections

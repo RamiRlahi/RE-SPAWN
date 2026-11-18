@@ -60,6 +60,14 @@ pcall(function()
 	require(script:WaitForChild("TicketToast")).Init() -- a Pull Ticket dropped from a kill
 end)
 pcall(function()
+	require(script:WaitForChild("PowerBadge")).Init() -- your POWER on the HUD (it pops when it rises)
+	require(script:WaitForChild("PowerNameplates")).Init() -- everyone's POWER over their name (grander the higher it is)
+	require(script:WaitForChild("MobHitFeedback")).Init() -- a mob's HP bar: the lost chunk as a white band, a kick on each hit
+end)
+pcall(function()
+	require(script:WaitForChild("WeaponForgeFX")).Init() -- a forged weapon's sparks / embers / flames
+end)
+pcall(function()
 	require(script:WaitForChild("LavaController")).Init() -- stuck in lava: the quick-time keys, a friend's E
 end)
 pcall(function()
@@ -154,10 +162,6 @@ if successTorch and TorchLightController then
 	end)
 end
 
--- Classic ARPG blob shadow under every player character
-pcall(function()
-	require(script:WaitForChild("PlayerShadow")).Init()
-end)
 
 -- Radial emote wheel for dungeon runs and lobby (T key)
 pcall(function()
@@ -224,6 +228,8 @@ pcall(function()
 	require(script:WaitForChild("PerfMode")).Init() -- low frame rate: shadows and scenery effects off
 	require(script:WaitForChild("PrisonFX")).Init() -- the prison map's searchlights and alarm
 	require(script:WaitForChild("PortalSpin")).Init() -- the arcade's portals: their swirls turning
+	require(script:WaitForChild("ExitArrows")).Init() -- a finished floor: arrows on the ground to the way out
+	require(script:WaitForChild("ArenaCrowd")).Init() -- the arcade's arenas: the spectators in the stands, cheering and booing
 	-- The lobby: party panel, invite prompts, its menu states.
 	require(script:WaitForChild("UI"):WaitForChild("LobbyHUD")).Init(if successUI then UIManager else nil)
 end)

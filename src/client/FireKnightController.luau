@@ -38,6 +38,8 @@ local AimInput = require(script.Parent:WaitForChild("AimInput")) -- (the mouse, 
 local ClassFX = require(script.Parent:WaitForChild("ClassFX"))
 local SwordFX = require(script.Parent:WaitForChild("SwordFX"))
 local FireFX = require(script.Parent:WaitForChild("FireFX"))
+local FireVortexFX = require(script.Parent:WaitForChild("FireVortexFX"))
+local VfxKit = require(script.Parent:WaitForChild("VfxKit"))
 local SafeMove = require(script.Parent:WaitForChild("SafeMove"))
 local UltimateCameraChoreography = require(script.Parent:WaitForChild("UltimateCameraChoreography"))
 local FxBudget = require(script.Parent:WaitForChild("FxBudget"))
@@ -81,6 +83,10 @@ local deps: Deps
 local localStep = 0
 local lastSwing = 0
 local busyUntil = 0
+-- (a dash cuts the move short: free to cast again at once)
+(require(script.Parent:WaitForChild("DashController")) :: any).OnCancel(function(c: Model)
+	if c == game:GetService("Players").LocalPlayer.Character then busyUntil = 0 end
+end)
 local rootToken = 0
 local rng = Random.new()
 
@@ -258,14 +264,12 @@ local function popWord(char: Model, text: string, color: Color3, size: number)
 	Debris:AddItem(bb, 1.2)
 end
 
--- A flaming slash: the whole blade's path burns (a filled sweep from the
--- hilt to the tip), with a white-hot edge where the tip passed.
+-- A flaming slash: FireFX.Slash draws the stroke itself (a 3D swept shell
+-- with a white-hot edge, saturated body and dark core, torn chunks of fire
+-- along the arc, the floor flashing red); a thin white-hot arc rides the
+-- blade's edge on top.
 local function crescent(cf: CFrame, radius: number, arc: number, thickness: number, life: number, sweep: number?, color: Color3?)
-	SwordFX.Sweep({ cf = cf, inner = radius * 0.2, outer = radius, arc = arc, sweep = sweep, color = color or FIRE,
-		life = life * 1.15, draw = 0.07, opacity = 0.55 })
-	SwordFX.Sweep({ cf = cf, inner = radius * 0.55, outer = radius * 0.95, arc = arc, sweep = sweep, color = HOT,
-		life = life * 0.8, draw = 0.07, opacity = 0.4 })
-	SwordFX.Arc({ cf = cf, radius = radius, arc = arc, sweep = sweep, width = thickness * 2.4, color = color or FIRE, life = life })
+	SwordFX.Arc({ cf = cf, radius = radius, arc = arc, sweep = sweep, width = thickness * 1.6, color = color or FIRE, life = life * 0.7 })
 	FireFX.Slash(cf, radius, arc, sweep or 1, 0.07, color == HOT)
 end
 
@@ -1277,7 +1281,17 @@ end
 -- mobs and effects; else on the take-off's floor height.
 local cursorParams = RaycastParams.new()
 cursorParams.FilterType = Enum.RaycastFilterType.Exclude
+local cursorGroundRaw: (number) -> Vector3
+-- (never behind you on the classic camera when you look up: AimInput.Ahead)
 local function cursorGround(floorY: number): Vector3
+	local p = cursorGroundRaw(floorY)
+	local char = Players.LocalPlayer.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not root then return p end
+	local a = AimInput.Ahead(root.Position, p)
+	return Vector3.new(a.X, p.Y, a.Z)
+end
+cursorGroundRaw = function(floorY: number): Vector3
 	local cam = Workspace.CurrentCamera
 	local m = AimInput.ScreenPoint() -- (the mouse, or a controller's aim)
 	local ray = cam:ViewportPointToRay(m.X, m.Y)
@@ -1551,6 +1565,8 @@ local function scaledSeq(seq: NumberSequence, k: number): NumberSequence
 	return NumberSequence.new(kps)
 end
 
+local USE_TEMPLATE_WIND = false
+
 local function onTornado(msg: any)
 	local char = charOf(msg.attacker)
 	local root = rootOf(char)
@@ -1562,7 +1578,28 @@ local function onTornado(msg: any)
 	ClassFX.Sound("fireWhoosh", root, 0.9, 0.7)
 	ClassFX.Sound("wind", root, 0.7, 0.9)
 	if msg.attacker == player then deps.shake(0.3, 0.2) end
-	local template = ReplicatedStorage:FindFirstChild("Tornado")
+	-- the vortex (FireVortexFX, tuned in FireVortexConfig): a compact white-hot
+	-- fire core in a chaotic sphere of energy ribbons, streaks past the
+	-- silhouette, embers and sparks, a ground ring with trails; it carries
+	-- him and explodes when the spin ends
+	local floorY = groundY(root.Position)
+	local floorAt = 0
+	local function floorUnder(): Vector3?
+		if not root.Parent then return nil end
+		local now = os.clock()
+		if now - floorAt > 0.07 then
+			floorAt = now
+			floorY = groundY(root.Position)
+		end
+		return Vector3.new(root.Position.X, floorY, root.Position.Z)
+	end
+	-- the two together: the wide funnel of thin swirl streaks (VfxKit.Tornado)
+	-- outside, the vortex's white-hot core, ribbons and streaks inside it
+	VfxKit.Tornado(floorUnder, r * 1.6, r * 2.2, "fire", dur)
+	FireVortexFX.Start(floorUnder, r * 0.95, dur)
+	-- (the old particle-wind tornado below stays off: its overlapping rings
+	-- hid the core; set USE_TEMPLATE_WIND to bring it back)
+	local template = if USE_TEMPLATE_WIND then ReplicatedStorage:FindFirstChild("Tornado") else nil
 	if not (template and template:IsA("BasePart")) then return end
 
 	-- a copy of it, unseen holders that never touch anything
@@ -1572,7 +1609,9 @@ local function onTornado(msg: any)
 	local lvlRel = if lvlPart then template.CFrame:ToObjectSpace((template :: any).Lvlup.CFrame) else CFrame.identity
 	type Em = { e: ParticleEmitter, size: NumberSequence, speed: NumberRange }
 	local ems: { Em } = {}
-	local density = 1 - 0.6 * FxBudget.Pressure() -- (fewer when the frame rate's struggling)
+	-- (the meshes carry the body now: the particle wind is the detail around it,
+	-- and fewer still when the frame rate's struggling)
+	local density = 0.6 * (1 - 0.6 * FxBudget.Pressure())
 	for _, d in ipairs({ fx :: Instance, unpack(fx:GetDescendants()) }) do
 		if d:IsA("BasePart") then
 			d.Anchored, d.CanCollide, d.CanQuery, d.CanTouch, d.CastShadow = true, false, false, false, false

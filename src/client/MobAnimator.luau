@@ -501,9 +501,26 @@ local function animate(b: Body, dt: number, now: number, serverNow: number)
 		add(P, { Root = { 12, 0, b.flinchRoll, 0, 0, 0.18 * sc }, N = { -20, b.flinchRoll, 0 }, RS = { 22, 0, 14 }, LS = { 22, 0, -14 } }, k)
 	end
 
+	-- on a Death Knight's chain (DeathKnightController sets "ChainHeld" on this
+	-- client): 1 grabbed (the arms pinned in the coil, up on its toes),
+	-- 2 in the air (head thrown back, legs kicking), 3 limp on the floor
+	local held = b.model:GetAttribute("ChainHeld")
+	if held == 1 or held == 2 or held == 3 then
+		local kick = math.sin(t * 14)
+		local hp: Pose
+		if held == 1 then
+			hp = { N = { -14, 0, 0 }, RS = { 6, 0, 6 }, LS = { 6, 0, -6 }, RH = { 10 * kick, 0, 4 }, LH = { -10 * kick, 0, -4 } }
+		elseif held == 2 then
+			hp = { N = { -30, 0, 0 }, RS = { 14, 0, 10 }, LS = { 14, 0, -10 }, RH = { 35 + 30 * kick, 0, 12 }, LH = { 5 - 30 * kick, 0, -12 } }
+		else
+			hp = { N = { 12, 0, 8 }, RS = { 24, 0, 34 }, LS = { 16, 0, -28 }, RH = { 12, 0, 10 }, LH = { -4, 0, -8 } }
+		end
+		blend(P, hp, 1)
+	end
+
 	-- keep the feet on the floor: the legs turned back against the torso's
 	-- lean and roll, the body lowered as they open (and as the lean lifts the hips)
-	if not g.float then
+	if not g.float and not held then
 		local pitch, roll = R[1], R[3]
 		RH[1] -= pitch
 		LH[1] -= pitch

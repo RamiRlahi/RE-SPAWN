@@ -13,7 +13,7 @@
 	                       round the landing); then a beat to recover.
 	  Passive              Qi Charge (MA_Charge, 0–100): abilities build it
 	                       (Focus Strike +20, Electric Uppercut +15, Ground
-	                       Slam +20, Crimson Hadouken +30) and so do landed
+	                       Slam +20, Dragon Soul +30) and so do landed
 	                       strikes (+2). At 100 the next ability is Empowered
 	                       and uses it up.
 	  E Hundred Fists      a barrage: both fists hammering out a storm of
@@ -33,16 +33,17 @@
 	                       in an explosion and leaves a burning trail.
 	                       Empowered: three strikes along the path, a wider
 	                       landing and trail.
-	  R Crimson Hadouken   a sphere of crimson energy charged in his hand and
-	                       thrust forward: one big sphere (Size grows it; extra
-	                       Projectiles don't add more) flies through every
-	                       enemy in its path and bursts where it ends.
-	                       Empowered: bigger and harder.
+	  R Dragon Soul        he roars and a crimson Qi dragon spirals up out of
+	                       the floor round him (the ult's cinematic), bursting
+	                       out through everything near. For `duration`
+	                       seconds he attacks DRAGON.speed× faster, and the
+	                       dragon coils round him and lashes out along every
+	                       strike he throws, hitting everything in its lane.
+	                       Empowered: lasts longer, lashes harder.
 --]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Network = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Network"))
@@ -96,27 +97,42 @@ local BARRAGE_EMP = { damage = 1.3, cone = 1.3 }
 local UPPER = { hit = 0.27, total = 0.62, dash = 24, lane = 3.5, stopShort = 2.5, arc = math.cos(math.rad(70)), launch = 55, liftHold = 0.16, stun = 1.3, chain = 16,
 	empChains = 4, chainStun = 0.6 }
 
--- Ground Slam (matches the client's flight: up, a beat, the dive)
+-- Haymaker (Q, matches the client; after the reference clip, which was
+-- stepped through frame by frame): he stands his ground and charges (full
+-- after `full` seconds, Empowered `empFull`; off on its own after `hold`),
+-- a lane marked out on the floor ahead growing `length`..`fullLength` studs
+-- long as it charges. On release the punch drives a wave down the lane: its
+-- front reaches the end in `travel` seconds, hitting everything within `half`
+-- of the lane's line as it passes (up to `maxMult`x the damage at full
+-- charge), blasting them on along it. Behind it a row of glassy arcs bursts
+-- up every `gap` studs (`eruptRadius` round, `eruptMult`x, popping them up),
+-- `after` seconds behind the front.
+-- (after Sett's W, the clip's source: the lane's centre strip, `core` either
+-- side of the line, takes the full hit; its sides take `sideMult`)
+local HAY = { full = 1.0, empFull = 0.5, hold = 2.2, length = 12, fullLength = 30, half = 3.2, travel = 0.3,
+	maxMult = 3.2, gap = 5, after = 0.12, eruptRadius = 4.2, eruptMult = 0.45, core = 1.3, sideMult = 0.6,
+	windup = 0.08 } -- (the anticipation beat before the wave goes: matches the client)
+local HAY_EMP = { damage = 1.3, length = 1.2 }
+
+-- Ground Slam (no longer cast: Q is the Haymaker; kept for reference)
 local ASCENT = { rise = 0.3, dash = 0.08, fall = 0.22 } -- the leap up, the beat at the top, the dive
 local ASCENT_TRAIL = 2.5      -- seconds the trail burns
 local ASCENT_TICK = 0.5
 local ASCENT_WIDTH = 4
 
--- Crimson Hadouken (matches the client): charged for `charge` seconds (the
--- ult's cinematic: mobs held still, him untouchable), then the thrust, held
--- `hold`; the sphere leaves his palms at `v0` and surges up to `speed`
--- (`ramp`: how quickly).
-local HADO = { charge = 1.3, hold = 0.45, speed = 64, v0 = 18, ramp = 0.3, blast = 12, range = 70 }
-
--- How far the sphere has flown `t` seconds after the thrust.
-local function hadoDist(t: number): number
-	return HADO.speed * t - (HADO.speed - HADO.v0) * HADO.ramp * (1 - math.exp(-t / HADO.ramp))
-end
+-- Dragon Soul (matches the client): the summoning takes `rise` seconds (the
+-- ult's cinematic: mobs held still, him untouchable), then the roar bursts
+-- out `burst` studs round him. For `duration` seconds (Empowered: × `emp`)
+-- his strikes come `speed`× faster and every one sends the dragon lashing
+-- `reach` studs along it (`width` either side), `delay` after the strike,
+-- for `lash` × the strike's damage (Empowered: `empLash`).
+local DRAGON = { rise = 1.1, duration = 10, emp = 1.4, speed = 1.6, reach = 15, width = 3.2, delay = 0.1, lash = 0.7, empLash = 0.9,
+	burst = 14 }
 
 
 -- ── State ───────────────────────────────────────────────────────────────────
 type Target = { character: Model, humanoid: Humanoid, rootPart: BasePart }
-type Focus = { t0: number, empowered: boolean, config: any, token: {} }
+type Focus = { t0: number, empowered: boolean, config: any, token: {}, kind: string? }
 type State = {
 	charge: number,
 	step: number,
@@ -124,6 +140,8 @@ type State = {
 	busyUntil: number,
 	focus: Focus?,
 	pendingRelease: { at: number, held: number?, dir: Vector3? }?,
+	dragonUntil: number,
+	dragonEmp: boolean,
 }
 
 local H: any = nil -- helpers from SkillManager
@@ -132,7 +150,7 @@ local states: { [Player]: State } = {}
 local function getState(player: Player): State
 	local st = states[player]
 	if not st then
-		st = { charge = 0, step = 0, lastSwing = 0, busyUntil = 0 }
+		st = { charge = 0, step = 0, lastSwing = 0, busyUntil = 0, dragonUntil = 0, dragonEmp = false }
 		states[player] = st
 	end
 	return st
@@ -301,12 +319,34 @@ local function positions(list: { Target }): { Vector3 }
 	return out
 end
 
+-- ── R: Dragon Soul ──────────────────────────────────────────────────────────
+local function dragonOn(st: State): boolean
+	return os.clock() < st.dragonUntil
+end
+
+-- The dragon lashes out along a strike thrown `dir` from `from`.
+local function dragonLash(player: Player, char: Model, from: Vector3, dir: Vector3, damage: number, st: State)
+	if not dragonOn(st) then return end
+	local size = stat(player, "size")
+	local reach = DRAGON.reach * size
+	local mult = if st.dragonEmp then DRAGON.empLash else DRAGON.lash
+	if H.fxAllowed(player, "maDragonLash", 10) then
+		fx({ kind = "dragonLash", attacker = player, dir = dir, reach = reach })
+	end
+	task.delay(DRAGON.delay, function()
+		if not char.Parent then return end
+		for _, t in ipairs(alongSegment(char, from, from + dir * reach, DRAGON.width * size)) do
+			hit(player, t, damage * mult, "DRAGON SOUL")
+		end
+	end)
+end
+
 -- ── M1: Flowing Fists ───────────────────────────────────────────────────────
 function MartialServer.OnBasic(player: Player, char: Model, root: BasePart, payload: any)
 	local st = getState(player)
 	local now = os.clock()
 	if now < st.busyUntil then return end
-	local speed = math.max(stat(player, "basicAttackSpeed"), 0.1)
+	local speed = math.max(stat(player, "basicAttackSpeed"), 0.1) * (if dragonOn(st) then DRAGON.speed else 1)
 	if now - st.lastSwing < COMBO_INTERVAL / speed - 0.06 then return end
 	if now - st.lastSwing > COMBO_RESET then st.step = 0 end
 	st.step = st.step % COMBO_STEPS + 1
@@ -327,6 +367,7 @@ function MartialServer.OnBasic(player: Player, char: Model, root: BasePart, payl
 		local at = root.Position + dir * 2.5
 		fx({ kind = "strike", attacker = player, step = step, pos = root.Position, dir = dir, landed = false,
 			palm = at, radius = FINISH_RADIUS * size })
+		dragonLash(player, char, root.Position, dir, damage, st)
 		task.delay(FINISH_LAND / speed, function()
 			if not char.Parent then return end
 			local any = false
@@ -378,16 +419,22 @@ function MartialServer.OnBasic(player: Player, char: Model, root: BasePart, payl
 	end
 	fx({ kind = "strike", attacker = player, step = step, pos = root.Position, dir = dir, landed = landed, reach = reach,
 		palm = if step == 6 then palmAt else nil, radius = PALM_RADIUS * size })
+	dragonLash(player, char, root.Position, dir, damage, st)
 end
 
 -- ── E: Focus Strike ─────────────────────────────────────────────────────────
 -- The release: `held` is how long the client says the key was down (never
 -- more than the server has seen), `aim` where the fist goes.
+local haymakerRelease: (Player, Focus, number?, Vector3?) -> ()
 local function focusRelease(player: Player, held: number?, aim: Vector3?)
 	local st = getState(player)
 	local f = st.focus
 	if not f then return end
 	st.focus = nil
+	if f.kind == "haymaker" then
+		haymakerRelease(player, f, held, aim)
+		return
+	end
 	local char = player.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not (char and root) then
@@ -579,7 +626,100 @@ local function uppercut(player: Player, char: Model, root: BasePart, dir: Vector
 	end)
 end
 
--- ── Q: Ground Slam ──────────────────────────────────────────────────────────
+-- ── Q: Haymaker ─────────────────────────────────────────────────────────────
+local function haymakerStart(player: Player, config: any, empowered: boolean)
+	local st = getState(player)
+	local now = os.clock()
+	local token = {}
+	st.focus = { t0 = now, empowered = empowered, config = config, token = token, kind = "haymaker" }
+	st.busyUntil = math.max(st.busyUntil, now + HAY.hold + 0.5)
+	fx({ kind = "haymakerCharge", attacker = player, empowered = empowered,
+		full = if empowered then HAY.empFull else HAY.full, hold = HAY.hold })
+	-- (a release that got here ahead of the cast: a tap)
+	local pend = st.pendingRelease
+	st.pendingRelease = nil
+	if pend and now - pend.at < 0.6 then
+		focusRelease(player, pend.held, pend.dir)
+		return
+	end
+	task.delay(HAY.hold, function()
+		local f = st.focus
+		if f and f.token == token then focusRelease(player, HAY.hold, nil) end
+	end)
+end
+
+haymakerRelease = function(player: Player, f: Focus, held: number?, aim: Vector3?)
+	local st = getState(player)
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not (char and root) then
+		st.busyUntil = 0
+		return
+	end
+	local now = os.clock()
+	local elapsed = now - f.t0
+	local h = math.clamp(tonumber(held) or elapsed, 0, elapsed + 0.15)
+	local c = math.clamp(h / (if f.empowered then HAY.empFull else HAY.full), 0, 1)
+	local full = c >= 0.999
+	local config = f.config
+	local area = config.areaMultiplier or 1
+	local dir = flat(if typeof(aim) == "Vector3" then aim else root.CFrame.LookVector)
+	local origin = root.Position
+	-- the lane: longer the harder it was charged (and with Size / area)
+	local length = (HAY.length + (HAY.fullLength - HAY.length) * c) * area * (if f.empowered then HAY_EMP.length else 1)
+	local half = HAY.half * area
+	local damage = (config.damage or 80) * (1 + (HAY.maxMult - 1) * c) * (if f.empowered then HAY_EMP.damage else 1)
+	st.busyUntil = now + HAY.windup + 0.45
+	fx({ kind = "haymakerRelease", attacker = player, pos = origin, dir = dir, charge = c, full = full, length = length,
+		half = half, empowered = f.empowered })
+	-- the wave down the lane: each enemy hit as its front passes them
+	local seen: { [Model]: boolean } = {}
+	local first: Target? = nil
+	-- (a trapezoid, like Sett's W, FIXED by the full-charge range: 0.14 x that
+	-- either side at him, 0.33 x at its far end. The charge only decides how
+	-- far along it reaches; it never widens. The client's telegraph fills the
+	-- same shape. The centre strip is as wide as the near end.)
+	local maxLength = HAY.fullLength * area * (if f.empowered then HAY_EMP.length else 1)
+	local nearHalf, maxHalf = math.max(maxLength * 0.14, 1.6), math.max(maxLength * 0.33, 3)
+	local farHalf = nearHalf + (maxHalf - nearHalf) * length / maxLength
+	for _, t in ipairs(alongSegment(char, origin, origin + dir * length, farHalf)) do
+		local rel = t.rootPart.Position - origin
+		local flatRel = Vector3.new(rel.X, 0, rel.Z)
+		local along = math.clamp(flatRel:Dot(dir), 0, length)
+		local across = (flatRel - dir * flatRel:Dot(dir)).Magnitude
+		local reachHere = nearHalf + (maxHalf - nearHalf) * along / maxLength + H.lineReach(t, 0) * 0.5
+		if across > reachHere then continue end
+		local centre = across <= nearHalf + H.lineReach(t, 0) * 0.5
+		task.delay(HAY.windup + HAY.travel * along / length, function()
+			if not char.Parent or seen[t.character] then return end
+			seen[t.character] = true
+			if hit(player, t, damage * (if centre then 1 else HAY.sideMult),
+				if centre and full then "HAYMAKER!" else "HAYMAKER") then
+				first = first or t
+				hold(t, 0.3 + 0.3 * c)
+				if not isBoss(t) then shove(t, dir, 40 + 50 * c, 0.25 + 0.3 * c) end
+			end
+		end)
+	end
+	-- the row of glassy arcs bursting up behind the front
+	local n = math.max(1, math.floor(length / HAY.gap))
+	for i = 1, n do
+		local d = i * length / n
+		task.delay(HAY.windup + HAY.travel * d / length + HAY.after, function()
+			if not char.Parent then return end
+			local p = floorAt(char, origin + dir * d)
+			for _, t in ipairs(inRadius(char, p, HAY.eruptRadius * area)) do
+				if hit(player, t, damage * HAY.eruptMult, "HAYMAKER WAVE") and not isBoss(t) then launchUp(t, dir) end
+			end
+		end)
+	end
+	task.delay(HAY.windup + HAY.travel + 0.05, function()
+		local f1 = first
+		if f1 and char.Parent then pcall(H.ricochet, player, char, f1, damage, "HAYMAKER") end
+	end)
+end
+
+-- ── (old) Q: Ground Slam ────────────────────────────────────────────────────
 local function ascent(player: Player, char: Model, root: BasePart, dir: Vector3, dest: Vector3, config: any, empowered: boolean)
 	local st = getState(player)
 	local area = config.areaMultiplier or 1
@@ -628,53 +768,27 @@ local function ascent(player: Player, char: Model, root: BasePart, dir: Vector3,
 	end)
 end
 
--- ── R: Crimson Hadouken ─────────────────────────────────────────────────────
-local function hadouken(player: Player, char: Model, root: BasePart, dir: Vector3, config: any, empowered: boolean)
+-- ── R: Dragon Soul (the summoning) ─────────────────────────────────────────
+local function dragonSoul(player: Player, char: Model, root: BasePart, dir: Vector3, config: any, empowered: boolean)
 	local st = getState(player)
 	local now = os.clock()
-	-- (one sphere, however many Projectiles: Size grows it, and its reach round it)
-	local scale = (config.areaMultiplier or 1) * (if empowered then 1.3 else 1)
-	local width = (config.width or 16) * 0.5 * scale
-	local damage = (config.damage or 240) * (if empowered then 1.3 else 1)
-	local center = root.Position + Vector3.new(0, 0.4, 0)
-	local from = center + dir * 2.5
-	local len = clearDistance(char, from, dir, config.range or HADO.range)
-	-- (held through the charge and the thrust; untouchable while it charges)
-	st.busyUntil = now + HADO.charge + HADO.hold
-	char:SetAttribute("InvulnerableUntil", math.max(tonumber(char:GetAttribute("InvulnerableUntil")) or 0, now + HADO.charge + 0.2))
-	fx({ kind = "hado", attacker = player, pos = root.Position, from = center, dir = dir, charge = HADO.charge, speed = HADO.speed,
-		scale = scale, width = width, length = len, empowered = empowered })
-	task.delay(HADO.charge, function()
+	local duration = (config.duration or DRAGON.duration) * (if empowered then DRAGON.emp else 1)
+	-- (held through the summoning, untouchable)
+	st.busyUntil = now + DRAGON.rise
+	char:SetAttribute("InvulnerableUntil", math.max(tonumber(char:GetAttribute("InvulnerableUntil")) or 0, now + DRAGON.rise + 0.2))
+	fx({ kind = "dragonSoul", attacker = player, pos = root.Position, dir = dir, rise = DRAGON.rise, duration = duration })
+	task.delay(DRAGON.rise, function()
 		if not char.Parent then return end
-		local flown = 0
-		local t0 = os.clock()
-		local struck: { [Model]: boolean } = {}
-		while flown < len and char.Parent do
-			RunService.Heartbeat:Wait()
-			local was = flown
-			flown = math.min(len, hadoDist(os.clock() - t0))
-			local fresh: { Target } = {}
-			for _, t in ipairs(alongSegment(char, from + dir * was, from + dir * flown, width)) do
-				if not struck[t.character] then
-					struck[t.character] = true
-					if hit(player, t, damage, "CRIMSON HADOUKEN") then
-						table.insert(fresh, t)
-						hold(t, 0.6)
-						shove(t, dir, 45, 0.45)
-					end
-				end
-			end
-			if #fresh > 0 and H.fxAllowed(player, "maHadoHit", 20) then
-				fx({ kind = "hadoHit", attacker = player, hits = positions(fresh), dir = dir })
-			end
-		end
-		-- it bursts where it ends
-		local endAt = from + dir * len
-		local r = HADO.blast * scale
-		fx({ kind = "hadoEnd", attacker = player, pos = endAt, dir = dir, radius = r })
-		for _, t in ipairs(inRadius(char, endAt, r)) do
-			if not struck[t.character] then hit(player, t, damage * 0.6, "CRIMSON HADOUKEN") end
-			shove(t, t.rootPart.Position - endAt, 40, 0.6)
+		st.dragonUntil = os.clock() + duration
+		st.dragonEmp = empowered
+		player:SetAttribute("MA_DragonUntil", Workspace:GetServerTimeNow() + duration)
+		-- the roar: it bursts out through everything round him
+		local at = root.Position
+		local r = DRAGON.burst * (config.areaMultiplier or 1)
+		local damage = (config.damage or 160) * (if empowered then 1.3 else 1)
+		for _, t in ipairs(inRadius(char, at, r)) do
+			hit(player, t, damage, "DRAGON SOUL")
+			shove(t, t.rootPart.Position - at, 40, 0.5)
 		end
 	end)
 end
@@ -696,23 +810,22 @@ function MartialServer.OnSkill(player: Player, char: Model, skillIndex: number, 
 	elseif skillIndex == 2 then
 		uppercut(player, char, root, dir, config, empowered)
 	elseif skillIndex == 3 then
-		local range = config.range or 26
-		local dest = root.Position + dir * range
-		if typeof(targetPosition) == "Vector3" then dest = targetPosition end
-		ascent(player, char, root, dir, dest, config, empowered)
+		haymakerStart(player, config, empowered)
 	elseif skillIndex == 4 then
-		hadouken(player, char, root, dir, config, empowered)
+		dragonSoul(player, char, root, dir, config, empowered)
 	end
 	gainCharge(player, st, CHARGE_GAIN[skillIndex] or 0)
 end
 
--- Seconds the Crimson Hadouken's cinematic (the charge) holds mobs still.
-MartialServer.ULT_WINDUP = HADO.charge
+-- Seconds the Dragon Soul's cinematic (the summoning) holds mobs still.
+MartialServer.ULT_WINDUP = DRAGON.rise
 
 function MartialServer.Reset(player: Player)
 	local st = getState(player)
 	st.step, st.lastSwing, st.busyUntil = 0, 0, 0
 	st.focus, st.pendingRelease = nil, nil
+	st.dragonUntil, st.dragonEmp = 0, false
+	player:SetAttribute("MA_DragonUntil", nil)
 	setCharge(player, st, 0)
 end
 
@@ -731,6 +844,15 @@ local function onCharacter(p: Player, char: Model)
 end
 
 function MartialServer.Init(helpers: any)
+	-- (a dash cuts the move short: free to act again, and what was left of it doesn't land)
+	(require(script.Parent:WaitForChild("Dash")) :: any).OnDash(function(p: Player)
+		local st = states[p] :: any
+		if not st then return end
+		st.busyUntil = 0
+		if type(st.token) == "number" then st.token += 1 end
+		-- (a charging Haymaker is dropped: no punch goes off later)
+		st.focus = nil
+	end)
 	H = helpers
 	-- The Focus Strike's key let go (or a tap that beat the cast here).
 	Network.GetRemoteEvent(Network.Remotes.MartialInput).OnServerEvent:Connect(function(player: Player, msg: any)

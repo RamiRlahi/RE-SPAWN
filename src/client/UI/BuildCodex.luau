@@ -20,6 +20,7 @@ local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Network = require(Shared:WaitForChild("Network"))
+local ClickOutside = require(script.Parent:WaitForChild("ClickOutside"))
 local TomeData = require(Shared:WaitForChild("TomeData"))
 local ClassData = require(Shared:WaitForChild("ClassData"))
 
@@ -194,7 +195,6 @@ local function build()
 	dim.BackgroundColor3 = Color3.new(0, 0, 0)
 	dim.BackgroundTransparency = 0.45
 	dim.Parent = g
-	dim.MouseButton1Click:Connect(BuildCodex.Close)
 	local W, H = 900, 600
 	local panel = Instance.new("Frame")
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -202,6 +202,7 @@ local function build()
 	panel.Size = UDim2.fromOffset(W, H)
 	panel.BackgroundColor3 = DARK
 	panel.Parent = g
+	ClickOutside.Bind(dim, panel, BuildCodex.Close)
 	local pc = Instance.new("UICorner")
 	pc.CornerRadius = UDim.new(0, 12)
 	pc.Parent = panel
@@ -214,7 +215,7 @@ local function build()
 	local vp = Workspace.CurrentCamera and Workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
 	sc.Scale = math.min(1, (vp.X - 40) / W, (vp.Y - 40) / H)
 	label(panel, "THE DIVINE ARCHIVE", 34, GOLD, { Font = Enum.Font.Antique, Position = UDim2.fromOffset(0, 16), Size = UDim2.new(1, 0, 0, 40), TextXAlignment = Enum.TextXAlignment.Center })
-	label(panel, "Every evolution you find is written here. Take a boon to its max level with the right tome, or on the right class.", 14, PARCH,
+	label(panel, "Max a boon with the right tome or class to evolve it.", 14, PARCH,
 		{ Position = UDim2.fromOffset(40, 58), Size = UDim2.new(1, -80, 0, 20), TextXAlignment = Enum.TextXAlignment.Center, TextTransparency = 0.15 })
 	countLabel = label(panel, "", 14, GOLD, { FontFace = BOLD, Position = UDim2.fromOffset(0, 80), Size = UDim2.new(1, 0, 0, 18), TextXAlignment = Enum.TextXAlignment.Center })
 	local sf = Instance.new("ScrollingFrame")

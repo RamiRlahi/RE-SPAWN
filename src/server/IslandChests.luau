@@ -5,7 +5,7 @@
 	says how many, IslandConfig.Loot what's in them).
 
 	  common   by the beaches, the ruins, the clearings: gold, a draught or
-	           tonic, now and then a piece of Rare gear or a tome
+	           tonic, now and then a piece of Rare gear
 	  rare     in the caves (their crystal halls), deep ruins, the highlands:
 	           better odds of better gear
 	  cursed   sealed with a red glow: opening it wakes an ambush round it,
@@ -13,13 +13,12 @@
 	           odds outside a boss
 	  elite    left where an elite fell (sometimes; a Behemoth always)
 	  ritual   raised by the altar when its boss falls (IslandRitual): boss
-	           gear (its own exclusive, or the legendary pool) and a tome
+	           gear (its own exclusive, or the legendary pool)
 
 	Opening one (its prompt, on the server): it opens once. Every player of
 	the run near it when it does gets their own roll (no one takes another's
 	loot, and nothing can be claimed twice): gear into the bag
-	(EquipmentManager), gold, a consumable used at once, a tome
-	(PlayerStats.GrantTome). Luck (the Luck Tome, the Oracle's Veil) and the
+	(EquipmentManager), gold, a consumable used at once. Luck (the Oracle's Veil) and the
 	island's events tip the odds toward the rarer. An opened common chest
 	comes back elsewhere after a while.
 
@@ -145,10 +144,6 @@ local function roll(rc: RunChests, p: Player, kind: string, ctx: any): { [string
 		local c = CONSUMABLE_IDS[rng:NextInteger(1, #CONSUMABLE_IDS)]
 		useConsumable(p, c)
 		out.consumable = c
-	end
-	if rng:NextNumber() < tbl.tome then
-		local tome = PlayerStats.GrantTome(p)
-		if tome then out.tome = tome.name end
 	end
 	return out
 end

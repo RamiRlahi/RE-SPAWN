@@ -21,6 +21,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared    = ReplicatedStorage:WaitForChild("Shared")
 local Network   = require(Shared:WaitForChild("Network"))
+local ClickOutside = require(script.Parent:WaitForChild("UI"):WaitForChild("ClickOutside"))
 local EmoteData = require(Shared:WaitForChild("EmoteData"))
 
 local player  = Players.LocalPlayer
@@ -210,9 +211,6 @@ local function createWheelUI()
 	scrim.AutoButtonColor = false
 	scrim.ZIndex = 1
 	scrim.Parent = gui
-	scrim.MouseButton1Click:Connect(function()
-		EmoteController.CloseWheel()
-	end)
 
 	-- Container centered on screen
 	local container = Instance.new("Frame")
@@ -223,6 +221,8 @@ local function createWheelUI()
 	container.BackgroundTransparency = 1
 	container.ZIndex = 2
 	container.Parent = gui
+	-- (a click on the wheel itself, off its slices, leaves it open)
+	ClickOutside.Bind(scrim, container, function() EmoteController.CloseWheel() end)
 
 	-- Outer ring (decorative)
 	local ring = Instance.new("Frame")

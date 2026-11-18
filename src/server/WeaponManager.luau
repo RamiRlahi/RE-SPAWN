@@ -21,6 +21,7 @@ local BerserkerLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForCh
 local RogueLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RogueLook"))
 local SummonerLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SummonerLook"))
 local DeathKnightLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("DeathKnightLook"))
+local RoninLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RoninLook"))
 local WeaponSling = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("WeaponSling"))
 local GearLook = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GearLook"))
 
@@ -53,12 +54,16 @@ local WEAPON_CONFIG: { [string]: { toolName: string, leftHand: boolean?, build: 
 		build = RogueLook.BuildDagger,
 	},
 	summoner = {
-		toolName = "Bondstaff",
-		build = SummonerLook.BuildStaff,
+		toolName = "Bondgauntlet",
+		build = SummonerLook.BuildGauntlet,
 	},
 	death_knight = {
 		toolName = "Graveblade",
 		build = DeathKnightLook.BuildGraveblade,
+	},
+	ronin = {
+		toolName = "Katana",
+		build = RoninLook.BuildKatana,
 	},
 }
 
@@ -239,6 +244,10 @@ function WeaponManager.EquipWeapon(player: Player, classId: string)
 	if config.leftHand and humanoid then
 		WeaponGrip.ToLeftHand(character, tool)
 	end
+	-- The Rogue's second knife, in the left hand.
+	if tool:GetAttribute("OffHand") == true then
+		RogueLook.HoldOffhand(character, tool)
+	end
 
 	print(`[WeaponManager] Successfully equipped Tool '{config.toolName}' via Humanoid:EquipTool for {player.Name}`)
 
@@ -372,6 +381,8 @@ function WeaponManager.StowWeapon(player: Player, classId: string)
 			if old then old:Destroy() end
 		end
 	end
+	-- (the Ronin's katana is already carried: sheathed in the scabbard at the hip, RoninLook)
+	if classId == "ronin" then return end
 	local template: Instance? = if config.build then config.build() else findWeaponTemplate(config.toolName)
 	if not template then return end
 	local tool = if config.build then template else template:Clone()
@@ -392,6 +403,30 @@ function WeaponManager.StowWeapon(player: Player, classId: string)
 	weldLoosePartsToHandle(tool :: Tool, handle)
 	local finish = player:GetAttribute("Gear_weapon")
 	if typeof(finish) == "string" then pcall(GearLook.Weapon, tool, finish) end
+	-- (a worn weapon, the Summoner's gauntlet, stays on the arm: welded where
+	-- an equipped tool's RightGrip would hold it)
+	if tool:GetAttribute("Worn") == true then
+		local arm = character:FindFirstChild("Right Arm") :: BasePart?
+		if not arm then
+			tool:Destroy()
+			return
+		end
+		local c0 = CFrame.new(0, -1, 0) * CFrame.Angles(math.rad(-90), 0, 0) * (tool :: Tool).Grip:Inverse()
+		local m = Instance.new("Model")
+		m.Name = "StowedWeapon"
+		for _, c in ipairs(tool:GetChildren()) do c.Parent = m end
+		tool:Destroy()
+		m.PrimaryPart = handle
+		m:PivotTo(arm.CFrame * c0)
+		local w = Instance.new("Weld")
+		w.Name = "StowWeld"
+		w.Part0 = arm
+		w.Part1 = handle
+		w.C0 = c0
+		w.Parent = handle
+		m.Parent = character
+		return
+	end
 	WeaponSling.Stow(character, tool :: Tool, classId == "gunslinger")
 end
 

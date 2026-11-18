@@ -126,6 +126,10 @@ local lastShot = 0
 local lastDryFire = 0
 local localReloadEnd = 0 -- predicted (os.clock), until the server confirms
 local busyUntil = 0 -- fanning / rolling / High Noon
+-- (a dash cuts the move short: free to cast again at once)
+(require(script.Parent:WaitForChild("DashController")) :: any).OnCancel(function(c: Model)
+	if c == game:GetService("Players").LocalPlayer.Character then busyUntil = 0 end
+end)
 local onNoonEnd: (any) -> () -- defined with the High Noon effects below
 local changed = Instance.new("BindableEvent")
 GunslingerController.Changed = changed.Event

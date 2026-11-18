@@ -113,7 +113,7 @@ function CorruptionHUD.Init()
 		local active = inRun and RunScope.Mine("CorruptionActive") == true
 		local level = if active then (RunScope.Mine("Corruption") or 0) else 0
 		if active and not wasActive then
-			bigBanner(g, "THE DUNGEON STIRS", "You chose greed. Every floor and every minute it grows stronger, and its treasure richer.", VIOLET)
+			bigBanner(g, "THE DUNGEON STIRS", "Grows every floor and minute: harder enemies, better loot.", VIOLET)
 		end
 		wasActive = active
 		meter.Visible = active

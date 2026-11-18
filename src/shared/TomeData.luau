@@ -90,10 +90,6 @@ local TomeData: { [string]: TomeDefinition } = {
 		id = "shield", name = "Shield Tome", category = "Base", description = "+25 Shield HP",
 		effects = { { stat = "shield", operation = "add", value = 25, description = "+25 Shield HP" } },
 	},
-	silver = {
-		id = "silver", name = "Silver Tome", category = "Base", description = "+12% Silver Gain",
-		effects = { { stat = "silverGain", operation = "percent", value = 0.12, description = "+12% Silver Gain" } },
-	},
 	ricochet = {
 		id = "ricochet", name = "Ricochet Tome", category = "Base", description = "+1 Ricochet",
 		effects = { { stat = "ricochet", operation = "add", value = 1, description = "Projectiles bounce to +1 nearby enemy" } },
@@ -105,10 +101,6 @@ local TomeData: { [string]: TomeDefinition } = {
 	armor = {
 		id = "armor", name = "Armor Tome", category = "Unlockable", description = "+12% Armor",
 		effects = { { stat = "armor", operation = "percent", value = 0.12, description = "+12% Armor" } },
-	},
-	attraction = {
-		id = "attraction", name = "Attraction Tome", category = "Unlockable", description = "+75% Pickup Range",
-		effects = { { stat = "pickupRange", operation = "percent", value = 0.75, description = "+75% Pickup Range" } },
 	},
 	bloody = {
 		id = "bloody", name = "Bloody Tome", category = "Unlockable", description = "+10% Lifesteal",
@@ -139,10 +131,6 @@ local TomeData: { [string]: TomeDefinition } = {
 	quantity = {
 		id = "quantity", name = "Quantity Tome", category = "Unlockable", description = "+1 Projectile",
 		effects = { { stat = "projectileCount", operation = "add", value = 1, description = "+1 Projectile" } },
-	},
-	thorns = {
-		id = "thorns", name = "Thorns Tome", category = "Unlockable", description = "+15 Thorns Damage",
-		effects = { { stat = "thornsDamage", operation = "add", value = 15, description = "+15 Thorns Damage" } },
 	},
 	lethality = {
 		id = "lethality", name = "Lethality Tome", category = "Base", description = "+20% Critical Damage",
@@ -176,7 +164,7 @@ local TomeData: { [string]: TomeDefinition } = {
 	},
 	boon_frost = {
 		id = "boon_frost", name = "Frostbite", category = "Boon", maxLevel = 3,
-		description = "Your hits can chill enemies; chilled enemies take more damage.",
+		description = "Hits can Chill. Chilled enemies take more damage.",
 		levels = {
 			"12% of your hits chill (slowed for 2s). Chilled enemies take +15% damage.",
 			"20% of your hits chill. Chilled enemies take +25% damage.",
@@ -196,7 +184,7 @@ local TomeData: { [string]: TomeDefinition } = {
 	},
 	boon_bloodlust = {
 		id = "boon_bloodlust", name = "Bloodlust", category = "Boon", maxLevel = 3,
-		description = "Kills drive you on: each one stacks bonus damage for a few seconds.",
+		description = "Each kill stacks bonus damage for a few seconds.",
 		levels = {
 			"Each kill: +6% damage for 5s (up to 3 stacks).",
 			"Each kill: +6% damage for 5s (up to 5 stacks).",
@@ -206,7 +194,7 @@ local TomeData: { [string]: TomeDefinition } = {
 	},
 	boon_corpse = {
 		id = "boon_corpse", name = "Volatile Corpses", category = "Boon", maxLevel = 3,
-		description = "Enemies you kill can explode, hurting those around them.",
+		description = "Kills can explode, hitting nearby enemies.",
 		levels = {
 			"15% of your kills explode for half the killing blow.",
 			"25% of your kills explode for half the killing blow.",
@@ -216,7 +204,7 @@ local TomeData: { [string]: TomeDefinition } = {
 	},
 	boon_execute = {
 		id = "boon_execute", name = "Executioner", category = "Boon", maxLevel = 3,
-		description = "Finish them: big damage to wounded enemies; elite kills heal you.",
+		description = "Bonus damage to wounded enemies. Elite kills heal you.",
 		levels = {
 			"+30% damage to enemies under 30% HP. Elite kills heal 5% HP.",
 			"+45% damage to enemies under 30% HP. Elite kills heal 8% HP.",
@@ -226,7 +214,7 @@ local TomeData: { [string]: TomeDefinition } = {
 	},
 	boon_thunder = {
 		id = "boon_thunder", name = "Thunderstrike", category = "Boon", maxLevel = 3,
-		description = "Every few hits, lightning strikes your target and those around it.",
+		description = "Every few hits, lightning strikes around your target.",
 		levels = {
 			"Every 10th hit calls lightning: 120% damage around the target.",
 			"Every 8th hit calls lightning.",
@@ -334,7 +322,7 @@ local TomeData: { [string]: TomeDefinition } = {
 
 	boon_secondwind = {
 		id = "boon_secondwind", name = "Second Wind", category = "Boon", maxLevel = 3,
-		description = "Fight harder near death: low on health, you hit harder and take less.",
+		description = "Low HP: deal more damage, take less.",
 		levels = {
 			"Under 35% HP: +20% damage, 10% less damage taken.",
 			"Under 35% HP: +30% damage, 15% less damage taken.",
@@ -346,8 +334,7 @@ local TomeData: { [string]: TomeDefinition } = {
 }
 
 -- Tomes that can be offered, granted or rolled (level-ups, the Wheel of Fate,
--- the Chaos Tome all draw from this list). Disabled: attraction and thorns
--- (their stats aren't used in-game yet) and silver (no silver currency).
+-- the Chaos Tome all draw from this list). Every tome above is in it.
 -- (Armor and evasion are applied to every hit a player takes: EquipmentPerks.)
 local TomeOrder = {
 	"agility", "attack_speed", "cooldown", "damage", "evasion", "gold", "health",
@@ -368,9 +355,9 @@ local RelicOrder = {
 local Evolutions: { Evolution } = {
 	-- Class-free: a maxed boon + a tome.
 	{ id = "evo_inferno", name = "Inferno", boon = "boon_ignite", with = "damage", color = Color3.fromRGB(255, 110, 30),
-		description = "Burns deal double, and a burning enemy that dies sets everything around it alight." },
+		description = "Burns deal 2x. Burning enemies spread fire when they die." },
 	{ id = "evo_glacial_shatter", name = "Glacial Shatter", boon = "boon_frost", with = "size", color = Color3.fromRGB(150, 225, 255),
-		description = "Chilled enemies you kill shatter: an icy blast that hurts and chills everything nearby." },
+		description = "Chilled kills explode, damaging and Chilling nearby enemies." },
 	{ id = "evo_stormcaller", name = "Stormcaller", boon = "boon_chain", with = "precision", color = Color3.fromRGB(150, 190, 255),
 		description = "Lightning arcs to 6 enemies at 60% damage, and every arc can crit." },
 	{ id = "evo_blood_frenzy", name = "Blood Frenzy", boon = "boon_bloodlust", with = "attack_speed", color = Color3.fromRGB(220, 30, 50),
@@ -382,7 +369,7 @@ local Evolutions: { Evolution } = {
 	{ id = "evo_judgement", name = "Judgement", boon = "boon_thunder", with = "cooldown", color = Color3.fromRGB(255, 235, 140),
 		description = "Lightning falls every 4th hit, wider, and stuns what it strikes." },
 	{ id = "evo_undying", name = "Undying", boon = "boon_secondwind", with = "health", color = Color3.fromRGB(255, 200, 120),
-		description = "Once per floor, a killing blow leaves you at 1 HP, untouchable for 2s." },
+		description = "Once per floor, survive a killing blow at 1 HP, immune for 2s." },
 
 	-- A maxed boon on the right class changes its signature skill.
 	{ id = "evo_glacial_ray", name = "Glacial Ray", boon = "boon_frost", classId = "ice_mage", skill = "Ice Beam", color = Color3.fromRGB(170, 235, 255),
@@ -442,21 +429,18 @@ local BUFF_COLORS: { [string]: Color3 } = {
 	ricochet = Color3.fromRGB(255, 190, 90),
 	regen = Color3.fromRGB(120, 245, 180),
 	shield = Color3.fromRGB(150, 200, 255),
-	silver = Color3.fromRGB(210, 215, 230),
 	size = Color3.fromRGB(230, 170, 255),
 	armor = Color3.fromRGB(170, 190, 210),
 	lethality = Color3.fromRGB(255, 70, 90),
 	arcane = Color3.fromRGB(150, 120, 255),
 	fortune = Color3.fromRGB(190, 255, 140),
 	leech = Color3.fromRGB(200, 40, 70),
-	attraction = Color3.fromRGB(255, 140, 220),
 	bloody = Color3.fromRGB(205, 45, 55),
 	chaos = Color3.fromRGB(200, 120, 255),
 	cursed = Color3.fromRGB(150, 85, 190),
 	duration = Color3.fromRGB(255, 180, 80),
 	luck = Color3.fromRGB(130, 230, 120),
 	quantity = Color3.fromRGB(255, 210, 140),
-	thorns = Color3.fromRGB(120, 180, 90),
 	boon_ignite = Color3.fromRGB(255, 120, 40),
 	boon_frost = Color3.fromRGB(150, 220, 255),
 	boon_chain = Color3.fromRGB(140, 180, 255),
@@ -537,18 +521,19 @@ end
 -- The tome each class is best served by (the tutorial guides a new player
 -- to it: Tutorial, ChoiceScreen's SUGGESTED ribbon), and why.
 TomeModule.Suggested = {
-	heavy_knight = { id = "size", why = "his fire tornado, slams and flame lines all grow with Ability Size: more of the room burns" },
-	martial_artist = { id = "attack_speed", why = "her combos and Qi build faster the quicker she strikes" },
-	berserker = { id = "damage", why = "every swing hits harder, and Rage builds from the damage he deals" },
-	mage = { id = "cooldown", why = "her spells are her damage: the sooner they're back, the more she casts" },
-	death_knight = { id = "size", why = "his Blackwake, Doomfall and the King of the Grave all grow with Ability Size" },
-	summoner = { id = "cooldown", why = "her beasts come back sooner, and a full pack on the field hits far harder" },
-	rogue = { id = "precision", why = "her strikes and blades crit more often, and crits are where her damage lives" },
-	cleric = { id = "cooldown", why = "her heals and smites come back sooner" },
-	ranger = { id = "quantity", why = "every volley fires more arrows" },
-	gunslinger = { id = "ricochet", why = "every bullet bounces on to another enemy" },
-	swordsman = { id = "quantity", why = "each Phantom Thrust strikes again for every extra projectile" },
-	ice_mage = { id = "size", why = "his frost fields and shards cover more ground" },
+	heavy_knight = { id = "size", why = "bigger fire attacks" },
+	martial_artist = { id = "attack_speed", why = "faster combos and Qi" },
+	berserker = { id = "damage", why = "harder hits, faster Rage" },
+	mage = { id = "cooldown", why = "more spell casts" },
+	death_knight = { id = "size", why = "bigger skills" },
+	ronin = { id = "cooldown", why = "more draws" },
+	summoner = { id = "cooldown", why = "beasts return sooner" },
+	rogue = { id = "precision", why = "more crits" },
+	cleric = { id = "cooldown", why = "faster heals" },
+	ranger = { id = "quantity", why = "more arrows" },
+	gunslinger = { id = "ricochet", why = "bullets bounce" },
+	swordsman = { id = "quantity", why = "more lunge echoes" },
+	ice_mage = { id = "size", why = "bigger frost attacks" },
 } :: { [string]: { id: string, why: string } }
 
 function TomeModule.SuggestedFor(classId: any): { id: string, why: string }?

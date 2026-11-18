@@ -8,7 +8,7 @@
 	Handle space: the blade runs along -Z from the hand, and the Tool's Grip
 	turns it to stick out of the fist (forward with the arm hanging, up with
 	the arm raised). Named pieces the client uses:
-	  BladeBase / BladeTip — Attachments on the blade for the swing trail
+	  BladeBase / BladeTip — Attachments near the point for the swing trail
 	  SwordTrail           — the white/blue swing Trail (off until a swing)
 
 	To flip a sword point-down (planted), set tool.Grip =
@@ -120,10 +120,10 @@ function SwordModel.Build(): Tool
 	piece(tool, handle, "Tip", { Size = Vector3.new(0.07, 0.04, 0.4), Offset = CFrame.new(0, 0, -5.0),
 		Color = EDGE, Material = metal })
 
-	-- Swing trail along the blade, and the point (camera / thrust effects).
+	-- Swing trail on the last stud of the blade, and the point (camera / thrust effects).
 	local base = Instance.new("Attachment")
 	base.Name = "BladeBase"
-	base.Position = Vector3.new(0, 0, 1.6)
+	base.Position = Vector3.new(0, 0, -1.3)
 	base.Parent = blade
 	local tip = Instance.new("Attachment")
 	tip.Name = "BladeTip"

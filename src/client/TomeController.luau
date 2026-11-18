@@ -232,7 +232,7 @@ function TomeController.Init()
 		local show = RunScope.Mine("TomesPaused") == true and typeof(who) == "string"
 			and not choosingMyself and player:GetAttribute("InLobby") == false
 		waiting.Visible = show
-		if show then waiting.Text = `WAITING FOR {string.upper(who :: string)} TO CHOOSE A TOME…` end
+		if show then waiting.Text = `{string.upper(who :: string)} IS CHOOSING…` end
 	end
 	-- (the run's attributes live on its RunScope folder: checked often)
 	task.spawn(function()

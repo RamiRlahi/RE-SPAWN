@@ -13,17 +13,17 @@
 	    server's SummonerFX moments, timed to its hits.
 	  • E / F / Q call a beast (the Rockborn falls as a meteor where you aim,
 	    the Skyfeather dives in, the Lunari rises from a moon gate); pressed
-	    again while it's out, the staff points and the beast makes its
+	    again while it's out, the gauntlet points and the beast makes its
 	    signature move at the cursor (Ground Slam, Wind Circle, Radiant
 	    Bloom; each its own short recharge, shown on the beast cards).
 	  • R: the beasts fly to you and fuse into the Skyrockorn.
-	  • The Bond Bolt (M1) leaves the staff at once on your screen; whatever
+	  • The Bond Bolt (M1) leaves the gauntlet at once on your screen; whatever
 	    it hits gets the Focus sigil and every beast turns on it.
 	  • The beast cards over the skill bar: each beast's time left and its
 	    signature's recharge.
 
 	The caster's poses are R6: a limb is one piece, so each is posed by
-	where its forearm (or shin) should point: the staff arm straight out at
+	where its forearm (or shin) should point: the gauntlet arm straight out at
 	the target, raised overhead, driven down at the floor.
 	Per-hit effects go through FxBudget; nothing a player must see is
 	budgeted (the arrivals, the signatures, the ult).
@@ -75,6 +75,10 @@ local deps: Deps
 
 local lastBolt = 0
 local busyUntil = 0
+-- (a dash cuts the move short: free to cast again at once)
+(require(script.Parent:WaitForChild("DashController")) :: any).OnCancel(function(c: Model)
+	if c == game:GetService("Players").LocalPlayer.Character then busyUntil = 0 end
+end)
 local sigReadyAt: { [string]: number } = {} -- server time each signature is back
 
 local function isSummoner(p: Player?): boolean
@@ -1441,7 +1445,7 @@ local function fireBolt(from: Vector3, dir: Vector3, speed: number)
 end
 
 local function onBolt(msg: any)
-	if mine(msg) then return end -- (ours left the staff already)
+	if mine(msg) then return end -- (ours left the gauntlet already)
 	for _, d in ipairs(msg.dirs or {}) do fireBolt(msg.from, d, msg.speed) end
 end
 
@@ -1500,7 +1504,7 @@ end
 -- ── The Summoner's poses (R6: each limb posed as its forearm / shin) ────────
 local Poses = {}
 
--- The staff thrust out at the target, the torso turning behind it.
+-- The gauntleted fist thrust out at the target, the torso turning behind it.
 function Poses.bolt(char: Model)
 	CastPoses.play(char, {
 		{ dur = 0.06, style = Enum.EasingStyle.Quart, pose = { RS = { 100, -10, 0 }, W = { -4, -16, 0 }, LS = { -14, 0, -10 }, N = { 0, 12, 0 } } },
@@ -1508,7 +1512,7 @@ function Poses.bolt(char: Model)
 	}, 0.22)
 end
 
--- Rockborn: the staff raised high, then driven down at the floor in a lunge
+-- Rockborn: the fist raised high, then driven down at the floor in a lunge
 -- as the meteor falls.
 function Poses.rock(char: Model)
 	CastPoses.play(char, {
@@ -1546,7 +1550,7 @@ function Poses.moon(char: Model)
 	}, 0.3)
 end
 
--- A command (a signature): the staff snapped out at the spot, held, a
+-- A command (a signature): the fist snapped out at the spot, held, a
 -- little shake of power in it.
 function Poses.command(char: Model)
 	CastPoses.play(char, {
@@ -1577,32 +1581,8 @@ function Poses.ult(char: Model, gather: number)
 end
 SummonerController.Poses = Poses
 
--- The staff in the fist. At rest it stands upright along the arm (head by
--- the shoulder); to cast it twirls over so the head points out past the
--- fist, wherever the (rigid R6) arm points: at the target, at the sky, at
--- the floor. It twirls back once the casting's done.
-local castHoldUntil = 0
-local holdK = 0
-local CAST_TURN = CFrame.Angles(math.pi, 0, 0) * CFrame.new(0, 1.1, 0)
-local function castHold(seconds: number)
-	castHoldUntil = math.max(castHoldUntil, os.clock() + seconds)
-end
-local function stepGrip(dt: number)
-	local char = player.Character
-	local arm = char and char:FindFirstChild("Right Arm")
-	local grip = arm and arm:FindFirstChild("RightGrip") :: Weld?
-	if not grip or not isSummoner() then return end
-	local want = if os.clock() < castHoldUntil then 1 else 0
-	if math.abs(want - holdK) < 1e-3 then return end
-	holdK += math.clamp(want - holdK, -dt * 9, dt * 9)
-	local k = holdK * holdK * (3 - 2 * holdK)
-	local rest = CFrame.new(0, -1, 0) * CFrame.Angles(math.rad(-90), 0, 0)
-	local cast = CFrame.new(0, -1, 0) * CAST_TURN * CFrame.Angles(math.rad(-90), 0, 0)
-	grip.C0 = rest:Lerp(cast, k)
-end
-
--- A ripple off the staff tip when it commands or casts.
-local function staffFlash(root: BasePart, dir: Vector3, color: Color3)
+-- A ripple off the gauntlet's fist when it commands or casts.
+local function fistFlash(root: BasePart, dir: Vector3, color: Color3)
 	local tip = root.Position + dir * 2.4 + Vector3.new(0, 1.2, 0)
 	flare(tip, 3.4, 0.22, color)
 	sparks(tip, 8, 10, color)
@@ -1729,7 +1709,6 @@ function SummonerController.Basic(char: Model, root: BasePart): boolean
 	local dir = flat(deps.getAim(root))
 	root.CFrame = CFrame.lookAt(root.Position, root.Position + dir)
 	Poses.bolt(char)
-	castHold(0.8)
 	local origin = root.Position + dir * 1.6 + Vector3.new(0, 0.9, 0)
 	local count = 1 + math.max(0, math.floor(tonumber(player:GetAttribute("Stat_projectileCount")) or 0))
 	local boltSpeed = BOLT.speed * (tonumber(player:GetAttribute("Stat_projectileSpeed")) or 1)
@@ -1785,8 +1764,7 @@ function SummonerController.TryRecast(skillIndex: number, char: Model, root: Bas
 	local aim = cursorOr(root, dir, BEAST[kind].sig.range + 10)
 	root.CFrame = CFrame.lookAt(root.Position, root.Position + dir)
 	Poses.command(char)
-	castHold(0.9)
-	staffFlash(root, dir, COLOR[kind])
+	fistFlash(root, dir, COLOR[kind])
 	ClassFX.Sound("charge", root, 0.35, 1.6)
 	-- (until the server says, assume it went)
 	sigReadyAt[kind] = serverNow() + BEAST[kind].sig.cooldown
@@ -1811,8 +1789,7 @@ function SummonerController.OnCast(skillIndex: number, char: Model, root: BasePa
 	if skillIndex == 1 then
 		char:SetAttribute("AllowSkillMovement", false)
 		Poses.rock(char)
-		castHold(1.0)
-		staffFlash(root, dir, COLOR.rock)
+		fistFlash(root, dir, COLOR.rock)
 		ClassFX.Sound("charge", root, 0.4, 0.9)
 		if deps then deps.fovPunch(4, 0.2) end
 		releaseAfter(char, 0.42)
@@ -1820,8 +1797,7 @@ function SummonerController.OnCast(skillIndex: number, char: Model, root: BasePa
 	elseif skillIndex == 2 then
 		char:SetAttribute("AllowSkillMovement", true)
 		Poses.sky(char)
-		castHold(0.9)
-		staffFlash(root, dir, COLOR.sky)
+		fistFlash(root, dir, COLOR.sky)
 		ClassFX.Sound("wind", root, 0.4, 1.6)
 		releaseAfter(char, 0.3)
 		return target
@@ -1836,8 +1812,7 @@ function SummonerController.OnCast(skillIndex: number, char: Model, root: BasePa
 		char:SetAttribute("AllowSkillMovement", false)
 		busyUntil = os.clock() + gather
 		Poses.ult(char, gather)
-		castHold(gather + 0.8)
-		staffFlash(root, dir, COLOR.fused)
+		fistFlash(root, dir, COLOR.fused)
 		releaseAfter(char, gather + 0.15)
 		return root.Position
 	end
@@ -1892,7 +1867,6 @@ function SummonerController.Init(d: Deps)
 	RunService.RenderStepped:Connect(function(dt)
 		stepBeasts(dt)
 		stepAnims(dt)
-		stepGrip(dt)
 		hudAt += dt
 		if hudAt > 0.1 then
 			hudAt = 0

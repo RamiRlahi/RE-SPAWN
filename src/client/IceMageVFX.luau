@@ -714,13 +714,16 @@ local function getCursorAim(rootPart: BasePart): Vector3
 	rp.FilterDescendantsInstances = nonWorldInstances()
 	local hit = Workspace:Raycast(ray.Origin, ray.Direction * 1000, rp)
 	local pos
+	local t = if math.abs(ray.Direction.Y) > 0.001 then (rootPart.Position.Y - ray.Origin.Y) / ray.Direction.Y else -1
 	if hit then
 		pos = hit.Position
-	elseif math.abs(ray.Direction.Y) > 0.001 then
-		pos = ray.Origin + ray.Direction * ((rootPart.Position.Y - ray.Origin.Y) / ray.Direction.Y)
+	elseif t > 0 then
+		pos = ray.Origin + ray.Direction * t
 	else
 		return rootPart.CFrame.LookVector
 	end
+	-- (never behind you on the classic camera when you look up: AimInput.Ahead)
+	pos = AimInput.Ahead(rootPart.Position, pos)
 	local flat = Vector3.new(pos.X - rootPart.Position.X, 0, pos.Z - rootPart.Position.Z)
 	return flat.Magnitude > 0.5 and flat.Unit or rootPart.CFrame.LookVector
 end

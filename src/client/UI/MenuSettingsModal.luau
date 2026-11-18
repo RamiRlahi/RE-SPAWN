@@ -11,6 +11,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local UITheme = require(Shared:WaitForChild("UITheme"))
+local ClickOutside = require(script.Parent:WaitForChild("ClickOutside"))
 local SettingsConfig = require(Shared:WaitForChild("SettingsConfig"))
 local SoundManager = require(script.Parent:WaitForChild("SoundManager"))
 
@@ -68,9 +69,6 @@ function SettingsModal.Create(
 	backdrop.AutoButtonColor = false
 	backdrop.Parent = container
 
-	backdrop.MouseButton1Click:Connect(function()
-		callbacks.onClose()
-	end)
 
 	-- Modal Window
 	local modal = Instance.new("Frame")
@@ -80,6 +78,7 @@ function SettingsModal.Create(
 	modal.Position = UDim2.new(0.5, 0, 0.5, 0)
 	modal.BackgroundColor3 = PLAQUE
 	modal.Parent = container
+	ClickOutside.Bind(backdrop, modal, function() callbacks.onClose() end)
 
 	UITheme.AddCorner(modal, 12)
 	UITheme.AddStroke(modal, BRASS, 2.5, 0.05)
@@ -442,8 +441,8 @@ function SettingsModal.Create(
 	local togglesList = {
 		{ key = "cameraShake", name = "Camera Shake Effects", desc = "Enable dynamic screen impact shaking." },
 		{ key = "damageNumbers", name = "Damage Popups", desc = "Show floating combat damage numbers." },
-		{ key = "lowDetailVFX", name = "Low Detail Particle VFX", desc = "Fewer particles, and no scenery fires or dust, for better performance." },
-		{ key = "autoFire", name = "Auto-Fire", desc = "Ranged classes shoot the nearest enemy in the room by themselves (off: click to shoot)." },
+		{ key = "lowDetailVFX", name = "Low Detail Particle VFX", desc = "Fewer effects, better performance." },
+		{ key = "autoFire", name = "Auto-Fire", desc = "Ranged classes auto-shoot the nearest enemy." },
 	}
 
 	for i, item in ipairs(togglesList) do

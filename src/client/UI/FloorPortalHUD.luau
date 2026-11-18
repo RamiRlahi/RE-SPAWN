@@ -104,30 +104,34 @@ function FloorPortalHUD.Init()
 		local waiting: { string } = if typeof(state.waiting) == "table" then state.waiting else {}
 		local counts = if typeof(state.counts) == "table" then state.counts else {}
 		local going = state.going
+		-- (the way down: the lift, or the arcade's portal)
+		local portal = state.way == "portal"
+		local Way = if portal then "Portal" else "Lift"
+		local goingDown = if portal then "ENTERING THE PORTAL..." else "GOING UP..."
 		if state.extractFloor then
 			-- The choice: out with everything, or down into the corruption.
-			if titleLabel then titleLabel.Text = "EXTRACT  OR  TAKE THE LIFT" end
+			if titleLabel then titleLabel.Text = `EXTRACT  OR  TAKE THE {string.upper(Way)}` end
 			if countLabel then
 				countLabel.Text = if going == "extract" then "EXTRACTING..."
-					elseif going == "descend" then "GOING UP..."
-					else `Extract {counts.extract or 0}    ·    Lift {counts.descend or 0}    of {total}`
+					elseif going == "descend" then goingDown
+					else `Extract {counts.extract or 0}    ·    {Way} {counts.descend or 0}    of {total}`
 			end
 			if subLabel then
 				subLabel.Text = if going then "Everyone agrees."
 					elseif #waiting > 0 then "Waiting for " .. table.concat(waiting, ", ")
-					else "Everyone must stand in the same place. Extract keeps all your loot; taking the lift on corrupts the dungeon (harder, richer)."
+					else `Everyone must stand on the same one. Extract: keep your loot. {Way}: harder, better loot.`
 			end
 		else
-			if titleLabel then titleLabel.Text = "THE LIFT" end
+			if titleLabel then titleLabel.Text = `THE {string.upper(Way)}` end
 			if countLabel then
-				countLabel.Text = if going == "descend" or state.descending then "GOING UP..."
+				countLabel.Text = if going == "descend" or state.descending then goingDown
 					elseif going == "extract" then "ESCAPING..."
 					else `{ready} / {total} ready`
 			end
 			if subLabel then
 				subLabel.Text = if going then "Everyone's in."
 					elseif #waiting > 0 and mine then "Waiting for " .. table.concat(waiting, ", ")
-					elseif #waiting > 0 then "Your party waits on the lift. Step on to go."
+					elseif #waiting > 0 then (if portal then "Your party waits in the portal. Step in to go." else "Your party waits on the lift. Step on to go.")
 					else ""
 			end
 		end

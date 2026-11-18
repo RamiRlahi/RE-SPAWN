@@ -131,10 +131,11 @@ export type Entry = {
 	setEnabled: (boolean) -> (),
 }
 
-function MenuEntry.Button(parent: Instance, label: string, icon: string, order: number, onClick: () -> ()): Entry
+-- `primary`: the screen's main entry (PLAY): taller, larger and gold at rest.
+function MenuEntry.Button(parent: Instance, label: string, icon: string, order: number, onClick: () -> (), primary: boolean?): Entry
 	local button = Instance.new("TextButton")
 	button.Name = label:gsub("%s+", "") .. "Button"
-	button.Size = UDim2.new(1, 0, 0, 56)
+	button.Size = UDim2.new(1, 0, 0, if primary then 66 else 56)
 	button.LayoutOrder = order
 	button.BackgroundTransparency = 1
 	button.AutoButtonColor = false
@@ -160,12 +161,15 @@ function MenuEntry.Button(parent: Instance, label: string, icon: string, order: 
 	text.Size = UDim2.new(1, -56, 1, -6)
 	text.Text = label
 	text.FontFace = BOLD
-	text.TextSize = 22
+	text.TextSize = if primary then 28 else 22
 	text.TextXAlignment = Enum.TextXAlignment.Left
-	text.TextColor3 = IVORY
-	text.TextTransparency = 0.35
+	-- (rest colours: readable over a bright sky, PLAY already gold)
+	local restColor = if primary then BRASS_LIGHT else IVORY
+	local restTransparency = if primary then 0 else 0.15
+	text.TextColor3 = restColor
+	text.TextTransparency = restTransparency
 	text.TextStrokeColor3 = Color3.fromRGB(20, 8, 4)
-	text.TextStrokeTransparency = 0.6
+	text.TextStrokeTransparency = 0.4
 	text.Parent = button
 
 	local under = Instance.new("Frame")
@@ -174,7 +178,7 @@ function MenuEntry.Button(parent: Instance, label: string, icon: string, order: 
 	under.Position = UDim2.new(0, 14, 1, -3)
 	under.Size = UDim2.new(0.68, 0, 0, 1)
 	under.BackgroundColor3 = BRASS
-	under.BackgroundTransparency = 0.45
+	under.BackgroundTransparency = if primary then 0.15 else 0.45
 	under.BorderSizePixel = 0
 	under.Parent = button
 	for _, x in ipairs({ 0, 1 }) do
@@ -184,6 +188,7 @@ function MenuEntry.Button(parent: Instance, label: string, icon: string, order: 
 	spark.BackgroundColor3 = Color3.fromRGB(255, 240, 200)
 	spark.BackgroundTransparency = 1
 
+	if primary then tint(iconHolder, BRASS_LIGHT) end
 	local turn = if icon == "play" then 90 else 20
 	local hovered, lit, enabled = false, false, true
 	local function refresh(sparkle: boolean)
@@ -191,17 +196,17 @@ function MenuEntry.Button(parent: Instance, label: string, icon: string, order: 
 		TweenService:Create(glow, HOVER, { Size = UDim2.new(if on then 0.85 else 0, 0, 1, -6), BackgroundTransparency = if on then 0.72 else 1 }):Play()
 		TweenService:Create(text, HOVER, {
 			Position = UDim2.fromOffset(if on then 64 else 56, 0),
-			TextColor3 = if on then BRASS_LIGHT else IVORY,
-			TextTransparency = if not enabled then 0.7 elseif on then 0 else 0.35,
-			TextStrokeTransparency = if on then 0.35 else 0.6,
+			TextColor3 = if on then BRASS_LIGHT else restColor,
+			TextTransparency = if not enabled then 0.7 elseif on then 0 else restTransparency,
+			TextStrokeTransparency = if on then 0.25 else 0.4,
 		}):Play()
 		TweenService:Create(iconHolder, HOVER, {
 			Rotation = if on then turn else 0,
 			Position = UDim2.new(0, if on then 18 else 14, 0.5, -3),
 		}):Play()
-		tint(iconHolder, if on then BRASS_LIGHT else IVORY)
+		tint(iconHolder, if on or primary then BRASS_LIGHT else IVORY)
 		TweenService:Create(under, HOVER, {
-			BackgroundTransparency = if on then 0 else 0.45,
+			BackgroundTransparency = if on then 0 elseif primary then 0.15 else 0.45,
 			BackgroundColor3 = if on then BRASS_LIGHT else BRASS,
 		}):Play()
 		if on and sparkle then
