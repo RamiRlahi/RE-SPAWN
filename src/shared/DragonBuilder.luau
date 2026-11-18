@@ -2,8 +2,8 @@
 --[[
 	DragonBuilder.luau
 	Ignarath, the dragon boss, built out of parts (like the menu's sky castle):
-	a crimson western dragon crouched on all fours, wings raised, horns swept
-	back, jaws open in a snarl.
+	a basalt-scaled western dragon crouched on all fours, wings raised, molten
+	fissures in its armor, horns swept back, jaws open in a snarl.
 
 	Every limb is a jointed segment (an invisible core part carrying its
 	sculpted pieces), joined by Motor6Ds so the clients can animate it:
@@ -22,14 +22,15 @@
 local DragonBuilder = {}
 
 -- ── Palette (from the concept art) ──────────────────────────────────────────
-local RED = Color3.fromRGB(92, 22, 24)         -- the scales (dark maroon)
-local RED_DARK = Color3.fromRGB(44, 34, 40)    -- the charcoal armour plates on top
-local RED_HOT = Color3.fromRGB(150, 40, 30)    -- highlights, ridges
-local BELLY = Color3.fromRGB(125, 36, 30)      -- the ridged underside
-local MEMBRANE = Color3.fromRGB(140, 26, 24)   -- wing skin
-local WING_BONE = Color3.fromRGB(40, 32, 38)
-local BONE = Color3.fromRGB(150, 36, 30)       -- horn tips (dark red)
-local BONE_DARK = Color3.fromRGB(38, 30, 36)   -- horn roots, spikes (charcoal)
+local RED = Color3.fromRGB(28, 27, 30)         -- cooled volcanic scales
+local RED_DARK = Color3.fromRGB(12, 13, 17)    -- charcoal basalt armour
+local RED_HOT = Color3.fromRGB(91, 43, 29)     -- iron-rich ridges
+local BELLY = Color3.fromRGB(51, 31, 28)       -- dark ridged underside
+local MEMBRANE = Color3.fromRGB(58, 24, 22)    -- scorched wing skin
+local WING_BONE = Color3.fromRGB(18, 18, 22)
+local BONE = Color3.fromRGB(122, 54, 29)       -- molten-metal horn tips
+local BONE_DARK = Color3.fromRGB(24, 22, 25)   -- horn roots, spikes (basalt)
+local MAGMA = Color3.fromRGB(255, 92, 24)
 local CLAW = Color3.fromRGB(232, 222, 200)
 local TOOTH = Color3.fromRGB(240, 232, 212)
 local EYE = Color3.fromRGB(255, 190, 60)
@@ -422,8 +423,12 @@ local function buildBody(body: Seg)
 	for i = 0, 6 do
 		local z = 6.2 - i * 1.9
 		box(body, "BellyPlate", Vector3.new(4.6 - math.abs(i - 3) * 0.3, 0.35, 1.2), CFrame.new(0, -4.35 + math.abs(i - 2.5) * 0.12, z) * CFrame.Angles(R(-8), 0, 0),
-			Color3.fromRGB(190, 110, 78), SMOOTH)
+			Color3.fromRGB(86, 48, 36), SMOOTH)
 	end
+	-- Magma fissures cut through the cooled plates along the chest and spine.
+	box(body, "MagmaFissure", Vector3.new(0.22, 0.12, 8.4), CFrame.new(0, 4.12, 0.8) * CFrame.Angles(0, 0, R(3)), MAGMA, Enum.Material.Neon)
+	box(body, "MagmaFissure", Vector3.new(0.18, 0.12, 5.2), CFrame.new(-1.1, 4.18, 4.4) * CFrame.Angles(0, 0, R(-18)), MAGMA, Enum.Material.Neon)
+	box(body, "MagmaFissure", Vector3.new(0.18, 0.12, 4.8), CFrame.new(1.25, 4.12, 3.2) * CFrame.Angles(0, 0, R(20)), MAGMA, Enum.Material.Neon)
 	-- Spikes along the spine.
 	for i = 0, 7 do
 		local z = 7.2 - i * 2.2

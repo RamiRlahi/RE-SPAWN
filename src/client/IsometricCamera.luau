@@ -703,13 +703,23 @@ function IsometricCamera.Start(transitionDuration: number?)
 			end
 		end
 
+		local lockTarget = AimInput.LockTarget()
 		local desiredFocusPos = rawTargetPos + leadOffset
+		local lockZoom = 1
+		if lockTarget and lockTarget.Parent then
+			local targetFocus = lockTarget.Position + Vector3.new(0, TARGET_HEIGHT, 0)
+			local separation = (targetFocus - rawTargetPos).Magnitude
+			-- Keep the player visible while shifting the view toward the exact
+			-- target currently driving controller aim.
+			desiredFocusPos = rawTargetPos:Lerp(targetFocus, 0.55)
+			lockZoom = 1 + math.min(separation / 100, 0.3)
+		end
 		-- A boss arena can widen the view (the player's "CameraZoom") and lean
 		-- it toward the boss ("CameraBias", a world point) so both fit.
 		local wantZoom = player:GetAttribute("CameraZoom")
-		cameraZoom += ((if typeof(wantZoom) == "number" then wantZoom else 1) - cameraZoom) * math.clamp(dt * 2, 0, 1)
+		cameraZoom += ((if typeof(wantZoom) == "number" then wantZoom else 1) * lockZoom - cameraZoom) * math.clamp(dt * 2, 0, 1)
 		local bias = player:GetAttribute("CameraBias")
-		if typeof(bias) == "Vector3" then
+		if typeof(bias) == "Vector3" and not lockTarget then
 			local toward = Vector3.new(bias.X - desiredFocusPos.X, 0, bias.Z - desiredFocusPos.Z)
 			desiredFocusPos += toward * 0.42
 		end

@@ -144,9 +144,8 @@ end
 local SUBTITLES: { [string]: string } = {
 	fallen_angel = "CAST OUT OF HEAVEN",
 	djinn = "INSERT COIN TO CONTINUE",
-	warlord = "WARLORD OF IRON",
-	colossus = "ANCIENT TITAN",
-	witch = "MISTRESS OF HEXES",
+	null0 = "THE FINAL PLAYER",
+	pale_warden = "THE THIRD BELL TOLLS",
 }
 local playingIntro = false
 

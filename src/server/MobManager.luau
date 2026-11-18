@@ -999,7 +999,8 @@ local function configureMob(mobModel: Model, targetCFrame: CFrame, isBoss: boole
 	humanoid.WalkSpeed = walkSpeed
 	humanoid.PlatformStand = false
 	local baseMax = (isBoss and 400 or 100) * (mobModel:GetAttribute("HealthMult") or 1)
-	local maxHp = math.floor(baseMax * diffScale.health)
+	local healthScale = if isBoss then DifficultyManager.GetBossHealthScale(RunScope.Of(mobModel)) else diffScale.health
+	local maxHp = math.floor(baseMax * healthScale)
 	humanoid.MaxHealth = maxHp
 	local startHealth = initialHealth or math.huge
 	if startHealth >= maxHp then
@@ -1645,13 +1646,14 @@ local function activateMob(record: MobRecord)
 			record.model:SetAttribute("RunId", record.group.runId)
 			return
 		end
-		record.bossKind = "warlord" -- (no dragon model in this place: a normal boss instead)
+		record.bossKind = "fallen_angel" -- (no dragon model in this place: use a custom-built boss instead)
 	end
 
 	-- (the Fallen Angel is built from parts: the place's boss template is a slime)
 	local built = record.bossKind and BossAI.Kinds[record.bossKind] and BossAI.Kinds[record.bossKind].build
 	local model = if record.bossKind == "fallen_angel" then BossAI.BuildFallenAngel()
 		elseif record.bossKind == "djinn" then BossAI.BuildDjinn()
+		elseif record.bossKind == "null0" then BossAI.BuildNull0()
 		elseif built then built()
 		elseif record.template then record.template:Clone() else createFallbackMob()
 	-- Rank tags for abilities that care (e.g. the Gunslinger's Silver Dollar).
@@ -1739,8 +1741,8 @@ local function eliteChanceFor(tier: number): number
 	return math.min(ELITE_BASE_CHANCE + tier * ELITE_CHANCE_PER_TIER, ELITE_MAX_CHANCE)
 end
 
-local DRAGON_FIRST_FLOOR = 3
-local DRAGON_EVERY = 3
+local MAJOR_BOSS_FIRST_FLOOR = 3
+local MAJOR_BOSS_EVERY = 3
 
 local function planRoom(group: RoomMobGroup)
 	if group.planned then return end
@@ -1755,12 +1757,13 @@ local function planRoom(group: RoomMobGroup)
 	local maxZ = (room.gz + room.d - 1) * FLOOR_SIZE - 4
 	local remaining = mobCountFor(tier)
 
-	-- The dragon is floor 3's boss (the first floor you can extract from), and
-	-- comes back every third floor after it for the greedy who keep going down
-	-- (6, 9, 12...).
+	-- Each map gets its own signature boss every third floor (3, 6, 9...).
 	local level = RunScope.Get(group.runId, "RunLevel") or 1
-	local dragonHere = level >= DRAGON_FIRST_FLOOR and level % DRAGON_EVERY == 0
-	if room.roomType == "Boss" and DragonBoss.Available() and dragonHere then
+	local majorBossKind = if level >= MAJOR_BOSS_FIRST_FLOOR and level % MAJOR_BOSS_EVERY == 0
+		then map and map.majorBoss else nil
+	local majorBossReady = majorBossKind == "dragon" and DragonBoss.Available()
+		or (typeof(majorBossKind) == "string" and BossAI.Kinds[majorBossKind] ~= nil)
+	if room.roomType == "Boss" and majorBossKind == "dragon" and majorBossReady then
 		table.insert(group.mobs, {
 			template = nil,
 			spawnCFrame = CFrame.new((room.gx + room.w / 2) * FLOOR_SIZE, room.floorY, (room.gz + room.d / 2) * FLOOR_SIZE),
@@ -1779,7 +1782,9 @@ local function planRoom(group: RoomMobGroup)
 		end
 		local template = if #bodies > 0 then bodies[math.random(1, #bodies)] else nil
 		local kinds = BossAI.KindIds()
-		if map and map.bosses then
+		if majorBossReady and typeof(majorBossKind) == "string" then
+			kinds = { majorBossKind }
+		elseif map and map.bosses then
 			local themed = {}
 			for _, id in ipairs(map.bosses) do
 				if table.find(kinds, id) then table.insert(themed, id) end
@@ -2090,6 +2095,7 @@ end
 -- Studio test hook (DevHooks "boss"): run `runId`'s boss room, its boss made
 -- a `kindId` (brought back fresh if it's already up). Returns the room's middle.
 function MobManager.DevBoss(runId: string, kindId: string): Vector3?
+	if kindId ~= "dragon" and not BossAI.Kinds[kindId] then return nil end
 	for _, g in ipairs(roomMobGroups) do
 		if g.runId == runId and g.room.roomType == "Boss" then
 			if not g.planned then planRoom(g) end

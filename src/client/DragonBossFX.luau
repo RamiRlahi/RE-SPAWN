@@ -192,6 +192,17 @@ local POSES: { [string]: Pose } = {
 	breathWindup = { freq = 0.4,  amp = 5,  bias = 8,  nb = -18, nm = -10, nk = -14, jaw = 9 },
 	breath       = { freq = 0.5,  amp = 5,  bias = 6,  nb = 12,  nm = 8,   nk = 16,  jaw = 20 },
 	spit         = { freq = 0.5,  amp = 6,  bias = 4,  nk = 4 },
+	meteorTakeoff = { freq = 2.4, amp = 36, bias = 16, fold = 8, nb = -12, nk = -14, jaw = 12, armL = -18, armR = -18, foreL = 16, foreR = 16 },
+	meteorCharge = { freq = 1.3, amp = 19, bias = 18, nb = -18, nm = -8, nk = -20, jaw = 23, fold = 10 },
+	meteorFire   = { freq = 2.8, amp = 30, bias = 15, nb = -8, nm = -5, nk = -10, jaw = 28, fold = 8 },
+	meteorLand   = { freq = 2.0, amp = 28, bias = 10, nb = 12, nk = 14, jaw = 16, armL = 8, armR = 8, foreL = -10, foreR = -10 },
+	magma        = { freq = 0.6, amp = 7, bias = 8, nb = -10, nm = -5, nk = -12, jaw = 14 },
+	magmaErupt   = { freq = 1.8, amp = 20, bias = 12, nb = 8, nk = 12, jaw = 18 },
+	flameWindup  = { freq = 0.8, amp = 12, bias = 14, nb = -14, nm = -7, nk = -18, jaw = 20 },
+	devour       = { freq = 2.4, amp = 28, bias = 12, nb = -4, nk = 4, jaw = 22 },
+	cataclysmRise = { freq = 2.5, amp = 38, bias = 18, fold = 12, nb = -14, nk = -16, jaw = 15, armL = -20, armR = -20 },
+	cataclysmCharge = { freq = 0.7, amp = 9, bias = 22, nb = -20, nm = -12, nk = -24, jaw = 29 },
+	cataclysmFire = { freq = 2.3, amp = 26, bias = 16, nb = 6, nk = 8, jaw = 30, fold = 8 },
 	gust         = { freq = 2.2,  amp = 38, bias = 6,  nb = -6,  nk = -6,  jaw = 8, fold = 10 },
 	rise         = { freq = 0.8,  amp = 10, bias = 15, nb = -10, nk = -10, jaw = 13, armL = -60, armR = -60, foreL = 50, foreR = 50 },
 	slam         = { freq = 0.3,  amp = 4,  bias = 4,  nk = 14,  jaw = 17, armL = 10, armR = 10, foreL = -10, foreR = -10 },
@@ -446,20 +457,24 @@ local function explode(at: Vector3, radius: number, color: Color3?)
 	shakeNear(at, 0.9, 40, 0.3)
 end
 
-local function fireball(model: Model, to: Vector3, t: number)
+local function fireball(model: Model, to: Vector3, t: number, scale: number?)
+	local sizeScale = scale or 1
 	local from = mouthOf(model)
 	local r = rigs[model]
 	if r then r.snapAt = os.clock() end
-	local ball = part({ Shape = Enum.PartType.Ball, Size = Vector3.new(2.6, 2.6, 2.6), CFrame = CFrame.new(from),
+	local ball = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 2.6 * sizeScale, CFrame = CFrame.new(from),
 		Color = FLAME, Transparency = 0.05 })
 	ball:AddTag("EnemyProjectile")
-	local core = part({ Shape = Enum.PartType.Ball, Size = Vector3.new(1.5, 1.5, 1.5), CFrame = CFrame.new(from),
+	local core = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 1.5 * sizeScale, CFrame = CFrame.new(from),
 		Color = FLAME_HOT, Transparency = 0 })
 	local att = Instance.new("Attachment")
 	att.Parent = ball
-	emitter(att, { Texture = FIRE_TEXTURE, Color = ColorSequence.new(FLAME_HOT, FLAME_DEEP), Size = seq(0, 2.6, 1, 0.4),
+	emitter(att, { Texture = FIRE_TEXTURE, Color = ColorSequence.new(FLAME_HOT, FLAME_DEEP), Size = seq(0, 2.6 * sizeScale, 1, 0.4 * sizeScale),
 		Transparency = seq(0, 0.1, 1, 1), Lifetime = NumberRange.new(0.25, 0.45), Speed = NumberRange.new(0.5, 2),
 		SpreadAngle = Vector2.new(180, 180), Rate = 70 })
+	emitter(att, { Texture = SMOKE_TEXTURE, LightEmission = 0, Color = ColorSequence.new(Color3.fromRGB(55, 40, 35)),
+		Size = seq(0, 1.2 * sizeScale, 1, 0.3 * sizeScale), Transparency = seq(0, 0.3, 1, 1),
+		Lifetime = NumberRange.new(0.35, 0.7), Speed = NumberRange.new(0.5, 2), SpreadAngle = Vector2.new(180, 180), Rate = 18 })
 	local light = Instance.new("PointLight")
 	light.Color = FLAME
 	light.Range = 14
@@ -477,6 +492,39 @@ local function fireball(model: Model, to: Vector3, t: number)
 			ball:Destroy()
 			core:Destroy()
 		end
+	end)
+end
+
+local meteorCharges: { [Model]: { ParticleEmitter } } = {}
+local function meteorChargeFX(model: Model, on: boolean)
+	local old = meteorCharges[model]
+	if old then
+		for _, fx in ipairs(old) do fx.Enabled = false; Debris:AddItem(fx, 1.2) end
+		local mouth = model:FindFirstChild("DragonMouth", true)
+		local glow = mouth and mouth:FindFirstChild("MeteorMouthGlow")
+		if glow then glow:Destroy() end
+		meteorCharges[model] = nil
+	end
+	if not on or not model.Parent then return end
+	local mouth = model:FindFirstChild("DragonMouth", true)
+	if not mouth or not mouth:IsA("Attachment") then return end
+	local glow = Instance.new("PointLight")
+	glow.Name = "MeteorMouthGlow"
+	glow.Color = FLAME
+	glow.Range = 34
+	glow.Brightness = 7
+	glow.Parent = mouth
+	local flame = emitter(mouth, { Name = "MeteorChargeFlame", Texture = FIRE_TEXTURE,
+		Color = ColorSequence.new(FLAME_HOT, FLAME_DEEP), Size = seq(0, 1.8, 1, 0.2),
+		Transparency = seq(0, 0.05, 1, 1), Lifetime = NumberRange.new(0.35, 0.6),
+		Speed = NumberRange.new(3, 8), SpreadAngle = Vector2.new(30, 30), Rate = 90 })
+	local sparks = emitter(mouth, { Name = "MeteorChargeSparks", Texture = SPARK_TEXTURE,
+		Color = ColorSequence.new(FLAME_HOT, FLAME), Size = seq(0, 0.6, 1, 0),
+		Transparency = seq(0, 0, 1, 1), Lifetime = NumberRange.new(0.2, 0.45),
+		Speed = NumberRange.new(8, 18), SpreadAngle = Vector2.new(180, 180), Rate = 65 })
+	meteorCharges[model] = { flame, sparks }
+	task.delay(12, function()
+		if meteorCharges[model] then meteorChargeFX(model, false) end
 	end)
 end
 
@@ -610,6 +658,40 @@ local function quakeFX(at: Vector3, radius: number)
 		Debris:AddItem(chunk, 1.4)
 	end
 	shakeNear(at, 1.4, 60, 0.5)
+end
+
+local function magmaFX(at: Vector3, radius: number)
+	explode(at, radius * 0.8, FLAME)
+	local column = part({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.4, 1, 0.4),
+		CFrame = CFrame.new(at + Vector3.new(0, 0.5, 0)) * FLAT, Color = FLAME_HOT, Transparency = 0.05 })
+	local shell = part({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(1.2, radius * 1.6, radius * 1.6),
+		CFrame = CFrame.new(at + Vector3.new(0, 0.6, 0)) * FLAT, Color = FLAME_DEEP, Transparency = 0.25 })
+	TweenService:Create(column, TweenInfo.new(0.16, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+		{ Size = Vector3.new(22, 2.8, 2.8), CFrame = CFrame.new(at + Vector3.new(0, 11, 0)) * FLAT }):Play()
+	TweenService:Create(shell, TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+		{ Size = Vector3.new(15, radius * 1.5, radius * 1.5), CFrame = CFrame.new(at + Vector3.new(0, 7.5, 0)) * FLAT, Transparency = 0.55 }):Play()
+	Debris:AddItem(column, 0.65)
+	Debris:AddItem(shell, 0.65)
+	for i = 1, 8 do
+		local angle = i / 8 * math.pi * 2
+		local p = at + Vector3.new(math.cos(angle) * radius * 0.7, 0.4, math.sin(angle) * radius * 0.7)
+		burst(p, { Texture = FIRE_TEXTURE, Color = ColorSequence.new(FLAME_HOT, FLAME_DEEP),
+			Size = seq(0, 1.5, 1, 0), Lifetime = NumberRange.new(0.35, 0.65), Speed = NumberRange.new(12, 24),
+			SpreadAngle = Vector2.new(50, 50), Acceleration = Vector3.new(0, 18, 0) }, 3)
+	end
+	shakeNear(at, 0.8, 34, 0.35)
+end
+
+local function flameRingFX(at: Vector3, radius: number)
+	local ring = part({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.2, 3, 3),
+		CFrame = CFrame.new(at + Vector3.new(0, 0.25, 0)) * FLAT, Color = FLAME_HOT, Transparency = 0.12 })
+	TweenService:Create(ring, TweenInfo.new(0.42, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+		{ Size = Vector3.new(0.12, radius * 2.3, radius * 2.3), Transparency = 1 }):Play()
+	Debris:AddItem(ring, 0.48)
+	burst(at + Vector3.new(0, 0.4, 0), { Texture = SPARK_TEXTURE, Color = ColorSequence.new(FLAME_HOT, FLAME),
+		Size = seq(0, 0.5, 1, 0), Lifetime = NumberRange.new(0.35, 0.55), Speed = NumberRange.new(12, 20),
+		SpreadAngle = Vector2.new(180, 180), Acceleration = Vector3.new(0, 4, 0) }, 18)
+	shakeNear(at, 0.35, 42, 0.25)
 end
 
 local function roarFX(model: Model, enrage: boolean)
@@ -1265,8 +1347,12 @@ local function onFX(data: any)
 		if typeof(data.from) == "Vector3" then knockSelf(data.from, data.power or 50, data.lift or 15) end
 	elseif kind == "fireball" then
 		if typeof(data.model) == "Instance" and typeof(data.to) == "Vector3" then fireball(data.model, data.to, data.t or 1) end
+	elseif kind == "meteor" then
+		if typeof(data.model) == "Instance" and typeof(data.to) == "Vector3" then fireball(data.model, data.to, data.t or 1.25, data.size or 1.2) end
+	elseif kind == "meteorCharge" then
+		if typeof(data.model) == "Instance" then meteorChargeFX(data.model, data.on == true) end
 	elseif kind == "explode" then
-		if typeof(data.at) == "Vector3" then explode(data.at, data.radius or 7) end
+		if typeof(data.at) == "Vector3" then explode(data.at, data.radius or 7, if typeof(data.color) == "Color3" then data.color else nil) end
 	elseif kind == "breath" then
 		if typeof(data.model) == "Instance" then
 			breathFX(data.model, data.duration or 1.6, data.range or 44, data.from, data.to)
@@ -1275,6 +1361,10 @@ local function onFX(data: any)
 		if typeof(data.at) == "Vector3" then gustFX(data.at, data.radius or 30) end
 	elseif kind == "quake" then
 		if typeof(data.at) == "Vector3" then quakeFX(data.at, data.radius or 18) end
+	elseif kind == "magma" then
+		if typeof(data.at) == "Vector3" then magmaFX(data.at, data.radius or 6) end
+	elseif kind == "flameRing" then
+		if typeof(data.at) == "Vector3" then flameRingFX(data.at, data.radius or 20) end
 	elseif kind == "roar" then
 		if typeof(data.model) == "Instance" then roarFX(data.model, data.enrage == true) end
 	elseif kind == "intro" then

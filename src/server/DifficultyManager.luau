@@ -21,6 +21,12 @@ local DifficultyManager = {}
 local TIER_SECONDS = 75
 -- Growth applied to spawned mobs per tier.
 local HEALTH_PER_TIER = 0.18
+-- Bosses need a much steeper curve: unlike ordinary rooms, each one should
+-- remain a meaningful fight as a run's Threat rises.
+local BOSS_HEALTH_PER_TIER = 0.28
+-- Each additional active player adds health so a full party cannot erase a
+-- boss in the same time as a solo player.
+local BOSS_HEALTH_PER_EXTRA_PLAYER = 0.65
 local DAMAGE_PER_TIER = 0.07
 local SPEED_PER_TIER  = 0.03
 local MAX_TIER = 30
@@ -63,6 +69,24 @@ function DifficultyManager.GetMobScale(runId: string?): { health: number, damage
 		speed  = math.min(1 + tier * SPEED_PER_TIER, 1.5),
 		tier = tier,
 	}
+end
+
+-- Boss-only health scaling, kept separate so multiplayer does not make every
+-- ordinary enemy a sponge. Called when a boss spawns, alongside Threat.
+function DifficultyManager.GetBossHealthScale(runId: string?): number
+	local scale = DifficultyManager.GetMobScale(runId)
+	if runId and RunScope.Get(runId, "Tutorial") == true then return scale.health end
+	local players = 0
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr:GetAttribute("RunId") == runId
+			and plr:GetAttribute("InLobby") ~= true
+			and plr:GetAttribute("SpawnedInMap") == true then
+			players += 1
+		end
+	end
+	local extraPlayers = math.max(0, players - 1)
+	return scale.health * (1 + scale.tier * BOSS_HEALTH_PER_TIER)
+		* (1 + extraPlayers * BOSS_HEALTH_PER_EXTRA_PLAYER)
 end
 
 local function playerInRun(runId: string): boolean

@@ -40,6 +40,7 @@ export type Map = {
 	stone: Color3,          -- multiplies the floor and wall colours
 	packs: { number },      -- MobKinds PACKS indices its rooms draw from
 	bosses: { string },     -- BossAI kinds for the other boss rooms
+	majorBoss: string?,     -- the map's signature boss, selected every third floor
 	lighting: Lighting,
 	unlockFloor: number?,   -- your deepest floor must reach this to enter
 	sealed: boolean?,       -- chained shut: on the picker (last, in chains) but never enterable
@@ -76,7 +77,8 @@ MapData.Maps = {
 		color = Color3.fromRGB(120, 230, 210),
 		stone = Color3.fromRGB(200, 214, 210),
 		packs = { 6 },
-		bosses = { "fallen_angel", "colossus", "witch" },
+		bosses = { "fallen_angel" },
+		majorBoss = "pale_warden",
 		assets = "map:crypt assets",
 		prison = true,
 		transit = "lift",
@@ -99,13 +101,14 @@ MapData.Maps = {
 	{
 		id = "keep",
 		name = "The Infernal Keep",
-		subtitle = "The Cinder Wyrm's lair",
+		subtitle = "The Ashen Sovereign's lair",
 		rank = "B",
-		description = "A burning fortress over rivers of lava. Magma slimes, brutes and Ignarath, the Cinder Wyrm.",
+		description = "A burning fortress over rivers of lava. Magma slimes, brutes and Ignarath, the Ashen Sovereign.",
 		color = Color3.fromRGB(255, 120, 50),
 		stone = Color3.fromRGB(230, 200, 190),
 		packs = { 2, 5, 3, 7 },
-		bosses = { "warlord", "fallen_angel" },
+		bosses = { "fallen_angel" },
+		majorBoss = "dragon",
 		assets = "map:keep assets",
 		keep = true,
 		-- dusk in hell: a blood-red sky and haze, light glowing up off the
@@ -137,6 +140,7 @@ MapData.Maps = {
 		stone = Color3.fromRGB(255, 255, 255),
 		packs = { 8 },
 		bosses = { "djinn" },
+		majorBoss = "null0",
 		assets = "map:arcade assets",
 		arcade = true,
 		transit = "portal",
@@ -196,11 +200,12 @@ MapData.Maps = {
 		sealed = true, -- chained shut: shown last on the picker, can't be entered
 		subtitle = "Silence beneath the ice",
 		rank = "A",
-		description = "Hushed blue halls rimed with frost. Wraiths, bone mages and the Hex Witch in the cold.",
+		description = "Hushed blue halls rimed with frost. Wraiths, bone mages and a fallen angel in the cold.",
 		color = Color3.fromRGB(130, 190, 255),
 		stone = Color3.fromRGB(205, 220, 245),
 		packs = { 4, 3, 1, 7 },
-		bosses = { "witch", "colossus", "fallen_angel" },
+		bosses = { "fallen_angel" },
+		majorBoss = "fallen_angel",
 		lighting = {
 			tint = Color3.fromRGB(232, 242, 255),
 			saturation = 0.15,
@@ -221,7 +226,7 @@ MapData.Tutorial = {
 	color = Color3.fromRGB(255, 120, 50),
 	stone = Color3.fromRGB(230, 200, 190),
 	packs = { 5 },
-	bosses = { "warlord" },
+	bosses = { "fallen_angel" },
 	assets = "map:keep assets",
 	keep = true,
 	tutorial = true,

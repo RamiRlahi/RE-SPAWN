@@ -25,6 +25,7 @@ local REACH = 26          -- studs ahead the aim point sits with nothing to lock
 local LOCK_RANGE = 55     -- studs: the farthest an enemy is drawn in
 local LOCK_CONE = math.cos(math.rad(32)) -- (how far off the aim line it may be)
 local LOCK_EVERY = 0.12   -- seconds between looks for one
+local SWITCH_MARGIN = 0.3 -- keep the current target unless another is clearly better
 
 local gamepad = false
 local function isPad(t: Enum.UserInputType): boolean
@@ -54,6 +55,26 @@ local aimDir = Vector3.new(0, 0, -1)
 local lockTarget: BasePart? = nil
 local lockAt = 0
 local point = Vector2.zero
+local lockHighlight: Highlight? = nil
+
+local function setLockTarget(target: BasePart?)
+	if target == lockTarget then return end
+	if lockHighlight then lockHighlight:Destroy(); lockHighlight = nil end
+	lockTarget = target
+	if not target then return end
+	local model = target:FindFirstAncestorOfClass("Model")
+	if not model then return end
+	local highlight = Instance.new("Highlight")
+	highlight.Name = "AimLockHighlight"
+	highlight.Adornee = model
+	highlight.DepthMode = Enum.HighlightDepthMode.Occluded
+	highlight.FillColor = Color3.fromRGB(255, 176, 72)
+	highlight.FillTransparency = 0.88
+	highlight.OutlineColor = Color3.fromRGB(255, 224, 160)
+	highlight.OutlineTransparency = 0.05
+	highlight.Parent = model
+	lockHighlight = highlight
+end
 
 -- The enemy nearest the aim line, within reach (Workspace.Mobs, never the
 -- whole Workspace).
@@ -61,6 +82,7 @@ local function findLock(origin: Vector3, dir: Vector3): BasePart?
 	local mobs = Workspace:FindFirstChild("Mobs")
 	if not mobs then return nil end
 	local best, bestScore = nil, -math.huge
+	local currentScore = -math.huge
 	for _, m in ipairs(mobs:GetChildren()) do
 		local root = m:FindFirstChild("HumanoidRootPart")
 		local hum = m:FindFirstChildOfClass("Humanoid")
@@ -71,13 +93,20 @@ local function findLock(origin: Vector3, dir: Vector3): BasePart?
 		local along = off.Unit:Dot(dir)
 		if along < LOCK_CONE then continue end
 		local score = along * 2 - d / LOCK_RANGE
+		if root == lockTarget then currentScore = score end
 		if score > bestScore then best, bestScore = root, score end
+	end
+	-- A small hysteresis prevents the aim point and camera from snapping
+	-- between two nearby enemies when their scores are almost tied.
+	if lockTarget and lockTarget.Parent and currentScore > -math.huge and bestScore < currentScore + SWITCH_MARGIN then
+		return lockTarget
 	end
 	return best
 end
 
 RunService:BindToRenderStep("AimInput", Enum.RenderPriority.Input.Value + 1, function()
 	if not gamepad then
+		setLockTarget(nil)
 		point = UserInputService:GetMouseLocation()
 		return
 	end
@@ -102,11 +131,21 @@ RunService:BindToRenderStep("AimInput", Enum.RenderPriority.Input.Value + 1, fun
 	local now = os.clock()
 	if now - lockAt > LOCK_EVERY then
 		lockAt = now
-		lockTarget = findLock(root.Position, aimDir)
+		setLockTarget(findLock(root.Position, aimDir))
 	end
 	local target = root.Position + aimDir * REACH - Vector3.new(0, 2.5, 0)
 	local lock = lockTarget
-	if lock and lock.Parent then target = lock.Position end
+	if lock and lock.Parent then
+		local model = lock:FindFirstAncestorOfClass("Model")
+		local hum = model and model:FindFirstChildOfClass("Humanoid")
+		if not hum or hum.Health <= 0 then
+			setLockTarget(nil)
+		else
+			target = lock.Position
+		end
+	else
+		setLockTarget(nil)
+	end
 	local v = cam:WorldToViewportPoint(target)
 	point = Vector2.new(v.X, v.Y)
 end)
@@ -114,6 +153,17 @@ end)
 function AimInput.ScreenPoint(): Vector2
 	if not gamepad then return UserInputService:GetMouseLocation() end
 	return point
+end
+
+-- The camera and any lock indicator read the same target used by the aim point.
+function AimInput.LockTarget(): BasePart?
+	local target = lockTarget
+	if target and target.Parent then
+		local model = target:FindFirstAncestorOfClass("Model")
+		local hum = model and model:FindFirstChildOfClass("Humanoid")
+		if hum and hum.Health > 0 then return target end
+	end
+	return nil
 end
 
 return AimInput

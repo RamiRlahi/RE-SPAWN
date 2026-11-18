@@ -9,9 +9,6 @@
 	Every attack is telegraphed on the ground in red first. Below half health a
 	boss ENRAGES: shorter gaps between moves and bigger versions of them.
 
-	  The Iron Warlord   (melee)  Ground Slam · Charge · Whirlwind
-	  The Hex Witch      (caster) Orb Nova · Hex Zones · Summon · Blink
-	  The Bone Colossus  (heavy)  Meteor Rain · Shockwave (jump it!) · Stomp Combo
 	  The Fallen Angel   (void)   Dark Descent · Feather Storm · Void Cross · Shadow Dash ·
 	                              Blade Sweep · JUDGEMENT (pillars fall from the sky, then a
 	                              slam floods the whole arena: hide behind a pillar)
@@ -75,18 +72,6 @@ export type Kind = {
 }
 
 BossAI.Kinds = {
-	warlord = {
-		name = "★ The Iron Warlord", health = 3.5, damage = 1.2, xp = 3,
-		color = Color3.fromRGB(255, 90, 40), moves = { "slam", "charge", "whirlwind" }, signature = "whirlwind",
-	},
-	witch = {
-		name = "★ The Hex Witch", health = 2.8, damage = 1, xp = 3,
-		color = Color3.fromRGB(120, 255, 120), moves = { "nova", "hex", "summon", "blink" }, signature = "nova",
-	},
-	colossus = {
-		name = "★ The Bone Colossus", health = 4.5, damage = 1.4, xp = 3.5,
-		color = Color3.fromRGB(255, 170, 60), moves = { "meteors", "shockwave", "stomp" }, signature = "meteors",
-	},
 	fallen_angel = {
 		name = "★ Malakor, The Fallen Angel", health = 4.2, damage = 1.3, xp = 4,
 		color = Color3.fromRGB(225, 35, 45),
@@ -99,13 +84,24 @@ BossAI.Kinds = {
 		moves = { "block_drop", "laser_grid", "hand_slam", "glitch_strike", "coin_spray", "game_over" },
 		signature = "game_over", gap = 1.3,
 	},
+	pale_warden = {
+		name = "★ Pale Warden, Keeper of the Third Bell", health = 4.5, damage = 1.35, xp = 4,
+		color = Color3.fromRGB(130, 230, 215),
+		moves = { "dark_descent", "blade_sweep", "shadow_dash", "judgement" },
+		signature = "judgement", gap = 1.25,
+		build = function() return BossAI.BuildPaleWarden() end,
+	},
+	null0 = {
+		name = "★ NULL-0, The Grandmaster", health = 4.5, damage = 1.35, xp = 4,
+		color = Color3.fromRGB(90, 230, 255),
+		moves = { "block_drop", "laser_grid", "glitch_strike", "game_over" },
+		signature = "game_over", gap = 1.25,
+		build = function() return BossAI.BuildNull0() end,
+	},
 } :: { [string]: Kind }
 
 -- What each signature move is called on screen.
 local SIGNATURE_NAMES: { [string]: string } = {
-	whirlwind = "IRON CYCLONE",
-	nova = "HEX NOVA",
-	meteors = "METEOR RAIN",
 	judgement = "JUDGEMENT FROM ON HIGH",
 	game_over = "GAME OVER",
 }
@@ -413,119 +409,9 @@ local function dmg(b: Boss, mult: number): number
 	return BASE_DAMAGE * b.damage * mult
 end
 
--- ── Iron Warlord ────────────────────────────────────────────────────────────
+-- Shared move registry.
 local MOVES: { [string]: (Boss, Victim) -> () } = {}
 
-MOVES.slam = function(b, target)
-	-- Leap onto the target's spot, then a big circular slam.
-	local r = if b.enraged then 16 else 13
-	local spot = target.root.Position
-	telegraphCircle(spot, r, 1.0, b.floorY)
-	face(b, spot)
-	if not hold(b, 0.55) then return end
-	local from = b.root.Position
-	local land = Vector3.new(spot.X, from.Y, spot.Z)
-	for i = 1, 8 do
-		local a = i / 8
-		b.root.CFrame = CFrame.new(from:Lerp(land, a) + Vector3.new(0, math.sin(a * math.pi) * 8, 0)) * b.root.CFrame.Rotation
-		task.wait(0.055)
-	end
-	b.root.AssemblyLinearVelocity = Vector3.zero
-	blast(spot, r, dmg(b, 1.5))
-	shock(spot, r, b.kind.color, b.floorY)
-	if b.enraged then
-		-- Aftershocks ripple outward.
-		for k = 1, 3 do
-			if not hold(b, 0.35) then return end
-			local rr = r + k * 5
-			shock(spot, rr, TELEGRAPH, b.floorY)
-			for _, v in ipairs(victims()) do
-				local d = flatDist(v.root.Position, spot)
-				if d > rr - 5 and d <= rr then deps.hurt(v.char, dmg(b, 0.6), spot) end
-			end
-		end
-	end
-	hold(b, 0.5)
-end
-
-MOVES.charge = function(b, target)
-	local dir = Vector3.new(target.root.Position.X - b.root.Position.X, 0, target.root.Position.Z - b.root.Position.Z)
-	if dir.Magnitude < 1 then return end
-	dir = dir.Unit
-	local length = 46
-	local charges = if b.enraged then 2 else 1
-	for _ = 1, charges do
-		telegraphLine(b.root.Position, dir, length, 7, 0.75, b.floorY)
-		face(b, b.root.Position + dir)
-		if not hold(b, 0.75) then return end
-		local hit: { [Model]: boolean } = {}
-		local start = b.root.Position
-		local t0 = os.clock()
-		local dur = 0.55
-		while os.clock() - t0 < dur and alive(b) do
-			local a = (os.clock() - t0) / dur
-			local pos = start + dir * length * a
-			-- Stop at walls.
-			local params = RaycastParams.new()
-			params.FilterType = Enum.RaycastFilterType.Exclude
-			local ignore: { Instance } = { b.model, fx() }
-			local mobs = Workspace:FindFirstChild("Mobs")
-			if mobs then table.insert(ignore, mobs) end
-			for _, v in ipairs(victims()) do table.insert(ignore, v.char) end
-			params.FilterDescendantsInstances = ignore
-			if Workspace:Raycast(b.root.Position, dir * 3, params) then break end
-			b.root.CFrame = CFrame.new(pos) * b.root.CFrame.Rotation
-			for _, v in ipairs(victims()) do
-				if not hit[v.char] and (v.root.Position - b.root.Position).Magnitude <= 5.5 then
-					hit[v.char] = true
-					deps.hurt(v.char, dmg(b, 1.3), b.root.Position)
-				end
-			end
-			RunService.Heartbeat:Wait()
-		end
-		b.root.AssemblyLinearVelocity = Vector3.zero
-		shock(b.root.Position, 6, b.kind.color, b.floorY)
-		if not hold(b, 0.35) then return end
-		local nextTarget = nearestVictim(b)
-		if not nextTarget then return end
-		local d = Vector3.new(nextTarget.root.Position.X - b.root.Position.X, 0, nextTarget.root.Position.Z - b.root.Position.Z)
-		if d.Magnitude < 1 then return end
-		dir = d.Unit
-	end
-	hold(b, 0.4)
-end
-
-MOVES.whirlwind = function(b, target)
-	-- Spin toward the players, hurting everything close.
-	local radius = 8
-	local spinner = part({ Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.2, radius * 2, radius * 2),
-		Color = b.kind.color, Transparency = 0.6 })
-	telegraphCircle(b.root.Position, radius, 0.6, b.floorY)
-	if not hold(b, 0.6) then spinner:Destroy() return end
-	local dur = if b.enraged then 3.4 else 2.4
-	local speed = b.hum.WalkSpeed * 1.5
-	local t0 = os.clock()
-	local lastHit = 0
-	while os.clock() - t0 < dur and alive(b) do
-		local v = nearestVictim(b)
-		if v and deps.canAct(b.model) then
-			local d = Vector3.new(v.root.Position.X - b.root.Position.X, 0, v.root.Position.Z - b.root.Position.Z)
-			if d.Magnitude > 1 then
-				b.root.CFrame = CFrame.new(b.root.Position + d.Unit * speed * 0.05) * CFrame.Angles(0, (os.clock() - t0) * 18, 0)
-			end
-		end
-		spinner.CFrame = CFrame.new(Vector3.new(b.root.Position.X, b.floorY + 1, b.root.Position.Z)) * FLAT
-		if os.clock() - lastHit > 0.35 then
-			lastHit = os.clock()
-			blast(b.root.Position, radius, dmg(b, 0.45))
-		end
-		task.wait(0.05)
-	end
-	spinner:Destroy()
-	hold(b, 0.6)
-end
-
--- ── Hex Witch ───────────────────────────────────────────────────────────────
 local function orb(b: Boss, from: Vector3, dir: Vector3, speed: number, damage: number)
 	local ball = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 1.4, CFrame = CFrame.new(from), Color = b.kind.color })
 	ball:AddTag("EnemyProjectile")
@@ -552,184 +438,7 @@ local function orb(b: Boss, from: Vector3, dir: Vector3, speed: number, damage: 
 	end)
 end
 
-MOVES.nova = function(b, _target)
-	-- Rings of orbs, each wave turned a little.
-	local waves = if b.enraged then 5 else 3
-	local count = if b.enraged then 16 else 12
-	local glow = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 2, CFrame = b.root.CFrame, Color = b.kind.color, Transparency = 0.3 })
-	TweenService:Create(glow, TweenInfo.new(0.7), { Size = Vector3.one * 9, Transparency = 1 }):Play()
-	Debris:AddItem(glow, 0.75)
-	if not hold(b, 0.7) then return end
-	for w = 1, waves do
-		local from = b.root.Position + Vector3.new(0, 0.5, 0)
-		for i = 1, count do
-			local a = (i / count) * math.pi * 2 + w * (math.pi / count)
-			orb(b, from, Vector3.new(math.cos(a), 0, math.sin(a)), 26, dmg(b, 0.55))
-		end
-		if not hold(b, 0.45) then return end
-	end
-	hold(b, 0.4)
-end
-
-MOVES.hex = function(b, _target)
-	-- Cursed circles under every player (and around them), then they erupt.
-	local r = 6
-	local spots = {}
-	for _, v in ipairs(victims()) do
-		if (v.root.Position - b.root.Position).Magnitude < 80 then
-			table.insert(spots, v.root.Position)
-			for _ = 1, (if b.enraged then 3 else 2) do
-				local a = math.random() * math.pi * 2
-				table.insert(spots, v.root.Position + Vector3.new(math.cos(a), 0, math.sin(a)) * math.random(6, 11))
-			end
-		end
-	end
-	for _, s in ipairs(spots) do telegraphCircle(s, r, 1.1, b.floorY) end
-	if not hold(b, 1.1) then return end
-	for _, s in ipairs(spots) do
-		local pillar = part({ Size = Vector3.new(r * 1.2, 16, r * 1.2), CFrame = CFrame.new(Vector3.new(s.X, b.floorY + 8, s.Z)),
-			Color = b.kind.color, Transparency = 0.3 })
-		TweenService:Create(pillar, TweenInfo.new(0.4), { Size = Vector3.new(0.2, 22, 0.2), Transparency = 1 }):Play()
-		Debris:AddItem(pillar, 0.45)
-		blast(s, r, dmg(b, 1))
-	end
-	hold(b, 0.5)
-end
-
-MOVES.summon = function(b, _target)
-	for i = #b.minions, 1, -1 do
-		local m = b.minions[i]
-		local h = m:FindFirstChildOfClass("Humanoid")
-		if not m.Parent or not h or h.Health <= 0 then table.remove(b.minions, i) end
-	end
-	local want = (if b.enraged then 4 else 3)
-	local room = 7 - #b.minions
-	if room <= 0 then MOVES.nova(b, _target) return end
-	for i = 1, math.min(want, room) do
-		local a = (i / want) * math.pi * 2
-		local pos = b.root.Position + Vector3.new(math.cos(a) * 7, 0, math.sin(a) * 7)
-		telegraphCircle(pos, 2.5, 0.8, b.floorY)
-		task.delay(0.8, function()
-			if not alive(b) then return end
-			local m = deps.spawnMinion(Vector3.new(pos.X, b.floorY, pos.Z))
-			if m then table.insert(b.minions, m) end
-			shock(pos, 4, b.kind.color, b.floorY)
-		end)
-	end
-	hold(b, 1.2)
-end
-
-MOVES.blink = function(b, target)
-	-- Vanish and reappear away from the target, leaving a burst behind.
-	local from = b.root.Position
-	shock(from, 7, b.kind.color, b.floorY)
-	blast(from, 7, dmg(b, 0.8))
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { b.model, fx() }
-	for _ = 1, 10 do
-		local a = math.random() * math.pi * 2
-		local cand = target.root.Position + Vector3.new(math.cos(a), 0, math.sin(a)) * math.random(16, 24)
-		local down = Workspace:Raycast(cand + Vector3.new(0, 6, 0), Vector3.new(0, -14, 0), params)
-		local wall = Workspace:Raycast(target.root.Position, cand - target.root.Position, params)
-		if down and not wall then
-			b.root.CFrame = CFrame.new(Vector3.new(cand.X, from.Y, cand.Z))
-			shock(cand, 5, b.kind.color, b.floorY)
-			break
-		end
-	end
-	hold(b, 0.4)
-	MOVES.nova(b, target)
-end
-
--- ── Bone Colossus ───────────────────────────────────────────────────────────
-MOVES.meteors = function(b, _target)
-	local count = if b.enraged then 16 else 10
-	local r = 6
-	for i = 1, count do
-		local vs = victims()
-		if #vs == 0 then break end
-		local v = vs[math.random(1, #vs)]
-		local a = math.random() * math.pi * 2
-		local spot = v.root.Position + Vector3.new(math.cos(a), 0, math.sin(a)) * math.random(0, 7)
-		telegraphCircle(spot, r, 1.0, b.floorY)
-		task.delay(0.55, function()
-			local rock = part({ Shape = Enum.PartType.Ball, Size = Vector3.one * 3.5,
-				CFrame = CFrame.new(Vector3.new(spot.X, b.floorY + 45, spot.Z)), Color = b.kind.color, Material = Enum.Material.Neon })
-			local fire = Instance.new("Fire")
-			fire.Color, fire.SecondaryColor, fire.Size = b.kind.color, Color3.fromRGB(80, 20, 10), 8
-			fire.Parent = rock
-			TweenService:Create(rock, TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
-				{ CFrame = CFrame.new(Vector3.new(spot.X, b.floorY + 1, spot.Z)) }):Play()
-			task.delay(0.45, function()
-				rock:Destroy()
-				shock(spot, r, b.kind.color, b.floorY)
-				blast(spot, r, dmg(b, 0.9))
-			end)
-		end)
-		if not hold(b, if b.enraged then 0.16 else 0.24) then return end
-	end
-	hold(b, 1.2)
-end
-
-MOVES.shockwave = function(b, _target)
-	-- Rings of force roll out along the ground: jump over them.
-	local rings = if b.enraged then 3 else 2
-	telegraphCircle(b.root.Position, 5, 0.8, b.floorY)
-	if not hold(b, 0.8) then return end
-	for _ = 1, rings do
-		local center = b.root.Position
-		shock(center, 6, b.kind.color, b.floorY)
-		local segs = {}
-		for i = 1, 28 do
-			segs[i] = part({ Size = Vector3.new(1.4, 1.6, 2.6), Color = b.kind.color, Transparency = 0.15 })
-		end
-		local hit: { [Model]: boolean } = {}
-		local r = 3
-		task.spawn(function()
-			while r < 48 do
-				local dt = RunService.Heartbeat:Wait()
-				r += 26 * dt
-				for i, sgm in ipairs(segs) do
-					local a = (i / #segs) * math.pi * 2
-					local p = Vector3.new(center.X + math.cos(a) * r, b.floorY + 0.8, center.Z + math.sin(a) * r)
-					sgm.CFrame = CFrame.lookAt(p, Vector3.new(center.X, p.Y, center.Z))
-					sgm.Size = Vector3.new(r * 2 * math.pi / #segs + 0.4, 1.6, 1.4)
-				end
-				for _, v in ipairs(victims()) do
-					local d = flatDist(v.root.Position, center)
-					-- Airborne players clear the wave.
-					if not hit[v.char] and math.abs(d - r) <= 1.8 and v.hum.FloorMaterial ~= Enum.Material.Air then
-						hit[v.char] = true
-						deps.hurt(v.char, dmg(b, 0.9), center)
-					end
-				end
-			end
-			for _, sgm in ipairs(segs) do sgm:Destroy() end
-		end)
-		if not hold(b, 0.9) then return end
-	end
-	hold(b, 0.8)
-end
-
-MOVES.stomp = function(b, target)
-	-- Three heavy stomps chasing the target's position.
-	local stomps = if b.enraged then 4 else 3
-	local r = 9
-	for _ = 1, stomps do
-		local v = nearestVictim(b) or target
-		local spot = v.root.Position
-		face(b, spot)
-		telegraphCircle(spot, r, 0.65, b.floorY)
-		if not hold(b, 0.65) then return end
-		shock(spot, r, b.kind.color, b.floorY)
-		blast(spot, r, dmg(b, 1.1))
-	end
-	hold(b, 0.7)
-end
-
-
--- One rolling ring of force from the boss (jump it). Used by the Slime's Split.
+-- One rolling ring of force, shared with the custom ritual bosses.
 MOVES.shockwaveOnce = function(b, _target)
 	local center = b.root.Position
 	local color = b.kind.color
@@ -2237,6 +1946,83 @@ function BossAI.BuildDjinn(): Model
 	return m
 end
 
+-- The prison's signature jailer: a hooded, pale-steel executioner carrying
+-- the Third Bell. Its silhouette and bell are assembled specifically for it.
+function BossAI.BuildPaleWarden(): Model
+	local model = Instance.new("Model")
+	model.Name = "PaleWarden"
+	model:SetAttribute("SelfRigged", true)
+	model:SetAttribute("NoContact", true)
+	model:SetAttribute("KeepDistance", 11)
+	local root = Instance.new("Part")
+	root.Name = "HumanoidRootPart"; root.Size = Vector3.new(2, 2, 1); root.Transparency = 1
+	root.Anchored = true; root.CanCollide = false; root.Parent = model; model.PrimaryPart = root
+	local function part(name: string, size: Vector3, offset: CFrame, color: Color3, material: Enum.Material?)
+		local p = Instance.new("Part")
+		p.Name = name; p.Size = size; p.CFrame = root.CFrame * offset; p.Color = color
+		p.Material = material or Enum.Material.Metal; p.Anchored = true
+		p.CanCollide = false; p.CanTouch = false; p.CanQuery = false; p.Massless = true
+		p.Parent = model
+		local weld = Instance.new("WeldConstraint"); weld.Part0 = root; weld.Part1 = p; weld.Parent = p
+		return p
+	end
+	local iron = Color3.fromRGB(178, 205, 198)
+	local dark = Color3.fromRGB(35, 58, 57)
+	local teal = Color3.fromRGB(100, 255, 220)
+	part("Shroud", Vector3.new(3.2, 3.4, 1.7), CFrame.new(0, 3.4, 0), dark, Enum.Material.Slate)
+	part("Breastplate", Vector3.new(2.4, 2.2, 1.3), CFrame.new(0, 3.7, -0.35), iron)
+	part("Faceplate", Vector3.new(1.35, 1.5, 0.3), CFrame.new(0, 5.35, -0.35), dark)
+	part("Visor", Vector3.new(0.95, 0.12, 0.12), CFrame.new(0, 5.5, -0.53), teal, Enum.Material.Neon)
+	part("BellRope", Vector3.new(0.12, 1.8, 0.12), CFrame.new(0, 6.55, 0), iron)
+	part("ThirdBell", Vector3.new(1.45, 1.35, 1.25), CFrame.new(0, 7.55, 0), Color3.fromRGB(105, 142, 133), Enum.Material.Metal)
+	part("BellMouth", Vector3.new(1.0, 0.12, 0.95), CFrame.new(0, 6.85, 0), teal, Enum.Material.Neon)
+	part("ExecutionerAxe", Vector3.new(0.22, 5.2, 0.28), CFrame.new(2.0, 3.4, -0.2) * CFrame.Angles(0, 0, math.rad(-12)), dark)
+	part("AxeHead", Vector3.new(1.8, 1.35, 0.32), CFrame.new(2.45, 5.75, -0.2) * CFrame.Angles(0, 0, math.rad(-18)), iron)
+	for _, side in ipairs({-1, 1}) do
+		part("ShoulderBell", Vector3.new(0.75, 0.9, 0.75), CFrame.new(side * 1.55, 4.45, 0), iron)
+		part("Chain", Vector3.new(0.12, 2.6, 0.12), CFrame.new(side * 1.25, 2.1, -0.8), teal, Enum.Material.Neon)
+	end
+	return model
+end
+
+-- NULL-0 keeps the established Arcade Djinn rig and attack choreography,
+-- with its own identity and custom-built model instance.
+function BossAI.BuildNull0(): Model
+	local model = BossAI.BuildDjinn()
+	model.Name = "Null0Grandmaster"
+	model:SetAttribute("Null0Built", true)
+	-- Keep the established animation/attack controller, but replace the genie
+	-- silhouette with NULL-0's own fragmented arcade core and floating shards.
+	for _, object in ipairs(model:GetDescendants()) do
+		if object:IsA("BasePart") and object.Name ~= "HumanoidRootPart" then
+			object.Transparency = 1
+		elseif object:IsA("ParticleEmitter") then
+			object.Enabled = false
+		end
+	end
+	local root = model.PrimaryPart :: BasePart
+	local function shard(name: string, size: Vector3, offset: CFrame, color: Color3, material: Enum.Material)
+		local p = Instance.new("Part")
+		p.Name = name; p.Size = size; p.CFrame = root.CFrame * offset
+		p.Color = color; p.Material = material; p.Anchored = true
+		p.CanCollide = false; p.CanTouch = false; p.CanQuery = false; p.CastShadow = false
+		p.Parent = model
+		local weld = Instance.new("WeldConstraint"); weld.Part0 = root; weld.Part1 = p; weld.Parent = p
+	end
+	local magenta = Color3.fromRGB(255, 70, 210)
+	local cyan = Color3.fromRGB(90, 230, 255)
+	shard("GrandmasterCore", Vector3.new(2.4, 3.4, 1.8), CFrame.new(0, 4.2, 0), magenta, Enum.Material.Neon)
+	shard("CoreVoid", Vector3.new(1.1, 1.8, 0.12), CFrame.new(0, 4.2, -0.96), Color3.fromRGB(24, 12, 48), Enum.Material.ForceField)
+	shard("CrownShard", Vector3.new(0.7, 2.1, 0.7), CFrame.new(0, 6.45, 0) * CFrame.Angles(0, 0, math.rad(18)), cyan, Enum.Material.Neon)
+	for i = 1, 6 do
+		local a = (i / 6) * math.pi * 2
+		local pos = CFrame.new(math.cos(a) * 2.6, 3.8 + (i % 2) * 1.1, math.sin(a) * 1.7)
+			* CFrame.Angles(a, 0, a * 0.35)
+		shard("OrbitShard" .. i, Vector3.new(0.8, 1.8, 0.45), pos, if i % 2 == 0 then cyan else magenta, Enum.Material.Neon)
+	end
+	return model
+end
+
 -- ── Attach ──────────────────────────────────────────────────────────────────
 local function addAura(b: Boss)
 	if b.model:GetAttribute("SelfRigged") == true then return end -- (the angel and the djinn glow on their own)
@@ -2334,7 +2120,7 @@ function BossAI.Attach(model: Model, kindId: string)
 	-- Angel comes down out of the sky for it.
 	model:SetAttribute("BossBusy", true)
 	setInvulnerable(b, true)
-	local descend = kindId == "fallen_angel" or kindId == "djinn"
+	local descend = kindId == "fallen_angel" or kindId == "djinn" or kindId == "null0" or kindId == "pale_warden"
 	local landCF = root.CFrame
 	if descend then
 		landCF = CFrame.new(landCF.X, standY(b), landCF.Z) * landCF.Rotation

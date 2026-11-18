@@ -1,8 +1,8 @@
 --!strict
 --[[
 	DragonBoss.luau
-	Ignarath, the Cinder Wyrm: the boss of every run's first level (and a
-	chance at later ones). A great red dragon crouched at the far end of the
+	Ignarath, the Ashen Sovereign: the Infernal Keep's signature boss, summoned
+	every third floor. A vast volcanic dragon crouches at the far end of the
 	lava arena (Hazards.BuildBossArena), prowling along its perch.
 
 	  Fire Breath      a telegraphed cone of flame (it sweeps once enraged)
@@ -42,7 +42,7 @@ local DragonBuilder = require(ReplicatedStorage:WaitForChild("Shared"):WaitForCh
 local DragonBoss = {}
 
 -- ── Tuning ──────────────────────────────────────────────────────────────────
-local NAME = "★ Ignarath, the Cinder Wyrm"
+local NAME = "★ Ignarath, the Ashen Sovereign"
 local SCALE = 1.4             -- of the built dragon: about 50 studs nose to tail-tip
 local HEALTH_MULT = 8         -- × the base boss health (400): 3200 at Threat I
 local DAMAGE_MULT = 1.3       -- × the base boss damage (25)
@@ -53,7 +53,8 @@ local PERCH_INSET = 24        -- how far in from the arena's wall it perches
 local HIT_RADIUS = 14         -- skills connect anywhere within this of its centre
 local GAP, GAP_ENRAGED = 1.2, 0.6
 
-local BEAM_AT = { 0.75, 0.45, 0.2 } -- health fractions that call the Inferno Beam
+local BEAM_AT = { 0.75, 0.45 } -- the Aegis counter happens twice before Cataclysm
+local CATACLYSM_AT = 0.2
 local BEAM_KEYS = { 6, 8, 10 }      -- arrows to press, per beam
 local BEAM_GRAB_MIN, BEAM_GRAB_MAX = 3, 6 -- the charge: time to run and grab the shield
 local BEAM_BRACE = 1.0              -- once it's in hand, this long before the beam hits
@@ -62,6 +63,8 @@ local BEAM_TIME_PER_KEY = 0.45
 local BEAM_REFLECT = 0.1            -- of its max health, when the shield throws the beam back
 local BEAM_FAIL = 0.6               -- of the target's max health, when it breaks through
 local STUN_TIME = 3.5
+local METEOR_FLIGHT = 1.25
+local METEOR_WARNING = 1.25
 
 local TELEGRAPH = Color3.fromRGB(255, 50, 40)
 local FLAME = Color3.fromRGB(255, 130, 40)
@@ -114,6 +117,8 @@ type Dragon = {
 	bob: boolean,
 	enraged: boolean,
 	enrageQueued: boolean,
+	cataclysmQueued: boolean,
+	cataclysmDone: boolean,
 	beamsQueued: number,
 	beamsDone: number,
 	dead: boolean,
@@ -365,7 +370,7 @@ local function cone(d: Dragon, apex: Vector3, dir: Vector3, range: number, half:
 end
 
 -- Burning ground left by a fireball.
-local function burnPatch(d: Dragon, at: Vector3, r: number, life: number)
+local function burnPatch(d: Dragon, at: Vector3, r: number, life: number, sharedHitAt: { [Model]: number }?)
 	local pos = Vector3.new(at.X, d.arena.floorY + 0.1, at.Z)
 	local disc = part(d.fx, { Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.18, r * 2, r * 2),
 		CFrame = CFrame.new(pos) * FLAT, Color = Color3.fromRGB(150, 45, 15), Material = Enum.Material.CrackedLava, Transparency = 0.2 })
@@ -380,7 +385,7 @@ local function burnPatch(d: Dragon, at: Vector3, r: number, life: number)
 		Shape = Enum.ParticleEmitterShape.Disc, ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume, Rate = 30 })
 	task.spawn(function()
 		local t0 = os.clock()
-		local hitAt: { [Model]: number } = {}
+		local hitAt: { [Model]: number } = sharedHitAt or {}
 		while os.clock() - t0 < life and disc.Parent do
 			for _, v in ipairs(victims(d)) do
 				local p = v.root.Position
@@ -428,8 +433,10 @@ local function breath(d: Dragon, target: Victim)
 		from = rotY(dir, -sweep / 2), to = rotY(dir, sweep / 2) })
 	local hitAt: { [Model]: number } = {}
 	local t0 = os.clock()
+	local lastTrail = 0
 	while os.clock() - t0 < duration do
-		local cur = rotY(dir, -sweep / 2 + sweep * (os.clock() - t0) / duration)
+		local elapsed = os.clock() - t0
+		local cur = rotY(dir, -sweep / 2 + sweep * elapsed / duration)
 		d.look = cur
 		for _, v in ipairs(victims(d)) do
 			local off = flat(v.root.Position - apex)
@@ -439,6 +446,12 @@ local function breath(d: Dragon, target: Victim)
 				hitAt[v.char] = os.clock()
 				hit(d, v, 0.28, nil, 0, 0)
 			end
+		end
+		if elapsed - lastTrail >= 0.55 then
+			lastTrail = elapsed
+			local along = 12 + (elapsed / duration) * RANGE * 0.48
+			local scorch = Vector3.new(apex.X, d.arena.floorY, apex.Z) + cur * along
+			burnPatch(d, scorch, 2.8, 2.4, hitAt)
 		end
 		task.wait(0.1)
 		if not alive(d) then return end
@@ -479,6 +492,265 @@ local function fireballs(d: Dragon)
 	hold(d, 0.6)
 end
 
+-- A longer aerial signature. Targets are selected from living players with
+-- deliberate area-denial shots mixed in; every landing is warned on the floor.
+local function meteorShower(d: Dragon)
+	local vs = victims(d)
+	if #vs == 0 then return end
+	local center = Vector3.new(d.arena.center.X, d.arena.floorY, d.arena.center.Z)
+	d.bob = false
+	d.track = nil
+	d.look = (flat(center - d.body.Position)).Unit
+	d.pitch = 0
+	setAlign(d, 10, 42)
+	setState(d, "meteorTakeoff")
+	sound(d, "Wing")
+	d.pos = Vector3.new(d.pos.X, hoverY(d) + 48, d.pos.Z)
+	if not hold(d, 1.35) then return end
+	setState(d, "meteorCharge")
+	sound(d, "Roar2")
+	fxRemote:FireAllClients({ kind = "meteorCharge", model = d.model, on = true })
+	if not hold(d, 0.8) then return end
+	setState(d, "meteorFire")
+
+	local shots = math.clamp(7 + #vs * 2 + (if d.enraged then 3 else 0), 9, 16)
+	local previous: { Vector3 } = {}
+	local hitAt: { [Model]: number } = {}
+	local function chooseAim(index: number): (Vector3, number, number)
+		local live = victims(d)
+		local target = live[((index - 1) % math.max(#live, 1)) + 1]
+		local aim: Vector3
+		local radius = math.random(6, 9)
+		local damageMult = 0.72
+		-- Most shots lead a player, while roughly one third deny nearby space.
+		if target and index % 3 ~= 0 then
+			local lead = flat(target.root.AssemblyLinearVelocity) * 0.25
+			local jitter = Vector3.new(math.random(-90, 90) / 10, 0, math.random(-90, 90) / 10)
+			aim = target.root.Position + lead + jitter
+		else
+			local anchor = if target then target.root.Position else center
+			local angle = math.random() * math.pi * 2
+			local distance = math.random(12, 28)
+			aim = anchor + Vector3.new(math.cos(angle) * distance, 0, math.sin(angle) * distance)
+			radius = math.random(7, 11)
+		end
+		aim = clampToArena(d, aim, radius + 2)
+		aim = Vector3.new(aim.X, d.arena.floorY, aim.Z)
+		-- Nudge away from recent marks where the arena permits, so warning
+		-- circles stay readable instead of merging into one large warning.
+		for _ = 1, 4 do
+			local crowded = false
+			for _, old in ipairs(previous) do
+				if flatDist(aim, old) < radius + 6 then crowded = true; break end
+			end
+			if not crowded then break end
+			local offset = Vector3.new(math.random(-18, 18), 0, math.random(-18, 18))
+			aim = clampToArena(d, aim + offset, radius + 2)
+			aim = Vector3.new(aim.X, d.arena.floorY, aim.Z)
+		end
+		table.insert(previous, aim)
+		if #previous > 5 then table.remove(previous, 1) end
+		return aim, radius, damageMult
+	end
+
+	for i = 1, shots do
+		if not alive(d) then return end
+		local aim, radius, damageMult = chooseAim(i)
+		-- The last three warnings tighten around the party's current centre for
+		-- a readable, concentrated finish instead of simply firing faster.
+		if i >= shots - 2 then
+			local live = victims(d)
+			local focus = center
+			if #live > 0 then
+				local sum = Vector3.zero
+				for _, victim in ipairs(live) do sum += victim.root.Position end
+				focus = sum / #live
+			end
+			local offset = if i == shots - 2 then Vector3.new(-9, 0, -7)
+				elseif i == shots - 1 then Vector3.new(9, 0, 7) else Vector3.zero
+			aim = clampToArena(d, focus + offset, 8)
+			aim = Vector3.new(aim.X, d.arena.floorY, aim.Z)
+			radius = if i == shots then 13 else 7
+		end
+		local final = i == shots
+		if final then radius, damageMult = 13, 1.25 end
+		local flight = METEOR_FLIGHT + (if final then 0.25 else 0)
+		circle(d, aim, radius, flight)
+		fxRemote:FireAllClients({ kind = "meteor", model = d.model, to = aim, t = flight, size = if final then 5 else (if i % 4 == 0 then 3.8 else 2.8), final = final })
+		task.delay(flight, function()
+			if not alive(d) then return end
+			fxRemote:FireAllClients({ kind = "explode", at = aim, radius = radius, color = if final then GOLD else FLAME })
+			for _, victim in ipairs(victims(d)) do
+				if flatDist(victim.root.Position, aim) <= radius and victim.root.Position.Y - d.arena.floorY < 10
+					and os.clock() - (hitAt[victim.char] or 0) >= 0.65 then
+					hitAt[victim.char] = os.clock()
+					hit(d, victim, damageMult, aim, if final then 65 else 38, if final then 25 else 16)
+				end
+			end
+			burnPatch(d, aim, radius * 0.65, if final then 3 else 2, hitAt)
+		end)
+		if not hold(d, if i > shots - 4 then 0.24 else 0.36) then return end
+	end
+	if not hold(d, 0.7) then return end
+
+	-- Controlled descent, with a warned landing blast and a short recovery.
+	setState(d, "meteorLand")
+	d.pos = Vector3.new(d.pos.X, hoverY(d), d.pos.Z)
+	circle(d, Vector3.new(d.pos.X, d.arena.floorY, d.pos.Z), 17, METEOR_WARNING)
+	if not hold(d, METEOR_WARNING) then return end
+	fxRemote:FireAllClients({ kind = "quake", at = Vector3.new(d.pos.X, d.arena.floorY, d.pos.Z), radius = 17 })
+	for _, victim in ipairs(victims(d)) do
+		if flatDist(victim.root.Position, d.pos) <= 17 then hit(d, victim, 0.65, d.pos, 45, 14) end
+	end
+	fxRemote:FireAllClients({ kind = "meteorCharge", model = d.model, on = false })
+	d.bob = true
+	setAlign(d)
+	if hold(d, 1.2) then setState(d, "idle") end
+end
+
+local function magmaEruption(d: Dragon)
+	local living = victims(d)
+	if #living == 0 then return end
+	setState(d, "magma")
+	local count = math.clamp(3 + #living + (if d.enraged then 2 else 0), 4, 9)
+	local spots: { { at: Vector3, radius: number } } = {}
+	for i = 1, count do
+		local current = victims(d)
+		if #current == 0 then break end
+		local target = current[((i - 1) % #current) + 1]
+		local angle = math.random() * math.pi * 2
+		local distance = math.random(4, 15)
+		local radius = if d.enraged then 6.5 else 5.5
+		local at = clampToArena(d, target.root.Position + Vector3.new(math.cos(angle) * distance, 0, math.sin(angle) * distance), radius + 2)
+		at = Vector3.new(at.X, d.arena.floorY, at.Z)
+		for _, old in ipairs(spots) do
+			if flatDist(at, old.at) < radius + old.radius + 3 then
+				local nudge = Vector3.new(math.cos(angle) * 14, 0, math.sin(angle) * 14)
+				at = clampToArena(d, at + nudge, radius + 2)
+				at = Vector3.new(at.X, d.arena.floorY, at.Z)
+				break
+			end
+		end
+		table.insert(spots, { at = at, radius = radius })
+		circle(d, at, radius, 1.05)
+	end
+	if not hold(d, 1.05) then return end
+	setState(d, "magmaErupt")
+	local hitAt: { [Model]: number } = {}
+	for _, spot in ipairs(spots) do
+		fxRemote:FireAllClients({ kind = "magma", at = spot.at, radius = spot.radius })
+		for _, victim in ipairs(victims(d)) do
+			if flatDist(victim.root.Position, spot.at) <= spot.radius and victim.root.Position.Y - d.arena.floorY < 9
+				and os.clock() - (hitAt[victim.char] or 0) >= 0.6 then
+				hitAt[victim.char] = os.clock()
+				hit(d, victim, 0.8, spot.at, 45, 14)
+			end
+		end
+		burnPatch(d, spot.at, spot.radius * 0.65, 3.5, hitAt)
+		task.wait(0.08)
+	end
+	if d.enraged then hold(d, 0.25) else hold(d, 0.45) end
+end
+
+-- Segmented rings leave a broad, clearly visible safe lane for players to
+-- dodge through. The lane rotates between waves, so standing still is unsafe.
+local function flameRingTelegraph(d: Dragon, center: Vector3, radius: number, gapAngle: number, t: number)
+	local segments = 28
+	local arcLength = math.pi * 2 * radius / segments + 0.35
+	for i = 1, segments do
+		local angle = (i - 1) / segments * math.pi * 2
+		local delta = math.atan2(math.sin(angle - gapAngle), math.cos(angle - gapAngle))
+		if math.abs(delta) < math.rad(38) then continue end
+		local pos = Vector3.new(center.X + math.cos(angle) * radius, d.arena.floorY + 0.14, center.Z + math.sin(angle) * radius)
+		local tangent = Vector3.new(-math.sin(angle), 0, math.cos(angle))
+		local segment = part(d.fx, { Size = Vector3.new(0.18, 0.14, arcLength),
+			CFrame = CFrame.lookAt(pos, pos + tangent), Color = FLAME, Transparency = 0.3 })
+		TweenService:Create(segment, TweenInfo.new(t, Enum.EasingStyle.Quad, Enum.EasingDirection.In), { Transparency = 0.02 }):Play()
+		Debris:AddItem(segment, t)
+	end
+end
+
+local function devouringFlames(d: Dragon)
+	local center = Vector3.new(d.arena.center.X, d.arena.floorY, d.arena.center.Z)
+	local waves = if d.enraged then 4 else 3
+	local startAngle = math.random() * math.pi * 2
+	setState(d, "flameWindup")
+	sound(d, "Charge")
+	for wave = 1, waves do
+		local radius = 7 + wave * (if d.enraged then 9 else 10)
+		local gapAngle = startAngle + (wave - 1) * math.rad(if d.enraged then 70 else 42)
+		local warning = if wave == 1 then 0.95 else 0.72
+		flameRingTelegraph(d, center, radius, gapAngle, warning)
+		setState(d, "devour")
+		if not hold(d, warning) then return end
+		fxRemote:FireAllClients({ kind = "flameRing", at = center, radius = radius })
+		for _, victim in ipairs(victims(d)) do
+			local offset = flat(victim.root.Position - center)
+			local delta = math.abs(math.atan2(math.sin(math.atan2(offset.Z, offset.X) - gapAngle), math.cos(math.atan2(offset.Z, offset.X) - gapAngle)))
+			if math.abs(offset.Magnitude - radius) <= 2.5 and delta >= math.rad(38) then
+				hit(d, victim, 0.7, center, 40, 12)
+			end
+		end
+	end
+	hold(d, 0.55)
+end
+
+local function cataclysm(d: Dragon)
+	if d.cataclysmDone then return end
+	d.cataclysmDone = true
+	d.cataclysmQueued = false
+	local center = Vector3.new(d.arena.center.X, d.arena.floorY, d.arena.center.Z)
+	d.bob = false
+	d.track = nil
+	d.look = flat(center - d.body.Position).Unit
+	setAlign(d, 8, 36)
+	setState(d, "cataclysmRise")
+	sound(d, "Wing")
+	d.pos = Vector3.new(center.X, hoverY(d) + 66, center.Z)
+	if not hold(d, 1.35) then return end
+	setState(d, "cataclysmCharge")
+	sound(d, "Charge")
+	fxRemote:FireAllClients({ kind = "meteorCharge", model = d.model, on = true })
+	if not hold(d, 1.2) then return end
+	setState(d, "cataclysmFire")
+	local impactRadius = 23
+	circle(d, center, impactRadius, 2.0)
+	fxRemote:FireAllClients({ kind = "meteor", model = d.model, to = center, t = 2.0, size = 8, final = true })
+	if not hold(d, 2.0) then return end
+	fxRemote:FireAllClients({ kind = "explode", at = center, radius = impactRadius, color = GOLD })
+	for _, victim in ipairs(victims(d)) do
+		if flatDist(victim.root.Position, center) <= impactRadius and victim.root.Position.Y - d.arena.floorY < 12 then
+			hit(d, victim, 1.15, center, 75, 30)
+		end
+	end
+	local hitAt: { [Model]: number } = {}
+	for _, radius in ipairs({ 31, 41 }) do
+		local warning = 0.8
+		circle(d, center, radius, warning)
+		if not hold(d, warning) then return end
+		fxRemote:FireAllClients({ kind = "quake", at = center, radius = radius * 0.45 })
+		for _, victim in ipairs(victims(d)) do
+			local distance = flatDist(victim.root.Position, center)
+			if math.abs(distance - radius) <= 3 and os.clock() - (hitAt[victim.char] or 0) >= 0.65 then
+				hitAt[victim.char] = os.clock()
+				hit(d, victim, 0.6, center, 35, 16)
+			end
+		end
+	end
+	fxRemote:FireAllClients({ kind = "meteorCharge", model = d.model, on = false })
+	setState(d, "meteorLand")
+	d.pos = Vector3.new(center.X, hoverY(d), center.Z)
+	circle(d, center, 18, 0.9)
+	if not hold(d, 0.9) then return end
+	fxRemote:FireAllClients({ kind = "quake", at = center, radius = 18 })
+	for _, victim in ipairs(victims(d)) do
+		if flatDist(victim.root.Position, center) <= 18 then hit(d, victim, 0.7, center, 45, 14) end
+	end
+	d.bob = true
+	setAlign(d)
+	if hold(d, 1.8) then setState(d, "idle") end
+end
+
 local function gust(d: Dragon)
 	setState(d, "gust")
 	d.pitch = math.rad(-16) -- rears up
@@ -490,6 +762,10 @@ local function gust(d: Dragon)
 	sound(d, "Wing")
 	for _, v in ipairs(victims(d)) do
 		if flatDist(v.root.Position, c) <= 30 then hit(d, v, 0.45, c, 70, 20) end
+	end
+	for _, angle in ipairs({ 0, math.pi / 2, math.pi, math.pi * 1.5 }) do
+		local trail = c + Vector3.new(math.cos(angle), 0, math.sin(angle)) * 20
+		burnPatch(d, trail, 3.2, 2.8)
 	end
 	hold(d, 0.6)
 	d.pitch = 0
@@ -943,12 +1219,13 @@ local function intro(d: Dragon)
 	d.track = v and v.root or nil
 	setState(d, "roar")
 	sound(d, "Roar1")
-	fxRemote:FireAllClients({ kind = "intro", model = d.model, name = "IGNARATH", title = "THE CINDER WYRM" })
+	fxRemote:FireAllClients({ kind = "intro", model = d.model, name = "IGNARATH", title = "THE ASHEN SOVEREIGN" })
 	hold(d, 2.4)
 end
 
 local function enrage(d: Dragon)
 	d.enraged = true
+	d.model:SetAttribute("DragonPhase", "WorldEater")
 	d.model:SetAttribute("Enraged", true)
 	setState(d, "roar")
 	sound(d, "Roar1")
@@ -1023,6 +1300,8 @@ local function run(d: Dragon)
 		local move: string
 		if d.enrageQueued and not d.enraged then
 			move = "enrage"
+		elseif d.cataclysmQueued and not d.cataclysmDone then
+			move = "cataclysm"
 		elseif d.beamsQueued > d.beamsDone then
 			move = "beam"
 		else
@@ -1039,6 +1318,9 @@ local function run(d: Dragon)
 			end
 			add("breath", 3)
 			add("fireballs", if close then 2 else 4)
+			add("meteor", if d.enraged then 3 else 1)
+			add("magma", if d.enraged then 4 else 2)
+			add("devour", if d.enraged then 3 else 1)
 			add("gust", if close then 2 else 1)
 			if close then
 				add("swipe", 4)
@@ -1058,6 +1340,14 @@ local function run(d: Dragon)
 				breath(d, target)
 			elseif move == "fireballs" then
 				fireballs(d)
+			elseif move == "meteor" then
+				meteorShower(d)
+			elseif move == "magma" then
+				magmaEruption(d)
+			elseif move == "devour" then
+				devouringFlames(d)
+			elseif move == "cataclysm" then
+				cataclysm(d)
 			elseif move == "gust" then
 				gust(d)
 			elseif move == "swipe" then
@@ -1070,6 +1360,7 @@ local function run(d: Dragon)
 		if not alive(d) then break end
 		-- Settle, prowl a few steps along its perch and keep an eye on the
 		-- nearest player.
+		d.bob = true
 		d.pitch, d.roll = 0, 0
 		setAlign(d)
 		setState(d, "idle")
@@ -1167,8 +1458,8 @@ function DragonBoss.Spawn(parent: Instance, room: any, health: number?, runId: s
 	hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 	hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
 	pcall(function() hum.EvaluateStateMachine = false end)
-	local scale = DifficultyManager.GetMobScale(runId)
-	local maxHp = math.floor(400 * HEALTH_MULT * scale.health)
+	local bossHealthScale = DifficultyManager.GetBossHealthScale(runId)
+	local maxHp = math.floor(400 * HEALTH_MULT * bossHealthScale)
 	hum.MaxHealth = maxHp
 	hum.Health = if health and health < maxHp then math.max(1, math.floor(health)) else maxHp
 
@@ -1177,6 +1468,7 @@ function DragonBoss.Spawn(parent: Instance, room: any, health: number?, runId: s
 	model:SetAttribute("IsElite", false)
 	model:SetAttribute("BossKind", "dragon")
 	model:SetAttribute("DisplayName", NAME)
+	model:SetAttribute("DragonPhase", "AshenSovereign")
 	model:SetAttribute("FloorY", arena.floorY)
 	model:SetAttribute("HitRadius", HIT_RADIUS)
 	model:SetAttribute("ArenaMin", Vector3.new(arena.minX, arena.floorY, arena.minZ))
@@ -1237,7 +1529,8 @@ function DragonBoss.Spawn(parent: Instance, room: any, health: number?, runId: s
 		arena = arena, groundOffset = groundOffset,
 		damage = DAMAGE_MULT * scale.damage,
 		ap = ap, ao = ao, pos = pos, look = look, track = nil, pitch = 0, roll = 0, bob = true,
-		enraged = false, enrageQueued = false, beamsQueued = 0, beamsDone = 0, dead = false,
+		enraged = false, enrageQueued = false, cataclysmQueued = false, cataclysmDone = false,
+		beamsQueued = 0, beamsDone = 0, dead = false,
 		onDied = onDied, fx = fx, aegis = nil, home = { pos = pos, look = look },
 	}
 	-- The shield waits on its plinth in the arena for the whole fight.
@@ -1251,6 +1544,7 @@ function DragonBoss.Spawn(parent: Instance, room: any, health: number?, runId: s
 		end
 	end
 	d.enrageQueued = frac <= 0.5
+	d.cataclysmDone = frac <= CATACLYSM_AT
 
 	hum.HealthChanged:Connect(function(h)
 		if d.dead then return end
@@ -1263,6 +1557,7 @@ function DragonBoss.Spawn(parent: Instance, room: any, health: number?, runId: s
 			d.beamsQueued += 1
 		end
 		if f <= 0.5 then d.enrageQueued = true end
+		if f <= CATACLYSM_AT and not d.cataclysmDone then d.cataclysmQueued = true end
 	end)
 
 	local conn: RBXScriptConnection
