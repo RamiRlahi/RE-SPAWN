@@ -301,15 +301,15 @@ local function buildWing(body: Seg, side: number): Seg
 	local upper = seg(name .. "WingTwist", shoulder, CFrame.Angles(side * R(-62), 0, 0))
 	blob(upper, "WingArm", Vector3.new(10, 1.7, 1.9), CFrame.new(4.8, 0, 0), WING_BONE)
 	blob(upper, "WingShoulder", Vector3.new(3.2, 2.6, 3.2), CFrame.new(0.6, 0, 0), RED_DARK)
-	local elbowAt = Vector3.new(9.6, 0, 0)
+	local elbowAt = Vector3.new(10.4, 0, 0)
 	local elbowC0 = CFrame.new(elbowAt) * CFrame.Angles(0, R(-28), 0)
 	local fore = seg(name .. "Elbow", upper, elbowC0)
-	blob(fore, "WingForearm", Vector3.new(11.5, 1.3, 1.4), CFrame.new(5.6, 0, 0), WING_BONE)
+	blob(fore, "WingForearm", Vector3.new(13, 1.3, 1.4), CFrame.new(6.1, 0, 0), WING_BONE)
 	-- The thumb claw at the wrist.
-	local wrist = Vector3.new(11.2, 0, 0)
+	local wrist = Vector3.new(12.7, 0, 0)
 	taper(fore, "WingClaw", wrist, { Vector3.new(0.6, 0, 1), Vector3.new(0.2, 0, 1) }, 2.2, 0.6, 0.3, BONE_DARK, CLAW)
 	-- Four long fingers fanning back, and the skin between them.
-	local fingers = { { 15, 4 }, { 18, 34 }, { 16, 66 }, { 12.5, 102 } }
+	local fingers = { { 20, 4 }, { 23, 34 }, { 21, 66 }, { 16.5, 102 } }
 	local tips: { Vector3 } = {}
 	for i, f in ipairs(fingers) do
 		local a = R(f[2])

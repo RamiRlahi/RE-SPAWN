@@ -526,7 +526,15 @@ local function meteorShower(d: Dragon)
 	if not hold(d, 0.8) then return end
 	setState(d, "meteorFire")
 
-	local shots = math.clamp(7 + #vs * 2 + (if d.enraged then 3 else 0), 9, 16)
+	-- Keep the dragon on a visible fly-by while a sustained curtain of
+	-- fireballs crosses the arena. The flight time deliberately overlaps the
+	-- launch cadence, so several trails remain in the sky at once.
+	local shots = math.clamp(16 + math.max(0, #vs - 1) * 2 + (if d.enraged then 4 else 0), 16, 30)
+	local flight = METEOR_FLIGHT + 0.55
+	local maxOrbitRadius = math.max(24,
+		math.min(d.arena.maxX - d.arena.minX, d.arena.maxZ - d.arena.minZ) * 0.36)
+	local orbitRadius = math.clamp(flat(d.pos - center).Magnitude, 24, maxOrbitRadius)
+	local startAngle = math.atan2(d.pos.Z - center.Z, d.pos.X - center.X)
 	local previous: { Vector3 } = {}
 	local hitAt: { [Model]: number } = {}
 	local function chooseAim(index: number): (Vector3, number, number)
@@ -568,6 +576,11 @@ local function meteorShower(d: Dragon)
 
 	for i = 1, shots do
 		if not alive(d) then return end
+		local progress = (i - 1) / math.max(shots - 1, 1)
+		local angle = startAngle + progress * math.pi * 0.8
+		d.pos = Vector3.new(center.X + math.cos(angle) * orbitRadius, hoverY(d) + 48,
+			center.Z + math.sin(angle) * orbitRadius)
+		d.look = (flat(center - d.pos)).Unit
 		local aim, radius, damageMult = chooseAim(i)
 		-- The last three warnings tighten around the party's current centre for
 		-- a readable, concentrated finish instead of simply firing faster.
@@ -587,10 +600,10 @@ local function meteorShower(d: Dragon)
 		end
 		local final = i == shots
 		if final then radius, damageMult = 13, 1.25 end
-		local flight = METEOR_FLIGHT + (if final then 0.25 else 0)
-		circle(d, aim, radius, flight)
-		fxRemote:FireAllClients({ kind = "meteor", model = d.model, to = aim, t = flight, size = if final then 5 else (if i % 4 == 0 then 3.8 else 2.8), final = final })
-		task.delay(flight, function()
+		local shotFlight = flight + (if final then 0.25 else 0)
+		circle(d, aim, radius, shotFlight)
+		fxRemote:FireAllClients({ kind = "meteor", model = d.model, to = aim, t = shotFlight, size = if final then 5 else (if i % 4 == 0 then 3.8 else 2.8), final = final })
+		task.delay(shotFlight, function()
 			if not alive(d) then return end
 			fxRemote:FireAllClients({ kind = "explode", at = aim, radius = radius, color = if final then GOLD else FLAME })
 			for _, victim in ipairs(victims(d)) do
@@ -602,13 +615,13 @@ local function meteorShower(d: Dragon)
 			end
 			burnPatch(d, aim, radius * 0.65, if final then 3 else 2, hitAt)
 		end)
-		if not hold(d, if i > shots - 4 then 0.24 else 0.36) then return end
+		if not hold(d, if i > shots - 4 then 0.2 else 0.24) then return end
 	end
 	if not hold(d, 0.7) then return end
 
 	-- Controlled descent, with a warned landing blast and a short recovery.
 	setState(d, "meteorLand")
-	d.pos = Vector3.new(d.pos.X, hoverY(d), d.pos.Z)
+	d.pos = Vector3.new(d.home.pos.X, hoverY(d), d.home.pos.Z)
 	circle(d, Vector3.new(d.pos.X, d.arena.floorY, d.pos.Z), 17, METEOR_WARNING)
 	if not hold(d, METEOR_WARNING) then return end
 	fxRemote:FireAllClients({ kind = "quake", at = Vector3.new(d.pos.X, d.arena.floorY, d.pos.Z), radius = 17 })
